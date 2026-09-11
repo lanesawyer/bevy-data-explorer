@@ -1,0 +1,222 @@
+{
+    "attributes": {
+        "ome": {
+            "multiscales": [
+                {
+                    "axes": [
+                        {
+                            "name": "c",
+                            "type": "channel"
+                        },
+                        {
+                            "name": "z",
+                            "type": "space",
+                            "unit": "micrometer"
+                        },
+                        {
+                            "name": "y",
+                            "type": "space",
+                            "unit": "micrometer"
+                        },
+                        {
+                            "name": "x",
+                            "type": "space",
+                            "unit": "micrometer"
+                        }
+                    ],
+                    "datasets": [
+                        {
+                            "coordinateTransformations": [
+                                {
+                                    "scale": [
+                                        1.0,
+                                        10.0,
+                                        0.27381,
+                                        0.27381
+                                    ],
+                                    "type": "scale"
+                                },
+                                {
+                                    "translation": [
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "type": "translation"
+                                }
+                            ],
+                            "path": "0"
+                        },
+                        {
+                            "coordinateTransformations": [
+                                {
+                                    "scale": [
+                                        1.0,
+                                        10.0,
+                                        0.547610261763346,
+                                        0.5476127758429634
+                                    ],
+                                    "type": "scale"
+                                },
+                                {
+                                    "translation": [
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "type": "translation"
+                                }
+                            ],
+                            "path": "1"
+                        },
+                        {
+                            "coordinateTransformations": [
+                                {
+                                    "scale": [
+                                        1.0,
+                                        10.0,
+                                        1.0951815726580838,
+                                        1.0952255516859268
+                                    ],
+                                    "type": "scale"
+                                },
+                                {
+                                    "translation": [
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "type": "translation"
+                                }
+                            ],
+                            "path": "2"
+                        },
+                        {
+                            "coordinateTransformations": [
+                                {
+                                    "scale": [
+                                        1.0,
+                                        10.0,
+                                        2.190207358463727,
+                                        2.190335524482904
+                                    ],
+                                    "type": "scale"
+                                },
+                                {
+                                    "translation": [
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "type": "translation"
+                                }
+                            ],
+                            "path": "3"
+                        },
+                        {
+                            "coordinateTransformations": [
+                                {
+                                    "scale": [
+                                        1.0,
+                                        10.0,
+                                        4.380414716927454,
+                                        4.380671048965808
+                                    ],
+                                    "type": "scale"
+                                },
+                                {
+                                    "translation": [
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "type": "translation"
+                                }
+                            ],
+                            "path": "4"
+                        },
+                        {
+                            "coordinateTransformations": [
+                                {
+                                    "scale": [
+                                        1.0,
+                                        10.0,
+                                        8.758337730375427,
+                                        8.761342097931616
+                                    ],
+                                    "type": "scale"
+                                },
+                                {
+                                    "translation": [
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "type": "translation"
+                                }
+                            ],
+                            "path": "5"
+                        }
+                    ],
+                    "name": "1458501514",
+                    "type": "mode"
+                }
+            ],
+            "omero": {
+                "channels": [
+                    {
+                        "active": true,
+                        "coefficient": 1,
+                        "color": "#FF0000",
+                        "family": "linear",
+                        "inverted": false,
+                        "label": "Channel:0",
+                        "window": {
+                            "end": 255.0,
+                            "max": 255.0,
+                            "min": 0.0,
+                            "start": 0.0
+                        }
+                    },
+                    {
+                        "active": true,
+                        "coefficient": 1,
+                        "color": "#00FF00",
+                        "family": "linear",
+                        "inverted": false,
+                        "label": "Channel:1",
+                        "window": {
+                            "end": 255.0,
+                            "max": 255.0,
+                            "min": 0.0,
+                            "start": 0.0
+                        }
+                    },
+                    {
+                        "active": true,
+                        "coefficient": 1,
+                        "color": "#0000FF",
+                        "family": "linear",
+                        "inverted": false,
+                        "label": "Channel:2",
+                        "window": {
+                            "end": 255.0,
+                            "max": 255.0,
+                            "min": 0.0,
+                            "start": 0.0
+                        }
+                    }
+                ]
+            },
+            "version": "0.5"
+        }
+    },
+    "node_type": "group",
+    "zarr_format": 3
+}
