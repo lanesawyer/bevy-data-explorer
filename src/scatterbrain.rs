@@ -6,6 +6,11 @@
 //! accumulates — the node counts in the tree sum to the dataset total rather
 //! than each level restating the whole cloud.
 //!
+//! A dataset is either a single cloud or a list of *slides* — physical
+//! sections of the same specimen, each with its own octree. Both shapes are
+//! modelled as a list of slides so the rest of the viewer does not have to care
+//! which it opened.
+//!
 //! Columns are stored one per directory, split by node:
 //! `{metadata}/{column}/{referenceId}/{node}.bin`. Coordinates are raw
 //! little-endian `f32` pairs with no header; the categorical columns are raw
@@ -88,21 +93,52 @@ struct RawNode {
 }
 
 #[derive(Debug, Deserialize)]
-struct RawMetadata {
+struct RawTree {
     #[serde(rename = "boundingBox")]
     bounding_box: BoundingBox,
     #[serde(rename = "tightBoundingBox")]
     tight_bounding_box: Option<BoundingBox>,
+    points: u64,
+    root: RawNode,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSlide {
+    #[serde(rename = "featureTypeValueReferenceId")]
+    feature_type_value_reference_id: Option<String>,
+    tree: RawTree,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSpatialUnit {
+    unit: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawMetadata {
     #[serde(rename = "metadataFileEndpoint")]
     metadata_file_endpoint: String,
     #[serde(rename = "pointAttributes")]
     point_attributes: Vec<PointAttribute>,
-    points: u64,
-    root: RawNode,
     #[serde(rename = "spatialColumn")]
     spatial_column: String,
     #[serde(rename = "visualizationReferenceId")]
     visualization_reference_id: String,
+    #[serde(rename = "spatialUnit")]
+    spatial_unit: Option<RawSpatialUnit>,
+
+    /// Sectioned datasets list their octrees here.
+    #[serde(default)]
+    slides: Vec<RawSlide>,
+
+    // A single-cloud dataset inlines one tree at the top level instead.
+    #[serde(rename = "boundingBox")]
+    bounding_box: Option<BoundingBox>,
+    #[serde(rename = "tightBoundingBox")]
+    tight_bounding_box: Option<BoundingBox>,
+    #[serde(default)]
+    points: u64,
+    root: Option<RawNode>,
 }
 
 /// One octree node, flattened into an arena.
@@ -119,15 +155,32 @@ pub struct Node {
     pub children: Vec<usize>,
 }
 
+/// One octree. A single-cloud dataset has exactly one of these; a sectioned
+/// dataset has one per physical slice.
 #[derive(Debug)]
-pub struct Scatterbrain {
+pub struct Slide {
+    pub index: usize,
+    pub id: String,
     pub nodes: Vec<Node>,
     pub bounds: Rect,
     /// Bounds of the points themselves, which may be tighter than the octree
-    /// cube; used for framing the initial view.
+    /// cube; used for framing and for laying slides out next to each other.
     pub tight_bounds: Rect,
     pub total_points: u64,
+}
+
+impl Slide {
+    pub fn root(&self) -> &Node {
+        &self.nodes[0]
+    }
+}
+
+#[derive(Debug)]
+pub struct Scatterbrain {
+    pub slides: Vec<Slide>,
     pub attributes: Vec<PointAttribute>,
+    /// Physical unit of the coordinates, for display.
+    pub unit: String,
     metadata_endpoint: String,
     reference_id: String,
     spatial_column: String,
@@ -137,11 +190,6 @@ impl Scatterbrain {
     pub fn parse(text: &str) -> Result<Self, String> {
         let raw: RawMetadata = serde_json::from_str(text)
             .map_err(|e| format!("parsing Scatterbrain metadata: {e}"))?;
-
-        let bounds: Rect = raw.bounding_box.into();
-        if bounds.width() <= 0.0 || bounds.height() <= 0.0 {
-            return Err("bounding box is empty".into());
-        }
 
         // The reader assumes the spatial column is a pair of f32s, which is
         // what makes a file length of `count * 8` a valid integrity check.
@@ -163,23 +211,86 @@ impl Scatterbrain {
             ));
         }
 
-        let mut nodes = Vec::new();
-        flatten(&raw.root, bounds, 0, &mut nodes)?;
+        // Normalise both metadata shapes into a list of slides.
+        let trees: Vec<(Option<String>, RawTree)> = if !raw.slides.is_empty() {
+            raw.slides
+                .into_iter()
+                .map(|s| (s.feature_type_value_reference_id, s.tree))
+                .collect()
+        } else {
+            let bounding_box = raw
+                .bounding_box
+                .ok_or("metadata has neither `slides` nor a `boundingBox`")?;
+            let root = raw
+                .root
+                .ok_or("metadata has neither `slides` nor a `root`")?;
+            vec![(
+                None,
+                RawTree {
+                    bounding_box,
+                    tight_bounding_box: raw.tight_bounding_box,
+                    points: raw.points,
+                    root,
+                },
+            )]
+        };
+
+        let mut slides = Vec::with_capacity(trees.len());
+        for (index, (id, tree)) in trees.into_iter().enumerate() {
+            let bounds: Rect = tree.bounding_box.into();
+            if bounds.width() <= 0.0 || bounds.height() <= 0.0 {
+                return Err(format!("slide {index} has an empty bounding box"));
+            }
+            let mut nodes = Vec::new();
+            flatten(&tree.root, bounds, 0, &mut nodes)?;
+            slides.push(Slide {
+                index,
+                id: id.unwrap_or_else(|| format!("slide {index}")),
+                tight_bounds: tree.tight_bounding_box.map(Rect::from).unwrap_or(bounds),
+                bounds,
+                total_points: tree.points,
+                nodes,
+            });
+        }
 
         Ok(Scatterbrain {
-            tight_bounds: raw.tight_bounding_box.map(Rect::from).unwrap_or(bounds),
-            bounds,
-            nodes,
-            total_points: raw.points,
+            slides,
             attributes: raw.point_attributes,
+            unit: raw
+                .spatial_unit
+                .and_then(|u| u.unit)
+                .unwrap_or_else(|| "units".to_string()),
             metadata_endpoint: ensure_slash(raw.metadata_file_endpoint),
             reference_id: raw.visualization_reference_id,
             spatial_column: raw.spatial_column,
         })
     }
 
-    pub fn root(&self) -> &Node {
-        &self.nodes[0]
+    pub fn total_points(&self) -> u64 {
+        self.slides.iter().map(|s| s.total_points).sum()
+    }
+
+    pub fn node_count(&self) -> usize {
+        self.slides.iter().map(|s| s.nodes.len()).sum()
+    }
+
+    pub fn max_depth(&self) -> usize {
+        self.slides
+            .iter()
+            .flat_map(|s| s.nodes.iter())
+            .map(|n| n.depth)
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Largest slide extent, used to size a uniform grid cell.
+    pub fn max_slide_extent(&self) -> (f32, f32) {
+        self.slides.iter().fold((0.0f32, 0.0f32), |acc, s| {
+            (
+                acc.0.max(s.tight_bounds.width()),
+                acc.1.max(s.tight_bounds.height()),
+            )
+        })
     }
 
     /// URL of a column's data for one node.
@@ -326,13 +437,56 @@ mod tests {
         Scatterbrain::parse(include_str!("../testdata/scatterbrain.json")).unwrap()
     }
 
+    fn sectioned() -> Scatterbrain {
+        Scatterbrain::parse(include_str!("../testdata/scatterbrain_slides.json")).unwrap()
+    }
+
     #[test]
     fn flattens_the_whole_tree() {
         let sb = reference();
-        assert_eq!(sb.nodes.len(), 135);
-        assert_eq!(sb.root().name, "r");
-        assert_eq!(sb.root().count, 134065);
-        assert_eq!(sb.total_points, 4_042_976);
+        // A single-cloud dataset is modelled as one slide.
+        assert_eq!(sb.slides.len(), 1);
+        assert_eq!(sb.slides[0].nodes.len(), 135);
+        assert_eq!(sb.slides[0].root().name, "r");
+        assert_eq!(sb.slides[0].root().count, 134065);
+        assert_eq!(sb.total_points(), 4_042_976);
+    }
+
+    #[test]
+    fn reads_a_sectioned_dataset_as_many_slides() {
+        let sb = sectioned();
+        assert_eq!(sb.slides.len(), 53);
+        assert_eq!(sb.total_points(), 3_739_961);
+        assert_eq!(sb.unit, "millimeter");
+        // Slide ids come from the metadata, not from a counter.
+        assert_eq!(sb.slides[0].id, "1XT6Q1MIDHV19Z0LZIS");
+        // Node file names carry the slide index.
+        assert_eq!(sb.slides[13].root().name, "s13r");
+        assert_eq!(sb.slides[13].nodes.len(), 5);
+    }
+
+    #[test]
+    fn sectioned_slides_keep_their_own_bounds() {
+        let sb = sectioned();
+        // Slices differ in size, which is why the layout needs a uniform cell
+        // rather than packing each slide's own extent.
+        let widths: Vec<f32> = sb.slides.iter().map(|s| s.tight_bounds.width()).collect();
+        let smallest = widths.iter().cloned().fold(f32::MAX, f32::min);
+        let largest = widths.iter().cloned().fold(0.0, f32::max);
+        assert!(largest > smallest * 2.0);
+
+        let (w, h) = sb.max_slide_extent();
+        assert!(widths.iter().all(|x| *x <= w + 1e-4));
+        assert!(h > 0.0);
+    }
+
+    #[test]
+    fn sectioned_node_urls_use_the_shared_reference_id() {
+        let sb = sectioned();
+        // Every slide's files live under one reference id; the slide index is
+        // encoded in the file name instead of the path.
+        let url = sb.positions_url(sb.slides[13].root());
+        assert!(url.ends_with("/VFOFYPFQGRKUDQUZ3FF/s13r.bin"), "got {url}");
     }
 
     #[test]
@@ -341,14 +495,15 @@ mod tests {
         // children, which is why rendering must draw a node *and* its
         // descendants to gain detail.
         let sb = reference();
-        let summed: u64 = sb.nodes.iter().map(|n| n.count).sum();
-        assert_eq!(summed, sb.total_points);
+        let summed: u64 = sb.slides[0].nodes.iter().map(|n| n.count).sum();
+        assert_eq!(summed, sb.total_points());
     }
 
     #[test]
     fn the_root_box_is_a_cube() {
         let sb = reference();
-        assert!((sb.bounds.width() - sb.bounds.height()).abs() < 1e-4);
+        let bounds = sb.slides[0].bounds;
+        assert!((bounds.width() - bounds.height()).abs() < 1e-4);
     }
 
     #[test]
@@ -402,14 +557,15 @@ mod tests {
     #[test]
     fn nested_node_bounds_match_their_name_path() {
         let sb = reference();
+        let slide = &sb.slides[0];
         // r0200402 is eight levels down; walking its digits must land inside
         // the root box and stay inside each ancestor.
-        let deep = sb.nodes.iter().find(|n| n.name == "r0200402").unwrap();
+        let deep = slide.nodes.iter().find(|n| n.name == "r0200402").unwrap();
         assert_eq!(deep.depth, 7);
-        assert!(deep.bounds.intersects(&sb.bounds));
-        assert!(deep.bounds.width() < sb.bounds.width() / 64.0);
+        assert!(deep.bounds.intersects(&slide.bounds));
+        assert!(deep.bounds.width() < slide.bounds.width() / 64.0);
 
-        let parent = sb.nodes.iter().find(|n| n.name == "r020040").unwrap();
+        let parent = slide.nodes.iter().find(|n| n.name == "r020040").unwrap();
         assert!(deep.bounds.min_x >= parent.bounds.min_x - 1e-4);
         assert!(deep.bounds.max_x <= parent.bounds.max_x + 1e-4);
     }
@@ -418,7 +574,7 @@ mod tests {
     fn builds_column_urls_in_the_layout_the_store_uses() {
         let sb = reference();
         assert_eq!(
-            sb.positions_url(sb.root()),
+            sb.positions_url(sb.slides[0].root()),
             "https://d2o7sc91n904vd.cloudfront.net/wmb_tenx_01172024_stage-20240128193624/G4I4GFJXJB9ATZ3PTX1/metadata/G4I4GFJXJB9ATZ3PTX1Coordinates/G4I4GFJXJB9ATZ3PTX1/r.bin"
         );
     }

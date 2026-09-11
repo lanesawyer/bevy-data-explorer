@@ -14,6 +14,8 @@ use bevy::prelude::*;
 pub const IMAGE_LAYER: usize = 1;
 /// Render layer for the Scatterbrain points.
 pub const POINTS_LAYER: usize = 2;
+/// Render layer for the sectioned point cloud.
+pub const SLICES_LAYER: usize = 3;
 
 /// Width of the rule drawn between panels, in logical pixels.
 const DIVIDER_PX: f32 = 2.0;
@@ -22,6 +24,7 @@ const DIVIDER_PX: f32 = 2.0;
 pub enum PanelKind {
     Image,
     Points,
+    Slices,
 }
 
 impl PanelKind {
@@ -29,6 +32,7 @@ impl PanelKind {
         match self {
             PanelKind::Image => IMAGE_LAYER,
             PanelKind::Points => POINTS_LAYER,
+            PanelKind::Slices => SLICES_LAYER,
         }
     }
 }
@@ -317,6 +321,23 @@ mod tests {
 
     #[test]
     fn panels_render_on_separate_layers() {
-        assert_ne!(PanelKind::Image.layer(), PanelKind::Points.layer());
+        let layers = [
+            PanelKind::Image.layer(),
+            PanelKind::Points.layer(),
+            PanelKind::Slices.layer(),
+        ];
+        let unique: std::collections::HashSet<_> = layers.iter().collect();
+        assert_eq!(
+            unique.len(),
+            layers.len(),
+            "panels would bleed into each other"
+        );
+    }
+
+    #[test]
+    fn three_panels_split_the_window_evenly() {
+        assert_eq!(panel_under_cursor(Vec2::new(100.0, 0.0), 900.0, 3), 0);
+        assert_eq!(panel_under_cursor(Vec2::new(400.0, 0.0), 900.0, 3), 1);
+        assert_eq!(panel_under_cursor(Vec2::new(700.0, 0.0), 900.0, 3), 2);
     }
 }

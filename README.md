@@ -8,8 +8,10 @@ as you zoom. Two formats are supported so far:
 - **OME-Zarr** multiscale images, read through
   [`zarrs`](https://crates.io/crates/zarrs). The reference image is
   75803 × 56233 px at full resolution.
-- **Scatterbrain**, the Allen Institute's point-cloud format. The reference
-  cloud holds 4,042,976 points in an octree.
+- **Scatterbrain**, the Allen Institute's point-cloud format, in two shapes: a
+  single cloud (the reference one holds 4,042,976 points in an octree) and a
+  *sectioned* dataset of many slices (53 slices, 3,739,961 points), which gets
+  its own panel with grid and single-slice layouts.
 
 Neither is ever loaded in its entirety.
 
@@ -20,7 +22,8 @@ cargo run --release                          # both reference datasets
 cargo run --release -- <url-or-dir>          # any OME-Zarr root
 cargo run --release -- metadata.json         # a manifest describing one
 cargo run --release -- --points <url|file>   # a Scatterbrain metadata JSON
-cargo run --release -- --points none         # image panel only
+cargo run --release -- --slices <url|file>   # a sectioned Scatterbrain JSON
+cargo run --release -- --points none --slices none   # image panel only
 cargo run --release -- --z 3 <source>        # pick a z slice
 cargo run --release -- --cache-mb 1024       # a larger tile cache
 cargo run --release -- --point-budget 8000000
@@ -37,6 +40,8 @@ zoom independently.
 | scroll | zoom that panel about the cursor |
 | `R` | reset that panel's view |
 | `1`–`9` | toggle an image channel |
+| `G` | sections panel: grid ↔ single slice |
+| `←` `→`, `[` `]` | step through slices |
 
 Each panel carries its own overlay: the image reports the pyramid level, scale
 and tile cache; the point cloud reports octree depth, nodes loaded and points
@@ -80,6 +85,22 @@ Child indices pack one bit per axis — `x` in bit 2, `y` in bit 1, `z` in bit 0
 This data is planar, so the z bit is always clear and only the even indices 0,
 2, 4 and 6 appear, which is why the node names look like they skip numbers.
 
+### Sectioned datasets
+
+The same format also describes a specimen cut into slices: instead of one tree
+at the top level, the metadata carries a `slides` list, each with its own
+octree. All slides share one reference id and one coordinate system — the slide
+index is encoded in the node file name (`s13r6.bin`) rather than in the path.
+Both shapes are modelled as a list of slides so the rest of the viewer does not
+have to know which it opened.
+
+Because the slices share a coordinate system they would otherwise pile up, so
+each is re-centred on its own bounds and given a layout offset. Slices differ
+in size, so the grid uses a cell sized to the largest of them, which keeps the
+anatomy aligned from one row to the next rather than drifting. The offset lives
+in each node's transform, so switching between grid and single-slice layouts
+only rewrites transforms and visibility — nothing is refetched.
+
 ### Things that were measured rather than assumed
 
 The reference store shards a 4096 × 4096 region into a 32 × 32 grid of 128 px
@@ -120,6 +141,9 @@ measuring against it, and are worth knowing before changing them:
   single pixel. Point sizing needs a custom shader.
 - Panels are a fixed side-by-side split. Moving, resizing and choosing what
   each panel shows is the obvious next step.
+- The sections panel always draws slices in metadata order. It carries no
+  notion of anatomical position, so the grid is a contact sheet rather than a
+  reconstruction.
 - Channel toggling recomputes tiles, because the composite is baked into RGBA
   on the CPU. Interactive window/level adjustment wants a shader instead.
 - Reads are synchronous, so a request already under way cannot be abandoned.

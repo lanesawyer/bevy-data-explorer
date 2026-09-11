@@ -17,7 +17,7 @@ use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
 use crate::panel::{Panel, PanelKind};
-use crate::scatterbrain::{self, Node, Rect, Scatterbrain};
+use crate::scatterbrain::{self, Node, Rect, Scatterbrain, Slide};
 
 /// Descend into a node's children while its region covers at least this many
 /// screen pixels. Lower values load deeper, denser detail sooner.
@@ -40,7 +40,7 @@ enum Slot {
     Failed,
 }
 
-enum NodeOutcome {
+pub enum NodeOutcome {
     Ready(Vec<[f32; 2]>, Vec<u16>),
     Failed(String),
 }
@@ -50,6 +50,8 @@ pub struct PointStreamer {
     cloud: Arc<Scatterbrain>,
     /// Column used to colour points, and its palette.
     pub colour_column: Option<String>,
+    /// Which slide this panel draws. Single-cloud datasets have only one.
+    pub slide: usize,
     slots: HashMap<usize, Slot>,
     wanted: Vec<usize>,
     pub in_flight: usize,
@@ -64,6 +66,7 @@ impl PointStreamer {
         PointStreamer {
             cloud,
             colour_column,
+            slide: 0,
             slots: HashMap::new(),
             wanted: Vec::new(),
             in_flight: 0,
@@ -75,6 +78,10 @@ impl PointStreamer {
 
     pub fn cloud(&self) -> &Arc<Scatterbrain> {
         &self.cloud
+    }
+
+    fn slide(&self) -> &Slide {
+        &self.cloud.slides[self.slide]
     }
 
     pub fn loaded_nodes(&self) -> usize {
@@ -117,6 +124,7 @@ pub fn select_nodes(
 
     let units_per_px = ortho.area.width() / viewport.x.max(1.0);
     let cloud = streamer.cloud.clone();
+    let slide = streamer.slide;
 
     // Breadth-first so that coarse nodes are requested before fine ones and a
     // usable picture appears while detail is still arriving.
@@ -125,7 +133,7 @@ pub fn select_nodes(
     let mut budget = streamer.budget;
     let mut queue = vec![0usize];
     while let Some(index) = queue.pop() {
-        let node = &cloud.nodes[index];
+        let node = &cloud.slides[slide].nodes[index];
         if !node.bounds.intersects(&view) {
             continue;
         }
@@ -151,6 +159,7 @@ pub fn spawn_node_tasks(mut streamer: ResMut<PointStreamer>) {
     let pool = AsyncComputeTaskPool::get();
     let cloud = streamer.cloud.clone();
     let colour_column = streamer.colour_column.clone();
+    let slide = streamer.slide;
     let wanted = std::mem::take(&mut streamer.wanted);
 
     for &index in &wanted {
@@ -164,7 +173,7 @@ pub fn spawn_node_tasks(mut streamer: ResMut<PointStreamer>) {
         let cloud = cloud.clone();
         let colour_column = colour_column.clone();
         let task = pool.spawn(async move {
-            let node = &cloud.nodes[index];
+            let node = &cloud.slides[slide].nodes[index];
             match load_node(&cloud, node, colour_column.as_deref()) {
                 Ok((positions, categories)) => NodeOutcome::Ready(positions, categories),
                 Err(e) => NodeOutcome::Failed(e),
@@ -176,7 +185,7 @@ pub fn spawn_node_tasks(mut streamer: ResMut<PointStreamer>) {
     streamer.wanted = wanted;
 }
 
-fn load_node(
+pub fn load_node(
     cloud: &Scatterbrain,
     node: &Node,
     colour_column: Option<&str>,
@@ -241,7 +250,7 @@ pub fn collect_node_tasks(
                 }
             }
             NodeOutcome::Failed(e) => {
-                warn!("point node {}: {e}", streamer.cloud.nodes[index].name);
+                warn!("point node {}: {e}", streamer.slide().nodes[index].name);
                 Slot::Failed
             }
         };
@@ -254,7 +263,7 @@ pub fn collect_node_tasks(
 /// One vertex per point keeps a multi-million point cloud affordable; the
 /// trade-off is that the hardware draws each as a single pixel, so there is no
 /// point-size control without a custom shader.
-fn build_mesh(positions: &[[f32; 2]], categories: &[u16]) -> Mesh {
+pub fn build_mesh(positions: &[[f32; 2]], categories: &[u16]) -> Mesh {
     let vertices: Vec<[f32; 3]> = positions
         // Negate y so the cloud shares the image panel's top-down convention.
         .iter()
@@ -295,12 +304,15 @@ pub fn evict_nodes(mut commands: Commands, mut streamer: ResMut<PointStreamer>) 
     // Shallow nodes are cheap to keep and are needed at every zoom level, so
     // discard the deepest unwanted nodes first.
     let cloud = streamer.cloud.clone();
+    let slide = streamer.slide;
     let mut candidates: Vec<(usize, usize, usize)> = streamer
         .slots
         .iter()
         .filter(|(index, _)| !wanted.contains(*index))
         .filter_map(|(index, slot)| match slot {
-            Slot::Ready { points, .. } => Some((cloud.nodes[*index].depth, *points, *index)),
+            Slot::Ready { points, .. } => {
+                Some((cloud.slides[slide].nodes[*index].depth, *points, *index))
+            }
             _ => None,
         })
         .collect();
@@ -325,13 +337,18 @@ mod tests {
         Scatterbrain::parse(include_str!("../testdata/scatterbrain.json")).unwrap()
     }
 
+    fn slide_of(cloud: &Scatterbrain) -> &Slide {
+        &cloud.slides[0]
+    }
+
     /// Reproduce the selection walk without a running app.
     fn select(view: Rect, units_per_px: f32, budget: usize, cloud: &Scatterbrain) -> Vec<usize> {
+        let slide = slide_of(cloud);
         let mut wanted = Vec::new();
         let mut budget = budget;
         let mut queue = vec![0usize];
         while let Some(index) = queue.pop() {
-            let node = &cloud.nodes[index];
+            let node = &slide.nodes[index];
             if !node.bounds.intersects(&view) || node.count as usize > budget {
                 continue;
             }
@@ -347,7 +364,7 @@ mod tests {
     #[test]
     fn zooming_in_selects_more_points_not_merely_different_ones() {
         let cloud = cloud();
-        let full = cloud.bounds;
+        let full = slide_of(&cloud).bounds;
         let wide = select(full, full.width() / 1000.0, usize::MAX, &cloud);
 
         // Zoom into the middle tenth of the cloud.
@@ -361,7 +378,12 @@ mod tests {
         };
         let deep = select(close, span * 2.0 / 1000.0, usize::MAX, &cloud);
 
-        let depth_of = |set: &[usize]| set.iter().map(|i| cloud.nodes[*i].depth).max().unwrap();
+        let depth_of = |set: &[usize]| {
+            set.iter()
+                .map(|i| slide_of(&cloud).nodes[*i].depth)
+                .max()
+                .unwrap()
+        };
         assert!(
             depth_of(&deep) > depth_of(&wide),
             "zooming in should reach deeper octree levels"
@@ -372,8 +394,8 @@ mod tests {
     fn the_whole_view_starts_from_the_root() {
         let cloud = cloud();
         let wanted = select(
-            cloud.bounds,
-            cloud.bounds.width() / 1000.0,
+            slide_of(&cloud).bounds,
+            slide_of(&cloud).bounds.width() / 1000.0,
             usize::MAX,
             &cloud,
         );
@@ -395,8 +417,11 @@ mod tests {
     #[test]
     fn the_budget_caps_how_much_is_requested() {
         let cloud = cloud();
-        let wanted = select(cloud.bounds, 0.0001, 200_000, &cloud);
-        let total: u64 = wanted.iter().map(|i| cloud.nodes[*i].count).sum();
+        let wanted = select(slide_of(&cloud).bounds, 0.0001, 200_000, &cloud);
+        let total: u64 = wanted
+            .iter()
+            .map(|i| slide_of(&cloud).nodes[*i].count)
+            .sum();
         assert!(total <= 200_000, "selection must respect the point budget");
         assert!(
             !wanted.is_empty(),

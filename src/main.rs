@@ -11,6 +11,7 @@ mod hud;
 mod panel;
 mod pointcloud;
 mod scatterbrain;
+mod slices;
 mod source;
 mod tiles;
 
@@ -25,6 +26,9 @@ use panel::{PanelKind, ViewLimits};
 
 /// Scatterbrain metadata for the reference point cloud.
 const DEFAULT_POINTS: &str = "https://d2o7sc91n904vd.cloudfront.net/wmb_tenx_01172024_stage-20240128193624/G4I4GFJXJB9ATZ3PTX1/ScatterBrain.json";
+
+/// Scatterbrain metadata for the reference sectioned dataset.
+const DEFAULT_SLICES: &str = "https://d2o7sc91n904vd.cloudfront.net/bkppg-sfs-stage-wmb-imputed-genes-20240918212918/VFOFYPFQGRKUDQUZ3FF/ScatterBrain.json";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -51,9 +55,18 @@ struct Args {
     #[arg(long, default_value_t = tiles::DEFAULT_CACHE_BUDGET_MB)]
     cache_mb: usize,
 
+    /// Sectioned Scatterbrain metadata JSON, shown as a third panel. Pass
+    /// `none` to leave it out.
+    #[arg(long, default_value = DEFAULT_SLICES)]
+    slices: String,
+
     /// Maximum points held on the GPU for the point cloud.
     #[arg(long, default_value_t = pointcloud::DEFAULT_POINT_BUDGET)]
     point_budget: usize,
+
+    /// Maximum points held on the GPU for the sectioned panel.
+    #[arg(long, default_value_t = slices::DEFAULT_SLICE_BUDGET)]
+    slice_budget: usize,
 }
 
 /// Give tile fetching a pool large enough to keep many requests in flight.
@@ -105,27 +118,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         dataset.levels[0].height
     );
 
+    let describe = |label: &str, cloud: &scatterbrain::Scatterbrain| {
+        println!(
+            "  {} points across {} slide(s), {} octree nodes, depth {} [{label}]",
+            cloud.total_points(),
+            cloud.slides.len(),
+            cloud.node_count(),
+            cloud.max_depth(),
+        );
+        if let Some(first) = cloud.slides.first() {
+            // The root is a subsample; children add the rest. Showing both
+            // makes the additive structure visible at a glance.
+            println!(
+                "  slide {} root holds {} of its {} points",
+                first.index,
+                first.root().count,
+                first.total_points,
+            );
+        }
+    };
+
     let cloud = if args.points.eq_ignore_ascii_case("none") {
         None
     } else {
         println!("opening points {}", args.points);
         let cloud = Arc::new(load_points(&args.points)?);
-        let b = cloud.tight_bounds;
-        println!(
-            "  {} points across {} octree nodes, depth {}, root holds {}",
-            cloud.total_points,
-            cloud.nodes.len(),
-            cloud.nodes.iter().map(|n| n.depth).max().unwrap_or(0),
-            cloud.root().count,
-        );
-        println!(
-            "  extent x [{:.3}, {:.3}]  y [{:.3}, {:.3}]  (octree cube {:.3} wide)",
-            b.min_x,
-            b.max_x,
-            b.min_y,
-            b.max_y,
-            cloud.bounds.width(),
-        );
+        describe("points", &cloud);
+        Some(cloud)
+    };
+
+    let sections = if args.slices.eq_ignore_ascii_case("none") {
+        None
+    } else {
+        println!("opening slices {}", args.slices);
+        let cloud = Arc::new(load_points(&args.slices)?);
+        describe("slices", &cloud);
         Some(cloud)
     };
 
@@ -166,6 +193,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .chain(),
     );
 
+    if let Some(cloud) = sections.clone() {
+        let mut streamer = slices::SliceStreamer::new(cloud);
+        streamer.budget = args.slice_budget;
+        app.insert_resource(streamer).add_systems(
+            Update,
+            (
+                slices::slice_controls,
+                slices::select_slice_nodes,
+                slices::spawn_slice_tasks,
+                slices::collect_slice_tasks,
+                slices::evict_slice_nodes,
+                slices::apply_slice_layout,
+                slices::refit_slice_camera,
+            )
+                .chain()
+                .after(panel::update_viewports),
+        );
+    }
+
     if let Some(cloud) = cloud.clone() {
         let mut points = pointcloud::PointStreamer::new(cloud);
         points.budget = args.point_budget;
@@ -185,6 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let image_world = dataset.world;
     let finest = dataset.levels[0].scale_x as f32;
     let cloud_for_setup = cloud.clone();
+    let sections_for_setup = sections.clone();
 
     app.add_systems(
         Startup,
@@ -194,7 +241,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .next()
                 .map(|w| Vec2::new(w.width(), w.height()))
                 .unwrap_or(Vec2::new(1280.0, 720.0));
-            let columns = if cloud_for_setup.is_some() { 2 } else { 1 };
+            let columns =
+                1 + cloud_for_setup.is_some() as usize + sections_for_setup.is_some() as usize;
             let viewport = Vec2::new(window.x / columns as f32, window.y);
 
             let (x0, y0, x1, y1) = image_world;
@@ -215,12 +263,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let mut panels = vec![(PanelKind::Image, 0)];
             if let Some(cloud) = &cloud_for_setup {
-                let b = cloud.tight_bounds;
+                let b = cloud.slides[0].tight_bounds;
                 let (cx, cy) = b.centre();
+                let index = panels.len();
                 panel::spawn_panel(
                     &mut commands,
                     PanelKind::Points,
-                    1,
+                    index,
                     columns,
                     ViewLimits::fit(
                         Vec2::new(cx, -cy),
@@ -230,7 +279,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         b.width() / 100_000.0,
                     ),
                 );
-                panels.push((PanelKind::Points, 1));
+                panels.push((PanelKind::Points, index));
+            }
+            if sections_for_setup.is_some() {
+                let index = panels.len();
+                // The streamer refits this panel on its first frame, once the
+                // viewport is known; these limits only have to be sane.
+                panel::spawn_panel(
+                    &mut commands,
+                    PanelKind::Slices,
+                    index,
+                    columns,
+                    ViewLimits::fit(Vec2::ZERO, 1.0, 1.0, viewport, 1.0 / 100_000.0),
+                );
+                panels.push((PanelKind::Slices, index));
             }
 
             panel::spawn_ui_camera(&mut commands, columns);

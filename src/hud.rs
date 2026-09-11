@@ -4,6 +4,7 @@ use bevy::prelude::*;
 
 use crate::panel::PanelKind;
 use crate::pointcloud::PointStreamer;
+use crate::slices::{SliceMode, SliceStreamer};
 use crate::tiles::TileStreamer;
 
 #[derive(Component)]
@@ -45,6 +46,7 @@ pub fn spawn_hud(commands: &mut Commands, panels: &[(PanelKind, usize)], columns
 pub fn update_hud(
     tiles: Option<Res<TileStreamer>>,
     points: Option<Res<PointStreamer>>,
+    slices: Option<Res<SliceStreamer>>,
     panels: Query<(&Camera, &Projection, &crate::panel::Panel)>,
     mut texts: Query<(&mut Text, &PanelText)>,
 ) {
@@ -71,6 +73,10 @@ pub fn update_hud(
             },
             PanelKind::Points => match points.as_ref() {
                 Some(streamer) => points_status(streamer, units_per_px),
+                None => String::new(),
+            },
+            PanelKind::Slices => match slices.as_ref() {
+                Some(streamer) => slices_status(streamer, units_per_px),
                 None => String::new(),
             },
         };
@@ -147,10 +153,63 @@ fn points_status(streamer: &PointStreamer, units_per_px: f32) -> String {
          {} nodes loaded, {} loading\n\
          {} / {} points resident\n\
          colour by  {}",
-        cloud.total_points,
+        cloud.total_points(),
         streamer.deepest,
-        cloud.nodes.iter().map(|n| n.depth).max().unwrap_or(0),
+        cloud.max_depth(),
         units_per_px,
+        streamer.loaded_nodes(),
+        streamer.in_flight,
+        streamer.resident_points,
+        streamer.budget,
+        colour,
+    )
+}
+
+fn slices_status(streamer: &SliceStreamer, units_per_px: f32) -> String {
+    let cloud = streamer.cloud();
+    let colour = streamer
+        .colour_column
+        .as_ref()
+        .and_then(|name| {
+            cloud
+                .attributes
+                .iter()
+                .find(|a| &a.name == name)
+                .map(|a| a.description.clone())
+        })
+        .unwrap_or_else(|| "none".into());
+
+    let showing = match streamer.mode {
+        SliceMode::Grid => format!(
+            "grid of {} across {} columns",
+            cloud.slides.len(),
+            streamer.columns()
+        ),
+        SliceMode::Single => {
+            let slide = &cloud.slides[streamer.current];
+            format!(
+                "slice {} of {}  [{}]  {} points",
+                slide.index + 1,
+                cloud.slides.len(),
+                slide.id,
+                slide.total_points,
+            )
+        }
+    };
+
+    format!(
+        "Sections — {} points in {} slices\n\
+         {}\n\
+         zoom {:.5} {}/screen px\n\
+         {} nodes loaded, {} loading\n\
+         {} / {} points resident\n\
+         colour by  {}\n\
+         G grid/single · arrows or [ ] step slices",
+        cloud.total_points(),
+        cloud.slides.len(),
+        showing,
+        units_per_px,
+        cloud.unit,
         streamer.loaded_nodes(),
         streamer.in_flight,
         streamer.resident_points,
