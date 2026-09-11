@@ -180,8 +180,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .add_systems(
         Update,
         (
+            panel::duplicate_panel,
+            panel::sync_panel_buttons,
+            panel::highlight_panel_buttons,
+            hud::sync_hud,
             panel::panel_controls,
             panel::update_viewports,
+            hud::position_hud,
             tiles::select_tiles,
             tiles::spawn_tile_tasks,
             tiles::collect_tile_tasks,
@@ -241,16 +246,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .next()
                 .map(|w| Vec2::new(w.width(), w.height()))
                 .unwrap_or(Vec2::new(1280.0, 720.0));
-            let columns =
+            let count =
                 1 + cloud_for_setup.is_some() as usize + sections_for_setup.is_some() as usize;
-            let viewport = Vec2::new(window.x / columns as f32, window.y);
+            let (columns, rows) = panel::grid_for(count);
+            let viewport = Vec2::new(window.x / columns as f32, window.y / rows as f32);
 
             let (x0, y0, x1, y1) = image_world;
             panel::spawn_panel(
                 &mut commands,
                 PanelKind::Image,
                 0,
-                columns,
                 // World y is negated so the image reads top-down.
                 ViewLimits::fit(
                     Vec2::new((x0 + x1) * 0.5, -(y0 + y1) * 0.5),
@@ -259,18 +264,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     viewport,
                     finest / 8.0,
                 ),
+                None,
             );
 
-            let mut panels = vec![(PanelKind::Image, 0)];
+            let mut next = 1;
             if let Some(cloud) = &cloud_for_setup {
                 let b = cloud.slides[0].tight_bounds;
                 let (cx, cy) = b.centre();
-                let index = panels.len();
                 panel::spawn_panel(
                     &mut commands,
                     PanelKind::Points,
-                    index,
-                    columns,
+                    next,
                     ViewLimits::fit(
                         Vec2::new(cx, -cy),
                         b.width(),
@@ -278,26 +282,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         viewport,
                         b.width() / 100_000.0,
                     ),
+                    None,
                 );
-                panels.push((PanelKind::Points, index));
+                next += 1;
             }
             if sections_for_setup.is_some() {
-                let index = panels.len();
                 // The streamer refits this panel on its first frame, once the
                 // viewport is known; these limits only have to be sane.
                 panel::spawn_panel(
                     &mut commands,
                     PanelKind::Slices,
-                    index,
-                    columns,
+                    next,
                     ViewLimits::fit(Vec2::ZERO, 1.0, 1.0, viewport, 1.0 / 100_000.0),
+                    None,
                 );
-                panels.push((PanelKind::Slices, index));
             }
 
-            panel::spawn_ui_camera(&mut commands, columns);
-            panel::spawn_dividers(&mut commands, columns);
-            hud::spawn_hud(&mut commands, &panels, columns);
+            panel::spawn_ui_camera(&mut commands);
+            panel::spawn_dividers(&mut commands);
         },
     );
 

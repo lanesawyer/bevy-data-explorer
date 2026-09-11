@@ -222,75 +222,88 @@ pub fn select_tiles(
     mut streamer: ResMut<TileStreamer>,
     panels: Query<(&Camera, &GlobalTransform, &Projection, &Panel)>,
 ) {
-    let Some((camera, transform, projection)) = panels
-        .iter()
-        .find(|(_, _, _, panel)| panel.kind == PanelKind::Image)
-        .map(|(c, t, p, _)| (c, t, p))
-    else {
-        return;
-    };
-    let Projection::Orthographic(ortho) = projection else {
-        return;
-    };
-    let Some(viewport) = camera.logical_viewport_size() else {
-        return;
-    };
-
-    let centre = transform.translation().truncate();
-    let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
-    // A margin keeps tiles just off screen ready before they are panned into.
-    let margin = half * 0.15;
-    let min = centre - half - margin;
-    let max = centre + half + margin;
-
-    let units_per_px = ortho.area.width() / viewport.x.max(1.0);
     let dataset = streamer.dataset.clone();
-    let active = dataset.level_for(units_per_px);
-    streamer.active_level = active;
-
     let mut wanted = Vec::new();
-    // Coarsest first so the cheap, fast tiles are requested ahead of fine ones.
-    for level_index in (active..dataset.levels.len()).rev() {
-        let level = &dataset.levels[level_index];
-        let scale_x = level.scale_x as f32;
-        let scale_y = level.scale_y as f32;
-        if scale_x <= 0.0 || scale_y <= 0.0 {
+    let mut seen = HashSet::new();
+    // The finest level any panel is asking for. Visibility is driven from this
+    // so that a tile one panel needs is never hidden on behalf of another.
+    let mut active = dataset.levels.len().saturating_sub(1);
+
+    // Every panel of this kind draws the same entities, so the resident set is
+    // the union of what each of them needs. A duplicated panel zoomed somewhere
+    // else therefore pulls in its own tiles.
+    for (camera, transform, projection, _) in panels
+        .iter()
+        .filter(|(_, _, _, panel)| panel.kind == PanelKind::Image)
+    {
+        let Projection::Orthographic(ortho) = projection else {
             continue;
-        }
+        };
+        let Some(viewport) = camera.logical_viewport_size() else {
+            continue;
+        };
 
-        // World rect -> level pixels -> tile indices. World y runs downward in
-        // image space but upward in Bevy, hence the negation.
-        let px_x0 = (min.x - level.origin_x as f32) / scale_x;
-        let px_x1 = (max.x - level.origin_x as f32) / scale_x;
-        let px_y0 = (-max.y - level.origin_y as f32) / scale_y;
-        let px_y1 = (-min.y - level.origin_y as f32) / scale_y;
+        let centre = transform.translation().truncate();
+        let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
+        // A margin keeps tiles just off screen ready before they are panned into.
+        let margin = half * 0.15;
+        let min = centre - half - margin;
+        let max = centre + half + margin;
 
-        let tx0 = (px_x0 / level.tile_px as f32).floor().max(0.0) as u64;
-        let ty0 = (px_y0 / level.tile_px as f32).floor().max(0.0) as u64;
-        let tx1 = (px_x1 / level.tile_px as f32).ceil().max(0.0) as u64;
-        let ty1 = (px_y1 / level.tile_px as f32).ceil().max(0.0) as u64;
+        let units_per_px = ortho.area.width() / viewport.x.max(1.0);
+        let panel_active = dataset.level_for(units_per_px);
+        active = active.min(panel_active);
 
-        // Within a level, ask for the tiles nearest the middle of the view
-        // first: on a fast pan or zoom those are what the eye lands on, and
-        // the outer ones are the likeliest to be abandoned.
-        let mut level_tiles: Vec<(u64, TileKey)> = Vec::new();
-        for ty in ty0..ty1.min(level.tiles_y) {
-            for tx in tx0..tx1.min(level.tiles_x) {
-                let key = TileKey {
-                    level: level_index,
-                    ty,
-                    tx,
-                };
-                let Some((wx0, wy0, wx1, wy1)) = level.tile_world_rect(ty, tx) else {
-                    continue;
-                };
-                let mid = Vec2::new((wx0 + wx1) * 0.5, -(wy0 + wy1) * 0.5);
-                level_tiles.push((mid.distance_squared(centre) as u64, key));
+        // Coarsest first so the cheap, fast tiles are requested ahead of fine ones.
+        for level_index in (panel_active..dataset.levels.len()).rev() {
+            let level = &dataset.levels[level_index];
+            let scale_x = level.scale_x as f32;
+            let scale_y = level.scale_y as f32;
+            if scale_x <= 0.0 || scale_y <= 0.0 {
+                continue;
             }
+
+            // World rect -> level pixels -> tile indices. World y runs downward in
+            // image space but upward in Bevy, hence the negation.
+            let px_x0 = (min.x - level.origin_x as f32) / scale_x;
+            let px_x1 = (max.x - level.origin_x as f32) / scale_x;
+            let px_y0 = (-max.y - level.origin_y as f32) / scale_y;
+            let px_y1 = (-min.y - level.origin_y as f32) / scale_y;
+
+            let tx0 = (px_x0 / level.tile_px as f32).floor().max(0.0) as u64;
+            let ty0 = (px_y0 / level.tile_px as f32).floor().max(0.0) as u64;
+            let tx1 = (px_x1 / level.tile_px as f32).ceil().max(0.0) as u64;
+            let ty1 = (px_y1 / level.tile_px as f32).ceil().max(0.0) as u64;
+
+            // Within a level, ask for the tiles nearest the middle of the view
+            // first: on a fast pan or zoom those are what the eye lands on, and
+            // the outer ones are the likeliest to be abandoned.
+            let mut level_tiles: Vec<(u64, TileKey)> = Vec::new();
+            for ty in ty0..ty1.min(level.tiles_y) {
+                for tx in tx0..tx1.min(level.tiles_x) {
+                    let key = TileKey {
+                        level: level_index,
+                        ty,
+                        tx,
+                    };
+                    let Some((wx0, wy0, wx1, wy1)) = level.tile_world_rect(ty, tx) else {
+                        continue;
+                    };
+                    let mid = Vec2::new((wx0 + wx1) * 0.5, -(wy0 + wy1) * 0.5);
+                    level_tiles.push((mid.distance_squared(centre) as u64, key));
+                }
+            }
+            level_tiles.sort_unstable_by_key(|(distance, _)| *distance);
+            wanted.extend(
+                level_tiles
+                    .into_iter()
+                    .map(|(_, key)| key)
+                    .filter(|key| seen.insert(*key)),
+            );
         }
-        level_tiles.sort_unstable_by_key(|(distance, _)| *distance);
-        wanted.extend(level_tiles.into_iter().map(|(_, key)| key));
     }
+
+    streamer.active_level = active;
 
     // Touch everything wanted so eviction can tell live tiles from stale ones.
     streamer.frame = streamer.frame.wrapping_add(1);

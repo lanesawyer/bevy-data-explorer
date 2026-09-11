@@ -97,56 +97,61 @@ pub fn select_nodes(
     mut streamer: ResMut<PointStreamer>,
     panels: Query<(&Camera, &GlobalTransform, &Projection, &Panel)>,
 ) {
-    let Some((camera, transform, projection)) = panels
-        .iter()
-        .find(|(_, _, _, panel)| panel.kind == PanelKind::Points)
-        .map(|(c, t, p, _)| (c, t, p))
-    else {
-        return;
-    };
-    let Projection::Orthographic(ortho) = projection else {
-        return;
-    };
-    let Some(viewport) = camera.logical_viewport_size() else {
-        return;
-    };
-
-    let centre = transform.translation().truncate();
-    let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
-    let view = Rect {
-        min_x: centre.x - half.x,
-        // World y is negated for display, so the visible band in dataset
-        // coordinates is the mirror of the camera's.
-        min_y: -(centre.y + half.y),
-        max_x: centre.x + half.x,
-        max_y: -(centre.y - half.y),
-    };
-
-    let units_per_px = ortho.area.width() / viewport.x.max(1.0);
     let cloud = streamer.cloud.clone();
     let slide = streamer.slide;
-
-    // Breadth-first so that coarse nodes are requested before fine ones and a
-    // usable picture appears while detail is still arriving.
     let mut wanted = Vec::new();
     let mut deepest = 0usize;
     let mut budget = streamer.budget;
-    let mut queue = vec![0usize];
-    while let Some(index) = queue.pop() {
-        let node = &cloud.slides[slide].nodes[index];
-        if !node.bounds.intersects(&view) {
-            continue;
-        }
-        if node.count as usize > budget {
-            continue;
-        }
-        budget -= node.count as usize;
-        wanted.push(index);
-        deepest = deepest.max(node.depth);
+    let mut seen = HashSet::new();
 
-        let screen_px = node.bounds.width() / units_per_px.max(f32::MIN_POSITIVE);
-        if screen_px >= SUBDIVIDE_PX {
-            queue.extend(node.children.iter().copied());
+    // Every panel of this kind draws the same entities, so the resident set is
+    // the union of what each of them needs. A duplicated panel zoomed somewhere
+    // else therefore pulls in its own detail.
+    for (camera, transform, projection, _) in panels
+        .iter()
+        .filter(|(_, _, _, panel)| panel.kind == PanelKind::Points)
+    {
+        let Projection::Orthographic(ortho) = projection else {
+            continue;
+        };
+        let Some(viewport) = camera.logical_viewport_size() else {
+            continue;
+        };
+
+        let centre = transform.translation().truncate();
+        let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
+        let view = Rect {
+            min_x: centre.x - half.x,
+            // World y is negated for display, so the visible band in dataset
+            // coordinates is the mirror of the camera's.
+            min_y: -(centre.y + half.y),
+            max_x: centre.x + half.x,
+            max_y: -(centre.y - half.y),
+        };
+        let units_per_px = ortho.area.width() / viewport.x.max(1.0);
+
+        // Breadth-first so that coarse nodes are requested before fine ones and
+        // a usable picture appears while detail is still arriving.
+        let mut queue = vec![0usize];
+        while let Some(index) = queue.pop() {
+            let node = &cloud.slides[slide].nodes[index];
+            if !node.bounds.intersects(&view) {
+                continue;
+            }
+            if seen.insert(index) {
+                if node.count as usize > budget {
+                    seen.remove(&index);
+                    continue;
+                }
+                budget -= node.count as usize;
+                wanted.push(index);
+                deepest = deepest.max(node.depth);
+            }
+
+            let screen_px = node.bounds.width() / units_per_px.max(f32::MIN_POSITIVE);
+            if screen_px >= SUBDIVIDE_PX {
+                queue.extend(node.children.iter().copied());
+            }
         }
     }
 

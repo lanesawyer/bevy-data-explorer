@@ -7,15 +7,23 @@ use crate::pointcloud::PointStreamer;
 use crate::slices::{SliceMode, SliceStreamer};
 use crate::tiles::TileStreamer;
 
+/// A status overlay bound to one panel. Bound by entity rather than by kind so
+/// that duplicated panels each get their own, reporting their own zoom.
 #[derive(Component)]
 pub struct PanelText {
-    kind: PanelKind,
-    columns: usize,
-    index: usize,
+    panel: Entity,
 }
 
-pub fn spawn_hud(commands: &mut Commands, panels: &[(PanelKind, usize)], columns: usize) {
-    for (kind, index) in panels.iter().copied() {
+/// Give every panel a status overlay, including panels added at runtime.
+pub fn sync_hud(
+    mut commands: Commands,
+    panels: Query<Entity, With<crate::panel::Panel>>,
+    texts: Query<&PanelText>,
+) {
+    for panel in &panels {
+        if texts.iter().any(|t| t.panel == panel) {
+            continue;
+        }
         commands.spawn((
             Text::new(""),
             TextFont {
@@ -25,21 +33,35 @@ pub fn spawn_hud(commands: &mut Commands, panels: &[(PanelKind, usize)], columns
             TextColor(Color::srgb(0.85, 0.9, 0.95)),
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Percent(100.0 * index as f32 / columns as f32),
-                top: Val::Px(0.0),
-                margin: UiRect {
-                    left: Val::Px(10.0),
-                    top: Val::Px(8.0),
-                    ..default()
-                },
                 ..default()
             },
-            PanelText {
-                kind,
-                columns,
-                index,
-            },
+            PanelText { panel },
         ));
+    }
+}
+
+/// Keep each overlay over its panel's cell.
+pub fn position_hud(
+    windows: Query<&Window>,
+    panels: Query<&crate::panel::Panel>,
+    mut texts: Query<(&PanelText, &mut Node)>,
+) {
+    let Ok(window) = windows.single() else { return };
+    let (columns, rows) = crate::panel::grid_for(panels.iter().count());
+    let cell = Vec2::new(
+        window.width() / columns as f32,
+        window.height() / rows as f32,
+    );
+
+    for (text, mut node) in &mut texts {
+        let Ok(panel) = panels.get(text.panel) else {
+            continue;
+        };
+        let (col, row) = (panel.index % columns, panel.index / columns);
+        node.left = Val::Px(cell.x * col as f32 + 10.0);
+        node.top = Val::Px(cell.y * row as f32 + 8.0);
+        // Keep the text clear of the duplicate button in the corner.
+        node.max_width = Val::Px((cell.x - 46.0).max(80.0));
     }
 }
 
@@ -51,22 +73,16 @@ pub fn update_hud(
     mut texts: Query<(&mut Text, &PanelText)>,
 ) {
     for (mut text, panel_text) in &mut texts {
-        let view = panels
-            .iter()
-            .find(|(_, _, p)| p.kind == panel_text.kind)
-            .and_then(|(camera, projection, _)| match projection {
-                Projection::Orthographic(ortho) => Some((camera, ortho)),
-                _ => None,
-            });
-        let Some((camera, ortho)) = view else {
+        let Ok((camera, projection, panel)) = panels.get(panel_text.panel) else {
+            continue;
+        };
+        let Projection::Orthographic(ortho) = projection else {
             continue;
         };
         let viewport = camera.logical_viewport_size().unwrap_or(Vec2::ONE);
         let units_per_px = ortho.area.width() / viewport.x.max(1.0);
-        let _ = panel_text.columns;
-        let _ = panel_text.index;
 
-        text.0 = match panel_text.kind {
+        text.0 = match panel.kind {
             PanelKind::Image => match tiles.as_ref() {
                 Some(streamer) => image_status(streamer, units_per_px),
                 None => String::new(),

@@ -248,62 +248,70 @@ pub fn select_slice_nodes(
     mut streamer: ResMut<SliceStreamer>,
     panels: Query<(&Camera, &GlobalTransform, &Projection, &Panel)>,
 ) {
-    let Some((camera, transform, projection)) = panels
-        .iter()
-        .find(|(_, _, _, panel)| panel.kind == PanelKind::Slices)
-        .map(|(c, t, p, _)| (c, t, p))
-    else {
-        return;
-    };
-    let Projection::Orthographic(ortho) = projection else {
-        return;
-    };
-    let Some(viewport) = camera.logical_viewport_size() else {
-        return;
-    };
-
-    let centre = transform.translation().truncate();
-    let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
-    let units_per_px = ortho.area.width() / viewport.x.max(1.0);
-
     let cloud = streamer.cloud.clone();
     let mut wanted = Vec::new();
     let mut budget = streamer.budget;
+    let mut seen = HashSet::new();
 
-    for slide_index in 0..cloud.slides.len() {
-        if !streamer.visible(slide_index) {
+    // Every panel of this kind draws the same entities, so the resident set is
+    // the union of what each of them needs.
+    for (camera, transform, projection, _) in panels
+        .iter()
+        .filter(|(_, _, _, panel)| panel.kind == PanelKind::Slices)
+    {
+        let Projection::Orthographic(ortho) = projection else {
             continue;
-        }
-        let offset = streamer.offset(slide_index);
-        // Compare in the slide's own coordinates by moving the view rather than
-        // the points, which keeps node bounds usable as they are.
-        let view = Rect {
-            min_x: centre.x - half.x - offset.x,
-            min_y: -(centre.y + half.y - offset.y),
-            max_x: centre.x + half.x - offset.x,
-            max_y: -(centre.y - half.y - offset.y),
+        };
+        let Some(viewport) = camera.logical_viewport_size() else {
+            continue;
         };
 
-        let slide = &cloud.slides[slide_index];
-        // Cull the whole slide before walking it. Zoomed into one cell of a
-        // 53-slice grid, this skips almost every slide outright.
-        if !slide.bounds.intersects(&view) {
-            continue;
-        }
-        let mut queue = vec![0usize];
-        while let Some(node_index) = queue.pop() {
-            let node = &slide.nodes[node_index];
-            if !node.bounds.intersects(&view) || node.count as usize > budget {
+        let centre = transform.translation().truncate();
+        let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
+        let units_per_px = ortho.area.width() / viewport.x.max(1.0);
+
+        for slide_index in 0..cloud.slides.len() {
+            if !streamer.visible(slide_index) {
                 continue;
             }
-            budget -= node.count as usize;
-            wanted.push(SliceNode {
-                slide: slide_index,
-                node: node_index,
-            });
+            let offset = streamer.offset(slide_index);
+            // Compare in the slide's own coordinates by moving the view rather than
+            // the points, which keeps node bounds usable as they are.
+            let view = Rect {
+                min_x: centre.x - half.x - offset.x,
+                min_y: -(centre.y + half.y - offset.y),
+                max_x: centre.x + half.x - offset.x,
+                max_y: -(centre.y - half.y - offset.y),
+            };
 
-            if node.bounds.width() / units_per_px.max(f32::MIN_POSITIVE) >= SUBDIVIDE_PX {
-                queue.extend(node.children.iter().copied());
+            let slide = &cloud.slides[slide_index];
+            // Cull the whole slide before walking it. Zoomed into one cell of a
+            // 53-slice grid, this skips almost every slide outright.
+            if !slide.bounds.intersects(&view) {
+                continue;
+            }
+            let mut queue = vec![0usize];
+            while let Some(node_index) = queue.pop() {
+                let node = &slide.nodes[node_index];
+                if !node.bounds.intersects(&view) {
+                    continue;
+                }
+                let key = SliceNode {
+                    slide: slide_index,
+                    node: node_index,
+                };
+                if seen.insert(key) {
+                    if node.count as usize > budget {
+                        seen.remove(&key);
+                        continue;
+                    }
+                    budget -= node.count as usize;
+                    wanted.push(key);
+                }
+
+                if node.bounds.width() / units_per_px.max(f32::MIN_POSITIVE) >= SUBDIVIDE_PX {
+                    queue.extend(node.children.iter().copied());
+                }
             }
         }
     }

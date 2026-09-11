@@ -31,14 +31,27 @@ cargo run --release -- --point-budget 8000000
 
 Use `--release`. Tile decoding is real work and a debug build makes it obvious.
 
-Input goes to whichever panel the pointer is over, so the two views pan and
-zoom independently.
+Panels are laid out in a grid of up to four columns by two rows — eight in
+all. One or two panels sit in a single row; beyond that the grid goes two deep
+and grows sideways, which keeps cells closer to square than a single row of
+eight would. Input goes to whichever panel the pointer is over, so the views
+pan and zoom independently.
+
+The `+` in a panel's corner duplicates it. The copy inherits the source's
+current centre and zoom rather than its fitted defaults, so it starts as the
+same view and can then be driven somewhere else — useful for watching an
+overview and a detail of the same data at once. Duplicates cost no extra
+geometry: they are another camera on the same render layer, drawing the same
+entities from a different viewpoint. Streaming follows the union of what every
+panel needs, so a duplicate pulls in its own detail rather than riding on
+whatever the original happened to load.
 
 | input | action |
 | --- | --- |
 | drag | pan the panel under the cursor |
 | scroll | zoom that panel about the cursor |
 | `R` | reset that panel's view |
+| `+` button | duplicate that panel |
 | `1`–`9` | toggle an image channel |
 | `G` | sections panel: grid ↔ single slice |
 | `←` `→`, `[` `]` | step through slices |
@@ -139,8 +152,9 @@ measuring against it, and are worth knowing before changing them:
 - Points are drawn with `PointList` topology, one vertex each, which keeps a
   multi-million point cloud affordable but means the hardware draws each as a
   single pixel. Point sizing needs a custom shader.
-- Panels are a fixed side-by-side split. Moving, resizing and choosing what
-  each panel shows is the obvious next step.
+- Panels can be duplicated but not closed, reordered or resized, and cells are
+  a uniform split. A partly filled grid — three panels in a 2x2 — leaves an
+  empty cell rather than redistributing the space.
 - The sections panel always draws slices in metadata order. It carries no
   notion of anatomical position, so the grid is a contact sheet rather than a
   reconstruction.
