@@ -1,45 +1,84 @@
 # bevy-data-explorer
 
-A streaming OME-Zarr viewer built on [Bevy](https://bevyengine.org) and
-[`zarrs`](https://crates.io/crates/zarrs). It opens a multiscale image straight
-from an object store and lets you pan and zoom around it, pulling in finer
-detail as you go — the full-resolution level of the reference image is
-75803 × 56233 px, so nothing is ever loaded in its entirety.
+A streaming explorer for large scientific datasets, built on
+[Bevy](https://bevyengine.org). Datasets are shown side by side in independent
+panels, each streaming only what its own view needs and pulling in finer detail
+as you zoom. Two formats are supported so far:
+
+- **OME-Zarr** multiscale images, read through
+  [`zarrs`](https://crates.io/crates/zarrs). The reference image is
+  75803 × 56233 px at full resolution.
+- **Scatterbrain**, the Allen Institute's point-cloud format. The reference
+  cloud holds 4,042,976 points in an octree.
+
+Neither is ever loaded in its entirety.
 
 ## Running
 
 ```sh
-cargo run --release                      # the default reference image
-cargo run --release -- <url-or-dir>      # any OME-Zarr root
-cargo run --release -- metadata.json     # a manifest describing one
-cargo run --release -- --z 3 <source>    # pick a z slice
-cargo run --release -- --cache-mb 1024   # a larger tile cache
+cargo run --release                          # both reference datasets
+cargo run --release -- <url-or-dir>          # any OME-Zarr root
+cargo run --release -- metadata.json         # a manifest describing one
+cargo run --release -- --points <url|file>   # a Scatterbrain metadata JSON
+cargo run --release -- --points none         # image panel only
+cargo run --release -- --z 3 <source>        # pick a z slice
+cargo run --release -- --cache-mb 1024       # a larger tile cache
+cargo run --release -- --point-budget 8000000
 ```
 
 Use `--release`. Tile decoding is real work and a debug build makes it obvious.
 
+Input goes to whichever panel the pointer is over, so the two views pan and
+zoom independently.
+
 | input | action |
 | --- | --- |
-| drag | pan |
-| scroll | zoom about the cursor |
-| `R` | reset the view |
-| `1`–`9` | toggle a channel |
+| drag | pan the panel under the cursor |
+| scroll | zoom that panel about the cursor |
+| `R` | reset that panel's view |
+| `1`–`9` | toggle an image channel |
 
-The overlay reports the pyramid level in use, the scale in physical units, and
-how much of the tile cache is resident.
+Each panel carries its own overlay: the image reports the pyramid level, scale
+and tile cache; the point cloud reports octree depth, nodes loaded and points
+resident.
 
 ## How it works
 
+Each panel is a 2D camera with its own viewport, pan/zoom state and render
+layer, so one panel's contents cannot leak into another.
+
+### OME-Zarr images
+
 `zarrs` handles the format: Zarr v3 metadata, the codec pipeline, and partial
 reads of sharded arrays. `ome_zarr_metadata` parses the multiscale and channel
-metadata. This crate is the viewer on top — the pyramid mapped into a shared
-world coordinate system, tile streaming, caching and the camera.
+metadata. This crate adds the pyramid mapped into world space, tile streaming,
+caching and the camera.
 
 Reading is driven by what is on screen. Each frame the viewer picks the level
 whose pixels are closest to screen pixels, then requests the tiles covering the
 viewport at that level and at every coarser one. Coarse tiles are few and
 arrive first, and are drawn underneath, so moving into new territory shows a
 blurry version immediately that sharpens as finer tiles land.
+
+### Scatterbrain point clouds
+
+A Potree-style octree of 2D points. Columns are stored one per directory, split
+by node: `{metadata}/{column}/{referenceId}/{node}.bin`. Coordinates are raw
+little-endian `f32` pairs with no header and categorical columns are raw `u16`,
+so a file's length is exactly the node's point count times the column stride —
+the cheapest possible integrity check, and one the reader enforces.
+
+The format is *additive*: a node holds its own subsample of its region and its
+children add further points, which is why the node counts in the tree sum to
+the dataset total rather than each level restating the whole cloud. Selection
+walks down from the root keeping any node that is on screen, and descends while
+that node's region is still large enough in screen terms to be worth more
+detail. Every node visited is drawn, so zooming in genuinely increases point
+density rather than swapping one level for another.
+
+Child indices pack one bit per axis — `x` in bit 2, `y` in bit 1, `z` in bit 0.
+This data is planar, so the z bit is always clear and only the even indices 0,
+2, 4 and 6 appear, which is why the node names look like they skip numbers.
 
 ### Things that were measured rather than assumed
 
@@ -76,9 +115,16 @@ measuring against it, and are worth knowing before changing them:
 
 ## Limits
 
+- Points are drawn with `PointList` topology, one vertex each, which keeps a
+  multi-million point cloud affordable but means the hardware draws each as a
+  single pixel. Point sizing needs a custom shader.
+- Panels are a fixed side-by-side split. Moving, resizing and choosing what
+  each panel shows is the obvious next step.
 - Channel toggling recomputes tiles, because the composite is baked into RGBA
   on the CPU. Interactive window/level adjustment wants a shader instead.
 - Reads are synchronous, so a request already under way cannot be abandoned.
   Queued work is dropped when the view moves on, which is where a backlog
   actually builds up during a fast pan.
 - Only the first multiscale image in a store is shown, at a single z slice.
+- Point colouring is fixed to the first categorical column; the others are
+  parsed but not yet selectable.

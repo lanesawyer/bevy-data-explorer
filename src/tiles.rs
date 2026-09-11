@@ -15,6 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use bevy::asset::RenderAssetUsages;
+use bevy::camera::visibility::RenderLayers;
 use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -23,7 +24,7 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use zarrs_codec::ArrayPartialDecoderTraits;
 
 use crate::dataset::{Channel, Dataset, TilePixels, read_tile};
-use crate::viewer::MainCamera;
+use crate::panel::{Panel, PanelKind};
 
 /// Threads reserved for fetching and decoding tiles.
 ///
@@ -219,9 +220,15 @@ impl TileStreamer {
 /// Work out the visible world rectangle and queue the tiles that cover it.
 pub fn select_tiles(
     mut streamer: ResMut<TileStreamer>,
-    camera: Single<(&Camera, &GlobalTransform, &Projection), With<MainCamera>>,
+    panels: Query<(&Camera, &GlobalTransform, &Projection, &Panel)>,
 ) {
-    let (camera, transform, projection) = *camera;
+    let Some((camera, transform, projection)) = panels
+        .iter()
+        .find(|(_, _, _, panel)| panel.kind == PanelKind::Image)
+        .map(|(c, t, p, _)| (c, t, p))
+    else {
+        return;
+    };
     let Projection::Orthographic(ortho) = projection else {
         return;
     };
@@ -460,6 +467,7 @@ pub fn collect_tile_tasks(
                         },
                         Anchor::TOP_LEFT,
                         Transform::from_xyz(x0, -y0, z),
+                        RenderLayers::layer(PanelKind::Image.layer()),
                         Tile(key),
                     ))
                     .id();
