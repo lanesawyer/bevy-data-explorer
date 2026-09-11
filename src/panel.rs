@@ -370,6 +370,25 @@ pub fn highlight_panel_buttons(
     }
 }
 
+/// A drag in progress, and the panel it began in.
+#[derive(Clone, Copy)]
+pub struct Drag {
+    panel: usize,
+    last: Vec2,
+}
+
+/// Which panel input applies to.
+///
+/// A drag keeps hold of the panel it started in even after the pointer crosses
+/// into another, so dragging past a panel edge carries on panning the view the
+/// gesture began in rather than grabbing its neighbour mid-stroke.
+fn active_panel(drag: Option<Drag>, cursor: Vec2, window: Vec2, count: usize) -> usize {
+    match drag {
+        Some(drag) => drag.panel.min(count.saturating_sub(1)),
+        None => panel_under_cursor(cursor, window, count),
+    }
+}
+
 /// Which panel the cursor is over.
 fn panel_under_cursor(cursor: Vec2, window: Vec2, count: usize) -> usize {
     let (columns, rows) = grid_for(count);
@@ -394,24 +413,43 @@ pub fn panel_controls(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     ui: Query<&Interaction, With<PanelButton>>,
-    mut drag: Local<Option<Vec2>>,
+    mut drag: Local<Option<Drag>>,
 ) {
     let Ok(window) = windows.single() else { return };
+    let held = buttons.pressed(MouseButton::Left) || buttons.pressed(MouseButton::Middle);
+
     let Some(cursor) = window.cursor_position() else {
-        *drag = None;
+        // The pointer left the window. Hold the gesture so it resumes if the
+        // pointer comes back with the button still down.
+        if !held {
+            *drag = None;
+        }
         wheel.clear();
         return;
     };
 
-    // A click on a panel's button must not also pan that panel.
-    if ui.iter().any(|i| *i != Interaction::None) {
-        *drag = None;
+    // A click on a panel's button must not also pan that panel. An existing
+    // drag is left alone, so passing over a button mid-stroke does not end it.
+    if drag.is_none() && ui.iter().any(|i| *i != Interaction::None) {
         wheel.clear();
         return;
     }
 
     let count = panels.iter().count();
-    let active = panel_under_cursor(cursor, Vec2::new(window.width(), window.height()), count);
+    let window_size = Vec2::new(window.width(), window.height());
+
+    if !held {
+        *drag = None;
+    } else if drag.is_none()
+        && (buttons.just_pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Middle))
+    {
+        *drag = Some(Drag {
+            panel: panel_under_cursor(cursor, window_size, count),
+            last: cursor,
+        });
+    }
+
+    let active = active_panel(*drag, cursor, window_size, count);
 
     let mut scroll = 0.0;
     for event in wheel.read() {
@@ -420,14 +458,6 @@ pub fn panel_controls(
             // Trackpads report pixels; scale them into comparable steps.
             MouseScrollUnit::Pixel => event.y / 50.0,
         };
-    }
-
-    let dragging = buttons.pressed(MouseButton::Left) || buttons.pressed(MouseButton::Middle);
-    if buttons.just_pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Middle) {
-        *drag = Some(cursor);
-    }
-    if !dragging {
-        *drag = None;
     }
 
     for (camera, global, mut transform, mut projection, panel, limits) in &mut panels {
@@ -462,17 +492,15 @@ pub fn panel_controls(
             }
         }
 
-        if dragging {
-            if let Some(previous) = *drag {
-                let delta = cursor - previous;
-                transform.translation.x -= delta.x * ortho.scale;
-                transform.translation.y += delta.y * ortho.scale;
-            }
+        if let Some(state) = *drag {
+            let delta = cursor - state.last;
+            transform.translation.x -= delta.x * ortho.scale;
+            transform.translation.y += delta.y * ortho.scale;
         }
     }
 
-    if dragging {
-        *drag = Some(cursor);
+    if let Some(state) = drag.as_mut() {
+        state.last = cursor;
     }
 }
 
@@ -540,6 +568,43 @@ mod tests {
         // fall back to a panel that exists.
         let window = Vec2::new(800.0, 600.0);
         assert_eq!(panel_under_cursor(Vec2::new(700.0, 500.0), window, 3), 2);
+    }
+
+    #[test]
+    fn a_drag_keeps_the_panel_it_started_in() {
+        let window = Vec2::new(800.0, 600.0);
+        // Started in panel 0, pointer has since crossed into panel 1.
+        let drag = Some(Drag {
+            panel: 0,
+            last: Vec2::new(100.0, 100.0),
+        });
+        let crossed = Vec2::new(700.0, 100.0);
+        assert_eq!(panel_under_cursor(crossed, window, 2), 1);
+        assert_eq!(active_panel(drag, crossed, window, 2), 0);
+    }
+
+    #[test]
+    fn without_a_drag_input_follows_the_pointer() {
+        let window = Vec2::new(800.0, 600.0);
+        let cursor = Vec2::new(700.0, 100.0);
+        assert_eq!(active_panel(None, cursor, window, 2), 1);
+    }
+
+    #[test]
+    fn a_drag_survives_the_pointer_leaving_the_grid() {
+        // Dragging well past the window edge still pans the original panel.
+        let window = Vec2::new(800.0, 600.0);
+        let drag = Some(Drag {
+            panel: 1,
+            last: Vec2::new(500.0, 100.0),
+        });
+        for cursor in [
+            Vec2::new(-200.0, -50.0),
+            Vec2::new(5000.0, 5000.0),
+            Vec2::new(10.0, 590.0),
+        ] {
+            assert_eq!(active_panel(drag, cursor, window, 4), 1);
+        }
     }
 
     #[test]
