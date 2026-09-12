@@ -37,7 +37,11 @@ and grows sideways, which keeps cells closer to square than a single row of
 eight would. Input goes to whichever panel the pointer is over, so the views
 pan and zoom independently.
 
-The `+` in a panel's corner duplicates it. The copy inherits the source's
+The `+` in a panel's corner duplicates it, and the `x` closes it. Closing
+renumbers the remaining frames so the grid stays contiguous, and the last frame
+cannot be closed — an empty window offers no way back.
+
+Duplicating: The copy inherits the source's
 current centre and zoom rather than its fitted defaults, so it starts as the
 same view and can then be driven somewhere else — useful for watching an
 overview and a detail of the same data at once. Duplicates cost no extra
@@ -52,6 +56,7 @@ whatever the original happened to load.
 | scroll | zoom that panel about the cursor |
 | `R` | reset that panel's view |
 | `+` button | duplicate that panel |
+| `x` button | close that panel |
 | `1`–`9` | toggle an image channel |
 | `G` | sections panel: grid ↔ single slice |
 | `←` `→`, `[` `]` | step through slices |
@@ -174,8 +179,8 @@ measuring against it, and are worth knowing before changing them:
 - Points are drawn with `PointList` topology, one vertex each, which keeps a
   multi-million point cloud affordable but means the hardware draws each as a
   single pixel. Point sizing needs a custom shader.
-- Panels can be duplicated but not closed, reordered or resized, and cells are
-  a uniform split. A partly filled grid — three panels in a 2x2 — leaves an
+- Panels can be duplicated and closed but not reordered or resized, and cells
+  are a uniform split. A partly filled grid — three panels in a 2x2 — leaves an
   empty cell rather than redistributing the space.
 - A frame cannot yet be repointed at a different source from the UI. The
   indirection that would allow it is in place, but nothing drives it.

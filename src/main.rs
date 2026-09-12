@@ -177,6 +177,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Update,
         (
             panel::duplicate_panel,
+            panel::close_panel,
             panel::sync_panel_buttons,
             panel::highlight_panel_buttons,
             hud::sync_hud,

@@ -102,13 +102,7 @@ pub fn spawn_panel(
         .spawn((
             Camera2d,
             Camera {
-                // The first camera clears the window; the rest draw over it,
-                // since a later clear would wipe the panels already drawn.
-                clear_color: if index == 0 {
-                    ClearColorConfig::Custom(Color::srgb(0.04, 0.04, 0.06))
-                } else {
-                    ClearColorConfig::None
-                },
+                clear_color: clear_color_for(index),
                 order: index as isize,
                 ..default()
             },
@@ -198,7 +192,8 @@ pub fn update_viewports(
             continue;
         };
         let (col, row) = (panel.index % columns, panel.index / columns);
-        node.left = Val::Px(cell.x * (col + 1) as f32 - BUTTON_PX - 8.0);
+        let from_right = (BUTTON_PX + BUTTON_GAP) * button.action.slot() + BUTTON_PX + 8.0;
+        node.left = Val::Px(cell.x * (col + 1) as f32 - from_right);
         node.top = Val::Px(cell.y * row as f32 + 8.0);
     }
 }
@@ -266,46 +261,83 @@ pub fn spawn_dividers(commands: &mut Commands) {
 }
 
 const BUTTON_PX: f32 = 22.0;
+const BUTTON_GAP: f32 = 4.0;
 
-/// A button that duplicates the panel it belongs to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PanelAction {
+    Duplicate,
+    Close,
+}
+
+impl PanelAction {
+    /// Buttons are laid out right to left from the panel's top corner.
+    fn slot(self) -> f32 {
+        match self {
+            PanelAction::Close => 0.0,
+            PanelAction::Duplicate => 1.0,
+        }
+    }
+
+    fn glyph(self) -> &'static str {
+        match self {
+            PanelAction::Duplicate => "+",
+            PanelAction::Close => "x",
+        }
+    }
+}
+
+/// A button in a panel's corner.
 #[derive(Component)]
 pub struct PanelButton {
     pub panel: Entity,
+    pub action: PanelAction,
 }
 
-/// Give every panel a duplicate button, including panels added at runtime.
+/// Keep one button per action on every panel, and drop the buttons of panels
+/// that have gone away.
 pub fn sync_panel_buttons(
     mut commands: Commands,
     panels: Query<Entity, With<Panel>>,
-    buttons: Query<&PanelButton>,
+    buttons: Query<(Entity, &PanelButton)>,
 ) {
-    for panel in &panels {
-        if buttons.iter().any(|b| b.panel == panel) {
-            continue;
+    for (entity, button) in &buttons {
+        if panels.get(button.panel).is_err() {
+            commands.entity(entity).despawn();
         }
-        commands
-            .spawn((
-                Button,
-                Node {
-                    position_type: PositionType::Absolute,
-                    width: Val::Px(BUTTON_PX),
-                    height: Val::Px(BUTTON_PX),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    border_radius: BorderRadius::all(Val::Px(4.0)),
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(0.18, 0.20, 0.26, 0.85)),
-                PanelButton { panel },
-            ))
-            .with_child((
-                Text::new("+"),
-                TextFont {
-                    font_size: bevy::text::FontSize::Px(15.0),
-                    ..default()
-                },
-                TextColor(Color::srgb(0.85, 0.9, 0.95)),
-            ));
+    }
+
+    for panel in &panels {
+        for action in [PanelAction::Duplicate, PanelAction::Close] {
+            if buttons
+                .iter()
+                .any(|(_, b)| b.panel == panel && b.action == action)
+            {
+                continue;
+            }
+            commands
+                .spawn((
+                    Button,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        width: Val::Px(BUTTON_PX),
+                        height: Val::Px(BUTTON_PX),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.18, 0.20, 0.26, 0.85)),
+                    PanelButton { panel, action },
+                ))
+                .with_child((
+                    Text::new(action.glyph()),
+                    TextFont {
+                        font_size: bevy::text::FontSize::Px(15.0),
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.85, 0.9, 0.95)),
+                ));
+        }
     }
 }
 
@@ -322,7 +354,10 @@ pub fn duplicate_panel(
 ) {
     let count = panels.iter().count();
     for (interaction, button) in &pressed {
-        if *interaction != Interaction::Pressed || count >= MAX_PANELS {
+        if *interaction != Interaction::Pressed
+            || button.action != PanelAction::Duplicate
+            || count >= MAX_PANELS
+        {
             continue;
         }
         let Ok((shows, transform, projection, limits)) = panels.get(button.panel) else {
@@ -348,17 +383,93 @@ pub fn duplicate_panel(
     }
 }
 
-/// Highlight the duplicate button under the pointer.
-pub fn highlight_panel_buttons(
-    mut buttons: Query<
-        (&Interaction, &mut BackgroundColor),
-        (Changed<Interaction>, With<PanelButton>),
-    >,
+/// Close a panel when its button is pressed, and close the gap it leaves.
+///
+/// Cell assignment is by index, so the remaining panels are renumbered to stay
+/// contiguous — otherwise the grid would keep a hole and the cursor would map
+/// to a panel that is no longer there. Camera order follows the index, and the
+/// panel that ends up first takes over clearing the window.
+pub fn close_panel(
+    mut commands: Commands,
+    pressed: Query<(&Interaction, &PanelButton), Changed<Interaction>>,
+    mut panels: Query<(Entity, &mut Panel, &mut Camera)>,
 ) {
-    for (interaction, mut colour) in &mut buttons {
+    let closing: Vec<Entity> = pressed
+        .iter()
+        .filter(|(interaction, button)| {
+            **interaction == Interaction::Pressed && button.action == PanelAction::Close
+        })
+        .map(|(_, button)| button.panel)
+        .collect();
+    if closing.is_empty() {
+        return;
+    }
+
+    let existing: Vec<(Entity, usize)> = panels
+        .iter()
+        .map(|(entity, panel, _)| (entity, panel.index))
+        .collect();
+    let remaining = renumber(&existing, &closing);
+    // Never close the last frame: an empty window offers no way back.
+    if remaining.is_empty() {
+        return;
+    }
+
+    for entity in closing {
+        commands.entity(entity).despawn();
+    }
+
+    for (position, entity) in remaining.into_iter().enumerate() {
+        let Ok((_, mut panel, mut camera)) = panels.get_mut(entity) else {
+            continue;
+        };
+        panel.index = position;
+        camera.order = position as isize;
+        camera.clear_color = clear_color_for(position);
+    }
+}
+
+/// The panels left after closing, in the order they should occupy cells.
+///
+/// Returns empty when everything would be closed, which the caller treats as a
+/// refusal rather than emptying the window.
+fn renumber(existing: &[(Entity, usize)], closing: &[Entity]) -> Vec<Entity> {
+    if existing.iter().all(|(entity, _)| closing.contains(entity)) {
+        return Vec::new();
+    }
+    let mut remaining: Vec<(Entity, usize)> = existing
+        .iter()
+        .copied()
+        .filter(|(entity, _)| !closing.contains(entity))
+        .collect();
+    // Keep the surviving panels in their existing order so closing one shuffles
+    // the rest along rather than rearranging the whole grid.
+    remaining.sort_by_key(|(_, index)| *index);
+    remaining.into_iter().map(|(entity, _)| entity).collect()
+}
+
+/// Only the first camera clears the window; a later clear would wipe the panels
+/// already drawn.
+fn clear_color_for(index: usize) -> ClearColorConfig {
+    if index == 0 {
+        ClearColorConfig::Custom(Color::srgb(0.04, 0.04, 0.06))
+    } else {
+        ClearColorConfig::None
+    }
+}
+
+/// Highlight the button under the pointer, warning on the destructive one.
+pub fn highlight_panel_buttons(
+    mut buttons: Query<(&Interaction, &PanelButton, &mut BackgroundColor), Changed<Interaction>>,
+) {
+    for (interaction, button, mut colour) in &mut buttons {
+        let active = match button.action {
+            PanelAction::Duplicate => Color::srgba(0.35, 0.55, 0.85, 0.95),
+            PanelAction::Close => Color::srgba(0.80, 0.30, 0.30, 0.95),
+        };
         colour.0 = match interaction {
-            Interaction::Pressed => Color::srgba(0.35, 0.55, 0.85, 0.95),
-            Interaction::Hovered => Color::srgba(0.28, 0.31, 0.40, 0.95),
+            Interaction::Pressed => active,
+            Interaction::Hovered => active.with_alpha(0.7),
             Interaction::None => Color::srgba(0.18, 0.20, 0.26, 0.85),
         };
     }
@@ -562,6 +673,66 @@ mod tests {
         // fall back to a panel that exists.
         let window = Vec2::new(800.0, 600.0);
         assert_eq!(panel_under_cursor(Vec2::new(700.0, 500.0), window, 3), 2);
+    }
+
+    fn panels(count: usize) -> Vec<(Entity, usize)> {
+        (0..count)
+            .map(|i| (Entity::from_raw_u32(i as u32 + 1).unwrap(), i))
+            .collect()
+    }
+
+    #[test]
+    fn closing_a_panel_closes_the_gap_it_leaves() {
+        let all = panels(4);
+        // Close the second of four.
+        let left = renumber(&all, &[all[1].0]);
+        assert_eq!(left, vec![all[0].0, all[2].0, all[3].0]);
+    }
+
+    #[test]
+    fn the_surviving_panels_keep_their_relative_order() {
+        let all = panels(5);
+        let left = renumber(&all, &[all[0].0]);
+        assert_eq!(left, vec![all[1].0, all[2].0, all[3].0, all[4].0]);
+    }
+
+    #[test]
+    fn renumbering_is_independent_of_query_order() {
+        // ECS iteration order is not the cell order, so the result has to come
+        // from the recorded indices rather than from how panels are visited.
+        let all = panels(4);
+        let shuffled = vec![all[2], all[0], all[3], all[1]];
+        assert_eq!(renumber(&shuffled, &[]), renumber(&all, &[]));
+    }
+
+    #[test]
+    fn the_last_panel_cannot_be_closed() {
+        let all = panels(1);
+        assert!(renumber(&all, &[all[0].0]).is_empty());
+
+        // Nor can every panel be closed at once.
+        let all = panels(3);
+        let everything: Vec<Entity> = all.iter().map(|(e, _)| *e).collect();
+        assert!(renumber(&all, &everything).is_empty());
+    }
+
+    #[test]
+    fn only_the_first_cell_clears_the_window() {
+        // A second clear would wipe the panels already drawn beneath it.
+        assert!(matches!(clear_color_for(0), ClearColorConfig::Custom(_)));
+        for index in 1..MAX_PANELS {
+            assert!(matches!(clear_color_for(index), ClearColorConfig::None));
+        }
+    }
+
+    #[test]
+    fn the_buttons_do_not_overlap() {
+        let slots = [PanelAction::Close.slot(), PanelAction::Duplicate.slot()];
+        assert_ne!(slots[0], slots[1]);
+        // Slots are measured in button widths from the right edge, so adjacent
+        // slots must be at least one button plus its gap apart.
+        let spacing = (slots[1] - slots[0]).abs() * (BUTTON_PX + BUTTON_GAP);
+        assert!(spacing >= BUTTON_PX);
     }
 
     #[test]

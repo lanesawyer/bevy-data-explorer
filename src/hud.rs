@@ -17,14 +17,21 @@ pub struct PanelText {
     panel: Entity,
 }
 
-/// Give every panel a status overlay, including panels added at runtime.
+/// Keep one overlay per panel, and drop the overlays of panels that have gone
+/// away.
 pub fn sync_hud(
     mut commands: Commands,
     panels: Query<Entity, With<Panel>>,
-    texts: Query<&PanelText>,
+    texts: Query<(Entity, &PanelText)>,
 ) {
+    for (entity, text) in &texts {
+        if panels.get(text.panel).is_err() {
+            commands.entity(entity).despawn();
+        }
+    }
+
     for panel in &panels {
-        if texts.iter().any(|t| t.panel == panel) {
+        if texts.iter().any(|(_, t)| t.panel == panel) {
             continue;
         }
         commands.spawn((
