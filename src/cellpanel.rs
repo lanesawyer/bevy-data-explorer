@@ -75,7 +75,7 @@ pub fn rebuild_cell_panel(
     mut section: Query<&mut Node, With<CellPanel>>,
     existing: Query<Entity, With<CellPanelContent>>,
     open: Res<OpenSections>,
-    mut shown: Local<Option<(Entity, usize, Vec<bool>, Vec<(u16, u16)>)>>,
+    mut shown: Local<Option<(Entity, usize, Vec<bool>)>>,
 ) {
     let Ok(body) = body.single() else { return };
 
@@ -107,26 +107,10 @@ pub fn rebuild_cell_panel(
         .iter()
         .flat_map(|property| property.values().iter().map(|value| value.included))
         .collect();
-    // Range ends are part of what is drawn, so a drag has to rebuild too. They
-    // are quantised: a rebuild per pixel of drag would be wasted work, and the
-    // histogram cannot show a finer distinction than its buckets anyway.
-    let spans: Vec<(u16, u16)> = properties
-        .properties
-        .iter()
-        .filter_map(|property| property.range())
-        .map(|range| {
-            (
-                (range.fraction_of(range.from) * 200.0) as u16,
-                (range.fraction_of(range.to) * 200.0) as u16,
-            )
-        })
-        .collect();
-    let fingerprint = (
-        entity,
-        properties.colour_by.unwrap_or(usize::MAX),
-        ticks,
-        spans,
-    );
+    // Range ends are deliberately absent: they move continuously while being
+    // dragged, and rebuilding would despawn the handle under the pointer. The
+    // range controls are updated in place instead.
+    let fingerprint = (entity, properties.colour_by.unwrap_or(usize::MAX), ticks);
     if shown.as_ref() == Some(&fingerprint) {
         return;
     }
@@ -356,7 +340,38 @@ pub struct RangeTrack {
 
 /// The readout under a numeric range.
 #[derive(Component, Clone, Default)]
-pub struct RangeReadout;
+pub struct RangeReadout {
+    pub property: usize,
+}
+
+/// The filled span of a numeric range's rail.
+#[derive(Component, Clone, Default)]
+pub struct RangeFill {
+    pub property: usize,
+}
+
+/// One bar of a numeric range's histogram.
+#[derive(Component, Clone, Default)]
+pub struct RangeBar {
+    pub property: usize,
+    pub bucket: usize,
+}
+
+/// Buckets inside the chosen span are drawn lit, the rest dimmed, so the whole
+/// distribution stays visible while part of it is picked.
+fn bar_colour(inside: bool) -> Color {
+    if inside {
+        Color::srgb(0.38, 0.60, 0.90)
+    } else {
+        Color::srgb(0.22, 0.25, 0.31)
+    }
+}
+
+/// Where a handle sits on its rail: a percentage along, and a pixel nudge back
+/// so both ends stay on the rail without depending on its measured width.
+fn handle_placement(fraction: f32) -> (f32, f32) {
+    (fraction * 100.0, -RANGE_THUMB_PX * fraction)
+}
 
 /// A histogram of the data's distribution, with a two-ended control under it.
 ///
@@ -376,16 +391,13 @@ fn spawn_range_control(commands: &mut Commands, property: usize, range: &Numeric
             let height = (*count as f32 / peak as f32).max(0.02) * HISTOGRAM_PX;
             commands
                 .spawn_scene(bsn! {
+                    RangeBar { property: { property }, bucket: { bucket } }
                     Node {
                         flex_grow: { 1.0_f32 },
                         height: { Val::Px(height) },
                         margin: { UiRect::horizontal(Val::Px(0.5)) },
                     }
-                    BackgroundColor({ if inside {
-                        Color::srgb(0.38, 0.60, 0.90)
-                    } else {
-                        Color::srgb(0.22, 0.25, 0.31)
-                    } })
+                    BackgroundColor({ bar_colour(inside) })
                 })
                 .id()
         })
@@ -427,6 +439,7 @@ fn spawn_range_control(commands: &mut Commands, property: usize, range: &Numeric
             }
             BackgroundColor({ Color::srgb(0.20, 0.22, 0.28) })
             Children [(
+                RangeFill { property: { property } }
                 Node {
                     position_type: { PositionType::Absolute },
                     left: { Val::Percent(from * 100.0) },
@@ -451,8 +464,8 @@ fn spawn_range_control(commands: &mut Commands, property: usize, range: &Numeric
                     height: { Val::Px(RANGE_THUMB_PX) },
                     // Placed by percentage with a nudge back, so both ends stay
                     // on the rail without depending on its measured width.
-                    left: { Val::Percent(fraction * 100.0) },
-                    margin: { UiRect::left(Val::Px(-RANGE_THUMB_PX * fraction)) },
+                    left: { Val::Percent(handle_placement(fraction).0) },
+                    margin: { UiRect::left(Val::Px(handle_placement(fraction).1)) },
                     border_radius: { BorderRadius::all(Val::Px(RANGE_THUMB_PX * 0.5)) },
                 }
                 BackgroundColor({ Color::srgb(0.85, 0.89, 0.95) })
@@ -463,7 +476,7 @@ fn spawn_range_control(commands: &mut Commands, property: usize, range: &Numeric
 
     let readout = commands
         .spawn_scene(bsn! {
-            RangeReadout
+            RangeReadout { property: { property } }
             CellPanelContent
             label_dim(format!("{:.2} - {:.2}", range.from, range.to))
             InheritableFont { font_size: { 11.0f32 } }
@@ -494,12 +507,11 @@ pub fn drag_range_handles(
     windows: Query<&Window>,
     hover: Res<HoverMap>,
     handles: Query<&RangeHandle>,
-    tracks: Query<(&ComputedNode, &UiGlobalTransform), With<RangeTrack>>,
-    parents: Query<&ChildOf>,
+    tracks: Query<(&RangeTrack, &ComputedNode, &UiGlobalTransform)>,
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     mut sources: Query<&mut CellProperties>,
-    mut dragging: Local<Option<(Entity, usize, RangeEnd)>>,
+    mut dragging: Local<Option<(usize, RangeEnd)>>,
 ) {
     if !mouse.pressed(MouseButton::Left) {
         *dragging = None;
@@ -507,18 +519,20 @@ pub fn drag_range_handles(
     }
 
     if dragging.is_none() {
-        // Grabbed on the way down, and held until release, so the pointer may
-        // leave the handle without dropping the drag.
+        // Grabbed on the way down and held until release, so the pointer may
+        // leave the handle without dropping the drag. Remembered by which end
+        // of which property it is rather than by entity: the panel may rebuild
+        // mid-drag, and an entity would be left pointing at something despawned.
         let grabbed = hover
             .values()
             .flat_map(|hits| hits.keys())
-            .find_map(|entity| handles.get(*entity).ok().map(|handle| (*entity, handle)));
-        let Some((entity, handle)) = grabbed else {
+            .find_map(|entity| handles.get(*entity).ok());
+        let Some(handle) = grabbed else {
             return;
         };
-        *dragging = Some((entity, handle.property, handle.end));
+        *dragging = Some((handle.property, handle.end));
     }
-    let Some((entity, property, end)) = *dragging else {
+    let Some((property, end)) = *dragging else {
         return;
     };
 
@@ -527,10 +541,9 @@ pub fn drag_range_handles(
         return;
     };
 
-    // The handle's track is the one it hangs from.
-    let Some((node, transform)) = parents
-        .iter_ancestors(entity)
-        .find_map(|ancestor| tracks.get(ancestor).ok())
+    let Some((_, node, transform)) = tracks
+        .iter()
+        .find(|(track, _, _)| track.property == property)
     else {
         return;
     };
@@ -556,5 +569,81 @@ pub fn drag_range_handles(
     {
         let value = range.value_at(fraction);
         range.set_end(end, value);
+    }
+}
+
+/// Keep the range controls matching their property, without respawning them.
+///
+/// A drag moves an end continuously, and rebuilding the panel would despawn
+/// the very handle under the pointer — which stopped a drag dead after the
+/// first step. Everything a range draws is updated in place instead.
+pub fn update_range_controls(
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    sources: Query<&CellProperties>,
+    mut fills: Query<(&RangeFill, &mut Node), (Without<RangeHandle>, Without<RangeBar>)>,
+    mut handles: Query<(&RangeHandle, &mut Node), (Without<RangeFill>, Without<RangeBar>)>,
+    mut bars: Query<(&RangeBar, &mut BackgroundColor), (Without<RangeFill>, Without<RangeHandle>)>,
+    readouts: Query<(Entity, &RangeReadout)>,
+    mut texts: Query<&mut Text>,
+) {
+    let Some(properties) = selected
+        .0
+        .and_then(|panel| panels.get(panel).ok())
+        .and_then(|shows| sources.get(shows.0).ok())
+    else {
+        return;
+    };
+    let range_of = |index: usize| {
+        properties
+            .properties
+            .get(index)
+            .and_then(|property| property.range())
+    };
+
+    for (fill, mut node) in &mut fills {
+        let Some(range) = range_of(fill.property) else {
+            continue;
+        };
+        let from = range.fraction_of(range.from);
+        let to = range.fraction_of(range.to);
+        node.left = Val::Percent(from * 100.0);
+        node.width = Val::Percent((to - from) * 100.0);
+    }
+
+    for (handle, mut node) in &mut handles {
+        let Some(range) = range_of(handle.property) else {
+            continue;
+        };
+        let value = match handle.end {
+            RangeEnd::From => range.from,
+            RangeEnd::To => range.to,
+        };
+        let (percent, nudge) = handle_placement(range.fraction_of(value));
+        node.left = Val::Percent(percent);
+        node.margin.left = Val::Px(nudge);
+    }
+
+    for (bar, mut colour) in &mut bars {
+        let Some(range) = range_of(bar.property) else {
+            continue;
+        };
+        let centre = (bar.bucket as f32 + 0.5) / range.histogram.len().max(1) as f32;
+        let wanted = bar_colour(range.admits(range.value_at(centre)));
+        if colour.0 != wanted {
+            colour.0 = wanted;
+        }
+    }
+
+    for (entity, readout) in &readouts {
+        let Some(range) = range_of(readout.property) else {
+            continue;
+        };
+        if let Ok(mut text) = texts.get_mut(entity) {
+            let wanted = format!("{:.2} - {:.2}", range.from, range.to);
+            if text.0 != wanted {
+                text.0 = wanted;
+            }
+        }
     }
 }

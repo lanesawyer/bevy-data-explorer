@@ -412,6 +412,21 @@ mod tests {
     }
 
     #[test]
+    fn an_end_can_be_dragged_continuously_across_the_range() {
+        // A drag sets the end from where the pointer is, so successive
+        // positions must keep moving it rather than sticking after the first.
+        let mut range = NumericRange::full(0.0, 1.0, vec![1; 8]);
+        let mut last = range.to;
+        for step in (0..=20).rev() {
+            let fraction = step as f32 / 20.0;
+            range.set_end(RangeEnd::To, range.value_at(fraction));
+            assert!(range.to <= last, "the end stopped following the pointer");
+            last = range.to;
+        }
+        assert_eq!(range.to, range.from);
+    }
+
+    #[test]
     fn a_range_maps_between_values_and_fractions() {
         let range = NumericRange::full(10.0, 20.0, vec![1]);
         assert_eq!(range.fraction_of(15.0), 0.5);

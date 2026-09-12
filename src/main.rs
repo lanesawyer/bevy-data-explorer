@@ -273,6 +273,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cellpanel::record_open_sections,
             cellpanel::drag_range_handles,
             cellpanel::rebuild_cell_panel,
+            cellpanel::update_range_controls,
             cellpanel::apply_selection,
             viewconfig::apply_opacity,
             viewconfig::apply_opacity_to_new,
