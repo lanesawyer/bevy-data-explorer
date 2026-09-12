@@ -186,6 +186,13 @@ pub fn rebuild_cell_panel(
             .entity(sub.section)
             .insert((CellPanelContent, PropertySection { property: index }));
 
+        // Clearing sits to the left of the colour control, as it does on the
+        // section's own header. It hides itself when there is nothing to clear.
+        let clear = spawn_header_button(&mut commands, sub.header, "clear");
+        commands
+            .entity(clear)
+            .insert(ClearPropertyButton { property: index });
+
         let button =
             spawn_header_button(&mut commands, sub.header, if colouring { "*" } else { "o" });
         commands

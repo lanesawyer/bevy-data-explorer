@@ -45,7 +45,17 @@ Look for:
 
 Silence here is the pass condition.
 
-## Step 4: Check the startup summary
+## Step 4: Confirm the edit actually landed
+
+A string replace that does not match changes nothing and reports nothing, and
+`cargo fmt` reflows code between reading it and editing it, so a pattern copied
+from an earlier read can quietly stop matching. A clean build then proves only
+that the file still compiles — not that the change is in it.
+
+Assert on the replacement, or grep for the new text afterwards. A feature that
+was never written passes every test you did not write for it.
+
+## Step 5: Check the startup summary
 
 The same run prints what each source opened with. Confirm the level counts,
 point counts and node counts look like the dataset rather than zeros, which is

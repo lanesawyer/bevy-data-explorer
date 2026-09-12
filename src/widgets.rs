@@ -88,6 +88,9 @@ pub fn spawn_accordion(commands: &mut Commands, title: &str, open: bool) -> Acco
                 width: { Val::Percent(100.0) },
                 height: { Val::Px(HEADER_HEIGHT) },
                 align_items: { AlignItems::Center },
+                // Keeps the controls at the end of a header apart.
+                column_gap: { Val::Px(4.0) },
+                padding: { UiRect::right(Val::Px(4.0)) },
                 border_radius: { BorderRadius::all(Val::Px(3.0)) },
                 overflow: { Overflow::clip() },
             }
