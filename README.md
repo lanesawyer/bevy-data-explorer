@@ -38,6 +38,23 @@ toggle; dragging the edge well past the minimum collapses it too, so the edge
 does not jam at the minimum with no way to close it. The title shortens to
 `BDE` when collapsed.
 
+The sidebar holds accordions. They are generic containers — a title, an open
+flag, and whatever children a caller hangs off the body — because which
+sections appear will vary with the dataset. The first is **View
+configuration**, which acts on the *selected* frame: the one outlined in blue,
+which follows whichever frame you last clicked or dragged in. It names the
+dataset and carries a transparency slider.
+
+Transparency is stored per source, so two frames showing different datasets
+fade independently and selecting one loads its own value into the slider rather
+than carrying the previous one across. It is applied by render layer rather
+than by asking each format plugin to implement it, so a new format fades
+without any code written for it — including tiles and octree nodes that stream
+in after the value was set.
+
+The slider's behaviour comes from `bevy_ui_widgets`' headless slider; the
+styling and thumb placement it leaves to the app are ours.
+
 The sidebar does not talk to the grid. It takes a slice off a `FrameArea`,
 which is the only thing frames and their chrome measure against, so none of
 that code knows it exists. Chrome that can overlap the grid — the drag handle

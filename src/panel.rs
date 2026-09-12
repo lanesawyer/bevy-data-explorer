@@ -39,6 +39,17 @@ pub fn grid_for(count: usize) -> (usize, usize) {
     (count.div_ceil(rows), rows)
 }
 
+/// The frame the sidebar's controls act on.
+///
+/// Selection follows the last frame the pointer acted in, so the controls
+/// always describe the view just touched.
+#[derive(Resource, Default)]
+pub struct SelectedPanel(pub Option<Entity>);
+
+/// The outline drawn around the selected frame.
+#[derive(Component, Clone, Default)]
+pub struct SelectionBorder;
+
 /// Marks interactive chrome that swallows pointer input before a frame sees it.
 ///
 /// Needed because chrome can overlap the grid — the sidebar's drag handle
@@ -295,6 +306,53 @@ pub fn spawn_ui_camera(commands: &mut Commands) {
 
 /// Spawn the full set of rules the grid can ever need, and let
 /// [`update_viewports`] show only the ones the current layout uses.
+/// Spawn the outline that marks the selected frame.
+pub fn spawn_selection_border(commands: &mut Commands) {
+    commands.spawn_scene(bsn! {
+        SelectionBorder
+        Node {
+            position_type: { PositionType::Absolute },
+            border: { UiRect::all(Val::Px(SELECTION_PX)) },
+            display: { Display::None },
+        }
+        template_value(BorderColor::all(SELECTION_COLOUR))
+    });
+}
+
+/// Keep the outline over the selected frame, and pick one if none is selected.
+pub fn update_selection_border(
+    mut selected: ResMut<SelectedPanel>,
+    area: Res<FrameArea>,
+    panels: Query<(Entity, &Panel)>,
+    mut border: Query<&mut Node, With<SelectionBorder>>,
+) {
+    // A closed frame leaves the selection dangling, and there is always a frame
+    // to fall back to because the last one cannot be closed.
+    let still_there = selected.0.is_some_and(|entity| panels.get(entity).is_ok());
+    if !still_there {
+        selected.0 = panels
+            .iter()
+            .min_by_key(|(_, panel)| panel.index)
+            .map(|(entity, _)| entity);
+    }
+
+    let (columns, rows) = grid_for(panels.iter().count());
+    let cell = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32);
+
+    for mut node in &mut border {
+        let Some(panel) = selected.0.and_then(|e| panels.get(e).ok()) else {
+            node.display = Display::None;
+            continue;
+        };
+        let (col, row) = (panel.1.index % columns, panel.1.index / columns);
+        node.display = Display::Flex;
+        node.left = Val::Px(area.origin.x + cell.x * col as f32);
+        node.top = Val::Px(area.origin.y + cell.y * row as f32);
+        node.width = Val::Px(cell.x);
+        node.height = Val::Px(cell.y);
+    }
+}
+
 pub fn spawn_dividers(commands: &mut Commands) {
     let mut rule = |axis: Axis, ordinal: usize| {
         commands.spawn_scene(bsn! {
@@ -313,6 +371,9 @@ pub fn spawn_dividers(commands: &mut Commands) {
         rule(Axis::Horizontal, ordinal);
     }
 }
+
+const SELECTION_PX: f32 = 2.0;
+const SELECTION_COLOUR: Color = Color::srgb(0.38, 0.60, 0.90);
 
 const BUTTON_PX: f32 = 22.0;
 const BUTTON_GAP: f32 = 4.0;
@@ -591,6 +652,8 @@ pub fn panel_controls(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     ui: Query<&Interaction, With<BlocksFrameInput>>,
+    panel_entities: Query<(Entity, &Panel)>,
+    mut selected: ResMut<SelectedPanel>,
     mut drag: Local<Option<Drag>>,
 ) {
     let Ok(window) = windows.single() else { return };
@@ -628,10 +691,15 @@ pub fn panel_controls(
     } else if drag.is_none()
         && (buttons.just_pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Middle))
     {
+        let index = panel_under_cursor(local, window_size, count);
         *drag = Some(Drag {
-            panel: panel_under_cursor(local, window_size, count),
+            panel: index,
             last: cursor,
         });
+        selected.0 = panel_entities
+            .iter()
+            .find(|(_, panel)| panel.index == index)
+            .map(|(entity, _)| entity);
     }
 
     let active = active_panel(*drag, local, window_size, count);

@@ -97,6 +97,13 @@ pub struct SidebarToggle;
 #[derive(Component, Clone, Default)]
 pub struct SidebarHandle;
 
+/// The column that accordions are added to.
+///
+/// Sections are attached here rather than to the root so that the sidebar owns
+/// its own chrome and callers only ever append content.
+#[derive(Component, Clone, Default)]
+pub struct SidebarContent;
+
 pub fn spawn_sidebar(commands: &mut Commands) {
     commands.spawn_scene(bsn! {
         SidebarRoot
@@ -134,6 +141,15 @@ pub fn spawn_sidebar(commands: &mut Commands) {
                     TextFont { font_size: { bevy::text::FontSize::Px(14.0) } }
                     TextColor({ Color::srgb(0.85, 0.9, 0.95) })
                 )]
+            ),
+            (
+                SidebarContent
+                Node {
+                    flex_direction: { FlexDirection::Column },
+                    width: { Val::Percent(100.0) },
+                    row_gap: { Val::Px(6.0) },
+                    overflow: { Overflow::clip() },
+                }
             ),
         ]
     });
@@ -229,6 +245,14 @@ pub fn update_sidebar(
     sidebar: Res<Sidebar>,
     mut roots: Query<&mut Node, (With<SidebarRoot>, Without<SidebarHandle>)>,
     mut handles: Query<&mut Node, (With<SidebarHandle>, Without<SidebarRoot>)>,
+    mut content: Query<
+        &mut Node,
+        (
+            With<SidebarContent>,
+            Without<SidebarRoot>,
+            Without<SidebarHandle>,
+        ),
+    >,
     titles: Query<Entity, With<SidebarTitle>>,
     toggles: Query<&Children, With<SidebarToggle>>,
     mut texts: Query<&mut Text>,
@@ -236,6 +260,14 @@ pub fn update_sidebar(
     let width = sidebar.current_width();
     for mut node in &mut roots {
         node.width = Val::Px(width);
+    }
+    for mut node in &mut content {
+        // Collapsed, the ribbon is too narrow to lay sections out in.
+        node.display = if sidebar.collapsed {
+            Display::None
+        } else {
+            Display::Flex
+        };
     }
     for mut node in &mut handles {
         // Straddles the edge so it can be grabbed from either side.

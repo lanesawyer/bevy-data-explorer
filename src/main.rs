@@ -16,6 +16,8 @@ mod sidebar;
 mod slices;
 mod source;
 mod tiles;
+mod viewconfig;
+mod widgets;
 
 use std::sync::Arc;
 
@@ -174,7 +176,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 task_pool_options: task_pool_options(),
             }),
     )
+    // SliderPlugin comes in with DefaultPlugins; it reports value changes but
+    // leaves writing them back to the app.
+    .add_observer(bevy_ui_widgets::slider_self_update)
     .init_resource::<panel::FrameArea>()
+    .init_resource::<panel::SelectedPanel>()
     .init_resource::<sidebar::Sidebar>()
     .add_systems(
         Update,
@@ -195,6 +201,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             hud::position_hud,
         )
             .chain(),
+    )
+    // The sidebar's controls read the selection and write through to the
+    // source, so they run after the frames have settled for the frame.
+    .add_systems(
+        Update,
+        (
+            panel::update_selection_border,
+            widgets::toggle_accordions,
+            widgets::update_accordions,
+            widgets::update_sliders,
+            viewconfig::sync_opacity_slider,
+            viewconfig::apply_opacity,
+            viewconfig::apply_opacity_to_new,
+        )
+            .chain()
+            .after(panel::update_viewports),
     )
     // The overlay reads whatever each source reported this frame, so it runs
     // after every source plugin has had its turn.
@@ -220,7 +242,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    app.add_systems(Startup, open_frames);
+    app.add_systems(
+        Startup,
+        (open_frames, viewconfig::spawn_view_config).chain(),
+    );
 
     app.run();
     Ok(())
@@ -263,4 +288,5 @@ fn open_frames(
     panel::spawn_ui_camera(&mut commands);
     panel::spawn_dividers(&mut commands);
     sidebar::spawn_sidebar(&mut commands);
+    panel::spawn_selection_border(&mut commands);
 }
