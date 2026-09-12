@@ -97,6 +97,13 @@ pub struct SidebarToggle;
 #[derive(Component, Clone, Default)]
 pub struct SidebarHandle;
 
+/// The build's version, taken from the manifest so the two cannot disagree.
+const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
+
+/// The version shown in the footer, hidden when the dock is a ribbon.
+#[derive(Component, Clone, Default)]
+pub struct SidebarVersion;
+
 /// The column that accordions are added to.
 ///
 /// Sections are attached here rather than to the root so that the sidebar owns
@@ -134,26 +141,41 @@ pub fn spawn_sidebar(commands: &mut Commands) {
                 }
             ),
             (
-                SidebarToggle
-                Button
-                BlocksFrameInput
+                // The footer sits on the bottom edge: an automatic top margin
+                // eats the free space above it, so it stays there whether the
+                // sections are showing or the dock is collapsed to its ribbon.
                 Node {
-                    width: { Val::Px(TOGGLE_PX) },
-                    height: { Val::Px(TOGGLE_PX) },
-                    justify_content: { JustifyContent::Center },
+                    width: { Val::Percent(100.0) },
                     align_items: { AlignItems::Center },
-                    border_radius: { BorderRadius::all(Val::Px(4.0)) },
-                    // An automatic top margin eats the free space above it, so
-                    // the toggle sits at the bottom whether the sections are
-                    // showing or the dock is collapsed to its ribbon.
+                    justify_content: { JustifyContent::SpaceBetween },
                     margin: { UiRect::top(Val::Auto) },
                 }
-                BackgroundColor({ Color::srgba(0.18, 0.20, 0.26, 0.85) })
-                Children [(
-                    Text({ "<".to_string() })
-                    TextFont { font_size: { bevy::text::FontSize::Px(14.0) } }
-                    TextColor({ Color::srgb(0.85, 0.9, 0.95) })
-                )]
+                Children [
+                    (
+                        SidebarToggle
+                        Button
+                        BlocksFrameInput
+                        Node {
+                            width: { Val::Px(TOGGLE_PX) },
+                            height: { Val::Px(TOGGLE_PX) },
+                            justify_content: { JustifyContent::Center },
+                            align_items: { AlignItems::Center },
+                            border_radius: { BorderRadius::all(Val::Px(4.0)) },
+                        }
+                        BackgroundColor({ Color::srgba(0.18, 0.20, 0.26, 0.85) })
+                        Children [(
+                            Text({ "<".to_string() })
+                            TextFont { font_size: { bevy::text::FontSize::Px(14.0) } }
+                            TextColor({ Color::srgb(0.85, 0.9, 0.95) })
+                        )]
+                    ),
+                    (
+                        SidebarVersion
+                        Text({ VERSION.to_string() })
+                        TextFont { font_size: { bevy::text::FontSize::Px(13.0) } }
+                        TextColor({ Color::srgb(0.58, 0.64, 0.73) })
+                    ),
+                ]
             ),
         ]
     });
@@ -255,6 +277,16 @@ pub fn update_sidebar(
             With<SidebarContent>,
             Without<SidebarRoot>,
             Without<SidebarHandle>,
+            Without<SidebarVersion>,
+        ),
+    >,
+    mut version: Query<
+        &mut Node,
+        (
+            With<SidebarVersion>,
+            Without<SidebarRoot>,
+            Without<SidebarHandle>,
+            Without<SidebarContent>,
         ),
     >,
     titles: Query<Entity, With<SidebarTitle>>,
@@ -267,6 +299,14 @@ pub fn update_sidebar(
     }
     for mut node in &mut content {
         // Collapsed, the ribbon is too narrow to lay sections out in.
+        node.display = if sidebar.collapsed {
+            Display::None
+        } else {
+            Display::Flex
+        };
+    }
+    for mut node in &mut version {
+        // The ribbon has room for the toggle and nothing beside it.
         node.display = if sidebar.collapsed {
             Display::None
         } else {
@@ -300,6 +340,15 @@ pub fn update_sidebar(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_version_comes_from_the_manifest() {
+        // Read at compile time from CARGO_PKG_VERSION, so a release cannot
+        // leave the footer claiming an older build.
+        assert_eq!(VERSION, format!("v{}", env!("CARGO_PKG_VERSION")));
+        assert!(VERSION.starts_with('v'));
+        assert_eq!(VERSION.matches('.').count(), 2, "expected v#.#.#");
+    }
 
     #[test]
     fn collapsing_keeps_the_expanded_width_for_reopening() {
