@@ -12,6 +12,9 @@
 use bevy::prelude::*;
 use bevy::ui::Interaction;
 use bevy::window::{CursorIcon, PrimaryWindow, SystemCursorIcon};
+use bevy_feathers::controls::FeathersToolButton;
+use bevy_feathers::display::label;
+use bevy_ui_widgets::Activate;
 
 use crate::panel::{BlocksFrameInput, FrameArea};
 
@@ -26,7 +29,6 @@ const MAX_FRACTION: f32 = 0.5;
 const COLLAPSE_BELOW_PX: f32 = 120.0;
 
 const HANDLE_PX: f32 = 6.0;
-const TOGGLE_PX: f32 = 24.0;
 
 const FULL_TITLE: &str = "Bevy Data Explorer";
 const SHORT_TITLE: &str = "BDE";
@@ -152,22 +154,11 @@ pub fn spawn_sidebar(commands: &mut Commands) {
                 }
                 Children [
                     (
-                        SidebarToggle
-                        Button
-                        BlocksFrameInput
-                        Node {
-                            width: { Val::Px(TOGGLE_PX) },
-                            height: { Val::Px(TOGGLE_PX) },
-                            justify_content: { JustifyContent::Center },
-                            align_items: { AlignItems::Center },
-                            border_radius: { BorderRadius::all(Val::Px(4.0)) },
+                        @FeathersToolButton {
+                            @caption: { bsn_list![label("<")] }
                         }
-                        BackgroundColor({ Color::srgba(0.18, 0.20, 0.26, 0.85) })
-                        Children [(
-                            Text({ "<".to_string() })
-                            TextFont { font_size: { bevy::text::FontSize::Px(14.0) } }
-                            TextColor({ Color::srgb(0.85, 0.9, 0.95) })
-                        )]
+                        SidebarToggle
+                        BlocksFrameInput
                     ),
                     (
                         SidebarVersion
@@ -258,10 +249,11 @@ pub fn sidebar_cursor(
 }
 
 pub fn toggle_sidebar(
+    activate: On<Activate>,
+    toggles: Query<(), With<SidebarToggle>>,
     mut sidebar: ResMut<Sidebar>,
-    pressed: Query<&Interaction, (Changed<Interaction>, With<SidebarToggle>)>,
 ) {
-    if pressed.iter().any(|i| *i == Interaction::Pressed) {
+    if toggles.get(activate.entity).is_ok() {
         sidebar.collapsed = !sidebar.collapsed;
     }
 }

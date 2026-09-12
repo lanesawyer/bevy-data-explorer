@@ -18,6 +18,12 @@ Which button is it?
   interaction never fires. Use `app.add_observer(...)` on `On<Activate>` and
   read `activate.entity`.
 
+Keep every button on one of the two, not a mix. This app uses Feathers
+throughout, so presses arrive as `Activate` and hover styling comes from the
+theme. The only plain `Button`s left are drag targets — resize handles and
+slider thumbs — which want `Interaction` to detect a press but are not buttons
+to look at.
+
 If it fired once and then stopped, or flickered: `Interaction` reads as
 `Pressed` on *every frame* the button is held. Toggling on the value rather
 than the transition flips state for the length of the click. Filter with
@@ -104,6 +110,12 @@ Check the driving system's query for a component the widget's scene does not
 insert. Feathers' slider omits `SliderPrecision`, while the system that moves
 the fill and rewrites the text requires it — so the query matches nothing and
 the widget keeps its placeholder while the value underneath updates normally.
+
+## A Feathers control looks unresponsive but works
+
+Its hover is a five percent lift in lightness, which is easy to miss over busy
+imagery. Widen `BUTTON_BG_HOVER` and friends on the `UiTheme` rather than
+styling controls one at a time, so everything moves together.
 
 ## A glyph renders as a question mark
 

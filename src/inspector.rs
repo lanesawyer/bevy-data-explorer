@@ -11,8 +11,10 @@ use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::ui::Interaction;
 use bevy::window::{CursorIcon, PrimaryWindow, SystemCursorIcon};
+use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
+use bevy_ui_widgets::Activate;
 
 use crate::datasource::{DataSource, SourceStatus};
 use crate::panel::{BlocksFrameInput, FrameArea, PanelRequest, SelectedPanel, ShowsSource};
@@ -77,9 +79,6 @@ pub struct InspectorClose;
 pub fn spawn_inspector(commands: &mut Commands) {
     commands.spawn_scene(bsn! {
         InspectorRoot
-        // Nothing in the body is a button, so without an interaction of its own
-        // the dock would not register as chrome.
-        Interaction
         BlocksFrameInput
         Node {
             position_type: { PositionType::Absolute },
@@ -106,18 +105,11 @@ pub fn spawn_inspector(commands: &mut Commands) {
                         InheritableFont { font_size: { 15.0f32 } }
                     ),
                     (
-                        InspectorClose
-                        Button
-                        BlocksFrameInput
-                        Node {
-                            width: { Val::Px(22.0) },
-                            height: { Val::Px(22.0) },
-                            justify_content: { JustifyContent::Center },
-                            align_items: { AlignItems::Center },
-                            border_radius: { BorderRadius::all(Val::Px(4.0)) },
+                        @FeathersToolButton {
+                            @caption: { bsn_list![label("x")] }
                         }
-                        BackgroundColor({ Color::srgba(0.18, 0.20, 0.26, 0.85) })
-                        Children [label("x")]
+                        InspectorClose
+                        BlocksFrameInput
                     ),
                 ]
             ),
@@ -158,10 +150,11 @@ pub fn open_on_request(
 }
 
 pub fn close_inspector(
+    activate: On<Activate>,
+    buttons: Query<(), With<InspectorClose>>,
     mut inspector: ResMut<Inspector>,
-    pressed: Query<&Interaction, (Changed<Interaction>, With<InspectorClose>)>,
 ) {
-    if pressed.iter().any(|i| *i == Interaction::Pressed) {
+    if buttons.get(activate.entity).is_ok() {
         inspector.open = false;
     }
 }

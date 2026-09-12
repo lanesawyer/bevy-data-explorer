@@ -6,12 +6,12 @@
 
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
-use bevy::ui::Interaction;
-use bevy_feathers::controls::{FeathersSlider, FeathersToolButton};
+use bevy_feathers::controls::{ButtonVariant, FeathersButton, FeathersSlider, FeathersToolButton};
 use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::ThemeBackgroundColor;
 use bevy_feathers::tokens;
+use bevy_ui_widgets::Activate;
 use bevy_ui_widgets::ScrollArea;
 use bevy_ui_widgets::SliderPrecision;
 
@@ -98,13 +98,18 @@ pub fn spawn_accordion(commands: &mut Commands, title: &str, open: bool) -> Acco
 
     let toggle = commands
         .spawn_scene(bsn! {
-            Button
+            // The plain variant, so a full-width section header picks up hover
+            // and press feedback without taking on button chrome.
+            @FeathersButton {
+                @variant: { ButtonVariant::Plain }
+            }
             BlocksFrameInput
             AccordionHeader { accordion: { accordion } }
             Node {
                 flex_grow: { 1.0_f32 },
                 height: { Val::Percent(100.0) },
                 align_items: { AlignItems::Center },
+                justify_content: { JustifyContent::Start },
                 column_gap: { Val::Px(6.0) },
                 padding: { UiRect::horizontal(Val::Px(6.0)) },
             }
@@ -221,10 +226,6 @@ pub fn spawn_menu(commands: &mut Commands, parent: Entity) -> Entity {
             Menu
             // A menu long enough to run off the screen scrolls instead.
             ScrollArea
-            // Nothing here is a button, so without an `Interaction` of its own
-            // the menu would not register as chrome and a scroll over it would
-            // zoom the frame behind.
-            Interaction
             Node {
                 position_type: { PositionType::Absolute },
                 display: { Display::None },
@@ -244,16 +245,11 @@ pub fn spawn_menu(commands: &mut Commands, parent: Entity) -> Entity {
 
     let button = commands
         .spawn_scene(bsn! {
-            Button
+            @FeathersToolButton {
+                @caption: { bsn_list![label("...")] }
+            }
             BlocksFrameInput
             MenuButton { menu: { menu } }
-            Node {
-                width: { Val::Px(HEADER_HEIGHT) },
-                height: { Val::Percent(100.0) },
-                justify_content: { JustifyContent::Center },
-                align_items: { AlignItems::Center },
-            }
-            Children [label("...")]
         })
         .id();
 
@@ -263,28 +259,27 @@ pub fn spawn_menu(commands: &mut Commands, parent: Entity) -> Entity {
 }
 
 /// Open and close menus, and dismiss them when something else is clicked.
-pub fn toggle_menus(
+/// Open the menu whose button was pressed, and close any other.
+pub fn on_menu_button(
+    activate: On<Activate>,
+    buttons: Query<&MenuButton>,
+    mut menus: Query<(Entity, &mut Menu)>,
+) {
+    let Ok(button) = buttons.get(activate.entity) else {
+        return;
+    };
+    for (entity, mut menu) in &mut menus {
+        menu.open = entity == button.menu && !menu.open;
+    }
+}
+
+/// Dismiss an open menu when something outside it is pressed.
+pub fn dismiss_menus(
     mouse: Res<ButtonInput<MouseButton>>,
     hover: Res<HoverMap>,
     parents: Query<&ChildOf>,
-    buttons: Query<(&Interaction, &MenuButton), Changed<Interaction>>,
     mut menus: Query<(Entity, &MenuAnchor, &mut Menu)>,
 ) {
-    // Only the transition into `Pressed` counts. `Interaction` reads as pressed
-    // for every frame the button is held, so toggling on the value itself
-    // flipped the menu open and shut for the length of a single click.
-    let clicked = buttons
-        .iter()
-        .find(|(interaction, _)| **interaction == Interaction::Pressed)
-        .map(|(_, button)| button.menu);
-
-    if let Some(target) = clicked {
-        for (entity, _, mut menu) in &mut menus {
-            menu.open = entity == target && !menu.open;
-        }
-        return;
-    }
-
     if !mouse.just_pressed(MouseButton::Left) {
         return;
     }
@@ -366,16 +361,15 @@ fn body_display(open: bool) -> Display {
 
 /// Toggle a section when its header is clicked.
 pub fn toggle_accordions(
-    headers: Query<(&Interaction, &AccordionHeader), Changed<Interaction>>,
+    activate: On<Activate>,
+    headers: Query<&AccordionHeader>,
     mut accordions: Query<&mut Accordion>,
 ) {
-    for (interaction, header) in &headers {
-        if *interaction != Interaction::Pressed {
-            continue;
-        }
-        if let Ok(mut accordion) = accordions.get_mut(header.accordion) {
-            accordion.open = !accordion.open;
-        }
+    let Ok(header) = headers.get(activate.entity) else {
+        return;
+    };
+    if let Ok(mut accordion) = accordions.get_mut(header.accordion) {
+        accordion.open = !accordion.open;
     }
 }
 

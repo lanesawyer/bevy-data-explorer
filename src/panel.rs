@@ -17,7 +17,10 @@ use bevy::camera::{ClearColorConfig, Viewport};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::picking::Pickable;
 use bevy::prelude::*;
-use bevy::ui::{Interaction, IsDefaultUiCamera};
+use bevy::ui::IsDefaultUiCamera;
+use bevy_feathers::controls::{ButtonVariant, FeathersToolButton};
+use bevy_feathers::display::label;
+use bevy_ui_widgets::Activate;
 
 use crate::datasource::DataSource;
 
@@ -423,7 +426,6 @@ const SELECTION_Z: i32 = 1;
 
 const BUTTON_PX: f32 = 22.0;
 const BUTTON_GAP: f32 = 4.0;
-const IDLE_BUTTON: Color = Color::srgba(0.18, 0.20, 0.26, 0.85);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PanelAction {
@@ -473,22 +475,10 @@ impl Default for PanelButton {
 
 /// The chrome every corner button shares.
 ///
-/// Split out as a scene so the two buttons differ only by the patch layered on
-/// top of it, rather than by two near-identical spawn calls.
-fn button_chrome() -> impl Scene {
-    bsn! {
-        Button
-        Node {
-            position_type: { PositionType::Absolute },
-            width: { Val::Px(BUTTON_PX) },
-            height: { Val::Px(BUTTON_PX) },
-            justify_content: { JustifyContent::Center },
-            align_items: { AlignItems::Center },
-            border_radius: { BorderRadius::all(Val::Px(4.0)) },
-        }
-        BackgroundColor({ IDLE_BUTTON })
-        BlocksFrameInput
-    }
+/// Frame controls sit over imagery, so they take the plain variant and let the
+/// header's own panel supply the contrast.
+fn variant_for(_action: PanelAction) -> ButtonVariant {
+    ButtonVariant::Normal
 }
 
 /// Keep one button per action on every panel, and drop the buttons of panels
@@ -512,14 +502,15 @@ pub fn sync_panel_buttons(
             {
                 continue;
             }
+            let glyph = action.glyph().to_string();
             commands.spawn_scene(bsn! {
-                button_chrome()
+                @FeathersToolButton {
+                    @caption: { bsn_list![label(glyph)] },
+                    @variant: { variant_for(action) }
+                }
+                BlocksFrameInput
+                Node { position_type: { PositionType::Absolute } }
                 PanelButton { panel: { panel }, action: { action } }
-                Children [(
-                    Text({ action.glyph().to_string() })
-                    TextFont { font_size: { bevy::text::FontSize::Px(15.0) } }
-                    TextColor({ Color::srgb(0.85, 0.9, 0.95) })
-                )]
             });
         }
     }
@@ -531,18 +522,17 @@ pub fn sync_panel_buttons(
 /// fitted defaults, so a duplicate starts as the same view and can then be
 /// driven somewhere else.
 pub fn panel_buttons(
+    activate: On<Activate>,
+    buttons: Query<&PanelButton>,
     mut requests: MessageWriter<PanelRequest>,
-    pressed: Query<(&Interaction, &PanelButton), Changed<Interaction>>,
 ) {
-    for (interaction, button) in &pressed {
-        if *interaction != Interaction::Pressed {
-            continue;
-        }
-        requests.write(match button.action {
-            PanelAction::Duplicate => PanelRequest::Duplicate(button.panel),
-            PanelAction::Close => PanelRequest::Close(button.panel),
-        });
-    }
+    let Ok(button) = buttons.get(activate.entity) else {
+        return;
+    };
+    requests.write(match button.action {
+        PanelAction::Duplicate => PanelRequest::Duplicate(button.panel),
+        PanelAction::Close => PanelRequest::Close(button.panel),
+    });
 }
 
 /// Apply requested changes to the set of frames.
@@ -757,23 +747,6 @@ fn clear_color_for(index: usize) -> ClearColorConfig {
     }
 }
 
-/// Highlight the button under the pointer, warning on the destructive one.
-pub fn highlight_panel_buttons(
-    mut buttons: Query<(&Interaction, &PanelButton, &mut BackgroundColor), Changed<Interaction>>,
-) {
-    for (interaction, button, mut colour) in &mut buttons {
-        let active = match button.action {
-            PanelAction::Duplicate => Color::srgba(0.35, 0.55, 0.85, 0.95),
-            PanelAction::Close => Color::srgba(0.80, 0.30, 0.30, 0.95),
-        };
-        colour.0 = match interaction {
-            Interaction::Pressed => active,
-            Interaction::Hovered => active.with_alpha(0.7),
-            Interaction::None => IDLE_BUTTON,
-        };
-    }
-}
-
 /// Whether a pointer position, measured from the grid's origin, is over the
 /// grid at all.
 ///
@@ -828,7 +801,9 @@ pub fn panel_controls(
     area: Res<FrameArea>,
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
-    ui: Query<&Interaction, With<BlocksFrameInput>>,
+    hover: Res<bevy::picking::hover::HoverMap>,
+    chrome: Query<(), With<BlocksFrameInput>>,
+    parents: Query<&ChildOf>,
     panel_entities: Query<(Entity, &Panel)>,
     mut selected: ResMut<SelectedPanel>,
     mut drag: Local<Option<Drag>>,
@@ -846,9 +821,18 @@ pub fn panel_controls(
         return;
     };
 
-    // A click on a panel's button must not also pan that panel. An existing
-    // drag is left alone, so passing over a button mid-stroke does not end it.
-    if drag.is_none() && ui.iter().any(|i| *i != Interaction::None) {
+    // A click on a frame's own chrome must not also pan the frame. Read from
+    // the picking hover state rather than from `Interaction`, because the
+    // Feathers controls carry no `Interaction` for a hit test to find. An
+    // existing drag is left alone, so passing over a button mid-stroke does
+    // not end it.
+    let over_chrome = hover.values().flat_map(|hits| hits.keys()).any(|hovered| {
+        chrome.get(*hovered).is_ok()
+            || parents
+                .iter_ancestors(*hovered)
+                .any(|ancestor| chrome.get(ancestor).is_ok())
+    });
+    if drag.is_none() && over_chrome {
         wheel.clear();
         return;
     }

@@ -119,6 +119,29 @@ fn load_points(source: &str) -> Result<scatterbrain::Scatterbrain, String> {
     scatterbrain::Scatterbrain::parse(&text)
 }
 
+/// Feathers' dark theme, with the button states pushed further apart.
+///
+/// Its hover is a five percent lift in lightness, which is hard to see at all
+/// over a frame's imagery and reads as a button that does not respond. The
+/// tokens are widened rather than each button being styled by hand, so every
+/// control in the app moves together.
+fn app_theme() -> bevy_feathers::theme::ThemeProps {
+    use bevy_feathers::{dark_theme::create_dark_theme, palette, tokens};
+
+    let mut theme = create_dark_theme();
+    theme
+        .color
+        .insert(tokens::BUTTON_BG_HOVER, palette::GRAY_3.lighter(0.14));
+    theme
+        .color
+        .insert(tokens::BUTTON_BG_PRESSED, palette::ACCENT.darker(0.12));
+    theme.color.insert(
+        tokens::BUTTON_PRIMARY_BG_HOVER,
+        palette::ACCENT.lighter(0.08),
+    );
+    theme
+}
+
 /// The docks, which reserve their space before the frames are laid out.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 struct DockSystems;
@@ -206,9 +229,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // writing them back to the app.
     .add_plugins(points_render::PointRenderPlugin)
     .add_plugins(bevy_feathers::FeathersPlugins)
-    .insert_resource(bevy_feathers::theme::UiTheme(
-        bevy_feathers::dark_theme::create_dark_theme(),
-    ))
+    .insert_resource(bevy_feathers::theme::UiTheme(app_theme()))
     .add_observer(bevy_ui_widgets::slider_self_update)
     .add_observer(viewconfig::on_layout_button)
     .add_observer(viewconfig::on_add_visualization)
@@ -216,6 +237,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .add_observer(cellpanel::on_value_toggled)
     .add_observer(cellpanel::on_clear_property)
     .add_observer(cellpanel::on_clear_all)
+    .add_observer(panel::panel_buttons)
+    .add_observer(widgets::on_menu_button)
+    .add_observer(widgets::toggle_accordions)
+    .add_observer(sidebar::toggle_sidebar)
+    .add_observer(inspector::close_inspector)
     .add_observer(hud::on_info_pressed)
     .add_observer(hud::on_source_chosen)
     .add_message::<panel::PanelRequest>()
@@ -229,11 +255,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .add_systems(
         Update,
         (
-            sidebar::toggle_sidebar,
             sidebar::resize_sidebar,
             sidebar::sidebar_cursor,
             inspector::open_on_request,
-            inspector::close_inspector,
             inspector::resize_inspector,
             inspector::inspector_cursor,
             panel::reset_frame_area,
@@ -246,11 +270,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .add_systems(
         Update,
         (
-            panel::panel_buttons,
             panel::apply_panel_requests,
             panel::normalize_panels,
             panel::sync_panel_buttons,
-            panel::highlight_panel_buttons,
             hud::sync_hud,
             panel::panel_controls,
             panel::update_viewports,
@@ -268,10 +290,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Update,
         (
             panel::update_selection_border,
-            widgets::toggle_accordions,
             widgets::update_accordions,
             viewconfig::rebuild_layout_menu,
-            widgets::toggle_menus,
+            widgets::dismiss_menus,
             widgets::position_menus,
             viewconfig::sync_opacity_slider,
             viewconfig::sync_point_size,
