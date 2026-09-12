@@ -24,7 +24,8 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use zarrs_codec::ArrayPartialDecoderTraits;
 
 use crate::dataset::{Channel, Dataset, TilePixels, read_tile};
-use crate::panel::{Panel, PanelKind};
+use crate::datasource::{self, SourceExtent, SourceStatus};
+use crate::panel::ShowsSource;
 
 /// Threads reserved for fetching and decoding tiles.
 ///
@@ -139,6 +140,9 @@ impl DecoderCache {
 
 #[derive(Resource)]
 pub struct TileStreamer {
+    /// The source entity this streamer serves. Panels showing it are the ones
+    /// whose views drive loading.
+    pub source: Entity,
     dataset: Arc<Dataset>,
     /// Live display settings, edited by the UI and copied into each task.
     pub channels: Vec<Channel>,
@@ -163,8 +167,9 @@ pub struct TileStreamer {
 }
 
 impl TileStreamer {
-    pub fn new(dataset: Arc<Dataset>) -> Self {
+    pub fn new(dataset: Arc<Dataset>, source: Entity) -> Self {
         TileStreamer {
+            source,
             channels: dataset.channels.clone(),
             dataset,
             decoders: Arc::new(DecoderCache::default()),
@@ -220,7 +225,7 @@ impl TileStreamer {
 /// Work out the visible world rectangle and queue the tiles that cover it.
 pub fn select_tiles(
     mut streamer: ResMut<TileStreamer>,
-    panels: Query<(&Camera, &GlobalTransform, &Projection, &Panel)>,
+    panels: Query<(&Camera, &GlobalTransform, &Projection, &ShowsSource)>,
 ) {
     let dataset = streamer.dataset.clone();
     let mut wanted = Vec::new();
@@ -232,9 +237,9 @@ pub fn select_tiles(
     // Every panel of this kind draws the same entities, so the resident set is
     // the union of what each of them needs. A duplicated panel zoomed somewhere
     // else therefore pulls in its own tiles.
-    for (camera, transform, projection, _) in panels
-        .iter()
-        .filter(|(_, _, _, panel)| panel.kind == PanelKind::Image)
+    let source = streamer.source;
+    for (camera, transform, projection, _) in
+        panels.iter().filter(|(_, _, _, shows)| shows.0 == source)
     {
         let Projection::Orthographic(ortho) = projection else {
             continue;
@@ -404,7 +409,11 @@ pub fn collect_tile_tasks(
     mut commands: Commands,
     mut streamer: ResMut<TileStreamer>,
     mut images: ResMut<Assets<Image>>,
+    sources: Query<&datasource::DataSource>,
 ) {
+    let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
+        return;
+    };
     let dataset = streamer.dataset.clone();
     let level_count = dataset.levels.len();
     let mut finished = Vec::new();
@@ -480,7 +489,7 @@ pub fn collect_tile_tasks(
                         },
                         Anchor::TOP_LEFT,
                         Transform::from_xyz(x0, -y0, z),
-                        RenderLayers::layer(PanelKind::Image.layer()),
+                        RenderLayers::layer(layer),
                         Tile(key),
                     ))
                     .id();
@@ -700,4 +709,126 @@ mod tests {
         assert!(tile_visible(5, 3));
         assert!(!tile_visible(0, 3));
     }
+}
+
+/// Streams an OME-Zarr image into the frames that display it.
+pub struct ImagePlugin {
+    pub dataset: Arc<Dataset>,
+    pub z_slice: u64,
+    pub budget_bytes: usize,
+}
+
+impl Plugin for ImagePlugin {
+    fn build(&self, app: &mut App) {
+        let (x0, y0, x1, y1) = self.dataset.world;
+        let source = datasource::register(
+            app,
+            self.dataset.name.clone(),
+            self.dataset.unit.clone(),
+            SourceExtent {
+                // World y is negated so the image reads top-down.
+                centre: Vec2::new((x0 + x1) * 0.5, -(y0 + y1) * 0.5),
+                size: Vec2::new((x1 - x0).abs(), (y1 - y0).abs()),
+                finest: self.dataset.levels[0].scale_x as f32 / 8.0,
+            },
+        );
+
+        let mut streamer = TileStreamer::new(self.dataset.clone(), source);
+        streamer.z_slice = self.z_slice;
+        streamer.budget_bytes = self.budget_bytes;
+
+        app.insert_resource(streamer).add_systems(
+            Update,
+            (
+                select_tiles,
+                spawn_tile_tasks,
+                collect_tile_tasks,
+                evict_tiles,
+                update_tile_visibility,
+                toggle_channels,
+                report_status,
+            )
+                .chain()
+                .after(crate::panel::update_viewports),
+        );
+    }
+}
+
+/// Number keys toggle channels. Tiles bake the composite into RGBA, so the
+/// visible ones are rebuilt; the shard decoders survive, which keeps the
+/// refetch cheap.
+fn toggle_channels(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut streamer: ResMut<TileStreamer>,
+) {
+    const DIGITS: [KeyCode; 9] = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+    ];
+
+    let Some(index) = DIGITS
+        .iter()
+        .position(|key| keys.just_pressed(*key))
+        .filter(|i| *i < streamer.channels.len())
+    else {
+        return;
+    };
+
+    streamer.channels[index].active = !streamer.channels[index].active;
+    streamer.reset(&mut commands);
+}
+
+fn report_status(streamer: Res<TileStreamer>, mut sources: Query<&mut SourceStatus>) {
+    let Ok(mut status) = sources.get_mut(streamer.source) else {
+        return;
+    };
+    let dataset = streamer.dataset();
+    let level = &dataset.levels[streamer.active_level];
+
+    let channels = streamer
+        .channels
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let mark = if c.active { '*' } else { ' ' };
+            format!("{}{}:{}", mark, i + 1, c.label)
+        })
+        .collect::<Vec<_>>()
+        .join("  ");
+
+    let mut notes = String::new();
+    if streamer.cancelled > 0 {
+        notes.push_str(&format!(", {} cancelled", streamer.cancelled));
+    }
+    let failed = streamer.failed();
+    if failed > 0 {
+        notes.push_str(&format!(", {failed} failed"));
+    }
+
+    status.0 = format!(
+        "level {}/{}  ({} x {} px, {:.4} {}/px)\n\
+         tiles {} cached ({} MB / {} MB), {} loading{}\n\
+         channels  {}\n\
+         1-9 toggle channel",
+        streamer.active_level,
+        dataset.levels.len() - 1,
+        level.width,
+        level.height,
+        level.scale_x,
+        dataset.unit,
+        streamer.loaded(),
+        streamer.resident_bytes() / (1024 * 1024),
+        streamer.budget_bytes / (1024 * 1024),
+        streamer.in_flight,
+        notes,
+        channels,
+    );
 }

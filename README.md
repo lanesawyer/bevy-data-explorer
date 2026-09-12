@@ -60,6 +60,28 @@ Each panel carries its own overlay: the image reports the pyramid level, scale
 and tile cache; the point cloud reports octree depth, nodes loaded and points
 resident.
 
+## Architecture
+
+Every format is a Bevy plugin. On build it registers itself as a *source
+entity* carrying the few things a frame needs to know about what it is showing:
+a name, the render layer its geometry is drawn on, how much world it occupies,
+and a line of status for the overlay. The plugin then inserts its own streamer
+and systems.
+
+Frames refer to a source by entity rather than by a format tag, which is what
+keeps `panel` and `hud` from knowing anything about OME-Zarr or Scatterbrain —
+the overlay reads a name and a status string off whichever entity its panel
+points at. Adding a format means writing a plugin and adding it; nothing else
+changes, and `main` discovers sources from the world rather than listing them.
+
+Render layers are allocated at registration, one per source, so two sources can
+never draw into each other's frames. Layer 0 is deliberately never handed out:
+anything spawned without an explicit layer lands there and would appear
+everywhere.
+
+Swapping what a frame displays is then a component write plus a layer change on
+its camera, which is the point of the indirection.
+
 ## How it works
 
 Each panel is a 2D camera with its own viewport, pan/zoom state and render
@@ -155,6 +177,11 @@ measuring against it, and are worth knowing before changing them:
 - Panels can be duplicated but not closed, reordered or resized, and cells are
   a uniform split. A partly filled grid — three panels in a 2x2 — leaves an
   empty cell rather than redistributing the space.
+- A frame cannot yet be repointed at a different source from the UI. The
+  indirection that would allow it is in place, but nothing drives it.
+- Each streamer is a resource, so a format supports one open dataset at a time.
+  Two OME-Zarr images side by side would need the streamer to move onto the
+  source entity as a component.
 - The sections panel always draws slices in metadata order. It carries no
   notion of anatomical position, so the grid is a contact sheet rather than a
   reconstruction.

@@ -16,7 +16,8 @@ use bevy::mesh::{Mesh, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
-use crate::panel::{Panel, PanelKind};
+use crate::datasource::{self, SourceExtent, SourceStatus};
+use crate::panel::ShowsSource;
 use crate::scatterbrain::{self, Node, Rect, Scatterbrain, Slide};
 
 /// Descend into a node's children while its region covers at least this many
@@ -47,6 +48,8 @@ pub enum NodeOutcome {
 
 #[derive(Resource)]
 pub struct PointStreamer {
+    /// The source entity this streamer serves.
+    pub source: Entity,
     cloud: Arc<Scatterbrain>,
     /// Column used to colour points, and its palette.
     pub colour_column: Option<String>,
@@ -61,9 +64,10 @@ pub struct PointStreamer {
 }
 
 impl PointStreamer {
-    pub fn new(cloud: Arc<Scatterbrain>) -> Self {
+    pub fn new(cloud: Arc<Scatterbrain>, source: Entity) -> Self {
         let colour_column = cloud.category_columns().first().map(|c| c.name.clone());
         PointStreamer {
+            source,
             cloud,
             colour_column,
             slide: 0,
@@ -95,7 +99,7 @@ impl PointStreamer {
 /// Walk the octree and decide which nodes should be resident.
 pub fn select_nodes(
     mut streamer: ResMut<PointStreamer>,
-    panels: Query<(&Camera, &GlobalTransform, &Projection, &Panel)>,
+    panels: Query<(&Camera, &GlobalTransform, &Projection, &ShowsSource)>,
 ) {
     let cloud = streamer.cloud.clone();
     let slide = streamer.slide;
@@ -107,9 +111,9 @@ pub fn select_nodes(
     // Every panel of this kind draws the same entities, so the resident set is
     // the union of what each of them needs. A duplicated panel zoomed somewhere
     // else therefore pulls in its own detail.
-    for (camera, transform, projection, _) in panels
-        .iter()
-        .filter(|(_, _, _, panel)| panel.kind == PanelKind::Points)
+    let source = streamer.source;
+    for (camera, transform, projection, _) in
+        panels.iter().filter(|(_, _, _, shows)| shows.0 == source)
     {
         let Projection::Orthographic(ortho) = projection else {
             continue;
@@ -222,9 +226,13 @@ fn fetch(url: &str) -> Result<Vec<u8>, String> {
 pub fn collect_node_tasks(
     mut commands: Commands,
     mut streamer: ResMut<PointStreamer>,
+    sources: Query<&datasource::DataSource>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
+    let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
+        return;
+    };
     let mut finished = Vec::new();
     for (index, slot) in streamer.slots.iter_mut() {
         let Slot::Loading(task) = slot else { continue };
@@ -244,7 +252,7 @@ pub fn collect_node_tasks(
                         Mesh2d(meshes.add(mesh)),
                         MeshMaterial2d(materials.add(ColorMaterial::default())),
                         Transform::default(),
-                        RenderLayers::layer(PanelKind::Points.layer()),
+                        RenderLayers::layer(layer),
                         PointNode,
                     ))
                     .id();
@@ -460,4 +468,78 @@ mod tests {
         };
         assert_eq!(values[0], [2.0, -3.0, 0.0]);
     }
+}
+
+/// Streams a single Scatterbrain point cloud.
+pub struct PointCloudPlugin {
+    pub cloud: Arc<Scatterbrain>,
+    pub budget: usize,
+}
+
+impl Plugin for PointCloudPlugin {
+    fn build(&self, app: &mut App) {
+        let bounds = self.cloud.slides[0].tight_bounds;
+        let (cx, cy) = bounds.centre();
+        let source = datasource::register(
+            app,
+            "Point cloud",
+            self.cloud.unit.clone(),
+            SourceExtent {
+                // World y is negated for display, matching the image panel.
+                centre: Vec2::new(cx, -cy),
+                size: Vec2::new(bounds.width(), bounds.height()),
+                finest: bounds.width() / 100_000.0,
+            },
+        );
+
+        let mut streamer = PointStreamer::new(self.cloud.clone(), source);
+        streamer.budget = self.budget;
+
+        app.insert_resource(streamer).add_systems(
+            Update,
+            (
+                select_nodes,
+                spawn_node_tasks,
+                collect_node_tasks,
+                evict_nodes,
+                report_status,
+            )
+                .chain()
+                .after(crate::panel::update_viewports),
+        );
+    }
+}
+
+fn report_status(streamer: Res<PointStreamer>, mut sources: Query<&mut SourceStatus>) {
+    let Ok(mut status) = sources.get_mut(streamer.source) else {
+        return;
+    };
+    let cloud = streamer.cloud();
+    let colour = streamer
+        .colour_column
+        .as_ref()
+        .and_then(|name| {
+            cloud
+                .attributes
+                .iter()
+                .find(|a| &a.name == name)
+                .map(|a| a.description.clone())
+        })
+        .unwrap_or_else(|| "none".into());
+
+    status.0 = format!(
+        "{} points in {} octree nodes, depth {}\n\
+         showing depth {}, {} nodes loaded, {} loading\n\
+         {} / {} points resident\n\
+         colour by  {}",
+        cloud.total_points(),
+        cloud.node_count(),
+        cloud.max_depth(),
+        streamer.deepest,
+        streamer.loaded_nodes(),
+        streamer.in_flight,
+        streamer.resident_points,
+        streamer.budget,
+        colour,
+    );
 }

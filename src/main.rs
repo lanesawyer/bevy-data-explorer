@@ -7,6 +7,7 @@
 //! zoom.
 
 mod dataset;
+mod datasource;
 mod hud;
 mod panel;
 mod pointcloud;
@@ -22,7 +23,7 @@ use bevy::prelude::*;
 use bevy::window::PresentMode;
 use clap::Parser;
 
-use panel::{PanelKind, ViewLimits};
+use datasource::{DataSource, SourceExtent};
 
 /// Scatterbrain metadata for the reference point cloud.
 const DEFAULT_POINTS: &str = "https://d2o7sc91n904vd.cloudfront.net/wmb_tenx_01172024_stage-20240128193624/G4I4GFJXJB9ATZ3PTX1/ScatterBrain.json";
@@ -156,10 +157,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(cloud)
     };
 
-    let mut streamer = tiles::TileStreamer::new(dataset.clone());
-    streamer.z_slice = args.z;
-    streamer.budget_bytes = args.cache_mb * 1024 * 1024;
-
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -176,7 +173,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 task_pool_options: task_pool_options(),
             }),
     )
-    .insert_resource(streamer)
     .add_systems(
         Update,
         (
@@ -187,154 +183,73 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             panel::panel_controls,
             panel::update_viewports,
             hud::position_hud,
-            tiles::select_tiles,
-            tiles::spawn_tile_tasks,
-            tiles::collect_tile_tasks,
-            tiles::evict_tiles,
-            tiles::update_tile_visibility,
-            toggle_channels,
-            hud::update_hud,
         )
             .chain(),
-    );
+    )
+    // The overlay reads whatever each source reported this frame, so it runs
+    // after every source plugin has had its turn.
+    .add_systems(Update, hud::update_hud.after(panel::update_viewports));
 
-    if let Some(cloud) = sections.clone() {
-        let mut streamer = slices::SliceStreamer::new(cloud);
-        streamer.budget = args.slice_budget;
-        app.insert_resource(streamer).add_systems(
-            Update,
-            (
-                slices::slice_controls,
-                slices::select_slice_nodes,
-                slices::spawn_slice_tasks,
-                slices::collect_slice_tasks,
-                slices::evict_slice_nodes,
-                slices::apply_slice_layout,
-                slices::refit_slice_camera,
-            )
-                .chain()
-                .after(panel::update_viewports),
-        );
+    // Each format is a plugin. Registration order decides which cell a source's
+    // frame opens in, and nothing else here knows what the formats are.
+    app.add_plugins(tiles::ImagePlugin {
+        dataset,
+        z_slice: args.z,
+        budget_bytes: args.cache_mb * 1024 * 1024,
+    });
+    if let Some(cloud) = cloud {
+        app.add_plugins(pointcloud::PointCloudPlugin {
+            cloud,
+            budget: args.point_budget,
+        });
+    }
+    if let Some(cloud) = sections {
+        app.add_plugins(slices::SlicesPlugin {
+            cloud,
+            budget: args.slice_budget,
+        });
     }
 
-    if let Some(cloud) = cloud.clone() {
-        let mut points = pointcloud::PointStreamer::new(cloud);
-        points.budget = args.point_budget;
-        app.insert_resource(points).add_systems(
-            Update,
-            (
-                pointcloud::select_nodes,
-                pointcloud::spawn_node_tasks,
-                pointcloud::collect_node_tasks,
-                pointcloud::evict_nodes,
-            )
-                .chain()
-                .after(panel::update_viewports),
-        );
-    }
-
-    let image_world = dataset.world;
-    let finest = dataset.levels[0].scale_x as f32;
-    let cloud_for_setup = cloud.clone();
-    let sections_for_setup = sections.clone();
-
-    app.add_systems(
-        Startup,
-        move |mut commands: Commands, windows: Query<&Window>| {
-            let window = windows
-                .iter()
-                .next()
-                .map(|w| Vec2::new(w.width(), w.height()))
-                .unwrap_or(Vec2::new(1280.0, 720.0));
-            let count =
-                1 + cloud_for_setup.is_some() as usize + sections_for_setup.is_some() as usize;
-            let (columns, rows) = panel::grid_for(count);
-            let viewport = Vec2::new(window.x / columns as f32, window.y / rows as f32);
-
-            let (x0, y0, x1, y1) = image_world;
-            panel::spawn_panel(
-                &mut commands,
-                PanelKind::Image,
-                0,
-                // World y is negated so the image reads top-down.
-                ViewLimits::fit(
-                    Vec2::new((x0 + x1) * 0.5, -(y0 + y1) * 0.5),
-                    (x1 - x0).abs(),
-                    (y1 - y0).abs(),
-                    viewport,
-                    finest / 8.0,
-                ),
-                None,
-            );
-
-            let mut next = 1;
-            if let Some(cloud) = &cloud_for_setup {
-                let b = cloud.slides[0].tight_bounds;
-                let (cx, cy) = b.centre();
-                panel::spawn_panel(
-                    &mut commands,
-                    PanelKind::Points,
-                    next,
-                    ViewLimits::fit(
-                        Vec2::new(cx, -cy),
-                        b.width(),
-                        b.height(),
-                        viewport,
-                        b.width() / 100_000.0,
-                    ),
-                    None,
-                );
-                next += 1;
-            }
-            if sections_for_setup.is_some() {
-                // The streamer refits this panel on its first frame, once the
-                // viewport is known; these limits only have to be sane.
-                panel::spawn_panel(
-                    &mut commands,
-                    PanelKind::Slices,
-                    next,
-                    ViewLimits::fit(Vec2::ZERO, 1.0, 1.0, viewport, 1.0 / 100_000.0),
-                    None,
-                );
-            }
-
-            panel::spawn_ui_camera(&mut commands);
-            panel::spawn_dividers(&mut commands);
-        },
-    );
+    app.add_systems(Startup, open_frames);
 
     app.run();
     Ok(())
 }
 
-/// Number keys toggle image channels. Tiles bake the composite into RGBA, so
-/// the visible ones are rebuilt; the shard decoders survive, which keeps the
-/// refetch cheap.
-fn toggle_channels(
+/// Open one frame per registered source, in registration order.
+///
+/// Sources are discovered from the world rather than listed here, so adding a
+/// format plugin is enough to get it a frame.
+fn open_frames(
     mut commands: Commands,
-    keys: Res<ButtonInput<KeyCode>>,
-    mut streamer: ResMut<tiles::TileStreamer>,
+    windows: Query<&Window>,
+    sources: Query<(Entity, &DataSource, &SourceExtent)>,
 ) {
-    const DIGITS: [KeyCode; 9] = [
-        KeyCode::Digit1,
-        KeyCode::Digit2,
-        KeyCode::Digit3,
-        KeyCode::Digit4,
-        KeyCode::Digit5,
-        KeyCode::Digit6,
-        KeyCode::Digit7,
-        KeyCode::Digit8,
-        KeyCode::Digit9,
-    ];
-
-    let Some(index) = DIGITS
+    let window = windows
         .iter()
-        .position(|key| keys.just_pressed(*key))
-        .filter(|i| *i < streamer.channels.len())
-    else {
-        return;
-    };
+        .next()
+        .map(|w| Vec2::new(w.width(), w.height()))
+        .unwrap_or(Vec2::new(1280.0, 720.0));
 
-    streamer.channels[index].active = !streamer.channels[index].active;
-    streamer.reset(&mut commands);
+    let mut sources: Vec<(Entity, &DataSource, &SourceExtent)> = sources.iter().collect();
+    // Layers are handed out in registration order, which is the order the
+    // plugins were added.
+    sources.sort_by_key(|(_, source, _)| source.layer);
+
+    let (columns, rows) = panel::grid_for(sources.len());
+    let viewport = Vec2::new(window.x / columns as f32, window.y / rows as f32);
+
+    for (index, (entity, source, extent)) in sources.into_iter().enumerate() {
+        panel::spawn_panel(
+            &mut commands,
+            entity,
+            source.layer,
+            index,
+            extent.limits(viewport),
+            None,
+        );
+    }
+
+    panel::spawn_ui_camera(&mut commands);
+    panel::spawn_dividers(&mut commands);
 }

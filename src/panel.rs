@@ -1,13 +1,16 @@
 //! Panels arranged in a grid.
 //!
 //! Each panel is a 2D camera with its own viewport covering one cell of the
-//! window, its own pan/zoom state, and a render layer shared with every other
-//! panel showing the same kind of data. Input is routed to whichever panel the
+//! window and its own pan/zoom state. Input is routed to whichever panel the
 //! cursor is over, so views pan and zoom independently.
 //!
+//! A panel does not know what kind of data it is showing. It points at a source
+//! entity and draws that source's render layer, which is what allows a frame to
+//! be repointed at a different dataset later without this module changing.
+//!
 //! Panels can be duplicated at runtime. A duplicate is another camera on the
-//! same render layer, which is why duplicating costs no extra geometry: the
-//! two cameras draw the same entities from different viewpoints.
+//! same layer, which is why duplicating costs no extra geometry: the two
+//! cameras draw the same entities from different viewpoints.
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, Viewport};
@@ -15,12 +18,7 @@ use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::ui::Interaction;
 
-/// Render layer for the OME-Zarr image tiles.
-pub const IMAGE_LAYER: usize = 1;
-/// Render layer for the Scatterbrain points.
-pub const POINTS_LAYER: usize = 2;
-/// Render layer for the sectioned point cloud.
-pub const SLICES_LAYER: usize = 3;
+use crate::datasource::DataSource;
 
 /// Width of the rule drawn between panels, in logical pixels.
 const DIVIDER_PX: f32 = 2.0;
@@ -41,30 +39,19 @@ pub fn grid_for(count: usize) -> (usize, usize) {
     (count.div_ceil(rows), rows)
 }
 
-#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
-pub enum PanelKind {
-    Image,
-    Points,
-    Slices,
-}
-
-impl PanelKind {
-    pub fn layer(self) -> usize {
-        match self {
-            PanelKind::Image => IMAGE_LAYER,
-            PanelKind::Points => POINTS_LAYER,
-            PanelKind::Slices => SLICES_LAYER,
-        }
-    }
-}
-
 /// Marks a panel camera and records its cell in the grid.
 #[derive(Component)]
 pub struct Panel {
-    pub kind: PanelKind,
     /// Cell index, left to right then top to bottom.
     pub index: usize,
 }
+
+/// The source a panel is currently displaying.
+///
+/// Held as an entity rather than a format tag so that repointing a frame at
+/// another dataset is a component write plus a layer change.
+#[derive(Component, Clone, Copy)]
+pub struct ShowsSource(pub Entity);
 
 /// Pan and zoom bounds for a panel, derived from the extent of its data.
 #[derive(Component, Clone, Copy)]
@@ -98,10 +85,11 @@ pub struct View {
     pub scale: f32,
 }
 
-/// Spawn a panel camera in cell `index`.
+/// Spawn a panel camera in cell `index`, showing `source`.
 pub fn spawn_panel(
     commands: &mut Commands,
-    kind: PanelKind,
+    source: Entity,
+    layer: usize,
     index: usize,
     limits: ViewLimits,
     view: Option<View>,
@@ -129,8 +117,9 @@ pub fn spawn_panel(
                 ..OrthographicProjection::default_2d()
             }),
             Transform::from_translation(view.centre.extend(1000.0)),
-            RenderLayers::layer(kind.layer()),
-            Panel { kind, index },
+            RenderLayers::layer(layer),
+            Panel { index },
+            ShowsSource(source),
             limits,
         ))
         .id()
@@ -328,14 +317,18 @@ pub fn sync_panel_buttons(
 pub fn duplicate_panel(
     mut commands: Commands,
     pressed: Query<(&Interaction, &PanelButton), Changed<Interaction>>,
-    panels: Query<(&Panel, &Transform, &Projection, &ViewLimits)>,
+    panels: Query<(&ShowsSource, &Transform, &Projection, &ViewLimits)>,
+    sources: Query<&DataSource>,
 ) {
     let count = panels.iter().count();
     for (interaction, button) in &pressed {
         if *interaction != Interaction::Pressed || count >= MAX_PANELS {
             continue;
         }
-        let Ok((panel, transform, projection, limits)) = panels.get(button.panel) else {
+        let Ok((shows, transform, projection, limits)) = panels.get(button.panel) else {
+            continue;
+        };
+        let Ok(source) = sources.get(shows.0) else {
             continue;
         };
         let Projection::Orthographic(ortho) = projection else {
@@ -343,7 +336,8 @@ pub fn duplicate_panel(
         };
         spawn_panel(
             &mut commands,
-            panel.kind,
+            shows.0,
+            source.layer,
             count,
             *limits,
             Some(View {
@@ -627,20 +621,5 @@ mod tests {
         // Data coarser than one unit per pixel must still be fully visible.
         let limits = ViewLimits::fit(Vec2::ZERO, 1.0, 1.0, Vec2::new(800.0, 400.0), 5.0);
         assert!(limits.min_scale <= limits.fit_scale);
-    }
-
-    #[test]
-    fn panels_render_on_separate_layers() {
-        let layers = [
-            PanelKind::Image.layer(),
-            PanelKind::Points.layer(),
-            PanelKind::Slices.layer(),
-        ];
-        let unique: std::collections::HashSet<_> = layers.iter().collect();
-        assert_eq!(
-            unique.len(),
-            layers.len(),
-            "panels would bleed into each other"
-        );
     }
 }

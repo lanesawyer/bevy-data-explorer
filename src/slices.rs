@@ -16,7 +16,8 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
-use crate::panel::{Panel, PanelKind, ViewLimits};
+use crate::datasource::{self, SourceExtent, SourceStatus};
+use crate::panel::{ShowsSource, ViewLimits};
 use crate::pointcloud::{NodeOutcome, build_mesh, load_node};
 use crate::scatterbrain::{Rect, Scatterbrain};
 
@@ -57,6 +58,8 @@ enum Slot {
 
 #[derive(Resource)]
 pub struct SliceStreamer {
+    /// The source entity this streamer serves.
+    pub source: Entity,
     cloud: Arc<Scatterbrain>,
     pub colour_column: Option<String>,
     pub mode: SliceMode,
@@ -121,10 +124,11 @@ impl Layout {
 }
 
 impl SliceStreamer {
-    pub fn new(cloud: Arc<Scatterbrain>) -> Self {
+    pub fn new(cloud: Arc<Scatterbrain>, source: Entity) -> Self {
         let colour_column = cloud.category_columns().first().map(|c| c.name.clone());
         let layout = Layout::build(&cloud);
         SliceStreamer {
+            source,
             cloud,
             colour_column,
             mode: SliceMode::Grid,
@@ -246,7 +250,7 @@ pub fn slice_controls(keys: Res<ButtonInput<KeyCode>>, mut streamer: ResMut<Slic
 /// Decide which slide nodes should be resident.
 pub fn select_slice_nodes(
     mut streamer: ResMut<SliceStreamer>,
-    panels: Query<(&Camera, &GlobalTransform, &Projection, &Panel)>,
+    panels: Query<(&Camera, &GlobalTransform, &Projection, &ShowsSource)>,
 ) {
     let cloud = streamer.cloud.clone();
     let mut wanted = Vec::new();
@@ -255,9 +259,9 @@ pub fn select_slice_nodes(
 
     // Every panel of this kind draws the same entities, so the resident set is
     // the union of what each of them needs.
-    for (camera, transform, projection, _) in panels
-        .iter()
-        .filter(|(_, _, _, panel)| panel.kind == PanelKind::Slices)
+    let source = streamer.source;
+    for (camera, transform, projection, _) in
+        panels.iter().filter(|(_, _, _, shows)| shows.0 == source)
     {
         let Projection::Orthographic(ortho) = projection else {
             continue;
@@ -351,9 +355,13 @@ pub fn spawn_slice_tasks(mut streamer: ResMut<SliceStreamer>) {
 pub fn collect_slice_tasks(
     mut commands: Commands,
     mut streamer: ResMut<SliceStreamer>,
+    sources: Query<&datasource::DataSource>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
+    let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
+        return;
+    };
     let mut finished = Vec::new();
     for (key, slot) in streamer.slots.iter_mut() {
         let Slot::Loading(task) = slot else { continue };
@@ -374,7 +382,7 @@ pub fn collect_slice_tasks(
                         Mesh2d(meshes.add(mesh)),
                         MeshMaterial2d(materials.add(ColorMaterial::default())),
                         Transform::from_translation(offset.extend(0.0)),
-                        RenderLayers::layer(PanelKind::Slices.layer()),
+                        RenderLayers::layer(layer),
                         SliceNodeTag(key),
                     ))
                     .id();
@@ -431,14 +439,15 @@ pub fn refit_slice_camera(
         &mut Transform,
         &mut Projection,
         &mut ViewLimits,
-        &Panel,
+        &ShowsSource,
     )>,
 ) {
     if !streamer.refit {
         return;
     }
-    for (camera, mut transform, mut projection, mut limits, panel) in &mut panels {
-        if panel.kind != PanelKind::Slices {
+    let source = streamer.source;
+    for (camera, mut transform, mut projection, mut limits, shows) in &mut panels {
+        if shows.0 != source {
             continue;
         }
         let Some(viewport) = camera.logical_viewport_size() else {
@@ -496,9 +505,15 @@ mod tests {
         Arc::new(Scatterbrain::parse(include_str!("../testdata/scatterbrain_slides.json")).unwrap())
     }
 
+    /// The streamer only compares its source entity for equality, so tests do
+    /// not need a live world to build one.
+    fn streamer() -> SliceStreamer {
+        SliceStreamer::new(sectioned(), Entity::PLACEHOLDER)
+    }
+
     #[test]
     fn the_grid_covers_every_slide_without_overlap() {
-        let streamer = SliceStreamer::new(sectioned());
+        let streamer = streamer();
         let count = streamer.cloud.slides.len();
         assert_eq!(streamer.layout.grid.len(), count);
 
@@ -516,7 +531,7 @@ mod tests {
 
     #[test]
     fn every_slide_is_drawn_in_grid_mode_and_one_in_single_mode() {
-        let mut streamer = SliceStreamer::new(sectioned());
+        let mut streamer = streamer();
         assert!((0..53).all(|i| streamer.visible(i)));
 
         streamer.mode = SliceMode::Single;
@@ -528,7 +543,7 @@ mod tests {
 
     #[test]
     fn slides_are_recentred_so_differently_sized_slices_align() {
-        let mut streamer = SliceStreamer::new(sectioned());
+        let mut streamer = streamer();
         streamer.mode = SliceMode::Single;
 
         // In single mode each slide should sit at the origin regardless of
@@ -544,7 +559,7 @@ mod tests {
 
     #[test]
     fn stepping_wraps_in_both_directions() {
-        let mut streamer = SliceStreamer::new(sectioned());
+        let mut streamer = streamer();
         streamer.current = 52;
         streamer.step(1);
         assert_eq!(streamer.current, 0);
@@ -556,7 +571,7 @@ mod tests {
 
     #[test]
     fn switching_mode_moves_slides_rather_than_reloading_them() {
-        let mut streamer = SliceStreamer::new(sectioned());
+        let mut streamer = streamer();
         let grid = streamer.offset(30);
         streamer.mode = SliceMode::Single;
         let single = streamer.offset(30);
@@ -566,15 +581,111 @@ mod tests {
 
     #[test]
     fn grid_limits_frame_all_the_slices() {
-        let streamer = SliceStreamer::new(sectioned());
+        let all = streamer();
         let viewport = Vec2::new(800.0, 600.0);
-        let grid = streamer.limits(viewport);
+        let grid = all.limits(viewport);
 
-        let mut single = SliceStreamer::new(sectioned());
+        let mut single = streamer();
         single.mode = SliceMode::Single;
         let one = single.limits(viewport);
 
         // Showing 53 slices at once has to be a wider view than showing one.
         assert!(grid.fit_scale > one.fit_scale);
     }
+}
+
+/// Streams a sectioned Scatterbrain dataset.
+pub struct SlicesPlugin {
+    pub cloud: Arc<Scatterbrain>,
+    pub budget: usize,
+}
+
+impl Plugin for SlicesPlugin {
+    fn build(&self, app: &mut App) {
+        let (w, h) = self.cloud.max_slide_extent();
+        let source = datasource::register(
+            app,
+            "Sections",
+            self.cloud.unit.clone(),
+            // Only a sane starting frame: the streamer refits the panel on its
+            // first update, once the grid and viewport are known.
+            SourceExtent {
+                centre: Vec2::ZERO,
+                size: Vec2::new(w, h),
+                finest: w / 100_000.0,
+            },
+        );
+
+        let mut streamer = SliceStreamer::new(self.cloud.clone(), source);
+        streamer.budget = self.budget;
+
+        app.insert_resource(streamer).add_systems(
+            Update,
+            (
+                slice_controls,
+                select_slice_nodes,
+                spawn_slice_tasks,
+                collect_slice_tasks,
+                evict_slice_nodes,
+                apply_slice_layout,
+                refit_slice_camera,
+                report_status,
+            )
+                .chain()
+                .after(crate::panel::update_viewports),
+        );
+    }
+}
+
+fn report_status(streamer: Res<SliceStreamer>, mut sources: Query<&mut SourceStatus>) {
+    let Ok(mut status) = sources.get_mut(streamer.source) else {
+        return;
+    };
+    let cloud = streamer.cloud();
+    let colour = streamer
+        .colour_column
+        .as_ref()
+        .and_then(|name| {
+            cloud
+                .attributes
+                .iter()
+                .find(|a| &a.name == name)
+                .map(|a| a.description.clone())
+        })
+        .unwrap_or_else(|| "none".into());
+
+    let showing = match streamer.mode {
+        SliceMode::Grid => format!(
+            "grid of {} across {} columns",
+            cloud.slides.len(),
+            streamer.columns()
+        ),
+        SliceMode::Single => {
+            let slide = &cloud.slides[streamer.current];
+            format!(
+                "slice {} of {}  [{}]  {} points",
+                slide.index + 1,
+                cloud.slides.len(),
+                slide.id,
+                slide.total_points,
+            )
+        }
+    };
+
+    status.0 = format!(
+        "{} points in {} slices\n\
+         {}\n\
+         {} nodes loaded, {} loading\n\
+         {} / {} points resident\n\
+         colour by  {}\n\
+         G grid/single · arrows or [ ] step slices",
+        cloud.total_points(),
+        cloud.slides.len(),
+        showing,
+        streamer.loaded_nodes(),
+        streamer.in_flight,
+        streamer.resident_points,
+        streamer.budget,
+        colour,
+    );
 }
