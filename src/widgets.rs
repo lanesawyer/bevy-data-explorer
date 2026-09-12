@@ -7,7 +7,7 @@
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::ui::Interaction;
-use bevy_feathers::controls::FeathersSlider;
+use bevy_feathers::controls::{FeathersSlider, FeathersToolButton};
 use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::ThemeBackgroundColor;
@@ -142,6 +142,22 @@ pub fn spawn_accordion(commands: &mut Commands, title: &str, open: bool) -> Acco
         body,
         header,
     }
+}
+
+/// Add a button to the right of an accordion's header, returning it so the
+/// caller can attach its own marker and act on it.
+pub fn spawn_header_button(commands: &mut Commands, header: Entity, caption: &str) -> Entity {
+    let caption = caption.to_string();
+    let button = commands
+        .spawn_scene(bsn! {
+            @FeathersToolButton {
+                @caption: { bsn_list![label(caption)] }
+            }
+            BlocksFrameInput
+        })
+        .id();
+    commands.entity(header).add_child(button);
+    button
 }
 
 /// A popup anchored under an accordion's menu button.

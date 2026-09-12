@@ -6,6 +6,8 @@
 //! panel streams only what its own view needs and pulls in more detail as you
 //! zoom.
 
+mod cellpanel;
+mod cellproperties;
 mod dataset;
 mod datasource;
 mod hud;
@@ -192,11 +194,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .add_observer(bevy_ui_widgets::slider_self_update)
     .add_observer(viewconfig::on_layout_button)
     .add_observer(viewconfig::on_add_visualization)
+    .add_observer(cellpanel::on_colour_by)
+    .add_observer(cellpanel::on_value_toggled)
     .add_message::<panel::PanelRequest>()
     .init_resource::<panel::FrameArea>()
     .init_resource::<panel::SelectedPanel>()
     .init_resource::<sidebar::Sidebar>()
     .init_resource::<inspector::Inspector>()
+    .init_resource::<cellpanel::OpenSections>()
     // The docks claim their space first; everything that places a frame or its
     // chrome measures against what is left.
     .add_systems(
@@ -247,6 +252,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             widgets::position_accordion_menus,
             viewconfig::sync_opacity_slider,
             viewconfig::sync_point_size,
+            cellpanel::record_open_sections,
+            cellpanel::rebuild_cell_panel,
+            cellpanel::apply_selection,
             viewconfig::apply_opacity,
             viewconfig::apply_opacity_to_new,
             viewconfig::apply_point_settings,
@@ -281,7 +289,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     app.add_systems(
         Startup,
-        (maximize_window, open_frames, viewconfig::spawn_view_config).chain(),
+        (
+            maximize_window,
+            open_frames,
+            viewconfig::spawn_view_config,
+            cellpanel::spawn_cell_panel,
+        )
+            .chain(),
     );
 
     app.run();

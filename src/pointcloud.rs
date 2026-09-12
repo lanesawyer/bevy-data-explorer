@@ -15,6 +15,7 @@ use bevy::mesh::Mesh;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
+use crate::cellproperties::CellSelection;
 use crate::datasource::{self, SourceExtent, SourceStatus};
 use crate::panel::ShowsSource;
 use crate::points_render::{PointMaterial, build_point_mesh};
@@ -55,8 +56,9 @@ pub struct PointStreamer {
     /// The source entity this streamer serves.
     pub source: Entity,
     cloud: Arc<Scatterbrain>,
-    /// Column used to colour points, and its palette.
-    pub colour_column: Option<String>,
+    /// What to colour by and what to filter out, mirrored from the source's
+    /// properties so that workers can be handed a copy.
+    pub selection: CellSelection,
     /// Which slide this panel draws. Single-cloud datasets have only one.
     pub slide: usize,
     slots: HashMap<usize, Slot>,
@@ -69,11 +71,10 @@ pub struct PointStreamer {
 
 impl PointStreamer {
     pub fn new(cloud: Arc<Scatterbrain>, source: Entity) -> Self {
-        let colour_column = cloud.category_columns().first().map(|c| c.name.clone());
         PointStreamer {
             source,
+            selection: CellSelection::default(),
             cloud,
-            colour_column,
             slide: 0,
             slots: HashMap::new(),
             wanted: Vec::new(),
@@ -82,6 +83,22 @@ impl PointStreamer {
             budget: DEFAULT_POINT_BUDGET,
             deepest: 0,
         }
+    }
+
+    /// Drop every resident node so they are built again.
+    ///
+    /// Colouring and filtering decide what a node's vertices are, and the raw
+    /// columns are not kept once a node is built, so changing either means
+    /// loading them afresh.
+    pub fn reset(&mut self, commands: &mut Commands) {
+        for slot in self.slots.values() {
+            if let Slot::Ready { entity, .. } = slot {
+                commands.entity(*entity).despawn();
+            }
+        }
+        self.slots.clear();
+        self.in_flight = 0;
+        self.resident_points = 0;
     }
 
     pub fn cloud(&self) -> &Arc<Scatterbrain> {
@@ -171,7 +188,7 @@ pub fn select_nodes(
 pub fn spawn_node_tasks(mut streamer: ResMut<PointStreamer>) {
     let pool = AsyncComputeTaskPool::get();
     let cloud = streamer.cloud.clone();
-    let colour_column = streamer.colour_column.clone();
+    let selection = streamer.selection.clone();
     let slide = streamer.slide;
     let wanted = std::mem::take(&mut streamer.wanted);
 
@@ -184,10 +201,10 @@ pub fn spawn_node_tasks(mut streamer: ResMut<PointStreamer>) {
         }
 
         let cloud = cloud.clone();
-        let colour_column = colour_column.clone();
+        let selection = selection.clone();
         let task = pool.spawn(async move {
             let node = &cloud.slides[slide].nodes[index];
-            match load_node(&cloud, node, colour_column.as_deref()) {
+            match load_node(&cloud, node, &selection) {
                 Ok((positions, categories)) => NodeOutcome::Ready(positions, categories),
                 Err(e) => NodeOutcome::Failed(e),
             }
@@ -198,21 +215,58 @@ pub fn spawn_node_tasks(mut streamer: ResMut<PointStreamer>) {
     streamer.wanted = wanted;
 }
 
+/// Fetch a node's points, the column they are coloured by, and any columns the
+/// filters restrict.
+///
+/// Filtered-out points are dropped here rather than hidden later, so they cost
+/// no vertices and no budget.
 pub fn load_node(
     cloud: &Scatterbrain,
     node: &Node,
-    colour_column: Option<&str>,
+    selection: &CellSelection,
 ) -> Result<(Vec<[f32; 2]>, Vec<u16>), String> {
-    let positions =
+    let mut positions =
         scatterbrain::decode_positions(&fetch(&cloud.positions_url(node))?, node.count)?;
 
-    let categories = match colour_column {
+    let mut categories = match &selection.colour_by {
         Some(column) => {
             let bytes = fetch(&cloud.column_url(column, node))?;
             scatterbrain::decode_categories(&bytes, node.count)?
         }
         None => Vec::new(),
     };
+
+    if selection.filters.is_empty() {
+        return Ok((positions, categories));
+    }
+
+    let mut columns = Vec::with_capacity(selection.filters.len());
+    for (column, _) in &selection.filters {
+        let bytes = fetch(&cloud.column_url(column, node))?;
+        columns.push(scatterbrain::decode_categories(&bytes, node.count)?);
+    }
+
+    let mut codes = vec![0u16; columns.len()];
+    let mut keep = Vec::with_capacity(positions.len());
+    for index in 0..positions.len() {
+        for (slot, column) in codes.iter_mut().zip(&columns) {
+            *slot = column.get(index).copied().unwrap_or_default();
+        }
+        keep.push(selection.admits(&codes));
+    }
+
+    let mut index = 0;
+    positions.retain(|_| {
+        index += 1;
+        keep[index - 1]
+    });
+    if !categories.is_empty() {
+        let mut index = 0;
+        categories.retain(|_| {
+            index += 1;
+            keep[index - 1]
+        });
+    }
     Ok((positions, categories))
 }
 
@@ -500,9 +554,12 @@ impl Plugin for PointCloudPlugin {
 
         // Advertising a point size is what puts the size control in the
         // sidebar; sources without one simply do not offer it.
-        app.world_mut()
-            .entity_mut(source)
-            .insert(crate::points_render::SourcePointSize::default());
+        app.world_mut().entity_mut(source).insert((
+            crate::points_render::SourcePointSize::default(),
+            // Placeholder until a lookup service supplies the real value
+            // labels; the column names and ids are the dataset's own.
+            crate::cellproperties::placeholder_properties(&self.cloud.category_columns()),
+        ));
 
         let mut streamer = PointStreamer::new(self.cloud.clone(), source);
         streamer.budget = self.budget;
@@ -528,7 +585,8 @@ fn report_status(streamer: Res<PointStreamer>, mut sources: Query<&mut SourceSta
     };
     let cloud = streamer.cloud();
     let colour = streamer
-        .colour_column
+        .selection
+        .colour_by
         .as_ref()
         .and_then(|name| {
             cloud

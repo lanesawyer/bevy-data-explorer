@@ -16,6 +16,7 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
+use crate::cellproperties::CellSelection;
 use crate::datasource::{self, SourceExtent, SourceStatus};
 use crate::panel::{ShowsSource, ViewLimits};
 use crate::pointcloud::{NodeOutcome, build_mesh, load_node};
@@ -68,7 +69,9 @@ pub struct SliceStreamer {
     /// The source entity this streamer serves.
     pub source: Entity,
     cloud: Arc<Scatterbrain>,
-    pub colour_column: Option<String>,
+    /// What to colour by and what to filter out, mirrored from the source's
+    /// properties so that workers can be handed a copy.
+    pub selection: CellSelection,
     pub mode: SliceMode,
     /// Slice shown in [`SliceMode::Single`].
     pub current: usize,
@@ -132,12 +135,11 @@ impl Layout {
 
 impl SliceStreamer {
     pub fn new(cloud: Arc<Scatterbrain>, source: Entity) -> Self {
-        let colour_column = cloud.category_columns().first().map(|c| c.name.clone());
         let layout = Layout::build(&cloud);
         SliceStreamer {
             source,
+            selection: CellSelection::default(),
             cloud,
-            colour_column,
             mode: SliceMode::Grid,
             current: 0,
             layout,
@@ -148,6 +150,22 @@ impl SliceStreamer {
             budget: DEFAULT_SLICE_BUDGET,
             refit: true,
         }
+    }
+
+    /// Drop every resident node so they are built again.
+    ///
+    /// Colouring and filtering decide what a node's vertices are, and the raw
+    /// columns are not kept once a node is built, so changing either means
+    /// loading them afresh.
+    pub fn reset(&mut self, commands: &mut Commands) {
+        for slot in self.slots.values() {
+            if let Slot::Ready { entity, .. } = slot {
+                commands.entity(*entity).despawn();
+            }
+        }
+        self.slots.clear();
+        self.in_flight = 0;
+        self.resident_points = 0;
     }
 
     pub fn cloud(&self) -> &Arc<Scatterbrain> {
@@ -350,7 +368,7 @@ pub fn select_slice_nodes(
 pub fn spawn_slice_tasks(mut streamer: ResMut<SliceStreamer>) {
     let pool = AsyncComputeTaskPool::get();
     let cloud = streamer.cloud.clone();
-    let colour_column = streamer.colour_column.clone();
+    let selection = streamer.selection.clone();
     let wanted = std::mem::take(&mut streamer.wanted);
 
     for &key in &wanted {
@@ -362,10 +380,10 @@ pub fn spawn_slice_tasks(mut streamer: ResMut<SliceStreamer>) {
         }
 
         let cloud = cloud.clone();
-        let colour_column = colour_column.clone();
+        let selection = selection.clone();
         let task = pool.spawn(async move {
             let node = &cloud.slides[key.slide].nodes[key.node];
-            match load_node(&cloud, node, colour_column.as_deref()) {
+            match load_node(&cloud, node, &selection) {
                 Ok((positions, categories)) => NodeOutcome::Ready(positions, categories),
                 Err(e) => NodeOutcome::Failed(e),
             }
@@ -700,9 +718,12 @@ impl Plugin for SlicesPlugin {
             },
         );
 
-        app.world_mut()
-            .entity_mut(source)
-            .insert(crate::points_render::SourcePointSize::default());
+        app.world_mut().entity_mut(source).insert((
+            crate::points_render::SourcePointSize::default(),
+            // Placeholder until a lookup service supplies the real value
+            // labels; the column names and ids are the dataset's own.
+            crate::cellproperties::placeholder_properties(&self.cloud.category_columns()),
+        ));
 
         let mut streamer = SliceStreamer::new(self.cloud.clone(), source);
         streamer.budget = self.budget;
@@ -732,7 +753,8 @@ fn report_status(streamer: Res<SliceStreamer>, mut sources: Query<&mut SourceSta
     };
     let cloud = streamer.cloud();
     let colour = streamer
-        .colour_column
+        .selection
+        .colour_by
         .as_ref()
         .and_then(|name| {
             cloud

@@ -38,6 +38,18 @@ toggle; dragging the edge well past the minimum collapses it too, so the edge
 does not jam at the minimum with no way to close it. The title shortens to
 `BDE` when collapsed.
 
+Point clouds also get a **Cell properties** section, one sub-section per
+categorical property. The button in a sub-section's header colours points by
+that property; the checkboxes inside filter points down to the values still
+ticked, and excluded points are dropped as a node is built rather than hidden
+afterwards, so they cost no vertices.
+
+The properties themselves are a plain component on the source entity, so
+nothing that reads them knows where they came from. They are built from the
+dataset's own column list today — real names and identifiers, placeholder value
+labels — and a lookup against whatever service knows the real labels replaces
+that by writing the same component.
+
 The sidebar holds accordions. They are generic containers — a title, an open
 flag, and whatever children a caller hangs off the body — because which
 sections appear will vary with the dataset. The first is **View
