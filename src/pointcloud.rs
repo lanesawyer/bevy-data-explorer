@@ -482,8 +482,15 @@ impl Plugin for PointCloudPlugin {
         let (cx, cy) = bounds.centre();
         let source = datasource::register(
             app,
-            "Point cloud",
-            self.cloud.unit.clone(),
+            datasource::SourceInfo {
+                name: "Point cloud".into(),
+                unit: self.cloud.unit.clone(),
+                detail: format!("Scatterbrain octree, depth {}", self.cloud.max_depth()),
+                stat: format!(
+                    "{} CELLS",
+                    datasource::compact_count(self.cloud.total_points())
+                ),
+            },
             SourceExtent {
                 // World y is negated for display, matching the image panel.
                 centre: Vec2::new(cx, -cy),

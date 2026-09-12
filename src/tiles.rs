@@ -721,10 +721,19 @@ pub struct ImagePlugin {
 impl Plugin for ImagePlugin {
     fn build(&self, app: &mut App) {
         let (x0, y0, x1, y1) = self.dataset.world;
+        let level = &self.dataset.levels[0];
         let source = datasource::register(
             app,
-            self.dataset.name.clone(),
-            self.dataset.unit.clone(),
+            datasource::SourceInfo {
+                name: self.dataset.name.clone(),
+                unit: self.dataset.unit.clone(),
+                detail: format!(
+                    "OME-Zarr image, {} levels, {} channels",
+                    self.dataset.levels.len(),
+                    self.dataset.channels.len()
+                ),
+                stat: format!("{} x {} PX", level.width, level.height),
+            },
             SourceExtent {
                 // World y is negated so the image reads top-down.
                 centre: Vec2::new((x0 + x1) * 0.5, -(y0 + y1) * 0.5),

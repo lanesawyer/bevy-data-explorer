@@ -50,6 +50,19 @@ pub struct SelectedPanel(pub Option<Entity>);
 #[derive(Component, Clone, Default)]
 pub struct SelectionBorder;
 
+/// A change to the set of frames.
+///
+/// Both a frame's own corner buttons and the sidebar's layout menu raise these,
+/// so the two routes cannot drift apart: the rules about what may be opened or
+/// closed live in one place.
+#[derive(Message, Clone, Copy)]
+pub enum PanelRequest {
+    Duplicate(Entity),
+    Close(Entity),
+    /// Open a new frame onto a source.
+    Open(Entity),
+}
+
 /// Marks interactive chrome that swallows pointer input before a frame sees it.
 ///
 /// Needed because chrome can overlap the grid — the sidebar's drag handle
@@ -489,86 +502,123 @@ pub fn sync_panel_buttons(
 /// The copy inherits the source panel's current centre and zoom rather than its
 /// fitted defaults, so a duplicate starts as the same view and can then be
 /// driven somewhere else.
-pub fn duplicate_panel(
-    mut commands: Commands,
+pub fn panel_buttons(
+    mut requests: MessageWriter<PanelRequest>,
     pressed: Query<(&Interaction, &PanelButton), Changed<Interaction>>,
-    panels: Query<(&ShowsSource, &Transform, &Projection, &ViewLimits)>,
-    sources: Query<&DataSource>,
 ) {
-    let count = panels.iter().count();
     for (interaction, button) in &pressed {
-        if *interaction != Interaction::Pressed
-            || button.action != PanelAction::Duplicate
-            || count >= MAX_PANELS
-        {
+        if *interaction != Interaction::Pressed {
             continue;
         }
-        let Ok((shows, transform, projection, limits)) = panels.get(button.panel) else {
-            continue;
-        };
-        let Ok(source) = sources.get(shows.0) else {
-            continue;
-        };
-        let Projection::Orthographic(ortho) = projection else {
-            continue;
-        };
-        spawn_panel(
-            &mut commands,
-            shows.0,
-            source.layer,
-            count,
-            *limits,
-            Some(View {
-                centre: transform.translation.truncate(),
-                scale: ortho.scale,
-            }),
-        );
+        requests.write(match button.action {
+            PanelAction::Duplicate => PanelRequest::Duplicate(button.panel),
+            PanelAction::Close => PanelRequest::Close(button.panel),
+        });
     }
 }
 
-/// Close a panel when its button is pressed, and close the gap it leaves.
-///
-/// Cell assignment is by index, so the remaining panels are renumbered to stay
-/// contiguous — otherwise the grid would keep a hole and the cursor would map
-/// to a panel that is no longer there. Camera order follows the index, and the
-/// panel that ends up first takes over clearing the window.
-pub fn close_panel(
+/// Apply requested changes to the set of frames.
+pub fn apply_panel_requests(
     mut commands: Commands,
-    pressed: Query<(&Interaction, &PanelButton), Changed<Interaction>>,
-    mut panels: Query<(Entity, &mut Panel, &mut Camera)>,
+    mut requests: MessageReader<PanelRequest>,
+    area: Res<FrameArea>,
+    panels: Query<(
+        Entity,
+        &Panel,
+        &ShowsSource,
+        &Transform,
+        &Projection,
+        &ViewLimits,
+    )>,
+    sources: Query<(&DataSource, &crate::datasource::SourceExtent)>,
 ) {
-    let closing: Vec<Entity> = pressed
+    let requests: Vec<PanelRequest> = requests.read().copied().collect();
+    if requests.is_empty() {
+        return;
+    }
+
+    let mut open: Vec<(usize, Entity)> = panels
         .iter()
-        .filter(|(interaction, button)| {
-            **interaction == Interaction::Pressed && button.action == PanelAction::Close
-        })
-        .map(|(_, button)| button.panel)
+        .map(|(entity, panel, ..)| (panel.index, entity))
         .collect();
+    open.sort_unstable();
+
+    let (columns, rows) = grid_for(open.len().max(1));
+    let viewport = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32);
+
+    let mut closing: Vec<Entity> = Vec::new();
+    let mut spawned = 0usize;
+
+    for request in requests {
+        match request {
+            PanelRequest::Duplicate(panel) => {
+                if open.len() + spawned >= MAX_PANELS {
+                    continue;
+                }
+                let Ok((_, _, shows, transform, projection, limits)) = panels.get(panel) else {
+                    continue;
+                };
+                let Ok((source, _)) = sources.get(shows.0) else {
+                    continue;
+                };
+                let Projection::Orthographic(ortho) = projection else {
+                    continue;
+                };
+                spawn_panel(
+                    &mut commands,
+                    shows.0,
+                    source.layer,
+                    open.len() + spawned,
+                    *limits,
+                    Some(View {
+                        centre: transform.translation.truncate(),
+                        scale: ortho.scale,
+                    }),
+                );
+                spawned += 1;
+            }
+            PanelRequest::Open(source_entity) => {
+                if open.len() + spawned >= MAX_PANELS {
+                    continue;
+                }
+                let Ok((source, extent)) = sources.get(source_entity) else {
+                    continue;
+                };
+                spawn_panel(
+                    &mut commands,
+                    source_entity,
+                    source.layer,
+                    open.len() + spawned,
+                    extent.limits(viewport),
+                    None,
+                );
+                spawned += 1;
+            }
+            PanelRequest::Close(panel) => {
+                if panels.get(panel).is_ok() && !closing.contains(&panel) {
+                    closing.push(panel);
+                }
+            }
+        }
+    }
+
     if closing.is_empty() {
         return;
     }
-
     let existing: Vec<(Entity, usize)> = panels
         .iter()
-        .map(|(entity, panel, _)| (entity, panel.index))
+        .map(|(entity, panel, ..)| (entity, panel.index))
         .collect();
     let remaining = renumber(&existing, &closing);
     // Never close the last frame: an empty window offers no way back.
-    if remaining.is_empty() {
+    if remaining.is_empty() && spawned == 0 {
         return;
     }
-
     for entity in closing {
         commands.entity(entity).despawn();
     }
-
     for (position, entity) in remaining.into_iter().enumerate() {
-        let Ok((_, mut panel, mut camera)) = panels.get_mut(entity) else {
-            continue;
-        };
-        panel.index = position;
-        camera.order = position as isize;
-        camera.clear_color = clear_color_for(position);
+        commands.entity(entity).insert(Panel { index: position });
     }
 }
 

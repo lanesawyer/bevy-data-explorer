@@ -176,9 +176,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 task_pool_options: task_pool_options(),
             }),
     )
-    // SliderPlugin comes in with DefaultPlugins; it reports value changes but
-    // leaves writing them back to the app.
+    // Feathers styles the widgets; its slider reports value changes but leaves
+    // writing them back to the app.
+    .add_plugins(bevy_feathers::FeathersPlugins)
+    .insert_resource(bevy_feathers::theme::UiTheme(
+        bevy_feathers::dark_theme::create_dark_theme(),
+    ))
     .add_observer(bevy_ui_widgets::slider_self_update)
+    .add_message::<panel::PanelRequest>()
     .init_resource::<panel::FrameArea>()
     .init_resource::<panel::SelectedPanel>()
     .init_resource::<sidebar::Sidebar>()
@@ -191,8 +196,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             sidebar::sidebar_cursor,
             panel::reset_frame_area,
             sidebar::reserve_space,
-            panel::duplicate_panel,
-            panel::close_panel,
+            panel::panel_buttons,
+            panel::apply_panel_requests,
             panel::sync_panel_buttons,
             panel::highlight_panel_buttons,
             hud::sync_hud,
@@ -210,7 +215,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             panel::update_selection_border,
             widgets::toggle_accordions,
             widgets::update_accordions,
-            widgets::update_sliders,
+            viewconfig::rebuild_layout_menu,
+            viewconfig::apply_layout_actions,
+            viewconfig::apply_add_visualization,
+            widgets::toggle_accordion_menus,
+            widgets::position_accordion_menus,
             viewconfig::sync_opacity_slider,
             viewconfig::apply_opacity,
             viewconfig::apply_opacity_to_new,

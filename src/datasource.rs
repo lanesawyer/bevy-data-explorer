@@ -21,9 +21,21 @@ pub struct DataSource {
     pub name: String,
     /// Physical unit of the source's coordinates, for reporting zoom.
     pub unit: String,
+    /// What kind of data this is, for listings that show more than the name.
+    pub detail: String,
+    /// The headline figure for this dataset, e.g. its point count.
+    pub stat: String,
     /// Render layer this source's geometry is drawn on. Allocated at
     /// registration so that two sources can never collide.
     pub layer: usize,
+}
+
+/// What a plugin declares about its dataset when registering.
+pub struct SourceInfo {
+    pub name: String,
+    pub unit: String,
+    pub detail: String,
+    pub stat: String,
 }
 
 /// How much world a source occupies, in display coordinates, used to frame a
@@ -76,12 +88,7 @@ impl SourceRegistry {
 
 /// Register a source and spawn its entity, returning it so the plugin can bind
 /// its streamer to it.
-pub fn register(
-    app: &mut App,
-    name: impl Into<String>,
-    unit: impl Into<String>,
-    extent: SourceExtent,
-) -> Entity {
+pub fn register(app: &mut App, info: SourceInfo, extent: SourceExtent) -> Entity {
     let layer = app
         .world_mut()
         .get_resource_or_init::<SourceRegistry>()
@@ -90,14 +97,26 @@ pub fn register(
     app.world_mut()
         .spawn((
             DataSource {
-                name: name.into(),
-                unit: unit.into(),
+                name: info.name,
+                unit: info.unit,
+                detail: info.detail,
+                stat: info.stat,
                 layer,
             },
             extent,
             SourceStatus::default(),
         ))
         .id()
+}
+
+/// Format a count the way dataset listings do: 3_739_961 as "3.74M".
+pub fn compact_count(value: u64) -> String {
+    match value {
+        n if n >= 1_000_000_000 => format!("{:.2}B", n as f64 / 1e9),
+        n if n >= 1_000_000 => format!("{:.2}M", n as f64 / 1e6),
+        n if n >= 1_000 => format!("{:.1}K", n as f64 / 1e3),
+        n => n.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -129,11 +148,29 @@ mod tests {
         }
     }
 
+    fn info(name: &str, unit: &str) -> SourceInfo {
+        SourceInfo {
+            name: name.into(),
+            unit: unit.into(),
+            detail: "test".into(),
+            stat: "0".into(),
+        }
+    }
+
+    #[test]
+    fn counts_read_the_way_dataset_listings_show_them() {
+        assert_eq!(compact_count(3_739_961), "3.74M");
+        assert_eq!(compact_count(4_042_976), "4.04M");
+        assert_eq!(compact_count(1_420_000), "1.42M");
+        assert_eq!(compact_count(12_345), "12.3K");
+        assert_eq!(compact_count(999), "999");
+    }
+
     #[test]
     fn registering_a_source_spawns_it_with_its_own_layer() {
         let mut app = App::new();
-        let first = register(&mut app, "First", "mm", extent());
-        let second = register(&mut app, "Second", "um", extent());
+        let first = register(&mut app, info("First", "mm"), extent());
+        let second = register(&mut app, info("Second", "um"), extent());
 
         let world = app.world();
         let first = world.get::<DataSource>(first).unwrap();
@@ -152,7 +189,7 @@ mod tests {
         // The overlay reads this component every frame, so it has to exist from
         // registration rather than appearing once the plugin first runs.
         let mut app = App::new();
-        let source = register(&mut app, "Thing", "mm", extent());
+        let source = register(&mut app, info("Thing", "mm"), extent());
         assert!(app.world().get::<SourceStatus>(source).is_some());
         assert!(app.world().get::<SourceExtent>(source).is_some());
     }

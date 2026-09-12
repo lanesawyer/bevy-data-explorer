@@ -605,8 +605,15 @@ impl Plugin for SlicesPlugin {
         let (w, h) = self.cloud.max_slide_extent();
         let source = datasource::register(
             app,
-            "Sections",
-            self.cloud.unit.clone(),
+            datasource::SourceInfo {
+                name: "Sections".into(),
+                unit: self.cloud.unit.clone(),
+                detail: format!("Scatterbrain, {} sections", self.cloud.slides.len()),
+                stat: format!(
+                    "{} CELLS",
+                    datasource::compact_count(self.cloud.total_points())
+                ),
+            },
             // Only a sane starting frame: the streamer refits the panel on its
             // first update, once the grid and viewport are known.
             SourceExtent {

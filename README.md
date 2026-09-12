@@ -61,8 +61,17 @@ than by asking each format plugin to implement it, so a new format fades
 without any code written for it — including tiles and octree nodes that stream
 in after the value was set.
 
-The slider's behaviour comes from `bevy_ui_widgets`' headless slider; the
-styling and thumb placement it leaves to the app are ours.
+Widgets come from **Feathers**, Bevy 0.19's widget collection: the slider,
+buttons and labels are Feathers controls, themed from its dark theme, so they
+match rather than being hand-styled one at a time.
+
+Each accordion can carry a menu button on the right that opens a popup. View
+configuration's is an **Edit layout** menu listing every frame with its dataset
+name, provenance and headline figure, and buttons to clone or close it, plus a
+row per loaded dataset to open a new frame onto it. Both that menu and a
+frame's own corner buttons raise the same `PanelRequest`, so the rules about
+what may be opened or closed live in one place and the two routes cannot drift
+apart.
 
 The sidebar does not talk to the grid. It takes a slice off a `FrameArea`,
 which is the only thing frames and their chrome measure against, so none of

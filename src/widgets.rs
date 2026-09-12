@@ -6,14 +6,16 @@
 
 use bevy::prelude::*;
 use bevy::ui::Interaction;
-use bevy_ui_widgets::{Slider, SliderRange, SliderThumb, SliderValue};
+use bevy_feathers::controls::FeathersSlider;
+use bevy_feathers::display::{label, label_dim};
+use bevy_feathers::font_styles::InheritableFont;
+use bevy_feathers::theme::ThemeBackgroundColor;
+use bevy_feathers::tokens;
 
 use crate::panel::BlocksFrameInput;
 
 pub const ACCORDION_INDENT: f32 = 8.0;
 const HEADER_HEIGHT: f32 = 26.0;
-const SLIDER_HEIGHT: f32 = 16.0;
-const THUMB_PX: f32 = 12.0;
 
 /// A collapsible section of the sidebar.
 #[derive(Component, Clone, Default)]
@@ -53,11 +55,20 @@ impl Default for AccordionBody {
 #[derive(Component, Clone, Default)]
 pub struct AccordionCaret;
 
-/// Spawn an accordion, returning the section and the body to fill.
+/// The pieces of a spawned accordion that callers need.
+pub struct AccordionParts {
+    pub section: Entity,
+    /// Fill this with the section's contents.
+    pub body: Entity,
+    /// Attach a menu button here with [`spawn_accordion_menu`].
+    pub header: Entity,
+}
+
+/// Spawn an accordion.
 ///
 /// The body is returned rather than populated here so that callers compose
 /// their own contents into it; a section knows nothing about what it holds.
-pub fn spawn_accordion(commands: &mut Commands, title: &str, open: bool) -> (Entity, Entity) {
+pub fn spawn_accordion(commands: &mut Commands, title: &str, open: bool) -> AccordionParts {
     let accordion = commands
         .spawn_scene(bsn! {
             Accordion { open: { open } }
@@ -70,33 +81,40 @@ pub fn spawn_accordion(commands: &mut Commands, title: &str, open: bool) -> (Ent
 
     let header = commands
         .spawn_scene(bsn! {
-            Button
-            BlocksFrameInput
-            AccordionHeader { accordion: { accordion } }
             Node {
                 width: { Val::Percent(100.0) },
                 height: { Val::Px(HEADER_HEIGHT) },
                 align_items: { AlignItems::Center },
+                border_radius: { BorderRadius::all(Val::Px(3.0)) },
+                overflow: { Overflow::clip() },
+            }
+            ThemeBackgroundColor({ tokens::WINDOW_BG })
+            InheritableFont { font_size: { 13.0f32 } }
+        })
+        .id();
+
+    let toggle = commands
+        .spawn_scene(bsn! {
+            Button
+            BlocksFrameInput
+            AccordionHeader { accordion: { accordion } }
+            Node {
+                flex_grow: { 1.0_f32 },
+                height: { Val::Percent(100.0) },
+                align_items: { AlignItems::Center },
                 column_gap: { Val::Px(6.0) },
                 padding: { UiRect::horizontal(Val::Px(6.0)) },
-                border_radius: { BorderRadius::all(Val::Px(3.0)) },
             }
-            BackgroundColor({ Color::srgba(0.16, 0.18, 0.23, 0.9) })
             Children [
                 (
                     AccordionCaret
-                    Text({ caret(open).to_string() })
-                    TextFont { font_size: { bevy::text::FontSize::Px(11.0) } }
-                    TextColor({ Color::srgb(0.65, 0.70, 0.78) })
+                    label(caret(open))
                 ),
-                (
-                    Text({ title.to_string() })
-                    TextFont { font_size: { bevy::text::FontSize::Px(13.0) } }
-                    TextColor({ Color::srgb(0.88, 0.91, 0.96) })
-                ),
+                label(title.to_string()),
             ]
         })
         .id();
+    commands.entity(header).add_child(toggle);
 
     let body = commands
         .spawn_scene(bsn! {
@@ -116,7 +134,176 @@ pub fn spawn_accordion(commands: &mut Commands, title: &str, open: bool) -> (Ent
         .id();
 
     commands.entity(accordion).add_children(&[header, body]);
-    (accordion, body)
+    AccordionParts {
+        section: accordion,
+        body,
+        header,
+    }
+}
+
+/// A popup anchored under an accordion's menu button.
+#[derive(Component, Clone, Default)]
+pub struct AccordionMenu {
+    pub open: bool,
+}
+
+/// The button that opens a menu, on the right of an accordion header.
+#[derive(Component, Clone)]
+pub struct AccordionMenuButton {
+    pub menu: Entity,
+}
+
+impl Default for AccordionMenuButton {
+    fn default() -> Self {
+        AccordionMenuButton {
+            menu: Entity::PLACEHOLDER,
+        }
+    }
+}
+
+/// Anchors a menu to the button that opens it.
+#[derive(Component, Clone)]
+pub struct AnchoredTo {
+    pub button: Entity,
+}
+
+impl Default for AnchoredTo {
+    fn default() -> Self {
+        AnchoredTo {
+            button: Entity::PLACEHOLDER,
+        }
+    }
+}
+
+/// Width of a menu popup.
+pub const MENU_WIDTH: f32 = 320.0;
+/// Menus draw over the frames and everything docked beside them.
+const MENU_Z: i32 = 10;
+
+/// Add a menu button to an accordion header, returning the popup's content
+/// node for the caller to fill.
+///
+/// The popup is a root node rather than a child of the header, because the
+/// sidebar clips its contents and a menu is meant to overhang it.
+pub fn spawn_accordion_menu(commands: &mut Commands, header: Entity) -> Entity {
+    let menu = commands
+        .spawn_scene(bsn! {
+            AccordionMenu
+            Node {
+                position_type: { PositionType::Absolute },
+                display: { Display::None },
+                width: { Val::Px(MENU_WIDTH) },
+                flex_direction: { FlexDirection::Column },
+                row_gap: { Val::Px(4.0) },
+                padding: { UiRect::all(Val::Px(10.0)) },
+                border_radius: { BorderRadius::all(Val::Px(6.0)) },
+            }
+            ThemeBackgroundColor({ tokens::MENU_BG })
+            InheritableFont { font_size: { 13.0f32 } }
+            GlobalZIndex({ MENU_Z })
+            BlocksFrameInput
+        })
+        .id();
+
+    let button = commands
+        .spawn_scene(bsn! {
+            Button
+            BlocksFrameInput
+            AccordionMenuButton { menu: { menu } }
+            Node {
+                width: { Val::Px(HEADER_HEIGHT) },
+                height: { Val::Percent(100.0) },
+                justify_content: { JustifyContent::Center },
+                align_items: { AlignItems::Center },
+            }
+            Children [label("\u{22ee}")]
+        })
+        .id();
+
+    commands.entity(header).add_child(button);
+    commands.entity(menu).insert(AnchoredTo { button });
+    menu
+}
+
+/// Open and close menus, and dismiss them when something else is clicked.
+pub fn toggle_accordion_menus(
+    mouse: Res<ButtonInput<MouseButton>>,
+    buttons: Query<(&Interaction, &AccordionMenuButton)>,
+    interactions: Query<&Interaction>,
+    children: Query<&Children>,
+    mut menus: Query<(Entity, &mut AccordionMenu)>,
+) {
+    let pressed = buttons
+        .iter()
+        .find(|(interaction, _)| **interaction == Interaction::Pressed)
+        .map(|(_, button)| button.menu);
+
+    if let Some(target) = pressed {
+        for (entity, mut menu) in &mut menus {
+            menu.open = entity == target && !menu.open;
+        }
+        return;
+    }
+
+    if !mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
+    // A press anywhere that is not inside an open menu dismisses it.
+    for (entity, mut menu) in &mut menus {
+        if !menu.open {
+            continue;
+        }
+        let inside = std::iter::once(entity)
+            .chain(descendants(entity, &children))
+            .any(|e| interactions.get(e).is_ok_and(|i| *i != Interaction::None));
+        if !inside {
+            menu.open = false;
+        }
+    }
+}
+
+fn descendants(root: Entity, children: &Query<&Children>) -> Vec<Entity> {
+    let mut found = Vec::new();
+    let mut stack = vec![root];
+    while let Some(entity) = stack.pop() {
+        if let Ok(kids) = children.get(entity) {
+            for child in kids.iter() {
+                found.push(child);
+                stack.push(child);
+            }
+        }
+    }
+    found
+}
+
+/// Show open menus, positioned under the button that opens them.
+pub fn position_accordion_menus(
+    windows: Query<&Window>,
+    anchors: Query<(&ComputedNode, &UiGlobalTransform)>,
+    mut menus: Query<(&AccordionMenu, &AnchoredTo, &mut Node)>,
+) {
+    let Ok(window) = windows.single() else { return };
+
+    for (menu, anchor, mut node) in &mut menus {
+        node.display = if menu.open {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if !menu.open {
+            continue;
+        }
+        let Ok((computed, transform)) = anchors.get(anchor.button) else {
+            continue;
+        };
+        // Layout reports physical pixels; `left` and `top` are logical.
+        let scale = computed.inverse_scale_factor();
+        let size = computed.size() * scale;
+        let centre = Vec2::new(transform.translation.x, transform.translation.y) * scale;
+        let left = (centre.x - size.x * 0.5).min(window.width() - MENU_WIDTH - 8.0);
+        node.left = Val::Px(left.max(8.0));
+        node.top = Val::Px(centre.y + size.y * 0.5 + 4.0);
+    }
 }
 
 fn caret(open: bool) -> &'static str {
@@ -170,135 +357,27 @@ pub fn update_accordions(
     }
 }
 
-/// The filled part of a slider track, sized from the slider's value.
-#[derive(Component, Clone)]
-pub struct SliderFill {
-    pub slider: Entity,
-}
-
-impl Default for SliderFill {
-    fn default() -> Self {
-        SliderFill {
-            slider: Entity::PLACEHOLDER,
-        }
-    }
-}
-
-/// Marks the thumb's owning slider, so it can be positioned from the value.
-#[derive(Component, Clone)]
-pub struct SliderHandle {
-    pub slider: Entity,
-}
-
-impl Default for SliderHandle {
-    fn default() -> Self {
-        SliderHandle {
-            slider: Entity::PLACEHOLDER,
-        }
-    }
-}
-
-/// Spawn a labelled horizontal slider over `range`, returning the slider.
+/// Spawn a labelled slider over `range`.
 ///
-/// Behaviour comes from `bevy_ui_widgets`' headless slider; everything here is
-/// presentation and the thumb placement it leaves to the app.
+/// Feathers styles and drives it; the app only writes the value back, via
+/// `bevy_ui_widgets::slider_self_update`.
 pub fn spawn_slider(commands: &mut Commands, value: f32, range: (f32, f32)) -> Entity {
-    let slider = commands
+    commands
         .spawn_scene(bsn! {
             BlocksFrameInput
-            template_value(Slider::default())
-            template_value(SliderValue(value))
-            template_value(SliderRange::new(range.0, range.1))
-            Node {
-                width: { Val::Percent(100.0) },
-                height: { Val::Px(SLIDER_HEIGHT) },
-                justify_content: { JustifyContent::Center },
-                flex_direction: { FlexDirection::Column },
+            @FeathersSlider {
+                @value: { value },
+                @min: { range.0 },
+                @max: { range.1 }
             }
         })
-        .id();
-
-    let track = commands
-        .spawn_scene(bsn! {
-            Node {
-                width: { Val::Percent(100.0) },
-                height: { Val::Px(4.0) },
-                border_radius: { BorderRadius::all(Val::Px(2.0)) },
-            }
-            BackgroundColor({ Color::srgb(0.22, 0.24, 0.30) })
-            Children [(
-                SliderFill { slider: { slider } }
-                Node {
-                    height: { Val::Percent(100.0) },
-                    border_radius: { BorderRadius::all(Val::Px(2.0)) },
-                }
-                BackgroundColor({ Color::srgb(0.38, 0.60, 0.90) })
-            )]
-        })
-        .id();
-
-    let thumb = commands
-        .spawn_scene(bsn! {
-            SliderThumb
-            SliderHandle { slider: { slider } }
-            Node {
-                position_type: { PositionType::Absolute },
-                width: { Val::Px(THUMB_PX) },
-                height: { Val::Px(THUMB_PX) },
-                border_radius: { BorderRadius::all(Val::Px(THUMB_PX * 0.5)) },
-            }
-            BackgroundColor({ Color::srgb(0.85, 0.89, 0.95) })
-        })
-        .id();
-
-    commands.entity(slider).add_children(&[track, thumb]);
-    slider
+        .id()
 }
 
-/// Where along its track a value sits, as a fraction.
-fn fraction_of(value: f32, start: f32, end: f32) -> f32 {
-    let span = end - start;
-    if span.abs() < f32::EPSILON {
-        return 0.0;
-    }
-    ((value - start) / span).clamp(0.0, 1.0)
-}
-
-/// Where to place the thumb, as a percentage along the track plus a pixel
-/// nudge back so it stays inside at both ends.
-///
-/// Expressed this way rather than as an absolute offset because the track's
-/// measured width is in physical pixels while `left` is in logical ones;
-/// mixing them puts the thumb ahead of the fill on any scaled display.
-fn thumb_placement(t: f32) -> (f32, f32) {
-    (t * 100.0, -THUMB_PX * t)
-}
-
-/// Move the fill and thumb to match each slider's value.
-pub fn update_sliders(
-    sliders: Query<(&SliderValue, &SliderRange)>,
-    mut fills: Query<(&SliderFill, &mut Node), Without<SliderHandle>>,
-    mut handles: Query<(&SliderHandle, &mut Node), Without<SliderFill>>,
-) {
-    let fraction = |entity: Entity| {
-        sliders
-            .get(entity)
-            .ok()
-            .map(|(value, range)| fraction_of(value.0, range.start(), range.end()))
-    };
-
-    for (fill, mut node) in &mut fills {
-        if let Some(t) = fraction(fill.slider) {
-            node.width = Val::Percent(t * 100.0);
-        }
-    }
-    for (handle, mut node) in &mut handles {
-        if let Some(t) = fraction(handle.slider) {
-            let (percent, nudge) = thumb_placement(t);
-            node.left = Val::Percent(percent);
-            node.margin.left = Val::Px(nudge);
-        }
-    }
+/// A dim caption, for the secondary lines of a listing.
+pub fn caption(commands: &mut Commands, text: impl Into<String>) -> Entity {
+    let text = text.into();
+    commands.spawn_scene(bsn! { label_dim(text) }).id()
 }
 
 #[cfg(test)]
@@ -310,32 +389,10 @@ mod tests {
         assert_ne!(caret(true), caret(false));
     }
 
-    /// The thumb is positioned by hand, so the mapping from value to offset is
-    /// worth pinning: both ends must stay inside the track.
-    fn thumb_offset(value: f32, range: (f32, f32), width: f32) -> f32 {
-        let span = range.1 - range.0;
-        let t = ((value - range.0) / span).clamp(0.0, 1.0);
-        t * (width - THUMB_PX).max(0.0)
-    }
-
     #[test]
-    fn the_thumb_stays_inside_the_track() {
-        assert_eq!(thumb_offset(0.0, (0.0, 1.0), 100.0), 0.0);
-        assert_eq!(thumb_offset(1.0, (0.0, 1.0), 100.0), 100.0 - THUMB_PX);
-        assert_eq!(
-            thumb_offset(0.5, (0.0, 1.0), 100.0),
-            (100.0 - THUMB_PX) * 0.5
-        );
-    }
-
-    #[test]
-    fn values_outside_the_range_clamp() {
-        assert_eq!(thumb_offset(-5.0, (0.0, 1.0), 100.0), 0.0);
-        assert_eq!(thumb_offset(9.0, (0.0, 1.0), 100.0), 100.0 - THUMB_PX);
-    }
-
-    #[test]
-    fn a_track_narrower_than_the_thumb_does_not_go_negative() {
-        assert_eq!(thumb_offset(1.0, (0.0, 1.0), 4.0), 0.0);
+    fn menus_draw_above_the_frames_and_the_dock() {
+        // A menu overhangs the sidebar it opens from, so it has to outrank
+        // both the sidebar's chrome and the frame outline beneath it.
+        assert!(MENU_Z > 1);
     }
 }
