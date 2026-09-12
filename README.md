@@ -85,7 +85,12 @@ frame's own corner buttons raise the same `PanelRequest`, so the rules about
 what may be opened or closed live in one place and the two routes cannot drift
 apart.
 
-The sidebar does not talk to the grid. It takes a slice off a `FrameArea`,
+An inspector docks on the right, opened from a frame's info button and closed
+from its own. It follows the selection rather than pinning itself to the frame
+that opened it, so clicking between frames retells what each one is showing. It
+resizes the same way as the sidebar, dragging from its inner edge.
+
+Neither dock talks to the grid. It takes a slice off a `FrameArea`,
 which is the only thing frames and their chrome measure against, so none of
 that code knows it exists. Chrome that can overlap the grid — the drag handle
 straddles its own edge — is marked `BlocksFrameInput`, since position alone
@@ -117,6 +122,7 @@ whatever the original happened to load.
 | `R` | reset that panel's view |
 | `+` button | duplicate that panel |
 | `x` button | close that panel |
+| `i` button | open the inspector on that panel |
 | drag sidebar edge | resize the sidebar, or collapse it — the pointer becomes a resize cursor over the handle |
 | `<` / `>` button | collapse or expand the sidebar |
 | `1`–`9` | toggle an image channel |

@@ -61,6 +61,8 @@ pub enum PanelRequest {
     Close(Entity),
     /// Open a new frame onto a source.
     Open(Entity),
+    /// Show what is known about a frame.
+    Inspect(Entity),
 }
 
 /// Marks interactive chrome that swallows pointer input before a frame sees it.
@@ -95,6 +97,12 @@ impl FrameArea {
     pub fn reserve_left(&mut self, amount: f32) {
         let amount = amount.clamp(0.0, self.size.x);
         self.origin.x += amount;
+        self.size.x -= amount;
+    }
+
+    /// Take `amount` off the right edge, for chrome docked there.
+    pub fn reserve_right(&mut self, amount: f32) {
+        let amount = amount.clamp(0.0, self.size.x);
         self.size.x -= amount;
     }
 }
@@ -406,14 +414,22 @@ const IDLE_BUTTON: Color = Color::srgba(0.18, 0.20, 0.26, 0.85);
 pub enum PanelAction {
     Duplicate,
     Close,
+    Info,
 }
 
 impl PanelAction {
+    const ALL: [PanelAction; 3] = [
+        PanelAction::Info,
+        PanelAction::Duplicate,
+        PanelAction::Close,
+    ];
+
     /// Buttons are laid out right to left from the panel's top corner.
     fn slot(self) -> f32 {
         match self {
             PanelAction::Close => 0.0,
             PanelAction::Duplicate => 1.0,
+            PanelAction::Info => 2.0,
         }
     }
 
@@ -421,6 +437,7 @@ impl PanelAction {
         match self {
             PanelAction::Duplicate => "+",
             PanelAction::Close => "x",
+            PanelAction::Info => "i",
         }
     }
 }
@@ -477,7 +494,7 @@ pub fn sync_panel_buttons(
     }
 
     for panel in &panels {
-        for action in [PanelAction::Duplicate, PanelAction::Close] {
+        for action in PanelAction::ALL {
             if buttons
                 .iter()
                 .any(|(_, b)| b.panel == panel && b.action == action)
@@ -513,6 +530,7 @@ pub fn panel_buttons(
         requests.write(match button.action {
             PanelAction::Duplicate => PanelRequest::Duplicate(button.panel),
             PanelAction::Close => PanelRequest::Close(button.panel),
+            PanelAction::Info => PanelRequest::Inspect(button.panel),
         });
     }
 }
@@ -521,6 +539,7 @@ pub fn panel_buttons(
 pub fn apply_panel_requests(
     mut commands: Commands,
     mut requests: MessageReader<PanelRequest>,
+    mut selected: ResMut<SelectedPanel>,
     area: Res<FrameArea>,
     panels: Query<(
         Entity,
@@ -597,6 +616,13 @@ pub fn apply_panel_requests(
             PanelRequest::Close(panel) => {
                 if panels.get(panel).is_ok() && !closing.contains(&panel) {
                     closing.push(panel);
+                }
+            }
+            // Selecting is handled here so the inspector can simply follow the
+            // selection rather than tracking a frame of its own.
+            PanelRequest::Inspect(panel) => {
+                if panels.get(panel).is_ok() {
+                    selected.0 = Some(panel);
                 }
             }
         }
@@ -701,7 +727,7 @@ pub fn highlight_panel_buttons(
 ) {
     for (interaction, button, mut colour) in &mut buttons {
         let active = match button.action {
-            PanelAction::Duplicate => Color::srgba(0.35, 0.55, 0.85, 0.95),
+            PanelAction::Duplicate | PanelAction::Info => Color::srgba(0.35, 0.55, 0.85, 0.95),
             PanelAction::Close => Color::srgba(0.80, 0.30, 0.30, 0.95),
         };
         colour.0 = match interaction {
@@ -1053,12 +1079,26 @@ mod tests {
 
     #[test]
     fn the_buttons_do_not_overlap() {
-        let slots = [PanelAction::Close.slot(), PanelAction::Duplicate.slot()];
-        assert_ne!(slots[0], slots[1]);
-        // Slots are measured in button widths from the right edge, so adjacent
-        // slots must be at least one button plus its gap apart.
-        let spacing = (slots[1] - slots[0]).abs() * (BUTTON_PX + BUTTON_GAP);
-        assert!(spacing >= BUTTON_PX);
+        let mut slots: Vec<f32> = PanelAction::ALL.iter().map(|a| a.slot()).collect();
+        slots.sort_by(f32::total_cmp);
+        for pair in slots.windows(2) {
+            // Slots are measured in button widths from the right edge, so
+            // adjacent slots must be at least one button plus its gap apart.
+            let spacing = (pair[1] - pair[0]) * (BUTTON_PX + BUTTON_GAP);
+            assert!(spacing >= BUTTON_PX, "buttons at {pair:?} would overlap");
+        }
+    }
+
+    #[test]
+    fn every_action_has_its_own_slot_and_glyph() {
+        let slots: std::collections::HashSet<u32> = PanelAction::ALL
+            .iter()
+            .map(|a| a.slot().to_bits())
+            .collect();
+        let glyphs: std::collections::HashSet<&str> =
+            PanelAction::ALL.iter().map(|a| a.glyph()).collect();
+        assert_eq!(slots.len(), PanelAction::ALL.len());
+        assert_eq!(glyphs.len(), PanelAction::ALL.len());
     }
 
     #[test]

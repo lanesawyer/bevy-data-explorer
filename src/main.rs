@@ -9,6 +9,7 @@
 mod dataset;
 mod datasource;
 mod hud;
+mod inspector;
 mod panel;
 mod pointcloud;
 mod points_render;
@@ -107,6 +108,10 @@ fn load_points(source: &str) -> Result<scatterbrain::Scatterbrain, String> {
     scatterbrain::Scatterbrain::parse(&text)
 }
 
+/// The docks, which reserve their space before the frames are laid out.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+struct DockSystems;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
@@ -191,15 +196,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .init_resource::<panel::FrameArea>()
     .init_resource::<panel::SelectedPanel>()
     .init_resource::<sidebar::Sidebar>()
+    .init_resource::<inspector::Inspector>()
+    // The docks claim their space first; everything that places a frame or its
+    // chrome measures against what is left.
     .add_systems(
         Update,
         (
             sidebar::toggle_sidebar,
             sidebar::resize_sidebar,
-            sidebar::update_sidebar,
             sidebar::sidebar_cursor,
+            inspector::open_on_request,
+            inspector::close_inspector,
+            inspector::resize_inspector,
+            inspector::inspector_cursor,
             panel::reset_frame_area,
             sidebar::reserve_space,
+            inspector::reserve_space,
+        )
+            .chain()
+            .in_set(DockSystems),
+    )
+    .add_systems(
+        Update,
+        (
             panel::panel_buttons,
             panel::apply_panel_requests,
             panel::normalize_panels,
@@ -209,8 +228,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             panel::panel_controls,
             panel::update_viewports,
             hud::position_hud,
+            sidebar::update_sidebar,
+            inspector::update_inspector,
         )
-            .chain(),
+            .chain()
+            .after(DockSystems),
     )
     // The sidebar's controls read the selection and write through to the
     // source, so they run after the frames have settled for the frame.
@@ -314,5 +336,6 @@ fn open_frames(
     panel::spawn_ui_camera(&mut commands);
     panel::spawn_dividers(&mut commands);
     sidebar::spawn_sidebar(&mut commands);
+    inspector::spawn_inspector(&mut commands);
     panel::spawn_selection_border(&mut commands);
 }
