@@ -315,6 +315,7 @@ pub fn spawn_selection_border(commands: &mut Commands) {
             border: { UiRect::all(Val::Px(SELECTION_PX)) },
             display: { Display::None },
         }
+        GlobalZIndex({ SELECTION_Z })
         template_value(BorderColor::all(SELECTION_COLOUR))
     });
 }
@@ -374,6 +375,15 @@ pub fn spawn_dividers(commands: &mut Commands) {
 
 const SELECTION_PX: f32 = 2.0;
 const SELECTION_COLOUR: Color = Color::srgb(0.38, 0.60, 0.90);
+
+/// Draw order for the selection outline.
+///
+/// A cell's left and top borders fall exactly on the rules between cells, since
+/// a border is drawn inside the node while the rule sits just outside it. The
+/// outline and the rules are separate UI roots, so nothing orders them
+/// implicitly and the rule would cover the shared edges — leaving every frame
+/// except the top-left one outlined on two sides only.
+const SELECTION_Z: i32 = 1;
 
 const BUTTON_PX: f32 = 22.0;
 const BUTTON_GAP: f32 = 4.0;
@@ -862,6 +872,39 @@ mod tests {
         let all = panels(3);
         let everything: Vec<Entity> = all.iter().map(|(e, _)| *e).collect();
         assert!(renumber(&all, &everything).is_empty());
+    }
+
+    /// Span a cell's left border occupies, and the rule drawn at that column.
+    fn left_border_span(col: usize, cell_x: f32) -> (f32, f32) {
+        let left = cell_x * col as f32;
+        (left, left + SELECTION_PX)
+    }
+
+    fn rule_span(ordinal: usize, cell_x: f32) -> (f32, f32) {
+        let left = cell_x * (ordinal + 1) as f32;
+        (left, left + DIVIDER_PX)
+    }
+
+    fn overlaps(a: (f32, f32), b: (f32, f32)) -> bool {
+        a.0 < b.1 && b.0 < a.1
+    }
+
+    #[test]
+    fn a_cells_left_border_lands_on_the_rule_beside_it() {
+        // This is why the outline needs an explicit draw order: for every
+        // column but the first, the border and the rule occupy the same pixels.
+        let cell = 400.0;
+        assert!(overlaps(left_border_span(1, cell), rule_span(0, cell)));
+        assert!(overlaps(left_border_span(2, cell), rule_span(1, cell)));
+        // The first column has no rule to its left, which is why that frame
+        // looked correctly outlined while the others did not.
+        assert!(!overlaps(left_border_span(0, cell), rule_span(0, cell)));
+    }
+
+    #[test]
+    fn the_outline_draws_above_the_rules() {
+        // Rules carry no explicit index, so they sit at zero.
+        assert!(SELECTION_Z > 0);
     }
 
     #[test]
