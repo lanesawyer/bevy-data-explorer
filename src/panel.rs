@@ -314,29 +314,28 @@ pub fn sync_panel_buttons(
             {
                 continue;
             }
-            commands
-                .spawn((
-                    Button,
-                    Node {
-                        position_type: PositionType::Absolute,
-                        width: Val::Px(BUTTON_PX),
-                        height: Val::Px(BUTTON_PX),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        border_radius: BorderRadius::all(Val::Px(4.0)),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(0.18, 0.20, 0.26, 0.85)),
-                    PanelButton { panel, action },
-                ))
-                .with_child((
+            commands.spawn((
+                Button,
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: Val::Px(BUTTON_PX),
+                    height: Val::Px(BUTTON_PX),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    border_radius: BorderRadius::all(Val::Px(4.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.18, 0.20, 0.26, 0.85)),
+                PanelButton { panel, action },
+                children![(
                     Text::new(action.glyph()),
                     TextFont {
                         font_size: bevy::text::FontSize::Px(15.0),
                         ..default()
                     },
                     TextColor(Color::srgb(0.85, 0.9, 0.95)),
-                ));
+                )],
+            ));
         }
     }
 }
