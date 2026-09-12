@@ -299,6 +299,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cellpanel::record_open_sections,
             cellpanel::drag_range_handles,
             cellpanel::rebuild_cell_panel,
+            cellpanel::update_property_controls,
             cellpanel::update_range_controls,
             cellpanel::update_clear_buttons,
             cellpanel::apply_selection,

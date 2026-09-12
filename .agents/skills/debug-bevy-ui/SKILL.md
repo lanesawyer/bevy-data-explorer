@@ -111,6 +111,20 @@ insert. Feathers' slider omits `SliderPrecision`, while the system that moves
 the fill and rewrites the text requires it — so the query matches nothing and
 the widget keeps its placeholder while the value underneath updates normally.
 
+## Something flashes wrong for a frame before settling
+
+Anything spawned with state that a *later* system derives shows its default
+first. A closed accordion body drew its contents once before being hidden; a
+Feathers checkbox draws its mark until the styling system runs.
+
+Two fixes, in order of preference:
+
+1. Stop respawning. If a panel rebuilds whenever a value changes, every widget
+   in it flashes on every interaction. Rebuild only when the *structure*
+   changes and write values onto the existing entities.
+2. If it must be spawned, derive the initial state at spawn from the same
+   helper the update uses, so the two cannot disagree.
+
 ## A control is simply not there
 
 Before hunting the wiring, check whether flexbox removed it. A row that clips

@@ -103,7 +103,7 @@ pub fn rebuild_cell_panel(
     mut section: Query<&mut Node, With<CellPanel>>,
     existing: Query<Entity, With<CellPanelContent>>,
     open: Res<OpenSections>,
-    mut shown: Local<Option<(Entity, usize, Vec<bool>)>>,
+    mut shown: Local<Option<(Entity, Vec<String>)>>,
 ) {
     let Ok(body) = body.single() else { return };
 
@@ -130,15 +130,19 @@ pub fn rebuild_cell_panel(
 
     // Rebuilt only when something visible changed: which source, what it is
     // coloured by, and which values are ticked.
-    let ticks: Vec<bool> = properties
-        .properties
-        .iter()
-        .flat_map(|property| property.values().iter().map(|value| value.selected))
-        .collect();
-    // Range ends are deliberately absent: they move continuously while being
-    // dragged, and rebuilding would despawn the handle under the pointer. The
-    // range controls are updated in place instead.
-    let fingerprint = (entity, properties.colour_by.unwrap_or(usize::MAX), ticks);
+    // Only what the sections are built from. Everything a property's controls
+    // display — ticks, the colour choice, range ends — is written onto the
+    // existing entities instead, because rebuilding respawns every checkbox and
+    // Feathers draws a checkbox's mark before its styling system has had a
+    // frame to hide it, which reads as every box flashing ticked.
+    let fingerprint: (Entity, Vec<String>) = (
+        entity,
+        properties
+            .properties
+            .iter()
+            .map(|property| property.id.clone())
+            .collect(),
+    );
     if shown.as_ref() == Some(&fingerprint) {
         return;
     }
@@ -778,6 +782,62 @@ pub fn update_clear_buttons(
                 && text.0 != label
             {
                 text.0 = label.clone();
+            }
+        }
+    }
+}
+
+/// Keep each checkbox and colour control matching its property, without
+/// respawning them.
+///
+/// Ticking a box used to rebuild the whole section. Beyond being wasteful, a
+/// fresh Feathers checkbox draws its mark until the styling system runs a frame
+/// later, so a rebuild made every box flash ticked before settling.
+pub fn update_property_controls(
+    mut commands: Commands,
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    sources: Query<&CellProperties>,
+    boxes: Query<(Entity, &ValueCheckbox, Has<Checked>)>,
+    colours: Query<(Entity, &ColourByButton)>,
+    children: Query<&Children>,
+    mut texts: Query<&mut Text>,
+) {
+    let Some(properties) = selected
+        .0
+        .and_then(|panel| panels.get(panel).ok())
+        .and_then(|shows| sources.get(shows.0).ok())
+    else {
+        return;
+    };
+
+    for (entity, checkbox, checked) in &boxes {
+        let selected = properties
+            .properties
+            .get(checkbox.property)
+            .and_then(|property| property.values().get(checkbox.value))
+            .is_some_and(|value| value.selected);
+        if selected == checked {
+            continue;
+        }
+        if selected {
+            commands.entity(entity).insert(Checked);
+        } else {
+            commands.entity(entity).remove::<Checked>();
+        }
+    }
+
+    for (entity, button) in &colours {
+        let wanted = if properties.colour_by == Some(button.property) {
+            "*"
+        } else {
+            "o"
+        };
+        for child in children.iter_descendants(entity) {
+            if let Ok(mut text) = texts.get_mut(child)
+                && text.0 != wanted
+            {
+                text.0 = wanted.to_string();
             }
         }
     }
