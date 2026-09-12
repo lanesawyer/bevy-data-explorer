@@ -291,6 +291,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (
             panel::update_selection_border,
             widgets::update_accordions,
+            widgets::truncate_accordion_titles,
             viewconfig::rebuild_layout_menu,
             widgets::dismiss_menus,
             widgets::position_menus,

@@ -18,6 +18,8 @@ use bevy_ui_widgets::SliderPrecision;
 use crate::panel::BlocksFrameInput;
 
 pub const ACCORDION_INDENT: f32 = 8.0;
+/// Size the accordion titles are drawn at, which sets how many characters fit.
+const TITLE_FONT: f32 = 13.0;
 const HEADER_HEIGHT: f32 = 26.0;
 
 /// A collapsible section of the sidebar.
@@ -126,7 +128,18 @@ pub fn spawn_accordion(commands: &mut Commands, title: &str, open: bool) -> Acco
                     AccordionCaret
                     label(caret(open))
                 ),
-                label(title.to_string()),
+                (
+                    AccordionTitle { full: { title.to_string() } }
+                    Node {
+                        flex_grow: { 1.0_f32 },
+                        flex_shrink: { 1.0_f32 },
+                        min_width: { Val::Px(0.0) },
+                    }
+                    label(title.to_string())
+                    // Long names are cut to fit rather than wrapped onto a
+                    // second line, which would break the header's height.
+                    TextLayout { linebreak: { LineBreak::NoWrap } }
+                ),
             ]
         })
         .id();
@@ -361,6 +374,55 @@ pub fn position_menus(
     }
 }
 
+/// An accordion's untruncated title, kept because the text it is shown through
+/// is rewritten to fit.
+#[derive(Component, Clone, Default)]
+pub struct AccordionTitle {
+    pub full: String,
+}
+
+/// Rough width of a glyph as a fraction of the font size.
+///
+/// Bevy has no text truncation, and measuring would mean laying the string out
+/// and reacting to the result a frame later, which oscillates as the measured
+/// average shifts with the characters left. A fixed estimate is stable, and
+/// erring narrow truncates a little early rather than overflowing.
+const GLYPH_WIDTH: f32 = 0.58;
+
+/// Fit `text` into `width`, ending with an ellipsis if it has to be cut.
+fn truncate_to_width(text: &str, width: f32, font_size: f32) -> String {
+    let glyph = (font_size * GLYPH_WIDTH).max(1.0);
+    let fits = (width / glyph).floor().max(0.0) as usize;
+    if text.chars().count() <= fits {
+        return text.to_string();
+    }
+    // One character is given back to the ellipsis itself.
+    let keep = fits.saturating_sub(1);
+    if keep == 0 {
+        return String::new();
+    }
+    text.chars().take(keep).collect::<String>() + "\u{2026}"
+}
+
+/// Cut each accordion title to whatever room its header leaves it.
+pub fn truncate_accordion_titles(
+    titles: Query<(Entity, &AccordionTitle, &ComputedNode)>,
+    mut texts: Query<&mut Text>,
+) {
+    for (entity, title, node) in &titles {
+        let width = node.size().x * node.inverse_scale_factor();
+        if width <= 0.0 {
+            continue;
+        }
+        let wanted = truncate_to_width(&title.full, width, TITLE_FONT);
+        if let Ok(mut text) = texts.get_mut(entity)
+            && text.0 != wanted
+        {
+            text.0 = wanted;
+        }
+    }
+}
+
 fn caret(open: bool) -> &'static str {
     if open { "v" } else { ">" }
 }
@@ -453,6 +515,39 @@ pub fn caption(commands: &mut Commands, text: impl Into<String>) -> Entity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_title_that_fits_is_left_alone() {
+        assert_eq!(truncate_to_width("Class", 200.0, 13.0), "Class");
+    }
+
+    #[test]
+    fn a_long_title_is_cut_and_marked() {
+        let cut = truncate_to_width("Subclass Bootstrapping Probability", 80.0, 13.0);
+        assert!(cut.ends_with('\u{2026}'));
+        assert!(cut.chars().count() < "Subclass Bootstrapping Probability".chars().count());
+        assert!(cut.starts_with("Subcl"));
+    }
+
+    #[test]
+    fn a_narrower_header_cuts_more() {
+        let wide = truncate_to_width("Neurotransmitter Type", 120.0, 13.0);
+        let narrow = truncate_to_width("Neurotransmitter Type", 60.0, 13.0);
+        assert!(narrow.chars().count() < wide.chars().count());
+    }
+
+    #[test]
+    fn no_room_at_all_yields_nothing_rather_than_a_bare_ellipsis() {
+        assert_eq!(truncate_to_width("Class", 0.0, 13.0), "");
+        assert_eq!(truncate_to_width("Class", 4.0, 13.0), "");
+    }
+
+    #[test]
+    fn truncation_never_splits_a_character() {
+        // Cutting by bytes would panic on a multi-byte name.
+        let cut = truncate_to_width("Größe über alles", 40.0, 13.0);
+        assert!(cut.is_char_boundary(cut.len()));
+    }
 
     #[test]
     fn the_caret_shows_whether_a_section_is_open() {

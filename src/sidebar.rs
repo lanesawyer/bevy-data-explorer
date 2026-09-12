@@ -44,7 +44,7 @@ pub struct Sidebar {
 impl Default for Sidebar {
     fn default() -> Self {
         Sidebar {
-            width: 260.0,
+            width: 320.0,
             collapsed: false,
             resizing: false,
         }
