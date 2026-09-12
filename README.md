@@ -152,6 +152,12 @@ Each panel carries its own overlay: the image reports the pyramid level, scale
 and tile cache; the point cloud reports octree depth, nodes loaded and points
 resident.
 
+## Releases
+
+Pushing a `v*` tag builds Linux, Windows and a universal macOS binary and
+publishes them as a GitHub release. `workflow_dispatch` rehearses the same
+build against an existing tag and leaves the release as a draft.
+
 ## Architecture
 
 Frames, their overlays and their chrome are declared with **BSN** (Bevy Scene

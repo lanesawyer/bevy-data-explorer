@@ -1,0 +1,156 @@
+# Builds a tagged commit for each desktop platform and publishes the binaries
+# as a GitHub release.
+#
+# The platform handling follows bevyengine/bevy_github_ci_template, which is
+# where the Linux package list comes from; the rest is pared back because this
+# is a desktop binary rather than a game — there are no assets to ship (the
+# shader is embedded) and no wasm target (reads are blocking HTTP).
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Lets a release be rehearsed against a tag without pushing one.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build
+        required: true
+
+env:
+  BINARY: bevy-data-explorer
+  CARGO_TERM_COLOR: always
+
+# Creating a release and uploading to it needs write access to the repository.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing should not cancel a release that is fine
+      # elsewhere; the job that failed can be rerun on its own.
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux (x86_64)
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - name: Windows (x86_64)
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+          - name: macOS (universal)
+            os: macos-latest
+            target: universal-apple-darwin
+            archive: tar.gz
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Work out the version
+        id: version
+        shell: bash
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "number=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # macOS builds both halves of a universal binary on one runner.
+          targets: ${{ matrix.target == 'universal-apple-darwin' && 'x86_64-apple-darwin,aarch64-apple-darwin' || matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          key: ${{ matrix.target }}
+
+      # Only what is actually linked at build time, which is less than a Bevy
+      # project usually lists:
+      #
+      # - libwayland-dev: wayland-sys finds it through pkg-config.
+      # - libssl-dev: reqwest resolves to native-tls, because zarrs_http asks
+      #   for reqwest without turning its default features off, and feature
+      #   unification means this crate cannot opt out.
+      #
+      # X11 and xkbcommon are absent on purpose: those crates are the `-dl`
+      # kind and open the libraries at run time, so they are the user's
+      # concern rather than the build's. Audio and gamepad packages are absent
+      # because the Bevy feature list leaves both out.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            pkg-config \
+            libwayland-dev \
+            libssl-dev
+
+      - name: Build
+        shell: bash
+        run: |
+          if [ "${{ matrix.target }}" = "universal-apple-darwin" ]; then
+            cargo build --release --locked --target x86_64-apple-darwin
+            cargo build --release --locked --target aarch64-apple-darwin
+            mkdir -p target/universal-apple-darwin/release
+            lipo -create -output "target/universal-apple-darwin/release/$BINARY" \
+              "target/x86_64-apple-darwin/release/$BINARY" \
+              "target/aarch64-apple-darwin/release/$BINARY"
+          else
+            cargo build --release --locked --target ${{ matrix.target }}
+          fi
+
+      - name: Package
+        id: package
+        shell: bash
+        run: |
+          staging="$BINARY-${{ steps.version.outputs.number }}-${{ matrix.target }}"
+          mkdir "$staging"
+          cp README.md LICENSE "$staging/"
+
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "target/${{ matrix.target }}/release/$BINARY.exe" "$staging/"
+            7z a "$staging.zip" "$staging"
+            echo "asset=$staging.zip" >> "$GITHUB_OUTPUT"
+          else
+            cp "target/${{ matrix.target }}/release/$BINARY" "$staging/"
+            tar czf "$staging.tar.gz" "$staging"
+            echo "asset=$staging.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload the build
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ steps.package.outputs.asset }}
+          retention-days: 1
+          if-no-files-found: error
+
+  release:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          # A dispatched rehearsal should not announce itself as a release.
+          draft: ${{ github.event_name == 'workflow_dispatch' }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: artifacts/*
