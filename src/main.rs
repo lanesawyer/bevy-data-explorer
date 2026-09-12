@@ -254,11 +254,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     app.add_systems(
         Startup,
-        (open_frames, viewconfig::spawn_view_config).chain(),
+        (maximize_window, open_frames, viewconfig::spawn_view_config).chain(),
     );
 
     app.run();
     Ok(())
+}
+
+/// Start maximized.
+///
+/// Several frames side by side plus a sidebar need the room, and maximizing
+/// takes whatever the display actually offers rather than guessing a size that
+/// might not fit.
+fn maximize_window(mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>) {
+    for mut window in &mut windows {
+        window.set_maximized(true);
+    }
 }
 
 /// Open one frame per registered source, in registration order.

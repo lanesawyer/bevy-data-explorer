@@ -65,7 +65,11 @@ Widgets come from **Feathers**, Bevy 0.19's widget collection: the slider,
 buttons and labels are Feathers controls, themed from its dark theme, so they
 match rather than being hand-styled one at a time.
 
-Each accordion can carry a menu button on the right that opens a popup. View
+The app starts maximized, since several frames beside a sidebar need the room.
+
+Each accordion can carry a menu button on the right that opens a popup. A menu
+is capped at the bottom of the window and scrolls once its contents no longer
+fit. View
 configuration's is an **Edit layout** menu listing every frame with its dataset
 name, provenance and headline figure, and buttons to clone or close it, plus a
 row per loaded dataset to open a new frame onto it. Both that menu and a

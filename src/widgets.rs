@@ -12,6 +12,7 @@ use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::ThemeBackgroundColor;
 use bevy_feathers::tokens;
+use bevy_ui_widgets::ScrollArea;
 use bevy_ui_widgets::SliderPrecision;
 
 use crate::panel::BlocksFrameInput;
@@ -181,6 +182,10 @@ impl Default for AnchoredTo {
 pub const MENU_WIDTH: f32 = 320.0;
 /// Menus draw over the frames and everything docked beside them.
 const MENU_Z: i32 = 10;
+/// Gap left between a menu and the bottom of the window.
+const MENU_MARGIN: f32 = 12.0;
+/// A menu never shrinks below this, even when opened near the bottom edge.
+const MENU_MIN_HEIGHT: f32 = 120.0;
 
 /// Add a menu button to an accordion header, returning the popup's content
 /// node for the caller to fill.
@@ -191,6 +196,12 @@ pub fn spawn_accordion_menu(commands: &mut Commands, header: Entity) -> Entity {
     let menu = commands
         .spawn_scene(bsn! {
             AccordionMenu
+            // A menu long enough to run off the screen scrolls instead.
+            ScrollArea
+            // Nothing here is a button, so without an `Interaction` of its own
+            // the menu would not register as chrome and a scroll over it would
+            // zoom the frame behind.
+            Interaction
             Node {
                 position_type: { PositionType::Absolute },
                 display: { Display::None },
@@ -199,6 +210,7 @@ pub fn spawn_accordion_menu(commands: &mut Commands, header: Entity) -> Entity {
                 row_gap: { Val::Px(4.0) },
                 padding: { UiRect::all(Val::Px(10.0)) },
                 border_radius: { BorderRadius::all(Val::Px(6.0)) },
+                overflow: { Overflow::scroll_y() },
             }
             ThemeBackgroundColor({ tokens::MENU_BG })
             InheritableFont { font_size: { 13.0f32 } }
@@ -310,8 +322,12 @@ pub fn position_accordion_menus(
         let size = computed.size() * scale;
         let centre = Vec2::new(transform.translation.x, transform.translation.y) * scale;
         let left = (centre.x - size.x * 0.5).min(window.width() - MENU_WIDTH - 8.0);
+        let top = centre.y + size.y * 0.5 + 4.0;
         node.left = Val::Px(left.max(8.0));
-        node.top = Val::Px(centre.y + size.y * 0.5 + 4.0);
+        node.top = Val::Px(top);
+        // Stop at the bottom of the window rather than running past it; the
+        // contents scroll once they no longer fit.
+        node.max_height = Val::Px((window.height() - top - MENU_MARGIN).max(MENU_MIN_HEIGHT));
     }
 }
 
@@ -406,6 +422,25 @@ mod tests {
     #[test]
     fn the_caret_shows_whether_a_section_is_open() {
         assert_ne!(caret(true), caret(false));
+    }
+
+    /// A menu is placed from its button downward, so how much room is left
+    /// depends on where that button sits.
+    fn menu_height(window_height: f32, top: f32) -> f32 {
+        (window_height - top - MENU_MARGIN).max(MENU_MIN_HEIGHT)
+    }
+
+    #[test]
+    fn a_menu_stops_short_of_the_bottom_of_the_window() {
+        assert_eq!(menu_height(1000.0, 200.0), 1000.0 - 200.0 - MENU_MARGIN);
+    }
+
+    #[test]
+    fn a_menu_opened_near_the_bottom_still_has_usable_height() {
+        // Opened low, the arithmetic would otherwise give a height of nothing
+        // at all, or a negative one.
+        assert_eq!(menu_height(1000.0, 995.0), MENU_MIN_HEIGHT);
+        assert!(menu_height(400.0, 600.0) > 0.0);
     }
 
     #[test]
