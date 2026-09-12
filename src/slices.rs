@@ -19,6 +19,7 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use crate::datasource::{self, SourceExtent, SourceStatus};
 use crate::panel::{ShowsSource, ViewLimits};
 use crate::pointcloud::{NodeOutcome, build_mesh, load_node};
+use crate::points_render::PointMaterial;
 use crate::scatterbrain::{Rect, Scatterbrain};
 
 /// Descend into a slide's octree while its region covers at least this many
@@ -30,7 +31,9 @@ const CELL_PADDING: f32 = 0.06;
 
 const MAX_IN_FLIGHT: usize = 12;
 
-pub const DEFAULT_SLICE_BUDGET: usize = 6_000_000;
+/// Maximum points held on the GPU. Four vertices a point, as in
+/// [`crate::pointcloud::DEFAULT_POINT_BUDGET`].
+pub const DEFAULT_SLICE_BUDGET: usize = 2_000_000;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SliceMode {
@@ -362,7 +365,7 @@ pub fn collect_slice_tasks(
     mut streamer: ResMut<SliceStreamer>,
     sources: Query<&datasource::DataSource>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut materials: ResMut<Assets<PointMaterial>>,
 ) {
     let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
         return;
@@ -385,7 +388,7 @@ pub fn collect_slice_tasks(
                 let entity = commands
                     .spawn((
                         Mesh2d(meshes.add(mesh)),
-                        MeshMaterial2d(materials.add(ColorMaterial::default())),
+                        MeshMaterial2d(materials.add(PointMaterial::default())),
                         Transform::from_translation(offset.extend(0.0)),
                         RenderLayers::layer(layer),
                         SliceNodeTag(key),
@@ -667,6 +670,10 @@ impl Plugin for SlicesPlugin {
                 finest: w / 100_000.0,
             },
         );
+
+        app.world_mut()
+            .entity_mut(source)
+            .insert(crate::points_render::SourcePointSize::default());
 
         let mut streamer = SliceStreamer::new(self.cloud.clone(), source);
         streamer.budget = self.budget;

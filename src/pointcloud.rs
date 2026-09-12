@@ -10,14 +10,14 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
-use bevy::mesh::{Mesh, PrimitiveTopology};
+use bevy::mesh::Mesh;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
 use crate::datasource::{self, SourceExtent, SourceStatus};
 use crate::panel::ShowsSource;
+use crate::points_render::{PointMaterial, build_point_mesh};
 use crate::scatterbrain::{self, Node, Rect, Scatterbrain, Slide};
 
 /// Descend into a node's children while its region covers at least this many
@@ -26,7 +26,12 @@ const SUBDIVIDE_PX: f32 = 420.0;
 
 /// Ceiling on points held on the GPU. Reached only when zoomed into a dense
 /// region; nodes beyond it are simply not requested.
-pub const DEFAULT_POINT_BUDGET: usize = 4_000_000;
+/// Maximum points held on the GPU.
+///
+/// Each point is a quad so it can be given a size, which is four vertices
+/// rather than one: roughly 144 bytes a point. The budget was lowered when
+/// sizing came in to keep the memory it implies about where it was.
+pub const DEFAULT_POINT_BUDGET: usize = 1_500_000;
 
 const MAX_IN_FLIGHT: usize = 12;
 
@@ -228,7 +233,7 @@ pub fn collect_node_tasks(
     mut streamer: ResMut<PointStreamer>,
     sources: Query<&datasource::DataSource>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut materials: ResMut<Assets<PointMaterial>>,
 ) {
     let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
         return;
@@ -250,7 +255,7 @@ pub fn collect_node_tasks(
                 let entity = commands
                     .spawn((
                         Mesh2d(meshes.add(mesh)),
-                        MeshMaterial2d(materials.add(ColorMaterial::default())),
+                        MeshMaterial2d(materials.add(PointMaterial::default())),
                         Transform::default(),
                         RenderLayers::layer(layer),
                         PointNode,
@@ -277,11 +282,7 @@ pub fn collect_node_tasks(
 /// trade-off is that the hardware draws each as a single pixel, so there is no
 /// point-size control without a custom shader.
 pub fn build_mesh(positions: &[[f32; 2]], categories: &[u16]) -> Mesh {
-    let vertices: Vec<[f32; 3]> = positions
-        // Negate y so the cloud shares the image panel's top-down convention.
-        .iter()
-        .map(|p| [p[0], -p[1], 0.0])
-        .collect();
+    let points: Vec<Vec2> = positions.iter().map(|p| Vec2::new(p[0], p[1])).collect();
 
     let colours: Vec<[f32; 4]> = if categories.len() == positions.len() {
         categories.iter().map(|c| category_colour(*c)).collect()
@@ -289,13 +290,7 @@ pub fn build_mesh(positions: &[[f32; 2]], categories: &[u16]) -> Mesh {
         vec![[0.8, 0.85, 0.9, 1.0]; positions.len()]
     };
 
-    let mut mesh = Mesh::new(
-        PrimitiveTopology::PointList,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
-    mesh
+    build_point_mesh(&points, &colours)
 }
 
 /// A repeating categorical palette. Categories here are label indices with no
@@ -455,7 +450,9 @@ mod tests {
     #[test]
     fn a_mesh_without_categories_still_builds() {
         let mesh = build_mesh(&[[0.0, 0.0], [1.0, 1.0]], &[]);
-        assert_eq!(mesh.count_vertices(), 2);
+        // Four vertices per point: each is drawn as a quad so that it can be
+        // given a size.
+        assert_eq!(mesh.count_vertices(), 8);
         assert!(mesh.attribute(Mesh::ATTRIBUTE_COLOR).is_some());
     }
 
@@ -498,6 +495,12 @@ impl Plugin for PointCloudPlugin {
                 finest: bounds.width() / 100_000.0,
             },
         );
+
+        // Advertising a point size is what puts the size control in the
+        // sidebar; sources without one simply do not offer it.
+        app.world_mut()
+            .entity_mut(source)
+            .insert(crate::points_render::SourcePointSize::default());
 
         let mut streamer = PointStreamer::new(self.cloud.clone(), source);
         streamer.budget = self.budget;

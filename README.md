@@ -45,6 +45,14 @@ configuration**, which acts on the *selected* frame: the one outlined in blue,
 which follows whichever frame you last clicked or dragged in. It names the
 dataset and carries a transparency slider.
 
+Point clouds draw each point as a screen-space quad rather than with point
+topology, because the hardware fixes point primitives at one pixel and offers
+no way to size them. The four vertices of a point share its position and carry
+a unit corner offset that the shader expands in clip space, so the size is a
+uniform: the point size control costs nothing to drag and never rebuilds a
+mesh. Sizing is offered only for sources that advertise it, so an image never
+shows a control that means nothing to it.
+
 Fading dims the colour rather than lowering alpha. Alpha compounds with
 overdraw — a dense point cloud stacks dozens of points on a single pixel, and
 `1 - (1 - a)^n` is already 99% by eight layers, so the sectioned data looked

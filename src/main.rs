@@ -11,6 +11,7 @@ mod datasource;
 mod hud;
 mod panel;
 mod pointcloud;
+mod points_render;
 mod scatterbrain;
 mod sidebar;
 mod slices;
@@ -178,6 +179,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     // Feathers styles the widgets; its slider reports value changes but leaves
     // writing them back to the app.
+    .add_plugins(points_render::PointRenderPlugin)
     .add_plugins(bevy_feathers::FeathersPlugins)
     .insert_resource(bevy_feathers::theme::UiTheme(
         bevy_feathers::dark_theme::create_dark_theme(),
@@ -222,8 +224,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             widgets::toggle_accordion_menus,
             widgets::position_accordion_menus,
             viewconfig::sync_opacity_slider,
+            viewconfig::sync_point_size,
             viewconfig::apply_opacity,
             viewconfig::apply_opacity_to_new,
+            viewconfig::apply_point_settings,
+            viewconfig::apply_point_settings_to_new,
         )
             .chain()
             .after(panel::update_viewports),

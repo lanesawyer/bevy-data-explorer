@@ -16,6 +16,9 @@ use bevy_ui_widgets::SliderValue;
 
 use crate::datasource::DataSource;
 use crate::panel::{SelectedPanel, ShowsSource};
+use crate::points_render::{
+    DEFAULT_POINT_PX, MAX_POINT_PX, MIN_POINT_PX, PointMaterial, SourcePointSize,
+};
 use crate::sidebar::SidebarContent;
 use crate::widgets::{caption, spawn_accordion, spawn_accordion_menu, spawn_slider};
 
@@ -41,6 +44,14 @@ pub struct SelectedName;
 #[derive(Component, Clone, Default)]
 pub struct OpacitySlider;
 
+/// The slider driving the selected source's point size.
+#[derive(Component, Clone, Default)]
+pub struct PointSizeSlider;
+
+/// The row holding the point size control, hidden for sources without one.
+#[derive(Component, Clone, Default)]
+pub struct PointSizeRow;
+
 pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
     let Ok(parent) = content.single() else { return };
 
@@ -59,7 +70,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         })
         .id();
 
-    let label = commands
+    let transparency = commands
         .spawn_scene(bsn! {
             label("Transparency")
             InheritableFont { font_size: { 12.0f32 } }
@@ -70,7 +81,27 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     // number that means something without a separate caption beside it.
     let slider = spawn_slider(&mut commands, 100.0, (0.0, PERCENT), 0);
     commands.entity(slider).insert(OpacitySlider);
-    commands.entity(body).add_children(&[name, label, slider]);
+
+    let size_label = commands
+        .spawn_scene(bsn! {
+            PointSizeRow
+            label("Point size")
+            InheritableFont { font_size: { 12.0f32 } }
+        })
+        .id();
+    let size_slider = spawn_slider(
+        &mut commands,
+        DEFAULT_POINT_PX,
+        (MIN_POINT_PX, MAX_POINT_PX),
+        1,
+    );
+    commands
+        .entity(size_slider)
+        .insert((PointSizeSlider, PointSizeRow));
+
+    commands
+        .entity(body)
+        .add_children(&[name, transparency, slider, size_label, size_slider]);
 }
 
 /// Point the slider at the selected source, and write its value back.
@@ -516,4 +547,104 @@ pub fn on_add_visualization(
         return;
     };
     requests.write(crate::panel::PanelRequest::Open(add.source));
+}
+
+/// Point the size slider at the selected source, and write its value back.
+///
+/// The control is hidden for sources that do not draw points, rather than
+/// shown doing nothing.
+pub fn sync_point_size(
+    mut commands: Commands,
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    mut sources: Query<&mut SourcePointSize>,
+    slider: Query<(Entity, &SliderValue), With<PointSizeSlider>>,
+    mut rows: Query<&mut Node, With<PointSizeRow>>,
+    mut shown: Local<Option<Entity>>,
+) {
+    let source = selected
+        .0
+        .and_then(|panel| panels.get(panel).ok())
+        .map(|shows| shows.0);
+
+    let Ok((slider_entity, value)) = slider.single() else {
+        return;
+    };
+
+    let sized = source.filter(|source| sources.get(*source).is_ok());
+    for mut node in &mut rows {
+        let wanted = if sized.is_some() {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != wanted {
+            node.display = wanted;
+        }
+    }
+
+    let Some(source) = sized else {
+        *shown = None;
+        return;
+    };
+    let Ok(mut size) = sources.get_mut(source) else {
+        return;
+    };
+
+    if *shown != Some(source) {
+        // Selection moved: load this source's own size rather than carrying
+        // the previous source's across.
+        commands.entity(slider_entity).insert(SliderValue(size.0));
+        size.set_changed();
+    } else if (size.0 - value.0).abs() > f32::EPSILON {
+        size.0 = value.0;
+    }
+    *shown = Some(source);
+}
+
+/// Push a source's point size and fade into the materials drawing it.
+pub fn apply_point_settings(
+    sources: Query<
+        (&DataSource, &SourcePointSize, Option<&SourceOpacity>),
+        Or<(Changed<SourcePointSize>, Changed<SourceOpacity>)>,
+    >,
+    meshes: Query<(&RenderLayers, &MeshMaterial2d<PointMaterial>)>,
+    mut materials: ResMut<Assets<PointMaterial>>,
+) {
+    for (source, size, opacity) in &sources {
+        let layer = RenderLayers::layer(source.layer);
+        let tint = fade_tint(opacity.map_or(1.0, |o| o.0)).to_linear();
+
+        for (layers, material) in &meshes {
+            if *layers != layer {
+                continue;
+            }
+            if let Some(material) = materials.get_mut(&material.0).as_mut() {
+                material.settings.size = size.0;
+                material.settings.tint = Vec4::new(tint.red, tint.green, tint.blue, tint.alpha);
+            }
+        }
+    }
+}
+
+/// Apply the settings to point geometry that arrives after they were last set.
+pub fn apply_point_settings_to_new(
+    sources: Query<(&DataSource, &SourcePointSize, Option<&SourceOpacity>)>,
+    meshes: Query<(&RenderLayers, &MeshMaterial2d<PointMaterial>), Added<Mesh2d>>,
+    mut materials: ResMut<Assets<PointMaterial>>,
+) {
+    for (source, size, opacity) in &sources {
+        let layer = RenderLayers::layer(source.layer);
+        let tint = fade_tint(opacity.map_or(1.0, |o| o.0)).to_linear();
+
+        for (layers, material) in &meshes {
+            if *layers != layer {
+                continue;
+            }
+            if let Some(material) = materials.get_mut(&material.0).as_mut() {
+                material.settings.size = size.0;
+                material.settings.tint = Vec4::new(tint.red, tint.green, tint.blue, tint.alpha);
+            }
+        }
+    }
 }
