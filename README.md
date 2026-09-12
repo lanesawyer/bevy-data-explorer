@@ -31,6 +31,19 @@ cargo run --release -- --point-budget 8000000
 
 Use `--release`. Tile decoding is real work and a debug build makes it obvious.
 
+A sidebar is docked on the left for controls that belong to no single frame —
+filters and dataset information, eventually. Drag its edge to resize it between
+a readable minimum and half the window, or collapse it to a ribbon with the
+toggle; dragging the edge well past the minimum collapses it too, so the edge
+does not jam at the minimum with no way to close it. The title shortens to
+`BDE` when collapsed.
+
+The sidebar does not talk to the grid. It takes a slice off a `FrameArea`,
+which is the only thing frames and their chrome measure against, so none of
+that code knows it exists. Chrome that can overlap the grid — the drag handle
+straddles its own edge — is marked `BlocksFrameInput`, since position alone
+cannot decide whether a drag belongs to the handle or the frame beneath it.
+
 Panels are laid out in a grid of up to four columns by two rows — eight in
 all. One or two panels sit in a single row; beyond that the grid goes two deep
 and grows sideways, which keeps cells closer to square than a single row of
@@ -57,6 +70,8 @@ whatever the original happened to load.
 | `R` | reset that panel's view |
 | `+` button | duplicate that panel |
 | `x` button | close that panel |
+| drag sidebar edge | resize the sidebar, or collapse it |
+| `<` / `>` button | collapse or expand the sidebar |
 | `1`–`9` | toggle an image channel |
 | `G` | sections panel: grid ↔ single slice |
 | `←` `→`, `[` `]` | step through slices |

@@ -39,6 +39,49 @@ pub fn grid_for(count: usize) -> (usize, usize) {
     (count.div_ceil(rows), rows)
 }
 
+/// Marks interactive chrome that swallows pointer input before a frame sees it.
+///
+/// Needed because chrome can overlap the grid — the sidebar's drag handle
+/// straddles its own edge — so position alone cannot decide who gets the drag.
+#[derive(Component, Clone, Default)]
+pub struct BlocksFrameInput;
+
+/// The region of the window the frame grid occupies, in logical pixels.
+///
+/// Everything that places a frame or its chrome measures from here rather than
+/// from the window, so surrounding UI can take space off the grid without any
+/// of that code knowing it exists.
+#[derive(Resource, Clone, Copy)]
+pub struct FrameArea {
+    pub origin: Vec2,
+    pub size: Vec2,
+}
+
+impl Default for FrameArea {
+    fn default() -> Self {
+        FrameArea {
+            origin: Vec2::ZERO,
+            size: Vec2::new(1280.0, 720.0),
+        }
+    }
+}
+
+impl FrameArea {
+    /// Take `amount` off the left edge, for chrome docked there.
+    pub fn reserve_left(&mut self, amount: f32) {
+        let amount = amount.clamp(0.0, self.size.x);
+        self.origin.x += amount;
+        self.size.x -= amount;
+    }
+}
+
+/// Reset the grid to the whole window before anything reserves part of it.
+pub fn reset_frame_area(windows: Query<&Window>, mut area: ResMut<FrameArea>) {
+    let Ok(window) = windows.single() else { return };
+    area.origin = Vec2::ZERO;
+    area.size = Vec2::new(window.width(), window.height());
+}
+
 /// Marks a panel camera and records its cell in the grid.
 #[derive(Component, Clone, Default)]
 pub struct Panel {
@@ -129,19 +172,24 @@ pub fn spawn_panel(
 /// Keep each panel's viewport, and the UI drawn over it, matched to the grid.
 pub fn update_viewports(
     windows: Query<&Window>,
+    area: Res<FrameArea>,
     mut panels: Query<(&Panel, &mut Camera)>,
     mut dividers: Query<(&PanelDivider, &mut Node), Without<PanelButton>>,
     mut buttons: Query<(&PanelButton, &mut Node), Without<PanelDivider>>,
     indices: Query<&Panel>,
 ) {
     let Ok(window) = windows.single() else { return };
-    let size = window.physical_size();
-    if size.x == 0 || size.y == 0 {
+    if window.physical_size().x == 0 || window.physical_size().y == 0 {
         return;
     }
 
     let count = panels.iter().count();
     let (columns, rows) = grid_for(count);
+
+    // Viewports are physical; the area is tracked in logical pixels.
+    let scale = window.scale_factor();
+    let origin = (area.origin * scale).as_uvec2();
+    let size = (area.size * scale).as_uvec2().max(UVec2::ONE);
 
     for (panel, mut camera) in &mut panels {
         let (col, row) = (panel.index % columns, panel.index / columns);
@@ -159,15 +207,14 @@ pub fn update_viewports(
             height
         };
         camera.viewport = Some(Viewport {
-            physical_position: UVec2::new(width * col as u32, height * row as u32),
+            physical_position: origin + UVec2::new(width * col as u32, height * row as u32),
             physical_size: UVec2::new(this_width.max(1), this_height.max(1)),
             ..default()
         });
     }
 
-    // UI is laid out in logical pixels against the whole window.
-    let logical = Vec2::new(window.width(), window.height());
-    let cell = Vec2::new(logical.x / columns as f32, logical.y / rows as f32);
+    let cell = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32);
+    let base = area.origin;
 
     for (divider, mut node) in &mut dividers {
         let used = match divider.axis {
@@ -180,15 +227,15 @@ pub fn update_viewports(
         }
         match divider.axis {
             Axis::Vertical => {
-                node.left = Val::Px(cell.x * (divider.ordinal + 1) as f32);
-                node.top = Val::Px(0.0);
+                node.left = Val::Px(base.x + cell.x * (divider.ordinal + 1) as f32);
+                node.top = Val::Px(base.y);
                 node.width = Val::Px(DIVIDER_PX);
-                node.height = Val::Percent(100.0);
+                node.height = Val::Px(area.size.y);
             }
             Axis::Horizontal => {
-                node.left = Val::Px(0.0);
-                node.top = Val::Px(cell.y * (divider.ordinal + 1) as f32);
-                node.width = Val::Percent(100.0);
+                node.left = Val::Px(base.x);
+                node.top = Val::Px(base.y + cell.y * (divider.ordinal + 1) as f32);
+                node.width = Val::Px(area.size.x);
                 node.height = Val::Px(DIVIDER_PX);
             }
         }
@@ -200,8 +247,8 @@ pub fn update_viewports(
         };
         let (col, row) = (panel.index % columns, panel.index / columns);
         let from_right = (BUTTON_PX + BUTTON_GAP) * button.action.slot() + BUTTON_PX + 8.0;
-        node.left = Val::Px(cell.x * (col + 1) as f32 - from_right);
-        node.top = Val::Px(cell.y * row as f32 + 8.0);
+        node.left = Val::Px(base.x + cell.x * (col + 1) as f32 - from_right);
+        node.top = Val::Px(base.y + cell.y * row as f32 + 8.0);
     }
 }
 
@@ -328,6 +375,7 @@ fn button_chrome() -> impl Scene {
             border_radius: { BorderRadius::all(Val::Px(4.0)) },
         }
         BackgroundColor({ IDLE_BUTTON })
+        BlocksFrameInput
     }
 }
 
@@ -539,9 +587,10 @@ pub fn panel_controls(
         &ViewLimits,
     )>,
     windows: Query<&Window>,
+    area: Res<FrameArea>,
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
-    ui: Query<&Interaction, With<PanelButton>>,
+    ui: Query<&Interaction, With<BlocksFrameInput>>,
     mut drag: Local<Option<Drag>>,
 ) {
     let Ok(window) = windows.single() else { return };
@@ -565,7 +614,14 @@ pub fn panel_controls(
     }
 
     let count = panels.iter().count();
-    let window_size = Vec2::new(window.width(), window.height());
+    // Measured inside the grid, so chrome docked beside it neither receives
+    // frame input nor shifts which frame the pointer is over.
+    let local = cursor - area.origin;
+    if drag.is_none() && (local.x < 0.0 || local.y < 0.0) {
+        wheel.clear();
+        return;
+    }
+    let window_size = area.size;
 
     if !held {
         *drag = None;
@@ -573,12 +629,12 @@ pub fn panel_controls(
         && (buttons.just_pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Middle))
     {
         *drag = Some(Drag {
-            panel: panel_under_cursor(cursor, window_size, count),
+            panel: panel_under_cursor(local, window_size, count),
             last: cursor,
         });
     }
 
-    let active = active_panel(*drag, cursor, window_size, count);
+    let active = active_panel(*drag, local, window_size, count);
 
     let mut scroll = 0.0;
     for event in wheel.read() {

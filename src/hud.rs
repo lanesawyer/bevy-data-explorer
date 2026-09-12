@@ -55,24 +55,20 @@ pub fn sync_hud(
 
 /// Keep each overlay over its panel's cell.
 pub fn position_hud(
-    windows: Query<&Window>,
+    area: Res<crate::panel::FrameArea>,
     panels: Query<&Panel>,
     mut texts: Query<(&PanelText, &mut Node)>,
 ) {
-    let Ok(window) = windows.single() else { return };
     let (columns, rows) = crate::panel::grid_for(panels.iter().count());
-    let cell = Vec2::new(
-        window.width() / columns as f32,
-        window.height() / rows as f32,
-    );
+    let cell = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32);
 
     for (text, mut node) in &mut texts {
         let Ok(panel) = panels.get(text.panel) else {
             continue;
         };
         let (col, row) = (panel.index % columns, panel.index / columns);
-        node.left = Val::Px(cell.x * col as f32 + 10.0);
-        node.top = Val::Px(cell.y * row as f32 + 8.0);
+        node.left = Val::Px(area.origin.x + cell.x * col as f32 + 10.0);
+        node.top = Val::Px(area.origin.y + cell.y * row as f32 + 8.0);
         // Keep the text clear of the duplicate button in the corner.
         node.max_width = Val::Px((cell.x - 46.0).max(80.0));
     }

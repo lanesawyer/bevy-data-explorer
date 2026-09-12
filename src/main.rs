@@ -12,6 +12,7 @@ mod hud;
 mod panel;
 mod pointcloud;
 mod scatterbrain;
+mod sidebar;
 mod slices;
 mod source;
 mod tiles;
@@ -173,9 +174,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 task_pool_options: task_pool_options(),
             }),
     )
+    .init_resource::<panel::FrameArea>()
+    .init_resource::<sidebar::Sidebar>()
     .add_systems(
         Update,
         (
+            sidebar::toggle_sidebar,
+            sidebar::resize_sidebar,
+            sidebar::update_sidebar,
+            panel::reset_frame_area,
+            sidebar::reserve_space,
             panel::duplicate_panel,
             panel::close_panel,
             panel::sync_panel_buttons,
@@ -253,4 +261,5 @@ fn open_frames(
 
     panel::spawn_ui_camera(&mut commands);
     panel::spawn_dividers(&mut commands);
+    sidebar::spawn_sidebar(&mut commands);
 }
