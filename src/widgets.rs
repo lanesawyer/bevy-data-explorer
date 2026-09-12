@@ -255,33 +255,48 @@ pub fn spawn_slider(commands: &mut Commands, value: f32, range: (f32, f32)) -> E
     slider
 }
 
+/// Where along its track a value sits, as a fraction.
+fn fraction_of(value: f32, start: f32, end: f32) -> f32 {
+    let span = end - start;
+    if span.abs() < f32::EPSILON {
+        return 0.0;
+    }
+    ((value - start) / span).clamp(0.0, 1.0)
+}
+
+/// Where to place the thumb, as a percentage along the track plus a pixel
+/// nudge back so it stays inside at both ends.
+///
+/// Expressed this way rather than as an absolute offset because the track's
+/// measured width is in physical pixels while `left` is in logical ones;
+/// mixing them puts the thumb ahead of the fill on any scaled display.
+fn thumb_placement(t: f32) -> (f32, f32) {
+    (t * 100.0, -THUMB_PX * t)
+}
+
 /// Move the fill and thumb to match each slider's value.
 pub fn update_sliders(
-    sliders: Query<(&SliderValue, &SliderRange, &ComputedNode)>,
+    sliders: Query<(&SliderValue, &SliderRange)>,
     mut fills: Query<(&SliderFill, &mut Node), Without<SliderHandle>>,
     mut handles: Query<(&SliderHandle, &mut Node), Without<SliderFill>>,
 ) {
     let fraction = |entity: Entity| {
-        sliders.get(entity).ok().map(|(value, range, node)| {
-            let span = range.end() - range.start();
-            let t = if span.abs() < f32::EPSILON {
-                0.0
-            } else {
-                ((value.0 - range.start()) / span).clamp(0.0, 1.0)
-            };
-            (t, node.size().x)
-        })
+        sliders
+            .get(entity)
+            .ok()
+            .map(|(value, range)| fraction_of(value.0, range.start(), range.end()))
     };
 
     for (fill, mut node) in &mut fills {
-        if let Some((t, _)) = fraction(fill.slider) {
+        if let Some(t) = fraction(fill.slider) {
             node.width = Val::Percent(t * 100.0);
         }
     }
     for (handle, mut node) in &mut handles {
-        if let Some((t, width)) = fraction(handle.slider) {
-            // Inset by the thumb so it stays inside the track at both ends.
-            node.left = Val::Px(t * (width - THUMB_PX).max(0.0));
+        if let Some(t) = fraction(handle.slider) {
+            let (percent, nudge) = thumb_placement(t);
+            node.left = Val::Percent(percent);
+            node.margin.left = Val::Px(nudge);
         }
     }
 }
