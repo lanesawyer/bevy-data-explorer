@@ -313,6 +313,17 @@ impl Scatterbrain {
             .filter(|a| a.name != self.spatial_column && a.kind == "uint16")
             .collect()
     }
+
+    /// Columns holding one float per point, such as confidence scores.
+    ///
+    /// The spatial column is also float, but holds a pair, which is what
+    /// separates it here.
+    pub fn numeric_columns(&self) -> Vec<&PointAttribute> {
+        self.attributes
+            .iter()
+            .filter(|a| a.name != self.spatial_column && a.kind == "float" && a.elements == 1)
+            .collect()
+    }
 }
 
 fn ensure_slash(mut url: String) -> String {
@@ -416,6 +427,20 @@ pub fn decode_positions(bytes: &[u8], expected: u64) -> Result<Vec<[f32; 2]>, St
 }
 
 /// Decode a categorical column: little-endian `u16`, one per point.
+/// Decode a column of one `f32` per point.
+pub fn decode_floats(bytes: &[u8], expected: u64) -> Result<Vec<f32>, String> {
+    if bytes.len() % 4 != 0 || (bytes.len() / 4) as u64 != expected {
+        return Err(format!(
+            "numeric file holds {} values, but the tree declares {expected}",
+            bytes.len() / 4
+        ));
+    }
+    Ok(bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect())
+}
+
 pub fn decode_categories(bytes: &[u8], expected: u64) -> Result<Vec<u16>, String> {
     if bytes.len() % 2 != 0 || (bytes.len() / 2) as u64 != expected {
         return Err(format!(

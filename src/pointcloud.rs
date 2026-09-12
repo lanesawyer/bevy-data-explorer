@@ -51,7 +51,12 @@ pub enum NodeOutcome {
     Failed(String),
 }
 
-#[derive(Resource)]
+/// Streams one point cloud.
+///
+/// A component on the source entity rather than a resource, so two clouds can
+/// be open at once — each frame's streamer is found through the source it is
+/// bound to.
+#[derive(Component)]
 pub struct PointStreamer {
     /// The source entity this streamer serves.
     pub source: Entity,
@@ -119,8 +124,17 @@ impl PointStreamer {
 
 /// Walk the octree and decide which nodes should be resident.
 pub fn select_nodes(
-    mut streamer: ResMut<PointStreamer>,
+    mut streamers: Query<&mut PointStreamer>,
     panels: Query<(&Camera, &GlobalTransform, &Projection, &ShowsSource)>,
+) {
+    for mut streamer in &mut streamers {
+        select_for(&mut streamer, &panels);
+    }
+}
+
+fn select_for(
+    streamer: &mut PointStreamer,
+    panels: &Query<(&Camera, &GlobalTransform, &Projection, &ShowsSource)>,
 ) {
     let cloud = streamer.cloud.clone();
     let slide = streamer.slide;
@@ -185,7 +199,13 @@ pub fn select_nodes(
 }
 
 /// Fetch the coordinates and colour column for nodes that are not loaded yet.
-pub fn spawn_node_tasks(mut streamer: ResMut<PointStreamer>) {
+pub fn spawn_node_tasks(mut streamers: Query<&mut PointStreamer>) {
+    for mut streamer in &mut streamers {
+        spawn_for(&mut streamer);
+    }
+}
+
+fn spawn_for(streamer: &mut PointStreamer) {
     let pool = AsyncComputeTaskPool::get();
     let cloud = streamer.cloud.clone();
     let selection = streamer.selection.clone();
@@ -240,19 +260,29 @@ pub fn load_node(
         return Ok((positions, categories));
     }
 
-    let mut columns = Vec::with_capacity(selection.filters.len());
-    for (column, _) in &selection.filters {
+    // A column is decoded to whatever its restriction compares against: codes
+    // for a categorical filter, floats for a numeric one.
+    let mut columns: Vec<Vec<f32>> = Vec::with_capacity(selection.filters.len());
+    for (column, restriction) in &selection.filters {
         let bytes = fetch(&cloud.column_url(column, node))?;
-        columns.push(scatterbrain::decode_categories(&bytes, node.count)?);
+        let values = if restriction.is_numeric() {
+            scatterbrain::decode_floats(&bytes, node.count)?
+        } else {
+            scatterbrain::decode_categories(&bytes, node.count)?
+                .into_iter()
+                .map(f32::from)
+                .collect()
+        };
+        columns.push(values);
     }
 
-    let mut codes = vec![0u16; columns.len()];
+    let mut values = vec![0.0f32; columns.len()];
     let mut keep = Vec::with_capacity(positions.len());
     for index in 0..positions.len() {
-        for (slot, column) in codes.iter_mut().zip(&columns) {
+        for (slot, column) in values.iter_mut().zip(&columns) {
             *slot = column.get(index).copied().unwrap_or_default();
         }
-        keep.push(selection.admits(&codes));
+        keep.push(selection.admits(&values));
     }
 
     let mut index = 0;
@@ -283,10 +313,28 @@ fn fetch(url: &str) -> Result<Vec<u8>, String> {
 /// Turn finished fetches into meshes.
 pub fn collect_node_tasks(
     mut commands: Commands,
-    mut streamer: ResMut<PointStreamer>,
+    mut streamers: Query<&mut PointStreamer>,
     sources: Query<&datasource::DataSource>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<PointMaterial>>,
+) {
+    for mut streamer in &mut streamers {
+        collect_for(
+            &mut commands,
+            &mut streamer,
+            &sources,
+            &mut meshes,
+            &mut materials,
+        );
+    }
+}
+
+fn collect_for(
+    commands: &mut Commands,
+    streamer: &mut PointStreamer,
+    sources: &Query<&datasource::DataSource>,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<PointMaterial>,
 ) {
     let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
         return;
@@ -356,7 +404,13 @@ pub fn category_colour(category: u16) -> [f32; 4] {
 }
 
 /// Drop nodes that are no longer wanted once the budget is exceeded.
-pub fn evict_nodes(mut commands: Commands, mut streamer: ResMut<PointStreamer>) {
+pub fn evict_nodes(mut commands: Commands, mut streamers: Query<&mut PointStreamer>) {
+    for mut streamer in &mut streamers {
+        evict_for(&mut commands, &mut streamer);
+    }
+}
+
+fn evict_for(commands: &mut Commands, streamer: &mut PointStreamer) {
     let wanted: HashSet<usize> = streamer.wanted.iter().copied().collect();
     if wanted.is_empty() || streamer.resident_points <= streamer.budget {
         return;
@@ -525,18 +579,52 @@ mod tests {
 
 /// Streams a single Scatterbrain point cloud.
 pub struct PointCloudPlugin {
+    /// Shown in the overlay and in listings. Passed in because a dataset's own
+    /// metadata does not name itself, and two clouds are open at once.
+    pub name: String,
     pub cloud: Arc<Scatterbrain>,
     pub budget: usize,
 }
 
-impl Plugin for PointCloudPlugin {
+/// The systems every point cloud shares, registered once however many clouds
+/// are open.
+struct PointCloudSystems;
+
+impl Plugin for PointCloudSystems {
     fn build(&self, app: &mut App) {
+        app.add_systems(
+            Update,
+            (
+                select_nodes,
+                spawn_node_tasks,
+                collect_node_tasks,
+                evict_nodes,
+                report_status,
+            )
+                .chain()
+                .after(crate::panel::update_viewports),
+        );
+    }
+}
+
+impl Plugin for PointCloudPlugin {
+    /// Each cloud is its own instance of this plugin, so Bevy must not treat a
+    /// second one as a duplicate.
+    fn is_unique(&self) -> bool {
+        false
+    }
+
+    fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<PointCloudSystems>() {
+            app.add_plugins(PointCloudSystems);
+        }
+
         let bounds = self.cloud.slides[0].tight_bounds;
         let (cx, cy) = bounds.centre();
         let source = datasource::register(
             app,
             datasource::SourceInfo {
-                name: "Point cloud".into(),
+                name: self.name.clone(),
                 unit: self.cloud.unit.clone(),
                 detail: format!("Scatterbrain octree, depth {}", self.cloud.max_depth()),
                 stat: format!(
@@ -558,28 +646,25 @@ impl Plugin for PointCloudPlugin {
             crate::points_render::SourcePointSize::default(),
             // Placeholder until a lookup service supplies the real value
             // labels; the column names and ids are the dataset's own.
-            crate::cellproperties::placeholder_properties(&self.cloud.category_columns()),
+            crate::cellproperties::placeholder_properties(
+                &self.cloud.category_columns(),
+                &self.cloud.numeric_columns(),
+            ),
         ));
 
         let mut streamer = PointStreamer::new(self.cloud.clone(), source);
         streamer.budget = self.budget;
-
-        app.insert_resource(streamer).add_systems(
-            Update,
-            (
-                select_nodes,
-                spawn_node_tasks,
-                collect_node_tasks,
-                evict_nodes,
-                report_status,
-            )
-                .chain()
-                .after(crate::panel::update_viewports),
-        );
+        app.world_mut().entity_mut(source).insert(streamer);
     }
 }
 
-fn report_status(streamer: Res<PointStreamer>, mut sources: Query<&mut SourceStatus>) {
+fn report_status(streamers: Query<&PointStreamer>, mut sources: Query<&mut SourceStatus>) {
+    for streamer in &streamers {
+        report_for(streamer, &mut sources);
+    }
+}
+
+fn report_for(streamer: &PointStreamer, sources: &mut Query<&mut SourceStatus>) {
     let Ok(mut status) = sources.get_mut(streamer.source) else {
         return;
     };

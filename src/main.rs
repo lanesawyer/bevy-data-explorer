@@ -35,6 +35,10 @@ use datasource::{DataSource, SourceExtent};
 /// Scatterbrain metadata for the reference point cloud.
 const DEFAULT_POINTS: &str = "https://d2o7sc91n904vd.cloudfront.net/wmb_tenx_01172024_stage-20240128193624/G4I4GFJXJB9ATZ3PTX1/ScatterBrain.json";
 
+/// Scatterbrain metadata for the SEA-AD mapped dataset, which carries numeric
+/// properties alongside categorical ones.
+const DEFAULT_CELLS: &str = "https://d2o7sc91n904vd.cloudfront.net/bkppg-sfs-stage-mjff-updates-03262025-20250403032833/839TIB6YQVFHZSGX401/ScatterBrain.json";
+
 /// Scatterbrain metadata for the reference sectioned dataset.
 const DEFAULT_SLICES: &str = "https://d2o7sc91n904vd.cloudfront.net/bkppg-sfs-stage-wmb-imputed-genes-20240918212918/VFOFYPFQGRKUDQUZ3FF/ScatterBrain.json";
 
@@ -67,6 +71,11 @@ struct Args {
     /// `none` to leave it out.
     #[arg(long, default_value = DEFAULT_SLICES)]
     slices: String,
+
+    /// A second Scatterbrain point cloud, shown as a fourth panel. Pass `none`
+    /// to leave it out.
+    #[arg(long, default_value = DEFAULT_CELLS)]
+    cells: String,
 
     /// Maximum points held on the GPU for the point cloud.
     #[arg(long, default_value_t = pointcloud::DEFAULT_POINT_BUDGET)]
@@ -156,6 +165,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("opening points {}", args.points);
         let cloud = Arc::new(load_points(&args.points)?);
         describe("points", &cloud);
+        Some(cloud)
+    };
+
+    let cells = if args.cells.eq_ignore_ascii_case("none") {
+        None
+    } else {
+        println!("opening cells  {}", args.cells);
+        let cloud = Arc::new(load_points(&args.cells)?);
+        describe("cells", &cloud);
         Some(cloud)
     };
 
@@ -253,6 +271,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             viewconfig::sync_opacity_slider,
             viewconfig::sync_point_size,
             cellpanel::record_open_sections,
+            cellpanel::drag_range_handles,
             cellpanel::rebuild_cell_panel,
             cellpanel::apply_selection,
             viewconfig::apply_opacity,
@@ -276,6 +295,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     if let Some(cloud) = cloud {
         app.add_plugins(pointcloud::PointCloudPlugin {
+            name: "Point cloud".into(),
+            cloud,
+            budget: args.point_budget,
+        });
+    }
+    if let Some(cloud) = cells {
+        app.add_plugins(pointcloud::PointCloudPlugin {
+            name: "SEA-AD mapped cells".into(),
             cloud,
             budget: args.point_budget,
         });

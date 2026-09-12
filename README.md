@@ -39,16 +39,20 @@ does not jam at the minimum with no way to close it. The title shortens to
 `BDE` when collapsed.
 
 Point clouds also get a **Cell properties** section, one sub-section per
-categorical property. The button in a sub-section's header colours points by
+property. Properties come in two kinds. A categorical one lists its values with
+checkboxes; a numeric one draws a histogram of its distribution with a
+two-ended control under it, so a span is chosen against the shape of the data
+rather than blind. Buckets outside the chosen span are dimmed rather than
+hidden, keeping the whole distribution in view. The button in a sub-section's header colours points by
 that property; the checkboxes inside filter points down to the values still
 ticked, and excluded points are dropped as a node is built rather than hidden
 afterwards, so they cost no vertices.
 
 The properties themselves are a plain component on the source entity, so
-nothing that reads them knows where they came from. They are built from the
-dataset's own column list today — real names and identifiers, placeholder value
-labels — and a lookup against whatever service knows the real labels replaces
-that by writing the same component.
+nothing that reads them knows where they came from. They are built from the dataset's own column list today — real names and
+identifiers, so colouring works against live data, with placeholder value
+labels and bin counts. A lookup against whatever service knows the real ones
+replaces that by writing the same component.
 
 The sidebar holds accordions. They are generic containers — a title, an open
 flag, and whatever children a caller hangs off the body — because which
@@ -291,9 +295,9 @@ measuring against it, and are worth knowing before changing them:
   empty cell rather than redistributing the space.
 - A frame cannot yet be repointed at a different source from the UI. The
   indirection that would allow it is in place, but nothing drives it.
-- Each streamer is a resource, so a format supports one open dataset at a time.
-  Two OME-Zarr images side by side would need the streamer to move onto the
-  source entity as a component.
+- Point clouds keep their streamer on the source entity, so several can be open
+  at once. The image and section streamers are still resources, so those
+  formats support one dataset each.
 - The sections panel always draws slices in metadata order. It carries no
   notion of anatomical position, so the grid is a contact sheet rather than a
   reconstruction.

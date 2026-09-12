@@ -722,7 +722,10 @@ impl Plugin for SlicesPlugin {
             crate::points_render::SourcePointSize::default(),
             // Placeholder until a lookup service supplies the real value
             // labels; the column names and ids are the dataset's own.
-            crate::cellproperties::placeholder_properties(&self.cloud.category_columns()),
+            crate::cellproperties::placeholder_properties(
+                &self.cloud.category_columns(),
+                &self.cloud.numeric_columns(),
+            ),
         ));
 
         let mut streamer = SliceStreamer::new(self.cloud.clone(), source);
