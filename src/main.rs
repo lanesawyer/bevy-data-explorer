@@ -216,6 +216,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .add_observer(cellpanel::on_value_toggled)
     .add_observer(cellpanel::on_clear_property)
     .add_observer(cellpanel::on_clear_all)
+    .add_observer(hud::on_info_pressed)
+    .add_observer(hud::on_source_chosen)
     .add_message::<panel::PanelRequest>()
     .init_resource::<panel::FrameArea>()
     .init_resource::<panel::SelectedPanel>()
@@ -253,6 +255,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             panel::panel_controls,
             panel::update_viewports,
             hud::position_hud,
+            hud::rebuild_source_menus,
             sidebar::update_sidebar,
             inspector::update_inspector,
         )
@@ -268,8 +271,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             widgets::toggle_accordions,
             widgets::update_accordions,
             viewconfig::rebuild_layout_menu,
-            widgets::toggle_accordion_menus,
-            widgets::position_accordion_menus,
+            widgets::toggle_menus,
+            widgets::position_menus,
             viewconfig::sync_opacity_slider,
             viewconfig::sync_point_size,
             cellpanel::record_open_sections,

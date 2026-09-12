@@ -23,7 +23,7 @@ use crate::cellproperties::{
 use crate::datasource::DataSource;
 use crate::panel::{BlocksFrameInput, SelectedPanel, ShowsSource};
 use crate::sidebar::SidebarContent;
-use crate::widgets::{Accordion, spawn_accordion, spawn_accordion_menu, spawn_header_button};
+use crate::widgets::{Accordion, spawn_accordion, spawn_header_button, spawn_menu};
 
 /// The section itself, hidden for sources with no properties to show.
 #[derive(Component, Clone, Default)]
@@ -80,7 +80,7 @@ pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<Side
     commands.entity(parent).add_child(accordion.section);
     commands.entity(accordion.body).insert(CellPanelBody);
 
-    let menu = spawn_accordion_menu(&mut commands, accordion.header);
+    let menu = spawn_menu(&mut commands, accordion.header);
     commands.entity(menu).insert(CellPanelMenu);
 
     // Sits beside the section's menu button, and hides itself when there is

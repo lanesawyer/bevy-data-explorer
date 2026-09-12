@@ -63,6 +63,11 @@ pub enum PanelRequest {
     Open(Entity),
     /// Show what is known about a frame.
     Inspect(Entity),
+    /// Point a frame at a different source.
+    Show {
+        panel: Entity,
+        source: Entity,
+    },
 }
 
 /// Marks interactive chrome that swallows pointer input before a frame sees it.
@@ -414,22 +419,19 @@ const IDLE_BUTTON: Color = Color::srgba(0.18, 0.20, 0.26, 0.85);
 pub enum PanelAction {
     Duplicate,
     Close,
-    Info,
 }
 
 impl PanelAction {
-    const ALL: [PanelAction; 3] = [
-        PanelAction::Info,
-        PanelAction::Duplicate,
-        PanelAction::Close,
-    ];
+    /// Only the two that manage the frame itself. Inspecting sits with the
+    /// dataset's name in the header, where it reads as being about the data
+    /// rather than about the frame.
+    const ALL: [PanelAction; 2] = [PanelAction::Duplicate, PanelAction::Close];
 
     /// Buttons are laid out right to left from the panel's top corner.
     fn slot(self) -> f32 {
         match self {
             PanelAction::Close => 0.0,
             PanelAction::Duplicate => 1.0,
-            PanelAction::Info => 2.0,
         }
     }
 
@@ -437,7 +439,6 @@ impl PanelAction {
         match self {
             PanelAction::Duplicate => "+",
             PanelAction::Close => "x",
-            PanelAction::Info => "i",
         }
     }
 }
@@ -530,7 +531,6 @@ pub fn panel_buttons(
         requests.write(match button.action {
             PanelAction::Duplicate => PanelRequest::Duplicate(button.panel),
             PanelAction::Close => PanelRequest::Close(button.panel),
-            PanelAction::Info => PanelRequest::Inspect(button.panel),
         });
     }
 }
@@ -624,6 +624,32 @@ pub fn apply_panel_requests(
                 if panels.get(panel).is_ok() {
                     selected.0 = Some(panel);
                 }
+            }
+            PanelRequest::Show { panel, source } => {
+                let Ok((_, _, shows, ..)) = panels.get(panel) else {
+                    continue;
+                };
+                if shows.0 == source {
+                    continue;
+                }
+                let Ok((data, extent)) = sources.get(source) else {
+                    continue;
+                };
+                // Repointing is the whole reason a frame holds a source entity
+                // rather than naming a format: the camera moves to that
+                // source's layer and is reframed to its extent.
+                let limits = extent.limits(viewport);
+                commands.entity(panel).insert((
+                    ShowsSource(source),
+                    RenderLayers::layer(data.layer),
+                    limits,
+                    Transform::from_translation(limits.centre.extend(1000.0)),
+                    Projection::Orthographic(OrthographicProjection {
+                        scale: limits.fit_scale,
+                        ..OrthographicProjection::default_2d()
+                    }),
+                ));
+                selected.0 = Some(panel);
             }
         }
     }
@@ -727,7 +753,7 @@ pub fn highlight_panel_buttons(
 ) {
     for (interaction, button, mut colour) in &mut buttons {
         let active = match button.action {
-            PanelAction::Duplicate | PanelAction::Info => Color::srgba(0.35, 0.55, 0.85, 0.95),
+            PanelAction::Duplicate => Color::srgba(0.35, 0.55, 0.85, 0.95),
             PanelAction::Close => Color::srgba(0.80, 0.30, 0.30, 0.95),
         };
         colour.0 = match interaction {

@@ -20,7 +20,7 @@ use crate::points_render::{
     DEFAULT_POINT_PX, MAX_POINT_PX, MIN_POINT_PX, PointMaterial, SourcePointSize,
 };
 use crate::sidebar::SidebarContent;
-use crate::widgets::{caption, spawn_accordion, spawn_accordion_menu, spawn_slider};
+use crate::widgets::{caption, spawn_accordion, spawn_menu, spawn_slider};
 
 /// The opacity slider runs 0..100, so its built-in readout is a percentage.
 const PERCENT: f32 = 100.0;
@@ -57,7 +57,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
 
     let accordion = spawn_accordion(&mut commands, "View configuration", true);
     commands.entity(parent).add_child(accordion.section);
-    let menu = spawn_accordion_menu(&mut commands, accordion.header);
+    let menu = spawn_menu(&mut commands, accordion.header);
     commands.entity(menu).insert(LayoutMenu);
     let body = accordion.body;
 

@@ -63,7 +63,7 @@ pub struct AccordionParts {
     pub section: Entity,
     /// Fill this with the section's contents.
     pub body: Entity,
-    /// Attach a menu button here with [`spawn_accordion_menu`].
+    /// Attach a menu button here with [`spawn_menu`].
     pub header: Entity,
 }
 
@@ -164,21 +164,23 @@ pub fn spawn_header_button(commands: &mut Commands, header: Entity, caption: &st
     button
 }
 
-/// A popup anchored under an accordion's menu button.
+/// A popup anchored under the button that opens it.
+///
+/// Not specific to accordions: a frame's own header uses the same machinery.
 #[derive(Component, Clone, Default)]
-pub struct AccordionMenu {
+pub struct Menu {
     pub open: bool,
 }
 
-/// The button that opens a menu, on the right of an accordion header.
+/// The button that opens a menu.
 #[derive(Component, Clone)]
-pub struct AccordionMenuButton {
+pub struct MenuButton {
     pub menu: Entity,
 }
 
-impl Default for AccordionMenuButton {
+impl Default for MenuButton {
     fn default() -> Self {
-        AccordionMenuButton {
+        MenuButton {
             menu: Entity::PLACEHOLDER,
         }
     }
@@ -186,13 +188,13 @@ impl Default for AccordionMenuButton {
 
 /// Anchors a menu to the button that opens it.
 #[derive(Component, Clone)]
-pub struct AnchoredTo {
+pub struct MenuAnchor {
     pub button: Entity,
 }
 
-impl Default for AnchoredTo {
+impl Default for MenuAnchor {
     fn default() -> Self {
-        AnchoredTo {
+        MenuAnchor {
             button: Entity::PLACEHOLDER,
         }
     }
@@ -207,15 +209,16 @@ const MENU_MARGIN: f32 = 12.0;
 /// A menu never shrinks below this, even when opened near the bottom edge.
 const MENU_MIN_HEIGHT: f32 = 120.0;
 
-/// Add a menu button to an accordion header, returning the popup's content
-/// node for the caller to fill.
+/// Add a menu button under `parent`, returning the popup for the caller to
+/// fill.
 ///
-/// The popup is a root node rather than a child of the header, because the
-/// sidebar clips its contents and a menu is meant to overhang it.
-pub fn spawn_accordion_menu(commands: &mut Commands, header: Entity) -> Entity {
+/// The popup is a root node rather than a child of the button, because both
+/// the sidebar and a frame's header clip their contents and a menu is meant to
+/// overhang them.
+pub fn spawn_menu(commands: &mut Commands, parent: Entity) -> Entity {
     let menu = commands
         .spawn_scene(bsn! {
-            AccordionMenu
+            Menu
             // A menu long enough to run off the screen scrolls instead.
             ScrollArea
             // Nothing here is a button, so without an `Interaction` of its own
@@ -243,7 +246,7 @@ pub fn spawn_accordion_menu(commands: &mut Commands, header: Entity) -> Entity {
         .spawn_scene(bsn! {
             Button
             BlocksFrameInput
-            AccordionMenuButton { menu: { menu } }
+            MenuButton { menu: { menu } }
             Node {
                 width: { Val::Px(HEADER_HEIGHT) },
                 height: { Val::Percent(100.0) },
@@ -254,18 +257,18 @@ pub fn spawn_accordion_menu(commands: &mut Commands, header: Entity) -> Entity {
         })
         .id();
 
-    commands.entity(header).add_child(button);
-    commands.entity(menu).insert(AnchoredTo { button });
+    commands.entity(parent).add_child(button);
+    commands.entity(menu).insert(MenuAnchor { button });
     menu
 }
 
 /// Open and close menus, and dismiss them when something else is clicked.
-pub fn toggle_accordion_menus(
+pub fn toggle_menus(
     mouse: Res<ButtonInput<MouseButton>>,
     hover: Res<HoverMap>,
     parents: Query<&ChildOf>,
-    buttons: Query<(&Interaction, &AccordionMenuButton), Changed<Interaction>>,
-    mut menus: Query<(Entity, &AnchoredTo, &mut AccordionMenu)>,
+    buttons: Query<(&Interaction, &MenuButton), Changed<Interaction>>,
+    mut menus: Query<(Entity, &MenuAnchor, &mut Menu)>,
 ) {
     // Only the transition into `Pressed` counts. `Interaction` reads as pressed
     // for every frame the button is held, so toggling on the value itself
@@ -318,10 +321,10 @@ pub fn toggle_accordion_menus(
 }
 
 /// Show open menus, positioned under the button that opens them.
-pub fn position_accordion_menus(
+pub fn position_menus(
     windows: Query<&Window>,
     anchors: Query<(&ComputedNode, &UiGlobalTransform)>,
-    mut menus: Query<(&AccordionMenu, &AnchoredTo, &mut Node)>,
+    mut menus: Query<(&Menu, &MenuAnchor, &mut Node)>,
 ) {
     let Ok(window) = windows.single() else { return };
 
