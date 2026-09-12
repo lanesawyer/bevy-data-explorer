@@ -479,7 +479,8 @@ fn spawn_range_control(commands: &mut Commands, property: usize, range: &Numeric
     for (end, fraction) in [(RangeEnd::From, from), (RangeEnd::To, to)] {
         let handle = commands
             .spawn_scene(bsn! {
-                Button
+                // A thumb, not a button. It is grabbed from the picking
+                // hover state, so it only needs to be pickable.
                 BlocksFrameInput
                 RangeHandle { property: { property }, end: { end } }
                 Node {

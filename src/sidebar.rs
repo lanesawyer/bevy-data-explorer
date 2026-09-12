@@ -10,7 +10,7 @@
 //! nothing over there has to know the sidebar exists.
 
 use bevy::prelude::*;
-use bevy::ui::Interaction;
+use bevy::ui::{FocusPolicy, Interaction};
 use bevy::window::{CursorIcon, PrimaryWindow, SystemCursorIcon};
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::display::label;
@@ -173,7 +173,10 @@ pub fn spawn_sidebar(commands: &mut Commands) {
 
     commands.spawn_scene(bsn! {
         SidebarHandle
-        Button
+        // Not a button: `ui_focus_system` drives `Interaction` on any node
+        // carrying it, and a drag target wants the press without the chrome.
+        Interaction
+        template_value(FocusPolicy::Block)
         BlocksFrameInput
         Node {
             position_type: { PositionType::Absolute },

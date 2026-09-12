@@ -9,7 +9,7 @@
 
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
-use bevy::ui::Interaction;
+use bevy::ui::{FocusPolicy, Interaction};
 use bevy::window::{CursorIcon, PrimaryWindow, SystemCursorIcon};
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::display::label;
@@ -124,7 +124,9 @@ pub fn spawn_inspector(commands: &mut Commands) {
 
     commands.spawn_scene(bsn! {
         InspectorHandle
-        Button
+        // Not a button, as in the sidebar: a press without the chrome.
+        Interaction
+        template_value(FocusPolicy::Block)
         BlocksFrameInput
         Node {
             position_type: { PositionType::Absolute },
