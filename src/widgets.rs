@@ -11,6 +11,7 @@ use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::ThemeBackgroundColor;
 use bevy_feathers::tokens;
+use bevy_ui_widgets::SliderPrecision;
 
 use crate::panel::BlocksFrameInput;
 
@@ -357,11 +358,20 @@ pub fn update_accordions(
     }
 }
 
-/// Spawn a labelled slider over `range`.
+/// Spawn a slider over `range`, showing its value to `decimals` places.
 ///
 /// Feathers styles and drives it; the app only writes the value back, via
 /// `bevy_ui_widgets::slider_self_update`.
-pub fn spawn_slider(commands: &mut Commands, value: f32, range: (f32, f32)) -> Entity {
+///
+/// `SliderPrecision` is added explicitly because Feathers' own scene omits it
+/// while the system that moves the fill and rewrites the value text requires
+/// it. Without it the slider drags but never redraws.
+pub fn spawn_slider(
+    commands: &mut Commands,
+    value: f32,
+    range: (f32, f32),
+    decimals: i32,
+) -> Entity {
     commands
         .spawn_scene(bsn! {
             BlocksFrameInput
@@ -370,6 +380,7 @@ pub fn spawn_slider(commands: &mut Commands, value: f32, range: (f32, f32)) -> E
                 @min: { range.0 },
                 @max: { range.1 }
             }
+            SliderPrecision({ decimals })
         })
         .id()
 }

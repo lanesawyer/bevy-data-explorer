@@ -19,6 +19,9 @@ use crate::panel::{SelectedPanel, ShowsSource};
 use crate::sidebar::SidebarContent;
 use crate::widgets::{caption, spawn_accordion, spawn_accordion_menu, spawn_slider};
 
+/// The opacity slider runs 0..100, so its built-in readout is a percentage.
+const PERCENT: f32 = 100.0;
+
 /// How opaque a source's geometry is drawn, on its own entity so that two
 /// sources can be faded independently.
 #[derive(Component, Clone, Copy)]
@@ -37,10 +40,6 @@ pub struct SelectedName;
 /// The slider driving the selected source's opacity.
 #[derive(Component, Clone, Default)]
 pub struct OpacitySlider;
-
-/// The readout beside the opacity slider.
-#[derive(Component, Clone, Default)]
-pub struct OpacityReadout;
 
 pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
     let Ok(parent) = content.single() else { return };
@@ -62,27 +61,14 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
 
     let label = commands
         .spawn_scene(bsn! {
-            Node {
-                width: { Val::Percent(100.0) },
-                justify_content: { JustifyContent::SpaceBetween },
-            }
-            Children [
-                (
-                    Text({ "Transparency".to_string() })
-                    TextFont { font_size: { bevy::text::FontSize::Px(12.0) } }
-                    TextColor({ Color::srgb(0.82, 0.86, 0.92) })
-                ),
-                (
-                    OpacityReadout
-                    Text({ String::new() })
-                    TextFont { font_size: { bevy::text::FontSize::Px(12.0) } }
-                    TextColor({ Color::srgb(0.62, 0.68, 0.78) })
-                ),
-            ]
+            label("Transparency")
+            InheritableFont { font_size: { 12.0f32 } }
         })
         .id();
 
-    let slider = spawn_slider(&mut commands, 1.0, (0.0, 1.0));
+    // Percent rather than a fraction, so the slider's own readout is a whole
+    // number that means something without a separate caption beside it.
+    let slider = spawn_slider(&mut commands, 100.0, (0.0, PERCENT), 0);
     commands.entity(slider).insert(OpacitySlider);
     commands.entity(body).add_children(&[name, label, slider]);
 }
@@ -98,8 +84,7 @@ pub fn sync_opacity_slider(
     panels: Query<&ShowsSource>,
     mut sources: Query<(&DataSource, Option<&mut SourceOpacity>)>,
     slider: Query<(Entity, &SliderValue), With<OpacitySlider>>,
-    mut names: Query<&mut Text, (With<SelectedName>, Without<OpacityReadout>)>,
-    mut readouts: Query<&mut Text, (With<OpacityReadout>, Without<SelectedName>)>,
+    mut names: Query<&mut Text, With<SelectedName>>,
     mut shown: Local<Option<Entity>>,
 ) {
     let source = selected
@@ -132,26 +117,22 @@ pub fn sync_opacity_slider(
         Some(mut opacity) if *shown != Some(source) => {
             commands
                 .entity(slider_entity)
-                .insert(SliderValue(opacity.0));
+                .insert(SliderValue(opacity.0 * PERCENT));
             opacity.set_changed();
         }
         Some(mut opacity) => {
-            if (opacity.0 - value.0).abs() > f32::EPSILON {
-                opacity.0 = value.0;
+            let wanted = value.0 / PERCENT;
+            if (opacity.0 - wanted).abs() > f32::EPSILON {
+                opacity.0 = wanted;
             }
         }
         None => {
-            commands.entity(source).insert(SourceOpacity(value.0));
+            commands
+                .entity(source)
+                .insert(SourceOpacity(value.0 / PERCENT));
         }
     }
     *shown = Some(source);
-
-    for mut text in &mut readouts {
-        let wanted = format!("{:.0}%", value.0 * 100.0);
-        if text.0 != wanted {
-            text.0 = wanted;
-        }
-    }
 }
 
 /// The tint that fades geometry to `opacity`.
@@ -239,6 +220,19 @@ mod tests {
 
     fn brightness(colour: Color) -> f32 {
         colour.to_srgba().red
+    }
+
+    /// The slider works in percent while opacity is a fraction, so the two
+    /// conversions have to agree or the value drifts every time the selection
+    /// changes.
+    #[test]
+    fn percent_and_opacity_round_trip() {
+        for opacity in [0.0f32, 0.25, 0.46, 0.5, 1.0] {
+            let shown = opacity * PERCENT;
+            assert!((shown / PERCENT - opacity).abs() < 1e-6);
+        }
+        assert_eq!(100.0 / PERCENT, 1.0);
+        assert_eq!(0.0 / PERCENT, 0.0);
     }
 
     #[test]
