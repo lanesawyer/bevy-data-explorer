@@ -21,10 +21,14 @@ use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dKey, Material2dPlug
 pub const ATTRIBUTE_CORNER: MeshVertexAttribute =
     MeshVertexAttribute::new("Vertex_Corner", 0x9c0d_7e11, VertexFormat::Float32x2);
 
-/// Default diameter of a point, in logical pixels.
-pub const DEFAULT_POINT_PX: f32 = 2.0;
+/// Default diameter of a point, in device pixels.
+pub const DEFAULT_POINT_PX: f32 = 1.5;
 /// Range the point size control offers.
-pub const MIN_POINT_PX: f32 = 1.0;
+///
+/// The floor is below a pixel on purpose: zoomed out, a dense cloud stacks many
+/// points on every pixel, and thinning them past one is what stops the whole
+/// thing turning into a solid mass.
+pub const MIN_POINT_PX: f32 = 0.5;
 pub const MAX_POINT_PX: f32 = 12.0;
 
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
@@ -180,6 +184,13 @@ mod tests {
     #[test]
     fn the_default_size_sits_inside_the_range_offered() {
         assert!(MIN_POINT_PX <= DEFAULT_POINT_PX && DEFAULT_POINT_PX <= MAX_POINT_PX);
+    }
+
+    #[test]
+    fn the_smallest_setting_is_thinner_than_a_pixel() {
+        // Zoomed out over a dense cloud, a whole pixel a point is already a
+        // solid mass, so the range has to reach below one.
+        assert!(MIN_POINT_PX < 1.0);
     }
 
     #[test]

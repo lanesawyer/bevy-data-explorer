@@ -12,7 +12,7 @@
 }
 
 struct PointSettings {
-    // Diameter in logical pixels.
+    // Diameter in device pixels.
     size: f32,
     // Multiplies every point's colour, carrying the transparency setting.
     tint: vec4<f32>,
@@ -42,8 +42,13 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
     // Offset in clip space so the quad keeps its size on screen however far the
     // view is zoomed. Scaling by w keeps it right under any projection.
+    //
+    // The corner is a unit offset, so this is the half extent. Clip space spans
+    // 2 across a viewport, meaning one clip unit is half the viewport in
+    // pixels; dividing the diameter by the viewport therefore gives a half
+    // extent of size/2 pixels, and a point `size` pixels across.
     let viewport = view.viewport.zw;
-    let offset = vertex.corner * settings.size / viewport * 2.0;
+    let offset = vertex.corner * settings.size / viewport;
     clip = vec4<f32>(clip.xy + offset * clip.w, clip.zw);
 
     out.clip_position = clip;
