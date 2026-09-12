@@ -214,6 +214,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .add_observer(viewconfig::on_add_visualization)
     .add_observer(cellpanel::on_colour_by)
     .add_observer(cellpanel::on_value_toggled)
+    .add_observer(cellpanel::on_clear_property)
+    .add_observer(cellpanel::on_clear_all)
     .add_message::<panel::PanelRequest>()
     .init_resource::<panel::FrameArea>()
     .init_resource::<panel::SelectedPanel>()
@@ -274,6 +276,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cellpanel::drag_range_handles,
             cellpanel::rebuild_cell_panel,
             cellpanel::update_range_controls,
+            cellpanel::update_clear_buttons,
             cellpanel::apply_selection,
             viewconfig::apply_opacity,
             viewconfig::apply_opacity_to_new,

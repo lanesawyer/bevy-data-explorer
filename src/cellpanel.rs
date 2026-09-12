@@ -17,15 +17,21 @@ use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, ValueChange};
 
-use crate::cellproperties::{CellProperties, NumericRange, PropertyKind, PropertyState, RangeEnd};
+use crate::cellproperties::{
+    CellProperties, CellProperty, NumericRange, PropertyKind, PropertyState, RangeEnd,
+};
 use crate::datasource::DataSource;
 use crate::panel::{BlocksFrameInput, SelectedPanel, ShowsSource};
 use crate::sidebar::SidebarContent;
-use crate::widgets::{Accordion, spawn_accordion, spawn_header_button};
+use crate::widgets::{Accordion, spawn_accordion, spawn_accordion_menu, spawn_header_button};
 
 /// The section itself, hidden for sources with no properties to show.
 #[derive(Component, Clone, Default)]
 pub struct CellPanel;
+
+/// The section's own menu, for controls that act on all of its properties.
+#[derive(Component, Clone, Default)]
+pub struct CellPanelMenu;
 
 /// Everything the section builds, so a rebuild can clear what it made.
 #[derive(Component, Clone, Default)]
@@ -36,6 +42,16 @@ pub struct CellPanelContent;
 pub struct ColourByButton {
     pub property: usize,
 }
+
+/// The button that drops one property's filters.
+#[derive(Component, Clone, Default)]
+pub struct ClearPropertyButton {
+    pub property: usize,
+}
+
+/// The button that drops every filter, on the section's own header.
+#[derive(Component, Clone, Default)]
+pub struct ClearAllButton;
 
 /// A checkbox admitting one value of one property.
 #[derive(Component, Clone, Default)]
@@ -59,6 +75,14 @@ pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<Side
         });
     commands.entity(parent).add_child(accordion.section);
     commands.entity(accordion.body).insert(CellPanelBody);
+
+    let menu = spawn_accordion_menu(&mut commands, accordion.header);
+    commands.entity(menu).insert(CellPanelMenu);
+
+    // Sits beside the section's menu button, and hides itself when there is
+    // nothing to clear.
+    let clear = spawn_header_button(&mut commands, accordion.header, "Clear filters");
+    commands.entity(clear).insert(ClearAllButton);
 }
 
 /// The body the sub-sections are built into.
@@ -105,7 +129,7 @@ pub fn rebuild_cell_panel(
     let ticks: Vec<bool> = properties
         .properties
         .iter()
-        .flat_map(|property| property.values().iter().map(|value| value.included))
+        .flat_map(|property| property.values().iter().map(|value| value.selected))
         .collect();
     // Range ends are deliberately absent: they move continuously while being
     // dragged, and rebuilding would despawn the handle under the pointer. The
@@ -179,7 +203,7 @@ pub fn rebuild_cell_panel(
                             ValueCheckbox { property: { index }, value: { position } }
                         })
                         .id();
-                    if value.included {
+                    if value.selected {
                         commands.entity(row).insert(Checked);
                     }
                     row
@@ -219,7 +243,6 @@ pub fn on_colour_by(
 /// Admit or exclude one value of one property.
 pub fn on_value_toggled(
     change: On<ValueChange<bool>>,
-    mut commands: Commands,
     checkboxes: Query<&ValueCheckbox>,
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
@@ -228,14 +251,11 @@ pub fn on_value_toggled(
     let Ok(checkbox) = checkboxes.get(change.source) else {
         return;
     };
-    // Feathers leaves the widget's own state to the app, as it does for
-    // sliders.
-    if change.value {
-        commands.entity(change.source).insert(Checked);
-    } else {
-        commands.entity(change.source).remove::<Checked>();
-    }
 
+    // The box's own `Checked` is deliberately not touched here. Changing the
+    // property rebuilds the section, which respawns the box with its state
+    // taken from the property — and writing to the old entity would land on
+    // one that had just been despawned.
     let Some(mut properties) = selected
         .0
         .and_then(|panel| panels.get(panel).ok())
@@ -251,7 +271,7 @@ pub fn on_value_toggled(
             PropertyKind::Numeric(_) => None,
         })
     {
-        value.included = change.value;
+        value.selected = change.value;
     }
 }
 
@@ -643,6 +663,108 @@ pub fn update_range_controls(
             let wanted = format!("{:.2} - {:.2}", range.from, range.to);
             if text.0 != wanted {
                 text.0 = wanted;
+            }
+        }
+    }
+}
+
+/// Drop one property's filters.
+pub fn on_clear_property(
+    activate: On<Activate>,
+    buttons: Query<&ClearPropertyButton>,
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    mut sources: Query<&mut CellProperties>,
+) {
+    let Ok(button) = buttons.get(activate.entity) else {
+        return;
+    };
+    let Some(mut properties) = selected
+        .0
+        .and_then(|panel| panels.get(panel).ok())
+        .and_then(|shows| sources.get_mut(shows.0).ok())
+    else {
+        return;
+    };
+    if let Some(property) = properties.properties.get_mut(button.property) {
+        property.clear();
+    }
+}
+
+/// Drop every filter on the selected source.
+pub fn on_clear_all(
+    activate: On<Activate>,
+    buttons: Query<&ClearAllButton>,
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    mut sources: Query<&mut CellProperties>,
+) {
+    if buttons.get(activate.entity).is_err() {
+        return;
+    }
+    let Some(mut properties) = selected
+        .0
+        .and_then(|panel| panels.get(panel).ok())
+        .and_then(|shows| sources.get_mut(shows.0).ok())
+    else {
+        return;
+    };
+    properties.clear_all();
+}
+
+/// Show the clear controls only when they have something to clear, and keep
+/// the count on the section's own button.
+pub fn update_clear_buttons(
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    sources: Query<&CellProperties>,
+    mut per_property: Query<(&ClearPropertyButton, &mut Node), Without<ClearAllButton>>,
+    mut clear_all: Query<(Entity, &mut Node), (With<ClearAllButton>, Without<ClearPropertyButton>)>,
+    children: Query<&Children>,
+    mut texts: Query<&mut Text>,
+) {
+    let properties = selected
+        .0
+        .and_then(|panel| panels.get(panel).ok())
+        .and_then(|shows| sources.get(shows.0).ok());
+
+    for (button, mut node) in &mut per_property {
+        let applied = properties
+            .and_then(|properties| properties.properties.get(button.property))
+            .map(CellProperty::applied)
+            .unwrap_or(0);
+        let wanted = if applied > 0 {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != wanted {
+            node.display = wanted;
+        }
+    }
+
+    let total = properties.map(CellProperties::applied).unwrap_or(0);
+    for (entity, mut node) in &mut clear_all {
+        let wanted = if total > 0 {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != wanted {
+            node.display = wanted;
+        }
+        if total == 0 {
+            continue;
+        }
+        let label = format!(
+            "Clear {total} {}",
+            if total == 1 { "filter" } else { "filters" }
+        );
+        for child in children.iter_descendants(entity) {
+            if let Ok(mut text) = texts.get_mut(child)
+                && text.0 != label
+            {
+                text.0 = label.clone();
             }
         }
     }

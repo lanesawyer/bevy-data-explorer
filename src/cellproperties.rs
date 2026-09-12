@@ -19,8 +19,12 @@ pub struct PropertyValue {
     /// The code stored in the dataset's column for this value.
     pub code: u16,
     pub label: String,
-    /// Whether points with this value are drawn.
-    pub included: bool,
+    /// Whether this value has been picked out as a filter.
+    ///
+    /// Nothing picked means the property filters nothing and every point is
+    /// drawn, so an untouched panel starts with all of these clear rather than
+    /// all set.
+    pub selected: bool,
 }
 
 /// A continuous property, filtered by a range rather than a set of values.
@@ -113,8 +117,34 @@ impl CellProperty {
     /// removes nothing, so it is worth knowing not to ask.
     pub fn restricts(&self) -> bool {
         match &self.kind {
-            PropertyKind::Categorical(values) => values.iter().any(|value| !value.included),
+            PropertyKind::Categorical(values) => values.iter().any(|value| value.selected),
             PropertyKind::Numeric(range) => range.restricts(),
+        }
+    }
+
+    /// How many filters this property contributes: one per value picked out,
+    /// or one for a narrowed range.
+    pub fn applied(&self) -> usize {
+        match &self.kind {
+            PropertyKind::Categorical(values) => {
+                values.iter().filter(|value| value.selected).count()
+            }
+            PropertyKind::Numeric(range) => usize::from(range.restricts()),
+        }
+    }
+
+    /// Drop every filter on this property, leaving it drawing everything.
+    pub fn clear(&mut self) {
+        match &mut self.kind {
+            PropertyKind::Categorical(values) => {
+                for value in values {
+                    value.selected = false;
+                }
+            }
+            PropertyKind::Numeric(range) => {
+                range.from = range.low;
+                range.to = range.high;
+            }
         }
     }
 
@@ -144,7 +174,7 @@ impl CellProperty {
             PropertyKind::Categorical(values) => Restriction::Codes(
                 values
                     .iter()
-                    .filter(|value| value.included)
+                    .filter(|value| value.selected)
                     .map(|value| value.code)
                     .collect(),
             ),
@@ -217,6 +247,18 @@ impl CellProperties {
     ///
     /// Properties that exclude nothing are left out, so an untouched panel
     /// costs no extra fetching.
+    /// Total filters applied across every property, for the control that
+    /// clears them.
+    pub fn applied(&self) -> usize {
+        self.properties.iter().map(CellProperty::applied).sum()
+    }
+
+    pub fn clear_all(&mut self) {
+        for property in &mut self.properties {
+            property.clear();
+        }
+    }
+
     pub fn selection(&self) -> CellSelection {
         CellSelection {
             colour_by: self
@@ -280,7 +322,7 @@ pub fn placeholder_properties(
                     .map(|code| PropertyValue {
                         code: code as u16,
                         label: format!("{} {code}", column.description),
-                        included: true,
+                        selected: false,
                     })
                     .collect(),
             ),
@@ -326,7 +368,7 @@ mod tests {
                     .map(|code| PropertyValue {
                         code: *code,
                         label: format!("value {code}"),
-                        included: true,
+                        selected: false,
                     })
                     .collect(),
             ),
@@ -341,20 +383,47 @@ mod tests {
         }
     }
 
-    fn exclude(property: &mut CellProperty, position: usize) {
+    fn pick(property: &mut CellProperty, position: usize) {
         if let PropertyKind::Categorical(values) = &mut property.kind {
-            values[position].included = false;
+            values[position].selected = true;
         }
     }
 
     #[test]
-    fn a_property_including_everything_restricts_nothing() {
-        // Otherwise an untouched panel would fetch a column per property for
-        // every node and throw all of it away.
+    fn a_property_with_nothing_picked_restricts_nothing() {
+        // Nothing picked means the property is not filtering, so every point is
+        // drawn and no column needs fetching. Only a picked value narrows it.
         let mut property = categorical("class", &[0, 1, 2]);
         assert!(!property.restricts());
-        exclude(&mut property, 1);
+        assert_eq!(property.applied(), 0);
+
+        pick(&mut property, 1);
         assert!(property.restricts());
+        assert_eq!(property.applied(), 1);
+    }
+
+    #[test]
+    fn clearing_a_property_returns_it_to_drawing_everything() {
+        let mut property = categorical("class", &[0, 1, 2]);
+        pick(&mut property, 0);
+        pick(&mut property, 2);
+        assert_eq!(property.applied(), 2);
+
+        property.clear();
+        assert!(!property.restricts());
+        assert_eq!(property.applied(), 0);
+    }
+
+    #[test]
+    fn clearing_a_range_returns_it_to_its_full_extent() {
+        let mut property = numeric("score");
+        property.range_mut().unwrap().set_end(RangeEnd::From, 0.4);
+        assert_eq!(property.applied(), 1);
+
+        property.clear();
+        assert!(!property.restricts());
+        let range = property.range().unwrap();
+        assert_eq!((range.from, range.to), (range.low, range.high));
     }
 
     #[test]
@@ -373,7 +442,7 @@ mod tests {
         ]);
         assert!(properties.selection().filters.is_empty());
 
-        exclude(&mut properties.properties[1], 0);
+        pick(&mut properties.properties[1], 1);
         let selection = properties.selection();
         assert_eq!(selection.filters.len(), 1);
         assert_eq!(selection.filters[0].0, "region");
@@ -490,7 +559,7 @@ mod tests {
     fn points_are_admitted_only_when_every_filter_agrees() {
         let mut properties =
             CellProperties::ready(vec![categorical("class", &[0, 1]), numeric("score")]);
-        exclude(&mut properties.properties[0], 1);
+        pick(&mut properties.properties[0], 0);
         properties.properties[1]
             .range_mut()
             .unwrap()
@@ -510,14 +579,37 @@ mod tests {
     }
 
     #[test]
-    fn excluding_every_value_draws_nothing_from_that_property() {
-        let mut property = categorical("class", &[0, 1, 2]);
-        if let PropertyKind::Categorical(values) = &mut property.kind {
-            for value in values {
-                value.included = false;
-            }
-        }
-        assert!(property.restricts());
-        assert_eq!(property.restriction(), Restriction::Codes(HashSet::new()));
+    fn an_untouched_panel_has_nothing_ticked_and_filters_nothing() {
+        // The ticks mark what has been picked out, so a fresh panel shows all
+        // of them clear and draws every point.
+        let properties = CellProperties::ready(vec![categorical("class", &[0, 1, 2])]);
+        assert!(
+            properties.properties[0]
+                .values()
+                .iter()
+                .all(|value| !value.selected)
+        );
+        assert_eq!(properties.applied(), 0);
+        assert!(properties.selection().filters.is_empty());
+    }
+
+    #[test]
+    fn filters_are_counted_across_every_property() {
+        let mut properties =
+            CellProperties::ready(vec![categorical("class", &[0, 1, 2]), numeric("score")]);
+        assert_eq!(properties.applied(), 0);
+
+        pick(&mut properties.properties[0], 0);
+        pick(&mut properties.properties[0], 2);
+        properties.properties[1]
+            .range_mut()
+            .unwrap()
+            .set_end(RangeEnd::To, 0.5);
+        // Two values picked, and a narrowed range counting as one.
+        assert_eq!(properties.applied(), 3);
+
+        properties.clear_all();
+        assert_eq!(properties.applied(), 0);
+        assert!(properties.selection().filters.is_empty());
     }
 }

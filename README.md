@@ -40,7 +40,10 @@ does not jam at the minimum with no way to close it. The title shortens to
 
 Point clouds also get a **Cell properties** section, one sub-section per
 property. Properties come in two kinds. A categorical one lists its values with
-checkboxes; a numeric one draws a histogram of its distribution with a
+checkboxes, which start clear: a tick picks a value out, and with none ticked
+the property filters nothing. Each sub-section offers to clear its own filters
+once it has any, and the section's header carries a control naming how many are
+applied across all of them; a numeric one draws a histogram of its distribution with a
 two-ended control under it, so a span is chosen against the shape of the data
 rather than blind. Buckets outside the chosen span are dimmed rather than
 hidden, keeping the whole distribution in view. The button in a sub-section's header colours points by
