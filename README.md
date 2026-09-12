@@ -70,7 +70,7 @@ whatever the original happened to load.
 | `R` | reset that panel's view |
 | `+` button | duplicate that panel |
 | `x` button | close that panel |
-| drag sidebar edge | resize the sidebar, or collapse it |
+| drag sidebar edge | resize the sidebar, or collapse it — the pointer becomes a resize cursor over the handle |
 | `<` / `>` button | collapse or expand the sidebar |
 | `1`–`9` | toggle an image channel |
 | `G` | sections panel: grid ↔ single slice |

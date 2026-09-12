@@ -11,6 +11,7 @@
 
 use bevy::prelude::*;
 use bevy::ui::Interaction;
+use bevy::window::{CursorIcon, PrimaryWindow, SystemCursorIcon};
 
 use crate::panel::{BlocksFrameInput, FrameArea};
 
@@ -49,6 +50,10 @@ impl Default for Sidebar {
 }
 
 impl Sidebar {
+    pub fn resizing(&self) -> bool {
+        self.resizing
+    }
+
     /// Width the sidebar actually occupies right now.
     pub fn current_width(&self) -> f32 {
         if self.collapsed {
@@ -181,6 +186,32 @@ pub fn resize_sidebar(
             sidebar.width = width;
         }
         None => sidebar.collapsed = true,
+    }
+}
+
+/// Show a resize cursor over the drag handle, and for as long as a drag lasts.
+///
+/// The handle is a thin target, so without this it reads as decoration rather
+/// than something to grab.
+pub fn sidebar_cursor(
+    mut commands: Commands,
+    sidebar: Res<Sidebar>,
+    windows: Query<(Entity, Option<&CursorIcon>), With<PrimaryWindow>>,
+    handle: Query<&Interaction, With<SidebarHandle>>,
+) {
+    // Keep the cursor while dragging even once the pointer has left the
+    // handle, which it does as soon as the edge starts moving.
+    let over_handle = sidebar.resizing() || handle.iter().any(|i| *i != Interaction::None);
+    let wanted = if over_handle {
+        CursorIcon::System(SystemCursorIcon::ColResize)
+    } else {
+        CursorIcon::System(SystemCursorIcon::Default)
+    };
+
+    for (window, current) in &windows {
+        if current != Some(&wanted) {
+            commands.entity(window).insert(wanted.clone());
+        }
     }
 }
 

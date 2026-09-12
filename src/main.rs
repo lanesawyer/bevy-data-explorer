@@ -182,6 +182,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             sidebar::toggle_sidebar,
             sidebar::resize_sidebar,
             sidebar::update_sidebar,
+            sidebar::sidebar_cursor,
             panel::reset_frame_area,
             sidebar::reserve_space,
             panel::duplicate_panel,
