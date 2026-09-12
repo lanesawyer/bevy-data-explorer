@@ -33,7 +33,11 @@ pub struct CellPanel;
 #[derive(Component, Clone, Default)]
 pub struct CellPanelMenu;
 
-/// Everything the section builds, so a rebuild can clear what it made.
+/// Marks what a rebuild replaces.
+///
+/// Only the roots of the rebuilt subtrees carry this. Despawning is recursive,
+/// so marking something nested inside another marked entity means trying to
+/// despawn it twice, which Bevy reports as touching a dead entity.
 #[derive(Component, Clone, Default)]
 pub struct CellPanelContent;
 
@@ -496,8 +500,9 @@ fn spawn_range_control(commands: &mut Commands, property: usize, range: &Numeric
 
     let readout = commands
         .spawn_scene(bsn! {
+            // Deliberately not marked for rebuilding: it hangs inside a
+            // sub-section that is, and despawning is recursive.
             RangeReadout { property: { property } }
-            CellPanelContent
             label_dim(format!("{:.2} - {:.2}", range.from, range.to))
             InheritableFont { font_size: { 11.0f32 } }
         })
