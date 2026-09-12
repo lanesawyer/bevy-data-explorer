@@ -125,6 +125,15 @@ pub fn spawn_sidebar(commands: &mut Commands) {
                 TextColor({ Color::srgb(0.90, 0.93, 0.97) })
             ),
             (
+                SidebarContent
+                Node {
+                    flex_direction: { FlexDirection::Column },
+                    width: { Val::Percent(100.0) },
+                    row_gap: { Val::Px(6.0) },
+                    overflow: { Overflow::clip() },
+                }
+            ),
+            (
                 SidebarToggle
                 Button
                 BlocksFrameInput
@@ -134,6 +143,10 @@ pub fn spawn_sidebar(commands: &mut Commands) {
                     justify_content: { JustifyContent::Center },
                     align_items: { AlignItems::Center },
                     border_radius: { BorderRadius::all(Val::Px(4.0)) },
+                    // An automatic top margin eats the free space above it, so
+                    // the toggle sits at the bottom whether the sections are
+                    // showing or the dock is collapsed to its ribbon.
+                    margin: { UiRect::top(Val::Auto) },
                 }
                 BackgroundColor({ Color::srgba(0.18, 0.20, 0.26, 0.85) })
                 Children [(
@@ -141,15 +154,6 @@ pub fn spawn_sidebar(commands: &mut Commands) {
                     TextFont { font_size: { bevy::text::FontSize::Px(14.0) } }
                     TextColor({ Color::srgb(0.85, 0.9, 0.95) })
                 )]
-            ),
-            (
-                SidebarContent
-                Node {
-                    flex_direction: { FlexDirection::Column },
-                    width: { Val::Percent(100.0) },
-                    row_gap: { Val::Px(6.0) },
-                    overflow: { Overflow::clip() },
-                }
             ),
         ]
     });
