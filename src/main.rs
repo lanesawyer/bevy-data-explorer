@@ -200,6 +200,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             sidebar::reserve_space,
             panel::panel_buttons,
             panel::apply_panel_requests,
+            panel::normalize_panels,
             panel::sync_panel_buttons,
             panel::highlight_panel_buttons,
             hud::sync_hud,

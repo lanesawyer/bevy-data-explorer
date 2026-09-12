@@ -609,17 +609,61 @@ pub fn apply_panel_requests(
         .iter()
         .map(|(entity, panel, ..)| (entity, panel.index))
         .collect();
-    let remaining = renumber(&existing, &closing);
     // Never close the last frame: an empty window offers no way back.
-    if remaining.is_empty() && spawned == 0 {
+    if renumber(&existing, &closing).is_empty() && spawned == 0 {
         return;
     }
     for entity in closing {
         commands.entity(entity).despawn();
     }
-    for (position, entity) in remaining.into_iter().enumerate() {
-        commands.entity(entity).insert(Panel { index: position });
+    // Cells, draw order and which camera clears are settled by
+    // `normalize_panels` once the despawns have taken effect.
+}
+
+/// Keep cells contiguous, and keep draw order and clearing in step with them.
+///
+/// Every path that adds or removes a frame funnels through here rather than
+/// fixing up indices itself. Opening and closing in the same breath can hand
+/// out a duplicate index, and a frame spawned this tick is not yet visible to
+/// the code that renumbers the survivors, so ownership of the invariant sits in
+/// one place that runs after the dust settles.
+pub fn normalize_panels(mut panels: Query<(Entity, &mut Panel, &mut Camera)>) {
+    let cells = assign_cells(
+        panels
+            .iter()
+            .map(|(entity, panel, _)| (panel.index, entity))
+            .collect(),
+    );
+
+    for (position, entity) in cells {
+        let Ok((_, mut panel, mut camera)) = panels.get_mut(entity) else {
+            continue;
+        };
+        let wanted_order = position as isize;
+        if panel.index == position && camera.order == wanted_order {
+            continue;
+        }
+        panel.index = position;
+        camera.order = wanted_order;
+        // Only the first camera clears. Losing the frame that held that job
+        // leaves nothing clearing the window, and every frame then paints over
+        // the last one instead of replacing it.
+        camera.clear_color = clear_color_for(position);
     }
+}
+
+/// Cells for the given frames, keeping their relative order and closing any
+/// gaps or duplicates.
+fn assign_cells(mut frames: Vec<(usize, Entity)>) -> Vec<(usize, Entity)> {
+    // Sorting by index then entity keeps the result stable when two frames
+    // claim the same cell, which happens when one is opened in the same breath
+    // as another is closed.
+    frames.sort_unstable();
+    frames
+        .into_iter()
+        .enumerate()
+        .map(|(position, (_, entity))| (position, entity))
+        .collect()
 }
 
 /// The panels left after closing, in the order they should occupy cells.
@@ -955,6 +999,47 @@ mod tests {
     fn the_outline_draws_above_the_rules() {
         // Rules carry no explicit index, so they sit at zero.
         assert!(SELECTION_Z > 0);
+    }
+
+    #[test]
+    fn cells_end_up_unique_and_contiguous() {
+        let e = |n: u32| Entity::from_raw_u32(n).unwrap();
+        // Gaps from closing, and a duplicate from opening while closing.
+        let frames = vec![(0, e(1)), (2, e(2)), (2, e(3)), (7, e(4))];
+        let cells = assign_cells(frames);
+
+        let positions: Vec<usize> = cells.iter().map(|(p, _)| *p).collect();
+        assert_eq!(positions, vec![0, 1, 2, 3]);
+
+        let entities: std::collections::HashSet<Entity> = cells.iter().map(|(_, e)| *e).collect();
+        assert_eq!(entities.len(), 4, "a frame was dropped or duplicated");
+    }
+
+    #[test]
+    fn exactly_one_frame_clears_the_window() {
+        // With none clearing, each frame paints over the last instead of
+        // replacing it; with several, later ones wipe what came before.
+        let e = |n: u32| Entity::from_raw_u32(n).unwrap();
+        let cells = assign_cells(vec![(3, e(1)), (5, e(2)), (9, e(3))]);
+        let clearing = cells
+            .iter()
+            .filter(|(position, _)| {
+                matches!(clear_color_for(*position), ClearColorConfig::Custom(_))
+            })
+            .count();
+        assert_eq!(clearing, 1);
+    }
+
+    #[test]
+    fn closing_the_first_frame_hands_clearing_to_another() {
+        let e = |n: u32| Entity::from_raw_u32(n).unwrap();
+        // Frame 0 is gone; whatever is left must take over clearing.
+        let cells = assign_cells(vec![(1, e(2)), (2, e(3))]);
+        assert_eq!(cells[0].0, 0);
+        assert!(matches!(
+            clear_color_for(cells[0].0),
+            ClearColorConfig::Custom(_)
+        ));
     }
 
     #[test]
