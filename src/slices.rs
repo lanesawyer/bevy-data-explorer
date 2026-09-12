@@ -31,9 +31,13 @@ const CELL_PADDING: f32 = 0.06;
 
 const MAX_IN_FLIGHT: usize = 12;
 
-/// Maximum points held on the GPU. Four vertices a point, as in
-/// [`crate::pointcloud::DEFAULT_POINT_BUDGET`].
-pub const DEFAULT_SLICE_BUDGET: usize = 2_000_000;
+/// Maximum points held on the GPU.
+///
+/// The grid shows every slice at once, and the root subsamples alone come to
+/// about three million points on the reference dataset. A budget below that
+/// does not thin the grid evenly — it starves whole slices at the end of the
+/// list — so it has to clear the sum of the roots with room to spare.
+pub const DEFAULT_SLICE_BUDGET: usize = 4_000_000;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SliceMode {
@@ -260,14 +264,16 @@ pub fn select_slice_nodes(
     mut streamer: ResMut<SliceStreamer>,
     panels: Query<(&Camera, &GlobalTransform, &Projection, &ShowsSource)>,
 ) {
+    let source = streamer.source;
     let cloud = streamer.cloud.clone();
-    let mut wanted = Vec::new();
-    let mut budget = streamer.budget;
     let mut seen = HashSet::new();
+    // Collected with their depth so the budget can be spent shallowest first.
+    // Walking slide by slide and paying as we went let the early slides spend
+    // it all on their own detail, and the later ones never loaded at all.
+    let mut candidates: Vec<(usize, SliceNode)> = Vec::new();
 
     // Every panel of this kind draws the same entities, so the resident set is
     // the union of what each of them needs.
-    let source = streamer.source;
     for (camera, transform, projection, _) in
         panels.iter().filter(|(_, _, _, shows)| shows.0 == source)
     {
@@ -287,8 +293,8 @@ pub fn select_slice_nodes(
                 continue;
             }
             let offset = streamer.offset(slide_index);
-            // Compare in the slide's own coordinates by moving the view rather than
-            // the points, which keeps node bounds usable as they are.
+            // Compare in the slide's own coordinates by moving the view rather
+            // than the points, which keeps node bounds usable as they are.
             let view = Rect {
                 min_x: centre.x - half.x - offset.x,
                 min_y: -(centre.y + half.y - offset.y),
@@ -313,12 +319,7 @@ pub fn select_slice_nodes(
                     node: node_index,
                 };
                 if seen.insert(key) {
-                    if node.count as usize > budget {
-                        seen.remove(&key);
-                        continue;
-                    }
-                    budget -= node.count as usize;
-                    wanted.push(key);
+                    candidates.push((node.depth, key));
                 }
 
                 if node.bounds.width() / units_per_px.max(f32::MIN_POSITIVE) >= SUBDIVIDE_PX {
@@ -326,6 +327,21 @@ pub fn select_slice_nodes(
                 }
             }
         }
+    }
+
+    // Shallowest first, so a budget too small to hold everything gives up
+    // detail rather than dropping whole slices out of the grid.
+    candidates.sort_by_key(|(depth, _)| *depth);
+
+    let mut budget = streamer.budget;
+    let mut wanted = Vec::with_capacity(candidates.len());
+    for (_, key) in candidates {
+        let count = cloud.slides[key.slide].nodes[key.node].count as usize;
+        if count > budget {
+            continue;
+        }
+        budget -= count;
+        wanted.push(key);
     }
 
     streamer.wanted = wanted;
@@ -602,6 +618,19 @@ mod tests {
         assert_ne!(grid, single);
     }
 
+    /// The grid shows every slice, so the default budget has to hold every
+    /// slice's root subsample. Falling short does not thin the grid evenly; it
+    /// drops whole slices off the end of the list.
+    #[test]
+    fn the_default_budget_holds_every_slice_at_once() {
+        let cloud = sectioned();
+        let roots: u64 = cloud.slides.iter().map(|s| s.root().count).sum();
+        assert!(
+            (roots as usize) < DEFAULT_SLICE_BUDGET,
+            "{roots} points of roots will not fit in {DEFAULT_SLICE_BUDGET}"
+        );
+    }
+
     #[test]
     fn the_advertised_extent_follows_the_mode() {
         // A frame opened onto the sections is framed from this, so showing
@@ -736,7 +765,7 @@ fn report_status(streamer: Res<SliceStreamer>, mut sources: Query<&mut SourceSta
         "{} points in {} slices\n\
          {}\n\
          {} nodes loaded, {} loading\n\
-         {} / {} points resident\n\
+         {} / {} points resident ({} MB)\n\
          colour by  {}\n\
          G grid/single · arrows or [ ] step slices",
         cloud.total_points(),
@@ -746,6 +775,7 @@ fn report_status(streamer: Res<SliceStreamer>, mut sources: Query<&mut SourceSta
         streamer.in_flight,
         streamer.resident_points,
         streamer.budget,
+        crate::points_render::budget_megabytes(streamer.resident_points),
         colour,
     );
 }

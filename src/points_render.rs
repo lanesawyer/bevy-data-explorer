@@ -8,7 +8,10 @@
 
 use bevy::asset::RenderAssetUsages;
 use bevy::asset::{Asset, embedded_asset};
-use bevy::mesh::{Indices, MeshVertexAttribute, MeshVertexBufferLayoutRef, PrimitiveTopology};
+use bevy::mesh::{
+    Indices, MeshVertexAttribute, MeshVertexBufferLayoutRef, PrimitiveTopology,
+    VertexAttributeValues,
+};
 use bevy::prelude::*;
 use bevy::render::render_resource::VertexFormat;
 use bevy::render::render_resource::{
@@ -18,8 +21,18 @@ use bevy::shader::ShaderRef;
 use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dKey, Material2dPlugin};
 
 /// Unit offset of a vertex from its point's centre, expanded by the shader.
+///
+/// Normalised shorts rather than floats: the only values are the corners of a
+/// unit square, and a point cloud pays for this four times over. Bytes would do
+/// as well, but a vertex stride has to be a multiple of four and two bytes here
+/// leaves it at eighteen.
 pub const ATTRIBUTE_CORNER: MeshVertexAttribute =
-    MeshVertexAttribute::new("Vertex_Corner", 0x9c0d_7e11, VertexFormat::Float32x2);
+    MeshVertexAttribute::new("Vertex_Corner", 0x9c0d_7e11, VertexFormat::Snorm16x2);
+
+/// Point colour, as bytes rather than floats for the same reason. The shader
+/// still receives it normalised to a `vec4<f32>`.
+pub const ATTRIBUTE_POINT_COLOR: MeshVertexAttribute =
+    MeshVertexAttribute::new("Vertex_PointColor", 0x9c0d_7e12, VertexFormat::Unorm8x4);
 
 /// Default diameter of a point, in device pixels.
 pub const DEFAULT_POINT_PX: f32 = 1.5;
@@ -74,7 +87,7 @@ impl Material2d for PointMaterial {
     ) -> Result<(), SpecializedMeshPipelineError> {
         let vertex_layout = layout.0.get_layout(&[
             Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
-            Mesh::ATTRIBUTE_COLOR.at_shader_location(1),
+            ATTRIBUTE_POINT_COLOR.at_shader_location(1),
             ATTRIBUTE_CORNER.at_shader_location(2),
         ])?;
         descriptor.vertex.buffers = vec![vertex_layout];
@@ -106,7 +119,9 @@ impl Plugin for PointRenderPlugin {
 }
 
 /// The four corners of a point's quad, and the two triangles covering it.
-const CORNERS: [[f32; 2]; 4] = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]];
+/// Full-scale signed shorts, which the shader reads back as -1 and 1.
+const EDGE: i16 = i16::MAX;
+const CORNERS: [[i16; 2]; 4] = [[-EDGE, -EDGE], [EDGE, -EDGE], [EDGE, EDGE], [-EDGE, EDGE]];
 const TRIANGLES: [u32; 6] = [0, 1, 2, 0, 2, 3];
 
 /// Build a mesh of quads, one per point.
@@ -120,9 +135,10 @@ pub fn build_point_mesh(positions: &[Vec2], colours: &[[f32; 4]]) -> Mesh {
     for (index, (point, colour)) in positions.iter().zip(colours).enumerate() {
         // World y is negated for display, matching every other source.
         let centre = [point.x, -point.y, 0.0];
+        let packed = colour.map(|channel| (channel.clamp(0.0, 1.0) * 255.0) as u8);
         for corner in CORNERS {
             vertices.push(centre);
-            colour_data.push(*colour);
+            colour_data.push(packed);
             corners.push(corner);
         }
         let base = (index * 4) as u32;
@@ -134,10 +150,22 @@ pub fn build_point_mesh(positions: &[Vec2], colours: &[[f32; 4]]) -> Mesh {
         RenderAssetUsages::RENDER_WORLD,
     );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colour_data);
-    mesh.insert_attribute(ATTRIBUTE_CORNER, corners);
+    mesh.insert_attribute(
+        ATTRIBUTE_POINT_COLOR,
+        VertexAttributeValues::Unorm8x4(colour_data),
+    );
+    mesh.insert_attribute(ATTRIBUTE_CORNER, VertexAttributeValues::Snorm16x2(corners));
     mesh.insert_indices(Indices::U32(indices));
     mesh
+}
+
+/// Bytes of vertex data a point costs: four vertices of position, packed
+/// colour and packed corner.
+pub const BYTES_PER_POINT: usize = 4 * (12 + 4 + 4);
+
+/// Vertex memory a budget of `points` implies, for reporting.
+pub fn budget_megabytes(points: usize) -> usize {
+    points * BYTES_PER_POINT / (1024 * 1024)
 }
 
 #[cfg(test)]
@@ -153,14 +181,14 @@ mod tests {
 
     #[test]
     fn the_corners_cover_a_unit_square() {
-        // The shader treats these as a unit offset and the fragment stage cuts
-        // a disc from them, so they have to reach the full extent in each axis.
-        let xs: Vec<f32> = CORNERS.iter().map(|c| c[0]).collect();
-        let ys: Vec<f32> = CORNERS.iter().map(|c| c[1]).collect();
-        assert_eq!(xs.iter().cloned().fold(f32::MAX, f32::min), -1.0);
-        assert_eq!(xs.iter().cloned().fold(f32::MIN, f32::max), 1.0);
-        assert_eq!(ys.iter().cloned().fold(f32::MAX, f32::min), -1.0);
-        assert_eq!(ys.iter().cloned().fold(f32::MIN, f32::max), 1.0);
+        // The shader reads these normalised and the fragment stage cuts a disc
+        // from them, so they have to reach full scale in each axis.
+        let xs: Vec<i16> = CORNERS.iter().map(|c| c[0]).collect();
+        let ys: Vec<i16> = CORNERS.iter().map(|c| c[1]).collect();
+        assert_eq!(*xs.iter().min().unwrap(), -EDGE);
+        assert_eq!(*xs.iter().max().unwrap(), EDGE);
+        assert_eq!(*ys.iter().min().unwrap(), -EDGE);
+        assert_eq!(*ys.iter().max().unwrap(), EDGE);
     }
 
     #[test]
@@ -191,6 +219,20 @@ mod tests {
         // Zoomed out over a dense cloud, a whole pixel a point is already a
         // solid mass, so the range has to reach below one.
         assert!(MIN_POINT_PX < 1.0);
+    }
+
+    #[test]
+    fn packing_the_attributes_cut_what_a_point_costs() {
+        // Floats for colour and corner cost 144 bytes a point, which put the
+        // budget needed to show every slice at once out of reach.
+        // A vertex stride must be a multiple of four, which is what decides
+        // the corner's width rather than the two bytes its values need.
+        assert_eq!(BYTES_PER_POINT, 80);
+        assert_eq!(BYTES_PER_POINT % 4, 0);
+        // Floats throughout cost 144 bytes a point, which put a budget large
+        // enough to show every slice at once out of reach.
+        assert!(BYTES_PER_POINT < 4 * (12 + 16 + 8));
+        assert!(budget_megabytes(4_000_000) < 350);
     }
 
     #[test]

@@ -28,10 +28,9 @@ const SUBDIVIDE_PX: f32 = 420.0;
 /// region; nodes beyond it are simply not requested.
 /// Maximum points held on the GPU.
 ///
-/// Each point is a quad so it can be given a size, which is four vertices
-/// rather than one: roughly 144 bytes a point. The budget was lowered when
-/// sizing came in to keep the memory it implies about where it was.
-pub const DEFAULT_POINT_BUDGET: usize = 1_500_000;
+/// Each point is a quad so it can be given a size: four vertices of position,
+/// packed colour and corner, or [`crate::points_render::BYTES_PER_POINT`].
+pub const DEFAULT_POINT_BUDGET: usize = 3_000_000;
 
 const MAX_IN_FLIGHT: usize = 12;
 
@@ -453,7 +452,10 @@ mod tests {
         // Four vertices per point: each is drawn as a quad so that it can be
         // given a size.
         assert_eq!(mesh.count_vertices(), 8);
-        assert!(mesh.attribute(Mesh::ATTRIBUTE_COLOR).is_some());
+        assert!(
+            mesh.attribute(crate::points_render::ATTRIBUTE_POINT_COLOR)
+                .is_some()
+        );
     }
 
     #[test]
@@ -540,7 +542,7 @@ fn report_status(streamer: Res<PointStreamer>, mut sources: Query<&mut SourceSta
     status.0 = format!(
         "{} points in {} octree nodes, depth {}\n\
          showing depth {}, {} nodes loaded, {} loading\n\
-         {} / {} points resident\n\
+         {} / {} points resident ({} MB)\n\
          colour by  {}",
         cloud.total_points(),
         cloud.node_count(),
@@ -550,6 +552,7 @@ fn report_status(streamer: Res<PointStreamer>, mut sources: Query<&mut SourceSta
         streamer.in_flight,
         streamer.resident_points,
         streamer.budget,
+        crate::points_render::budget_megabytes(streamer.resident_points),
         colour,
     );
 }
