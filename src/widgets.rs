@@ -107,6 +107,11 @@ pub fn spawn_accordion(commands: &mut Commands, title: &str, open: bool) -> Acco
             AccordionHeader { accordion: { accordion } }
             Node {
                 flex_grow: { 1.0_f32 },
+                // A long property name must not push the header's buttons out
+                // of a header that clips.
+                flex_shrink: { 1.0_f32 },
+                min_width: { Val::Px(0.0) },
+                overflow: { Overflow::clip() },
                 height: { Val::Percent(100.0) },
                 align_items: { AlignItems::Center },
                 justify_content: { JustifyContent::Start },
@@ -163,6 +168,10 @@ pub fn spawn_header_button(commands: &mut Commands, header: Entity, caption: &st
                 @caption: { bsn_list![label(caption)] }
             }
             BlocksFrameInput
+            // Header buttons hold their size; the title beside them gives way
+            // instead. Without this the title's growth squeezed them out of a
+            // header that clips, and they simply were not there to click.
+            Node { flex_shrink: { 0.0_f32 } }
         })
         .id();
     commands.entity(header).add_child(button);

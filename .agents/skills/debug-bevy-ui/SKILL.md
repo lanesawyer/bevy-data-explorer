@@ -111,6 +111,17 @@ insert. Feathers' slider omits `SliderPrecision`, while the system that moves
 the fill and rewrites the text requires it — so the query matches nothing and
 the widget keeps its placeholder while the value underneath updates normally.
 
+## A control is simply not there
+
+Before hunting the wiring, check whether flexbox removed it. A row that clips
+its overflow, holding a growing sibling with long text, shrinks every other
+item — flex items shrink by default — until the controls at the end are cut
+off. Nothing errors and the entity exists, so queries and observers all look
+fine.
+
+Give controls `flex_shrink: 0` and let the text beside them yield with
+`min_width: 0` and its own clip.
+
 ## A Feathers control looks unresponsive but works
 
 Its hover is a five percent lift in lightness, which is easy to miss over busy

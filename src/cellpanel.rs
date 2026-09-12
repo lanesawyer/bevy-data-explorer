@@ -80,13 +80,13 @@ pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<Side
     commands.entity(parent).add_child(accordion.section);
     commands.entity(accordion.body).insert(CellPanelBody);
 
-    let menu = spawn_menu(&mut commands, accordion.header);
-    commands.entity(menu).insert(CellPanelMenu);
-
-    // Sits beside the section's menu button, and hides itself when there is
-    // nothing to clear.
+    // Added before the menu so it sits to its left, and hides itself when
+    // there is nothing to clear.
     let clear = spawn_header_button(&mut commands, accordion.header, "Clear filters");
     commands.entity(clear).insert(ClearAllButton);
+
+    let menu = spawn_menu(&mut commands, accordion.header);
+    commands.entity(menu).insert(CellPanelMenu);
 }
 
 /// The body the sub-sections are built into.
