@@ -123,6 +123,10 @@ pub fn spawn_accordion(commands: &mut Commands, title: &str, open: bool) -> Acco
         .spawn_scene(bsn! {
             AccordionBody { accordion: { accordion } }
             Node {
+                // Set here rather than left for `update_accordions` to correct:
+                // that runs a frame later, and a section spawned closed would
+                // draw its contents once before being hidden.
+                display: { body_display(open) },
                 flex_direction: { FlexDirection::Column },
                 width: { Val::Percent(100.0) },
                 row_gap: { Val::Px(6.0) },
@@ -351,6 +355,12 @@ fn caret(open: bool) -> &'static str {
     if open { "v" } else { ">" }
 }
 
+/// Whether a section's body is laid out. Shared by the spawn and the update so
+/// the two cannot disagree about what a closed section looks like.
+fn body_display(open: bool) -> Display {
+    if open { Display::Flex } else { Display::None }
+}
+
 /// Toggle a section when its header is clicked.
 pub fn toggle_accordions(
     headers: Query<(&Interaction, &AccordionHeader), Changed<Interaction>>,
@@ -376,7 +386,7 @@ pub fn update_accordions(
 ) {
     for (body, mut node) in &mut bodies {
         let open = accordions.get(body.accordion).is_ok_and(|a| a.open);
-        let wanted = if open { Display::Flex } else { Display::None };
+        let wanted = body_display(open);
         if node.display != wanted {
             node.display = wanted;
         }
@@ -438,6 +448,15 @@ mod tests {
     #[test]
     fn the_caret_shows_whether_a_section_is_open() {
         assert_ne!(caret(true), caret(false));
+    }
+
+    #[test]
+    fn a_closed_section_is_not_laid_out() {
+        // A section spawned closed must be hidden from the start. Leaving it to
+        // the update showed its contents for a frame first, which read as a
+        // flash of checkboxes whenever the panel was rebuilt.
+        assert_eq!(body_display(false), Display::None);
+        assert_eq!(body_display(true), Display::Flex);
     }
 
     /// A menu is placed from its button downward, so how much room is left
