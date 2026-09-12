@@ -12,9 +12,18 @@ use crate::panel::{Panel, ShowsSource};
 
 /// A status overlay bound to one panel. Bound by entity rather than by source
 /// so that duplicated panels each get their own and report their own zoom.
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct PanelText {
     panel: Entity,
+}
+
+impl Default for PanelText {
+    fn default() -> Self {
+        // Scenes patch over defaults; the real panel is written on top.
+        PanelText {
+            panel: Entity::PLACEHOLDER,
+        }
+    }
 }
 
 /// Keep one overlay per panel, and drop the overlays of panels that have gone
@@ -34,19 +43,13 @@ pub fn sync_hud(
         if texts.iter().any(|(_, t)| t.panel == panel) {
             continue;
         }
-        commands.spawn((
-            Text::new(""),
-            TextFont {
-                font_size: bevy::text::FontSize::Px(13.0),
-                ..default()
-            },
-            TextColor(Color::srgb(0.85, 0.9, 0.95)),
-            Node {
-                position_type: PositionType::Absolute,
-                ..default()
-            },
-            PanelText { panel },
-        ));
+        commands.spawn_scene(bsn! {
+            Text
+            TextFont { font_size: { bevy::text::FontSize::Px(13.0) } }
+            TextColor({ Color::srgb(0.85, 0.9, 0.95) })
+            Node { position_type: { PositionType::Absolute } }
+            PanelText { panel: { panel } }
+        });
     }
 }
 

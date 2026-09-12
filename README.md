@@ -67,6 +67,33 @@ resident.
 
 ## Architecture
 
+Frames, their overlays and their chrome are declared with **BSN** (Bevy Scene
+Notation), the scene system introduced in Bevy 0.19. Spawning is a scene patch
+rather than a component tuple, so shared chrome is a scene function that each
+button layers its own patch over:
+
+```rust
+fn button_chrome() -> impl Scene {
+    bsn! { Button Node { width: { Val::Px(BUTTON_PX) }, .. } BackgroundColor({ IDLE_BUTTON }) }
+}
+
+commands.spawn_scene(bsn! {
+    button_chrome()
+    PanelButton { panel: { panel }, action: { action } }
+    Children [( Text({ action.glyph().to_string() }) .. )]
+});
+```
+
+Components patched this way need `Default + Clone`, since a scene writes its
+fields over defaults. Components that keep private state — `RenderLayers`,
+`Projection` — cannot be patched field by field and are supplied whole with
+`template_value`.
+
+The per-tile and per-node geometry spawned by the streamers stays a plain
+component tuple. Those run every frame as data arrives, where a scene buys
+nothing over a bundle.
+
+
 Every format is a Bevy plugin. On build it registers itself as a *source
 entity* carrying the few things a frame needs to know about what it is showing:
 a name, the render layer its geometry is drawn on, how much world it occupies,

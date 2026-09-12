@@ -16,7 +16,7 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, Viewport};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
-use bevy::ui::Interaction;
+use bevy::ui::{Interaction, IsDefaultUiCamera};
 
 use crate::datasource::DataSource;
 
@@ -40,7 +40,7 @@ pub fn grid_for(count: usize) -> (usize, usize) {
 }
 
 /// Marks a panel camera and records its cell in the grid.
-#[derive(Component)]
+#[derive(Component, Clone, Default)]
 pub struct Panel {
     /// Cell index, left to right then top to bottom.
     pub index: usize,
@@ -53,8 +53,14 @@ pub struct Panel {
 #[derive(Component, Clone, Copy)]
 pub struct ShowsSource(pub Entity);
 
+impl Default for ShowsSource {
+    fn default() -> Self {
+        ShowsSource(Entity::PLACEHOLDER)
+    }
+}
+
 /// Pan and zoom bounds for a panel, derived from the extent of its data.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Default)]
 pub struct ViewLimits {
     pub min_scale: f32,
     pub max_scale: f32,
@@ -99,23 +105,24 @@ pub fn spawn_panel(
         scale: limits.fit_scale,
     });
     commands
-        .spawn((
-            Camera2d,
+        .spawn_scene(bsn! {
+            Camera2d
             Camera {
-                clear_color: clear_color_for(index),
-                order: index as isize,
-                ..default()
-            },
-            Projection::Orthographic(OrthographicProjection {
+                clear_color: { clear_color_for(index) },
+                order: { index as isize },
+            }
+            // Both keep private state, so they are supplied whole rather than
+            // patched field by field.
+            template_value(Projection::Orthographic(OrthographicProjection {
                 scale: view.scale,
                 ..OrthographicProjection::default_2d()
-            }),
-            Transform::from_translation(view.centre.extend(1000.0)),
-            RenderLayers::layer(layer),
-            Panel { index },
-            ShowsSource(source),
-            limits,
-        ))
+            }))
+            template_value(RenderLayers::layer(layer))
+            Transform { translation: { view.centre.extend(1000.0) } }
+            Panel { index: { index } }
+            ShowsSource({ source })
+            template_value(limits)
+        })
         .id()
 }
 
@@ -198,20 +205,21 @@ pub fn update_viewports(
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum Axis {
+    #[default]
     Vertical,
     Horizontal,
 }
 
-#[derive(Component)]
+#[derive(Component, Clone, Default)]
 pub struct PanelDivider {
     axis: Axis,
     ordinal: usize,
 }
 
 /// Marks the camera that the UI is laid out against.
-#[derive(Component)]
+#[derive(Component, Clone, Default)]
 pub struct UiCamera;
 
 /// Spawn a camera that exists purely to host the UI.
@@ -222,35 +230,34 @@ pub struct UiCamera;
 /// halfway mark lands in the middle of that panel instead of between the
 /// panels. A camera with no viewport keeps the UI measured against the window.
 pub fn spawn_ui_camera(commands: &mut Commands) {
-    commands.spawn((
-        Camera2d,
+    commands.spawn_scene(bsn! {
+        Camera2d
         Camera {
             // After every panel the grid can hold, so it never clears their
             // output no matter how many are added later.
-            order: MAX_PANELS as isize,
-            clear_color: ClearColorConfig::None,
-            ..default()
-        },
-        // Draws no world geometry, only UI.
-        RenderLayers::none(),
-        bevy::ui::IsDefaultUiCamera,
-        UiCamera,
-    ));
+            order: { MAX_PANELS as isize },
+            clear_color: { ClearColorConfig::None },
+        }
+        // Draws no world geometry, only UI. RenderLayers keeps its field
+        // private, so it is supplied whole rather than patched field by field.
+        template_value(RenderLayers::none())
+        IsDefaultUiCamera
+        UiCamera
+    });
 }
 
 /// Spawn the full set of rules the grid can ever need, and let
 /// [`update_viewports`] show only the ones the current layout uses.
 pub fn spawn_dividers(commands: &mut Commands) {
     let mut rule = |axis: Axis, ordinal: usize| {
-        commands.spawn((
+        commands.spawn_scene(bsn! {
             Node {
-                position_type: PositionType::Absolute,
-                display: Display::None,
-                ..default()
-            },
-            BackgroundColor(Color::srgb(0.25, 0.27, 0.32)),
-            PanelDivider { axis, ordinal },
-        ));
+                position_type: { PositionType::Absolute },
+                display: { Display::None },
+            }
+            BackgroundColor({ Color::srgb(0.25, 0.27, 0.32) })
+            PanelDivider { axis: { axis }, ordinal: { ordinal } }
+        });
     };
     for ordinal in 0..MAX_COLUMNS - 1 {
         rule(Axis::Vertical, ordinal);
@@ -262,6 +269,7 @@ pub fn spawn_dividers(commands: &mut Commands) {
 
 const BUTTON_PX: f32 = 22.0;
 const BUTTON_GAP: f32 = 4.0;
+const IDLE_BUTTON: Color = Color::srgba(0.18, 0.20, 0.26, 0.85);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PanelAction {
@@ -287,10 +295,40 @@ impl PanelAction {
 }
 
 /// A button in a panel's corner.
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct PanelButton {
     pub panel: Entity,
     pub action: PanelAction,
+}
+
+impl Default for PanelButton {
+    fn default() -> Self {
+        // Scenes are patches over defaults, so this only has to be a value the
+        // real one is written over.
+        PanelButton {
+            panel: Entity::PLACEHOLDER,
+            action: PanelAction::Duplicate,
+        }
+    }
+}
+
+/// The chrome every corner button shares.
+///
+/// Split out as a scene so the two buttons differ only by the patch layered on
+/// top of it, rather than by two near-identical spawn calls.
+fn button_chrome() -> impl Scene {
+    bsn! {
+        Button
+        Node {
+            position_type: { PositionType::Absolute },
+            width: { Val::Px(BUTTON_PX) },
+            height: { Val::Px(BUTTON_PX) },
+            justify_content: { JustifyContent::Center },
+            align_items: { AlignItems::Center },
+            border_radius: { BorderRadius::all(Val::Px(4.0)) },
+        }
+        BackgroundColor({ IDLE_BUTTON })
+    }
 }
 
 /// Keep one button per action on every panel, and drop the buttons of panels
@@ -314,28 +352,15 @@ pub fn sync_panel_buttons(
             {
                 continue;
             }
-            commands.spawn((
-                Button,
-                Node {
-                    position_type: PositionType::Absolute,
-                    width: Val::Px(BUTTON_PX),
-                    height: Val::Px(BUTTON_PX),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    border_radius: BorderRadius::all(Val::Px(4.0)),
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(0.18, 0.20, 0.26, 0.85)),
-                PanelButton { panel, action },
-                children![(
-                    Text::new(action.glyph()),
-                    TextFont {
-                        font_size: bevy::text::FontSize::Px(15.0),
-                        ..default()
-                    },
-                    TextColor(Color::srgb(0.85, 0.9, 0.95)),
-                )],
-            ));
+            commands.spawn_scene(bsn! {
+                button_chrome()
+                PanelButton { panel: { panel }, action: { action } }
+                Children [(
+                    Text({ action.glyph().to_string() })
+                    TextFont { font_size: { bevy::text::FontSize::Px(15.0) } }
+                    TextColor({ Color::srgb(0.85, 0.9, 0.95) })
+                )]
+            });
         }
     }
 }
@@ -469,7 +494,7 @@ pub fn highlight_panel_buttons(
         colour.0 = match interaction {
             Interaction::Pressed => active,
             Interaction::Hovered => active.with_alpha(0.7),
-            Interaction::None => Color::srgba(0.18, 0.20, 0.26, 0.85),
+            Interaction::None => IDLE_BUTTON,
         };
     }
 }
