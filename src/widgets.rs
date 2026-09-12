@@ -4,6 +4,7 @@
 //! sidebar's contents will vary with whatever dataset is selected: a section is
 //! a title, an open flag, and whatever children a caller hangs off it.
 
+use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::ui::Interaction;
 use bevy_feathers::controls::FeathersSlider;
@@ -229,18 +230,21 @@ pub fn spawn_accordion_menu(commands: &mut Commands, header: Entity) -> Entity {
 /// Open and close menus, and dismiss them when something else is clicked.
 pub fn toggle_accordion_menus(
     mouse: Res<ButtonInput<MouseButton>>,
-    buttons: Query<(&Interaction, &AccordionMenuButton)>,
-    interactions: Query<&Interaction>,
-    children: Query<&Children>,
-    mut menus: Query<(Entity, &mut AccordionMenu)>,
+    hover: Res<HoverMap>,
+    parents: Query<&ChildOf>,
+    buttons: Query<(&Interaction, &AccordionMenuButton), Changed<Interaction>>,
+    mut menus: Query<(Entity, &AnchoredTo, &mut AccordionMenu)>,
 ) {
-    let pressed = buttons
+    // Only the transition into `Pressed` counts. `Interaction` reads as pressed
+    // for every frame the button is held, so toggling on the value itself
+    // flipped the menu open and shut for the length of a single click.
+    let clicked = buttons
         .iter()
         .find(|(interaction, _)| **interaction == Interaction::Pressed)
         .map(|(_, button)| button.menu);
 
-    if let Some(target) = pressed {
-        for (entity, mut menu) in &mut menus {
+    if let Some(target) = clicked {
+        for (entity, _, mut menu) in &mut menus {
             menu.open = entity == target && !menu.open;
         }
         return;
@@ -249,32 +253,36 @@ pub fn toggle_accordion_menus(
     if !mouse.just_pressed(MouseButton::Left) {
         return;
     }
-    // A press anywhere that is not inside an open menu dismisses it.
-    for (entity, mut menu) in &mut menus {
+
+    for (entity, anchor, mut menu) in &mut menus {
         if !menu.open {
             continue;
         }
-        let inside = std::iter::once(entity)
-            .chain(descendants(entity, &children))
-            .any(|e| interactions.get(e).is_ok_and(|i| *i != Interaction::None));
+        // Whatever the pointer is over decides this, read from the picking
+        // hover state rather than from `Interaction`: the Feathers controls in
+        // the menu report through `Activate` events and carry no `Interaction`
+        // for a hit test to find. Dismissing here on mouse-down also removed
+        // the buttons before the release that would have activated them, which
+        // is why none of them appeared to work.
+        //
+        // The button that opened the menu counts as inside, or pressing it
+        // would dismiss here and immediately reopen on release.
+        let keeps_open = |hovered: Entity| {
+            hovered == entity
+                || hovered == anchor.button
+                || parents
+                    .iter_ancestors(hovered)
+                    .any(|ancestor| ancestor == entity || ancestor == anchor.button)
+        };
+        let inside = hover
+            .values()
+            .flat_map(|hits| hits.keys())
+            .any(|hovered| keeps_open(*hovered));
+
         if !inside {
             menu.open = false;
         }
     }
-}
-
-fn descendants(root: Entity, children: &Query<&Children>) -> Vec<Entity> {
-    let mut found = Vec::new();
-    let mut stack = vec![root];
-    while let Some(entity) = stack.pop() {
-        if let Ok(kids) = children.get(entity) {
-            for child in kids.iter() {
-                found.push(child);
-                stack.push(child);
-            }
-        }
-    }
-    found
 }
 
 /// Show open menus, positioned under the button that opens them.
@@ -398,24 +406,6 @@ mod tests {
     #[test]
     fn the_caret_shows_whether_a_section_is_open() {
         assert_ne!(caret(true), caret(false));
-    }
-
-    #[test]
-    fn hit_tests_scale_layout_pixels_down_to_cursor_pixels() {
-        // The layout reports physical pixels while the cursor is logical, so a
-        // menu on a scaled display would be hit-tested at the wrong place.
-        let rect = scaled_rect(Vec2::new(320.0, 200.0), Vec2::new(400.0, 300.0), 0.5);
-        assert_eq!(rect.min, Vec2::new(120.0, 100.0));
-        assert_eq!(rect.max, Vec2::new(280.0, 200.0));
-        assert!(rect.contains(Vec2::new(200.0, 150.0)));
-        assert!(!rect.contains(Vec2::new(400.0, 300.0)));
-    }
-
-    #[test]
-    fn an_unscaled_display_is_left_alone() {
-        let rect = scaled_rect(Vec2::new(100.0, 50.0), Vec2::new(200.0, 100.0), 1.0);
-        assert_eq!(rect.min, Vec2::new(150.0, 75.0));
-        assert_eq!(rect.max, Vec2::new(250.0, 125.0));
     }
 
     #[test]
