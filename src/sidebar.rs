@@ -21,7 +21,7 @@ use crate::panel::{BlocksFrameInput, FrameArea};
 /// Width when collapsed. Enough for the short title and the toggle beneath it.
 const RIBBON_PX: f32 = 52.0;
 /// Narrowest useful expanded width.
-const MIN_PX: f32 = 180.0;
+const MIN_PX: f32 = 220.0;
 /// The sidebar never takes more than this fraction of the window.
 const MAX_FRACTION: f32 = 0.5;
 /// Dragging the edge inside this collapses the sidebar rather than fighting the
@@ -361,6 +361,14 @@ mod tests {
         assert_eq!(sidebar.title(), "Bevy Data Explorer");
         sidebar.collapsed = true;
         assert_eq!(sidebar.title(), "BDE");
+    }
+
+    #[test]
+    fn the_collapse_threshold_stays_below_the_minimum_width() {
+        // Between the two the drag snaps out to the minimum. If the threshold
+        // ever passed it, the sidebar would collapse the moment it was dragged
+        // narrower rather than resisting at its minimum.
+        assert!(COLLAPSE_BELOW_PX < MIN_PX);
     }
 
     #[test]
