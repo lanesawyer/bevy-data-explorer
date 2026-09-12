@@ -182,27 +182,32 @@ impl SliceStreamer {
     }
 
     /// View limits that frame whatever the current mode shows.
-    pub fn limits(&self, viewport: Vec2) -> ViewLimits {
+    /// How much world the current mode puts on screen.
+    ///
+    /// This is what a frame opening onto the sections should be framed to, and
+    /// it changes with the mode: the grid spans every slice at once, a single
+    /// slice spans one cell.
+    pub fn extent(&self) -> SourceExtent {
         match self.mode {
             SliceMode::Grid => {
                 let e = self.layout.grid_extent;
                 let (cx, cy) = e.centre();
-                ViewLimits::fit(
-                    Vec2::new(cx, cy),
-                    e.width(),
-                    e.height(),
-                    viewport,
-                    e.width() / 200_000.0,
-                )
+                SourceExtent {
+                    centre: Vec2::new(cx, cy),
+                    size: Vec2::new(e.width(), e.height()),
+                    finest: e.width() / 200_000.0,
+                }
             }
-            SliceMode::Single => ViewLimits::fit(
-                Vec2::ZERO,
-                self.layout.cell.x,
-                self.layout.cell.y,
-                viewport,
-                self.layout.cell.x / 100_000.0,
-            ),
+            SliceMode::Single => SourceExtent {
+                centre: Vec2::ZERO,
+                size: self.layout.cell,
+                finest: self.layout.cell.x / 100_000.0,
+            },
         }
+    }
+
+    pub fn limits(&self, viewport: Vec2) -> ViewLimits {
+        self.extent().limits(viewport)
     }
 
     fn step(&mut self, delta: isize) {
@@ -431,6 +436,21 @@ pub fn apply_slice_layout(
     }
 }
 
+/// Keep the source's advertised extent matching the current mode.
+///
+/// A frame opened onto the sections later is framed from this, so leaving it at
+/// the value registered on startup left a new frame unable to zoom out past a
+/// single slice until something happened to trigger a refit.
+pub fn publish_extent(streamer: Res<SliceStreamer>, mut sources: Query<&mut SourceExtent>) {
+    if !streamer.is_changed() {
+        return;
+    }
+    let Ok(mut extent) = sources.get_mut(streamer.source) else {
+        return;
+    };
+    *extent = streamer.extent();
+}
+
 /// Refit the panel camera when the mode or the selected slice changes.
 pub fn refit_slice_camera(
     mut streamer: ResMut<SliceStreamer>,
@@ -580,6 +600,31 @@ mod tests {
     }
 
     #[test]
+    fn the_advertised_extent_follows_the_mode() {
+        // A frame opened onto the sections is framed from this, so showing
+        // every slice at once has to advertise a wider extent than showing one.
+        let mut streamer = streamer();
+        let grid = streamer.extent();
+        streamer.mode = SliceMode::Single;
+        let single = streamer.extent();
+
+        assert!(grid.size.x > single.size.x);
+        assert!(grid.size.y > single.size.y);
+        // One slice is centred on the origin; the grid is not.
+        assert_eq!(single.centre, Vec2::ZERO);
+    }
+
+    #[test]
+    fn the_grid_extent_covers_every_slice() {
+        let streamer = streamer();
+        let extent = streamer.extent();
+        let columns = streamer.columns() as f32;
+        // Wide enough for a full row of cells, or slices would fall outside the
+        // view a frame opens onto.
+        assert!(extent.size.x >= streamer.layout.cell.x * (columns - 1.0));
+    }
+
+    #[test]
     fn grid_limits_frame_all_the_slices() {
         let all = streamer();
         let viewport = Vec2::new(800.0, 600.0);
@@ -614,8 +659,8 @@ impl Plugin for SlicesPlugin {
                     datasource::compact_count(self.cloud.total_points())
                 ),
             },
-            // Only a sane starting frame: the streamer refits the panel on its
-            // first update, once the grid and viewport are known.
+            // Replaced on the first update by `publish_extent`, once the grid
+            // layout is known.
             SourceExtent {
                 centre: Vec2::ZERO,
                 size: Vec2::new(w, h),
@@ -636,6 +681,7 @@ impl Plugin for SlicesPlugin {
                 evict_slice_nodes,
                 apply_slice_layout,
                 refit_slice_camera,
+                publish_extent,
                 report_status,
             )
                 .chain()
