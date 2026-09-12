@@ -183,6 +183,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         bevy_feathers::dark_theme::create_dark_theme(),
     ))
     .add_observer(bevy_ui_widgets::slider_self_update)
+    .add_observer(viewconfig::on_layout_button)
+    .add_observer(viewconfig::on_add_visualization)
     .add_message::<panel::PanelRequest>()
     .init_resource::<panel::FrameArea>()
     .init_resource::<panel::SelectedPanel>()
@@ -216,8 +218,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             widgets::toggle_accordions,
             widgets::update_accordions,
             viewconfig::rebuild_layout_menu,
-            viewconfig::apply_layout_actions,
-            viewconfig::apply_add_visualization,
             widgets::toggle_accordion_menus,
             widgets::position_accordion_menus,
             viewconfig::sync_opacity_slider,

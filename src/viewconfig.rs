@@ -7,9 +7,11 @@
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
+use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
+use bevy_ui_widgets::Activate;
 use bevy_ui_widgets::SliderValue;
 
 use crate::datasource::DataSource;
@@ -428,11 +430,11 @@ fn frame_row(commands: &mut Commands, panel: Entity, data: &DataSource, removabl
         .id();
 
     let details = summary(commands, data);
-    let clone = action_button(commands, panel, LayoutAction::Clone, "\u{29c9}");
+    let clone = action_button(commands, panel, LayoutAction::Clone, "Clone");
     commands.entity(row).add_children(&[details, clone]);
 
     if removable {
-        let remove = action_button(commands, panel, LayoutAction::Remove, "\u{00d7}");
+        let remove = action_button(commands, panel, LayoutAction::Remove, "Close");
         commands.entity(row).add_child(remove);
     }
     row
@@ -442,34 +444,31 @@ fn add_row(commands: &mut Commands, source: Entity, data: &DataSource, full: boo
     let row = commands
         .spawn_scene(bsn! {
             LayoutContent
-            Button
-            crate::panel::BlocksFrameInput
-            AddVisualization { source: { source } }
             Node {
                 width: { Val::Percent(100.0) },
                 align_items: { AlignItems::Center },
                 column_gap: { Val::Px(6.0) },
-                padding: { UiRect::vertical(Val::Px(6.0)) },
-                border_radius: { BorderRadius::all(Val::Px(3.0)) },
+                padding: { UiRect::vertical(Val::Px(4.0)) },
             }
-            BackgroundColor({ Color::srgba(0.20, 0.22, 0.28, 0.0) })
         })
         .id();
 
-    let plus = commands
+    let button = commands
         .spawn_scene(bsn! {
-            Text({ "+".to_string() })
-            TextFont { font_size: { bevy::text::FontSize::Px(15.0) } }
-            TextColor({ if full {
-                Color::srgb(0.40, 0.43, 0.48)
-            } else {
-                Color::srgb(0.55, 0.72, 0.95)
-            } })
-            Node { width: { Val::Px(16.0) } }
+            @FeathersToolButton {
+                @caption: { bsn_list![label("+")] }
+            }
+            crate::panel::BlocksFrameInput
+            AddVisualization { source: { source } }
         })
         .id();
+    if full {
+        // The grid is full, so there is nowhere for another frame to go.
+        commands.entity(button).insert(InteractionDisabled);
+    }
+
     let details = summary(commands, data);
-    commands.entity(row).add_children(&[plus, details]);
+    commands.entity(row).add_children(&[button, details]);
     row
 }
 
@@ -493,31 +492,34 @@ fn action_button(
 
 /// Clone or close a frame from the menu.
 ///
-/// Reuses the same requests the frame's own corner buttons raise, so the two
+/// Feathers controls report a press by triggering [`Activate`] on themselves
+/// rather than by carrying an `Interaction`, so these are observers rather than
+/// systems polling for a changed interaction.
+///
+/// Both raise the same requests as a frame's own corner buttons, so the two
 /// routes cannot drift apart.
-pub fn apply_layout_actions(
+pub fn on_layout_button(
+    activate: On<Activate>,
+    buttons: Query<&LayoutButton>,
     mut requests: MessageWriter<crate::panel::PanelRequest>,
-    pressed: Query<(&Interaction, &LayoutButton), Changed<Interaction>>,
 ) {
-    for (interaction, button) in &pressed {
-        if *interaction != Interaction::Pressed {
-            continue;
-        }
-        requests.write(match button.action {
-            LayoutAction::Clone => crate::panel::PanelRequest::Duplicate(button.panel),
-            LayoutAction::Remove => crate::panel::PanelRequest::Close(button.panel),
-        });
-    }
+    let Ok(button) = buttons.get(activate.entity) else {
+        return;
+    };
+    requests.write(match button.action {
+        LayoutAction::Clone => crate::panel::PanelRequest::Duplicate(button.panel),
+        LayoutAction::Remove => crate::panel::PanelRequest::Close(button.panel),
+    });
 }
 
 /// Open a new frame onto a dataset.
-pub fn apply_add_visualization(
+pub fn on_add_visualization(
+    activate: On<Activate>,
+    rows: Query<&AddVisualization>,
     mut requests: MessageWriter<crate::panel::PanelRequest>,
-    pressed: Query<(&Interaction, &AddVisualization), Changed<Interaction>>,
 ) {
-    for (interaction, add) in &pressed {
-        if *interaction == Interaction::Pressed {
-            requests.write(crate::panel::PanelRequest::Open(add.source));
-        }
-    }
+    let Ok(add) = rows.get(activate.entity) else {
+        return;
+    };
+    requests.write(crate::panel::PanelRequest::Open(add.source));
 }

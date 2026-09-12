@@ -216,7 +216,7 @@ pub fn spawn_accordion_menu(commands: &mut Commands, header: Entity) -> Entity {
                 justify_content: { JustifyContent::Center },
                 align_items: { AlignItems::Center },
             }
-            Children [label("\u{22ee}")]
+            Children [label("...")]
         })
         .id();
 
@@ -387,6 +387,24 @@ mod tests {
     #[test]
     fn the_caret_shows_whether_a_section_is_open() {
         assert_ne!(caret(true), caret(false));
+    }
+
+    #[test]
+    fn hit_tests_scale_layout_pixels_down_to_cursor_pixels() {
+        // The layout reports physical pixels while the cursor is logical, so a
+        // menu on a scaled display would be hit-tested at the wrong place.
+        let rect = scaled_rect(Vec2::new(320.0, 200.0), Vec2::new(400.0, 300.0), 0.5);
+        assert_eq!(rect.min, Vec2::new(120.0, 100.0));
+        assert_eq!(rect.max, Vec2::new(280.0, 200.0));
+        assert!(rect.contains(Vec2::new(200.0, 150.0)));
+        assert!(!rect.contains(Vec2::new(400.0, 300.0)));
+    }
+
+    #[test]
+    fn an_unscaled_display_is_left_alone() {
+        let rect = scaled_rect(Vec2::new(100.0, 50.0), Vec2::new(200.0, 100.0), 1.0);
+        assert_eq!(rect.min, Vec2::new(150.0, 75.0));
+        assert_eq!(rect.max, Vec2::new(250.0, 125.0));
     }
 
     #[test]
