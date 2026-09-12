@@ -45,6 +45,15 @@ configuration**, which acts on the *selected* frame: the one outlined in blue,
 which follows whichever frame you last clicked or dragged in. It names the
 dataset and carries a transparency slider.
 
+Fading dims the colour rather than lowering alpha. Alpha compounds with
+overdraw — a dense point cloud stacks dozens of points on a single pixel, and
+`1 - (1 - a)^n` is already 99% by eight layers, so the sectioned data looked
+untouched until the slider was near zero. Dimming fades a layer uniformly
+however many times it overdraws, and against a dark background looks the same
+as a single transparent layer. The factor is applied in sRGB so halfway along
+the slider looks half as bright. The tradeoff is that it is a dim rather than a
+true see-through, which will matter once two sources share one frame.
+
 Transparency is stored per source, so two frames showing different datasets
 fade independently and selecting one loads its own value into the slider rather
 than carrying the previous one across. It is applied by render layer rather

@@ -146,6 +146,22 @@ pub fn sync_opacity_slider(
     }
 }
 
+/// The tint that fades geometry to `opacity`.
+///
+/// Fading dims the colour rather than lowering alpha, because alpha compounds
+/// with overdraw. A dense point cloud stacks dozens of points on a pixel, and
+/// `1 - (1 - a)^n` reaches 99% by eight layers, so an alpha of 0.5 left the
+/// sections looking untouched and nothing appeared to happen until roughly 0.1.
+/// Dimming fades a layer uniformly however many times it overdraws, and against
+/// a dark background looks the same as a single transparent layer would.
+///
+/// The factor is applied in sRGB so the slider reads perceptually: halfway
+/// along looks half as bright.
+fn fade_tint(opacity: f32) -> Color {
+    let f = opacity.clamp(0.0, 1.0);
+    Color::srgb(f, f, f)
+}
+
 /// Fade a source's geometry to its opacity.
 ///
 /// Works off the render layer rather than asking each format plugin to apply
@@ -158,10 +174,11 @@ pub fn apply_opacity(
 ) {
     for (source, opacity) in &sources {
         let layer = RenderLayers::layer(source.layer);
+        let tint = fade_tint(opacity.0);
 
         for (layers, mut sprite) in &mut sprites {
             if *layers == layer {
-                sprite.color = sprite.color.with_alpha(opacity.0);
+                sprite.color = tint;
             }
         }
         for (layers, material) in &meshes {
@@ -169,7 +186,7 @@ pub fn apply_opacity(
                 continue;
             }
             if let Some(material) = materials.get_mut(&material.0).as_mut() {
-                material.color = material.color.with_alpha(opacity.0);
+                material.color = tint;
             }
         }
     }
@@ -190,9 +207,11 @@ pub fn apply_opacity_to_new(
             continue;
         }
         let layer = RenderLayers::layer(source.layer);
+        let tint = fade_tint(opacity.0);
+
         for (layers, mut sprite) in &mut sprites {
             if *layers == layer {
-                sprite.color = sprite.color.with_alpha(opacity.0);
+                sprite.color = tint;
             }
         }
         for (layers, material) in &meshes {
@@ -200,8 +219,56 @@ pub fn apply_opacity_to_new(
                 continue;
             }
             if let Some(material) = materials.get_mut(&material.0).as_mut() {
-                material.color = material.color.with_alpha(opacity.0);
+                material.color = tint;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn brightness(colour: Color) -> f32 {
+        colour.to_srgba().red
+    }
+
+    #[test]
+    fn full_opacity_leaves_the_colour_untouched() {
+        // The tint multiplies the source colour, so white is a no-op.
+        assert_eq!(brightness(fade_tint(1.0)), 1.0);
+        assert_eq!(fade_tint(1.0).alpha(), 1.0);
+    }
+
+    #[test]
+    fn fading_dims_rather_than_going_transparent() {
+        // Alpha stays at one at every setting: transparency compounds with
+        // overdraw, which is the bug this replaced.
+        for opacity in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            assert_eq!(fade_tint(opacity).alpha(), 1.0);
+        }
+    }
+
+    #[test]
+    fn the_slider_reads_perceptually() {
+        // Halfway along the slider should look about half as bright, which is
+        // a factor of one half in sRGB rather than in linear light.
+        assert!((brightness(fade_tint(0.5)) - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn brightness_rises_with_opacity() {
+        let mut previous = -1.0;
+        for step in 0..=10 {
+            let value = brightness(fade_tint(step as f32 / 10.0));
+            assert!(value > previous, "step {step} did not brighten");
+            previous = value;
+        }
+    }
+
+    #[test]
+    fn out_of_range_values_clamp() {
+        assert_eq!(brightness(fade_tint(-1.0)), 0.0);
+        assert_eq!(brightness(fade_tint(4.0)), 1.0);
     }
 }
