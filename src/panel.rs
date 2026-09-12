@@ -15,6 +15,7 @@
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, Viewport};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+use bevy::picking::Pickable;
 use bevy::prelude::*;
 use bevy::ui::{Interaction, IsDefaultUiCamera};
 
@@ -336,6 +337,12 @@ pub fn spawn_ui_camera(commands: &mut Commands) {
 pub fn spawn_selection_border(commands: &mut Commands) {
     commands.spawn_scene(bsn! {
         SelectionBorder
+        // Decoration only. It covers the whole cell and draws above the
+        // frame's own chrome, and picking blocks by default — which swallowed
+        // every pointer event over the selected frame. `Interaction` passes
+        // through by default, so the buttons that use it went on working and
+        // only the picking-driven ones appeared dead.
+        template_value(Pickable::IGNORE)
         Node {
             position_type: { PositionType::Absolute },
             border: { UiRect::all(Val::Px(SELECTION_PX)) },
@@ -388,6 +395,9 @@ pub fn spawn_dividers(commands: &mut Commands) {
                 display: { Display::None },
             }
             BackgroundColor({ Color::srgb(0.25, 0.27, 0.32) })
+            // Decoration, like the selection outline: it must not swallow
+            // pointer events along a frame's edge.
+            template_value(Pickable::IGNORE)
             PanelDivider { axis: { axis }, ordinal: { ordinal } }
         });
     };

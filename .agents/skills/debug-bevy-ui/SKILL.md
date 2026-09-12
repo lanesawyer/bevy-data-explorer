@@ -51,6 +51,25 @@ window. With only viewport cameras present it picks one, and every UI position
 is then measured against that panel. Give the UI its own camera with no
 viewport and `IsDefaultUiCamera`.
 
+## A widget under a decorative overlay does nothing, not even hover
+
+Bevy has two independent hit tests, and an overlay can pass one while blocking
+the other:
+
+- `Interaction` is driven by `ui_focus_system` and respects `FocusPolicy`,
+  which **passes through** by default.
+- Picking — which is what `bevy_ui_widgets` and every Feathers control rely on
+  — respects `Pickable::should_block_lower`, which **blocks** by default.
+
+So a decorative node drawn over a widget leaves `Interaction` buttons working
+while picking-driven ones look completely dead, hover included. Add
+`Pickable::IGNORE` to anything that only draws: selection outlines, rules,
+scrims, highlights.
+
+Confirm it by checking the widget for `bevy_ui_widgets::Button`. If the
+component is there and the size is right, the scene expanded correctly and the
+fault is that nothing is reaching it.
+
 ## Input reaches the frame behind the chrome
 
 Two separate requirements:
