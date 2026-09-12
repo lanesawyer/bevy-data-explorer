@@ -19,9 +19,6 @@ use crate::panel::{BlocksFrameInput, FrameArea, PanelRequest, SelectedPanel, Sho
 
 const MIN_PX: f32 = 200.0;
 const MAX_FRACTION: f32 = 0.5;
-/// Dragging the edge past this closes the inspector rather than fighting the
-/// minimum width.
-const CLOSE_BELOW_PX: f32 = 140.0;
 const HANDLE_PX: f32 = 6.0;
 
 #[derive(Resource)]
@@ -50,15 +47,15 @@ impl Inspector {
         self.resizing
     }
 
-    /// Width a drag to `cursor_x` should produce, or `None` to close.
+    /// Width a drag to `cursor_x` should produce, measured from the right edge
+    /// since the inspector is docked there.
     ///
-    /// Measured from the right edge, since the inspector is docked there.
-    fn width_for_drag(cursor_x: f32, window_width: f32) -> Option<f32> {
+    /// Always a usable width. Dragging does not close the inspector: squeezing
+    /// it to nothing leaves a dock that is still open but invisible, with no
+    /// edge left to grab. Closing is the X button's job.
+    fn width_for_drag(cursor_x: f32, window_width: f32) -> f32 {
         let from_right = window_width - cursor_x;
-        if from_right < CLOSE_BELOW_PX {
-            return None;
-        }
-        Some(from_right.clamp(MIN_PX, (window_width * MAX_FRACTION).max(MIN_PX)))
+        from_right.clamp(MIN_PX, (window_width * MAX_FRACTION).max(MIN_PX))
     }
 }
 
@@ -80,6 +77,10 @@ pub struct InspectorClose;
 pub fn spawn_inspector(commands: &mut Commands) {
     commands.spawn_scene(bsn! {
         InspectorRoot
+        // Nothing in the body is a button, so without an interaction of its own
+        // the dock would not register as chrome.
+        Interaction
+        BlocksFrameInput
         Node {
             position_type: { PositionType::Absolute },
             top: { Val::Px(0.0) },
@@ -193,10 +194,7 @@ pub fn resize_inspector(
     let Some(cursor) = window.cursor_position() else {
         return;
     };
-    match Inspector::width_for_drag(cursor.x, window.width()) {
-        Some(width) => inspector.width = width,
-        None => inspector.open = false,
-    }
+    inspector.width = Inspector::width_for_drag(cursor.x, window.width());
 }
 
 /// Show a resize cursor over the drag handle, and for as long as a drag lasts.
@@ -307,26 +305,28 @@ mod tests {
     #[test]
     fn dragging_measures_from_the_right_edge() {
         // Docked right, so a cursor far from that edge means a wide panel.
-        assert_eq!(Inspector::width_for_drag(1200.0, 1600.0), Some(400.0));
-        assert_eq!(Inspector::width_for_drag(1400.0, 1600.0), Some(MIN_PX));
+        assert_eq!(Inspector::width_for_drag(1200.0, 1600.0), 400.0);
     }
 
     #[test]
-    fn dragging_past_the_minimum_closes_rather_than_sticking() {
-        // Otherwise the edge jams and the only way out is the close button.
-        assert_eq!(Inspector::width_for_drag(1590.0, 1600.0), None);
+    fn dragging_never_squeezes_the_inspector_away() {
+        // Collapsed to nothing it would still be open, with no edge left to
+        // grab and no way back. Closing belongs to the X button.
+        for cursor in [1400.0, 1590.0, 1600.0, 2000.0] {
+            assert_eq!(Inspector::width_for_drag(cursor, 1600.0), MIN_PX);
+        }
     }
 
     #[test]
     fn dragging_is_clamped_to_half_the_window() {
-        assert_eq!(Inspector::width_for_drag(100.0, 1600.0), Some(800.0));
+        assert_eq!(Inspector::width_for_drag(100.0, 1600.0), 800.0);
     }
 
     #[test]
     fn a_narrow_window_does_not_invert_the_clamp() {
         // Half a small window is under the minimum; the result must still be a
         // width the grid can survive.
-        assert_eq!(Inspector::width_for_drag(0.0, 300.0), Some(MIN_PX));
+        assert_eq!(Inspector::width_for_drag(0.0, 300.0), MIN_PX);
     }
 
     #[test]

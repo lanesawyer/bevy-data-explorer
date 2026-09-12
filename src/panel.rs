@@ -738,6 +738,17 @@ pub fn highlight_panel_buttons(
     }
 }
 
+/// Whether a pointer position, measured from the grid's origin, is over the
+/// grid at all.
+///
+/// Both edges matter. Testing only for negatives caught the sidebar, which
+/// docks to the left, but let a click in the right-hand inspector through: it
+/// lands past the grid's right edge, where the cell lookup clamps it to the
+/// last frame and drags that instead.
+fn within_frames(local: Vec2, size: Vec2) -> bool {
+    local.x >= 0.0 && local.y >= 0.0 && local.x < size.x && local.y < size.y
+}
+
 /// A drag in progress, and the panel it began in.
 #[derive(Clone, Copy)]
 pub struct Drag {
@@ -810,7 +821,7 @@ pub fn panel_controls(
     // Measured inside the grid, so chrome docked beside it neither receives
     // frame input nor shifts which frame the pointer is over.
     let local = cursor - area.origin;
-    if drag.is_none() && (local.x < 0.0 || local.y < 0.0) {
+    if drag.is_none() && !within_frames(local, area.size) {
         wheel.clear();
         return;
     }
@@ -1099,6 +1110,19 @@ mod tests {
             PanelAction::ALL.iter().map(|a| a.glyph()).collect();
         assert_eq!(slots.len(), PanelAction::ALL.len());
         assert_eq!(glyphs.len(), PanelAction::ALL.len());
+    }
+
+    #[test]
+    fn input_outside_the_grid_is_ignored_on_every_side() {
+        let size = Vec2::new(1000.0, 800.0);
+        assert!(within_frames(Vec2::new(500.0, 400.0), size));
+        assert!(within_frames(Vec2::ZERO, size));
+        // Left of the grid: the sidebar.
+        assert!(!within_frames(Vec2::new(-1.0, 400.0), size));
+        // Right of it: the inspector, which used to steal the last frame.
+        assert!(!within_frames(Vec2::new(1000.0, 400.0), size));
+        assert!(!within_frames(Vec2::new(1200.0, 400.0), size));
+        assert!(!within_frames(Vec2::new(500.0, 800.0), size));
     }
 
     #[test]
