@@ -24,8 +24,9 @@ use bevy_feathers::controls::{ButtonVariant, FeathersToolButton};
 use bevy_feathers::display::label;
 use bevy_ui_widgets::Activate;
 
-use crate::source::DataSource;
+use crate::app::schedule::{Boot, Stage};
 use crate::source::hover::HoverProbe;
+use crate::source::{DataSource, SourceExtent};
 
 /// Width of the rule drawn between panels, in logical pixels.
 const DIVIDER_PX: f32 = 2.0;
@@ -320,7 +321,7 @@ pub struct UiCamera;
 /// UI position ends up measured against a single panel — a divider at the
 /// halfway mark lands in the middle of that panel instead of between the
 /// panels. A camera with no viewport keeps the UI measured against the window.
-pub fn spawn_ui_camera(commands: &mut Commands) {
+fn spawn_ui_camera(mut commands: Commands) {
     commands.spawn_scene(bsn! {
         Camera2d
         Camera {
@@ -340,7 +341,7 @@ pub fn spawn_ui_camera(commands: &mut Commands) {
 /// Spawn the full set of rules the grid can ever need, and let
 /// [`update_viewports`] show only the ones the current layout uses.
 /// Spawn the outline that marks the selected frame.
-pub fn spawn_selection_border(commands: &mut Commands) {
+fn spawn_selection_border(mut commands: Commands) {
     commands.spawn_scene(bsn! {
         SelectionBorder
         // Decoration only. It covers the whole cell and draws above the
@@ -393,7 +394,7 @@ pub fn update_selection_border(
     }
 }
 
-pub fn spawn_dividers(commands: &mut Commands) {
+fn spawn_dividers(mut commands: Commands) {
     let mut rule = |axis: Axis, ordinal: usize| {
         commands.spawn_scene(bsn! {
             Node {
@@ -1011,6 +1012,76 @@ pub fn panel_controls(
 
     if let Some(state) = drag.as_mut() {
         state.last = cursor;
+    }
+}
+
+/// The frame grid: the cameras, their chrome, and the pointer input that drives
+/// them.
+pub struct ViewPlugin;
+
+impl Plugin for ViewPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(overlay::OverlayPlugin)
+            .add_message::<PanelRequest>()
+            .init_resource::<FrameArea>()
+            .init_resource::<SelectedPanel>()
+            .add_observer(panel_buttons)
+            .add_systems(Update, reset_frame_area.in_set(Stage::FrameArea))
+            .add_systems(
+                Update,
+                (apply_panel_requests, normalize_panels)
+                    .chain()
+                    .in_set(Stage::Frames),
+            )
+            .add_systems(Update, sync_panel_buttons.in_set(Stage::FrameChrome))
+            .add_systems(
+                Update,
+                (panel_controls, update_viewports)
+                    .chain()
+                    .in_set(Stage::Viewports),
+            )
+            .add_systems(Update, update_selection_border.in_set(Stage::ControlsPlace))
+            .add_systems(Update, probe_hover.in_set(Stage::HoverProbe))
+            .add_systems(
+                Startup,
+                (spawn_ui_camera, spawn_dividers, spawn_selection_border).in_set(Boot::Shell),
+            )
+            .add_systems(Startup, open_frames.in_set(Boot::Frames));
+    }
+}
+
+/// Open one frame per registered source, in registration order.
+///
+/// Sources are discovered from the world rather than listed here, so adding a
+/// format plugin is enough to get it a frame.
+fn open_frames(
+    mut commands: Commands,
+    windows: Query<&Window>,
+    sources: Query<(Entity, &DataSource, &SourceExtent)>,
+) {
+    let window = windows
+        .iter()
+        .next()
+        .map(|w| Vec2::new(w.width(), w.height()))
+        .unwrap_or(Vec2::new(1280.0, 720.0));
+
+    let mut sources: Vec<(Entity, &DataSource, &SourceExtent)> = sources.iter().collect();
+    // Layers are handed out in registration order, which is the order the
+    // plugins were added.
+    sources.sort_by_key(|(_, source, _)| source.layer);
+
+    let (columns, rows) = grid_for(sources.len());
+    let viewport = Vec2::new(window.x / columns as f32, window.y / rows as f32);
+
+    for (index, (entity, source, extent)) in sources.into_iter().enumerate() {
+        spawn_panel(
+            &mut commands,
+            entity,
+            source.layer,
+            index,
+            extent.limits(viewport),
+            None,
+        );
     }
 }
 

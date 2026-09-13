@@ -16,6 +16,7 @@ use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::display::label;
 use bevy_ui_widgets::Activate;
 
+use crate::app::schedule::{Boot, Stage};
 use crate::view::{BlocksFrameInput, FrameArea};
 
 /// Width when collapsed. Enough for the short title and the toggle beneath it.
@@ -113,7 +114,38 @@ pub struct SidebarVersion;
 #[derive(Component, Clone, Default)]
 pub struct SidebarContent;
 
-pub fn spawn_sidebar(commands: &mut Commands) {
+/// Where a section sits in the sidebar, ascending.
+///
+/// Sections are spawned by whichever plugin owns them, so without this their
+/// order is the order those plugins happened to be registered in — which put
+/// "View configuration" below "Cell properties" the moment each section became
+/// its own plugin. Stating the position means adding a section cannot silently
+/// reshuffle the ones already there.
+#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SectionOrder(pub u32);
+
+/// Put the sections in their stated order, once they have all been spawned.
+fn order_sections(
+    mut commands: Commands,
+    content: Query<(Entity, &Children), With<SidebarContent>>,
+    order: Query<&SectionOrder>,
+) {
+    let Ok((parent, children)) = content.single() else {
+        return;
+    };
+    let mut sections: Vec<Entity> = children.iter().collect();
+    // A section that states no position keeps its spawn order, after those
+    // that do.
+    sections.sort_by_key(|entity| {
+        order
+            .get(*entity)
+            .copied()
+            .unwrap_or(SectionOrder(u32::MAX))
+    });
+    commands.entity(parent).replace_children(&sections);
+}
+
+fn spawn_sidebar(mut commands: Commands) {
     commands.spawn_scene(bsn! {
         SidebarRoot
         Node {
@@ -329,6 +361,26 @@ pub fn update_sidebar(
                 }
             }
         }
+    }
+}
+
+/// The dock on the left, and the space it claims from the grid.
+pub struct SidebarPlugin;
+
+impl Plugin for SidebarPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Sidebar>()
+            .add_observer(toggle_sidebar)
+            .add_systems(
+                Update,
+                (resize_sidebar, sidebar_cursor)
+                    .chain()
+                    .in_set(Stage::DockInput),
+            )
+            .add_systems(Update, reserve_space.in_set(Stage::DockReserve))
+            .add_systems(Update, update_sidebar.in_set(Stage::Chrome))
+            .add_systems(Startup, spawn_sidebar.in_set(Boot::Shell))
+            .add_systems(Startup, order_sections.in_set(Boot::DockOrder));
     }
 }
 

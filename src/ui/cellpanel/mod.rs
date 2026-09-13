@@ -17,11 +17,12 @@ use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, ValueChange};
 
+use crate::app::schedule::{Boot, Stage};
 use crate::source::DataSource;
 use crate::source::properties::{
     CellProperties, CellProperty, NumericRange, PropertyKind, PropertyState, RangeEnd,
 };
-use crate::ui::sidebar::SidebarContent;
+use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::ui::widgets::{Accordion, spawn_accordion, spawn_header_button, spawn_menu};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
 
@@ -64,6 +65,9 @@ pub struct ValueCheckbox {
     pub value: usize,
 }
 
+/// Below the view configuration, which applies to every source.
+const SECTION_ORDER: u32 = 20;
+
 pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
     let Ok(parent) = content.single() else { return };
 
@@ -71,6 +75,7 @@ pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<Side
     commands
         .entity(accordion.section)
         .insert(CellPanel)
+        .insert(SectionOrder(SECTION_ORDER))
         .insert(Node {
             flex_direction: FlexDirection::Column,
             width: Val::Percent(100.0),
@@ -840,5 +845,37 @@ pub fn update_property_controls(
                 text.0 = wanted.to_string();
             }
         }
+    }
+}
+/// The sidebar section that filters and colours a point cloud by its cell
+/// properties.
+pub struct CellPanelPlugin;
+
+impl Plugin for CellPanelPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<OpenSections>()
+            .add_observer(on_colour_by)
+            .add_observer(on_value_toggled)
+            .add_observer(on_clear_property)
+            .add_observer(on_clear_all)
+            .add_systems(
+                Update,
+                (record_open_sections, drag_range_handles)
+                    .chain()
+                    .in_set(Stage::ControlsRead),
+            )
+            .add_systems(Update, rebuild_cell_panel.in_set(Stage::ControlsBuild))
+            .add_systems(
+                Update,
+                (
+                    update_property_controls,
+                    update_range_controls,
+                    update_clear_buttons,
+                )
+                    .chain()
+                    .in_set(Stage::ControlsPlace),
+            )
+            .add_systems(Update, apply_selection.in_set(Stage::ControlsApply))
+            .add_systems(Startup, spawn_cell_panel.in_set(Boot::DockContent));
     }
 }

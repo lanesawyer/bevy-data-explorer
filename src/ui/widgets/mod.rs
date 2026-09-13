@@ -15,6 +15,7 @@ use bevy_ui_widgets::Activate;
 use bevy_ui_widgets::ScrollArea;
 use bevy_ui_widgets::SliderPrecision;
 
+use crate::app::schedule::Stage;
 use crate::view::BlocksFrameInput;
 
 pub const ACCORDION_INDENT: f32 = 8.0;
@@ -510,6 +511,31 @@ pub fn spawn_slider(
 pub fn caption(commands: &mut Commands, text: impl Into<String>) -> Entity {
     let text = text.into();
     commands.spawn_scene(bsn! { label_dim(text) }).id()
+}
+
+/// The generic controls the docks are built from: accordions, menus, sliders.
+pub struct WidgetsPlugin;
+
+impl Plugin for WidgetsPlugin {
+    fn build(&self, app: &mut App) {
+        app
+            // Feathers' slider reports a value change but leaves writing it
+            // back to the app; this observer is what closes that loop.
+            .add_observer(bevy_ui_widgets::slider_self_update)
+            .add_observer(on_menu_button)
+            .add_observer(toggle_accordions)
+            .add_systems(
+                Update,
+                (
+                    update_accordions,
+                    truncate_accordion_titles,
+                    dismiss_menus,
+                    position_menus,
+                )
+                    .chain()
+                    .in_set(Stage::ControlsPlace),
+            );
+    }
 }
 
 #[cfg(test)]

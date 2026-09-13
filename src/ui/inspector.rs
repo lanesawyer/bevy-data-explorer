@@ -16,6 +16,7 @@ use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::Activate;
 
+use crate::app::schedule::{Boot, Stage};
 use crate::source::{DataSource, SourceStatus};
 use crate::view::{BlocksFrameInput, FrameArea, PanelRequest, SelectedPanel, ShowsSource};
 
@@ -76,7 +77,7 @@ pub struct InspectorBody;
 #[derive(Component, Clone, Default)]
 pub struct InspectorClose;
 
-pub fn spawn_inspector(commands: &mut Commands) {
+fn spawn_inspector(mut commands: Commands) {
     commands.spawn_scene(bsn! {
         InspectorRoot
         BlocksFrameInput
@@ -281,6 +282,25 @@ pub fn update_inspector(
         {
             text.0 = body.clone();
         }
+    }
+}
+
+/// The dock on the right, and the space it claims from the grid.
+pub struct InspectorPlugin;
+
+impl Plugin for InspectorPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Inspector>()
+            .add_observer(close_inspector)
+            .add_systems(
+                Update,
+                (open_on_request, resize_inspector, inspector_cursor)
+                    .chain()
+                    .in_set(Stage::DockInput),
+            )
+            .add_systems(Update, reserve_space.in_set(Stage::DockReserve))
+            .add_systems(Update, update_inspector.in_set(Stage::Chrome))
+            .add_systems(Startup, spawn_inspector.in_set(Boot::Shell));
     }
 }
 

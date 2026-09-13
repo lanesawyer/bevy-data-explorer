@@ -14,12 +14,13 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::Activate;
 use bevy_ui_widgets::SliderValue;
 
+use crate::app::schedule::{Boot, Stage};
 use crate::render::points::{
     DEFAULT_POINT_PX, HIGHLIGHT_NONE, MAX_POINT_PX, MIN_POINT_PX, PointMaterial, SourceHighlight,
     SourcePointSize,
 };
 use crate::source::DataSource;
-use crate::ui::sidebar::SidebarContent;
+use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::ui::widgets::{caption, spawn_accordion, spawn_menu, spawn_slider};
 use crate::view::{SelectedPanel, ShowsSource};
 
@@ -53,10 +54,17 @@ pub struct PointSizeSlider;
 #[derive(Component, Clone, Default)]
 pub struct PointSizeRow;
 
+/// Above the per-dataset sections: it acts on the selected frame whatever
+/// that frame is showing.
+const SECTION_ORDER: u32 = 10;
+
 pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
     let Ok(parent) = content.single() else { return };
 
     let accordion = spawn_accordion(&mut commands, "View configuration", true);
+    commands
+        .entity(accordion.section)
+        .insert(SectionOrder(SECTION_ORDER));
     commands.entity(parent).add_child(accordion.section);
     let menu = spawn_menu(&mut commands, accordion.header);
     commands.entity(menu).insert(LayoutMenu);
@@ -243,6 +251,35 @@ pub fn apply_opacity_to_new(
                 material.color = tint;
             }
         }
+    }
+}
+
+/// The sidebar section that acts on the selected frame.
+pub struct ViewConfigPlugin;
+
+impl Plugin for ViewConfigPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_observer(on_layout_button)
+            .add_observer(on_add_visualization)
+            .add_systems(Update, rebuild_layout_menu.in_set(Stage::ControlsBuild))
+            .add_systems(
+                Update,
+                (sync_opacity_slider, sync_point_size)
+                    .chain()
+                    .in_set(Stage::ControlsPlace),
+            )
+            .add_systems(
+                Update,
+                (
+                    apply_opacity,
+                    apply_opacity_to_new,
+                    apply_point_settings,
+                    apply_point_settings_to_new,
+                )
+                    .chain()
+                    .in_set(Stage::ControlsApply),
+            )
+            .add_systems(Startup, spawn_view_config.in_set(Boot::DockContent));
     }
 }
 

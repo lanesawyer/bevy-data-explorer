@@ -18,6 +18,7 @@ use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::Activate;
 
+use crate::app::schedule::Stage;
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::{DataSource, SourceStatus};
 use crate::ui::widgets::spawn_menu;
@@ -453,5 +454,27 @@ pub fn rebuild_source_menus(
             })
             .collect();
         commands.entity(menu_entity).add_children(&rows);
+    }
+}
+/// The overlay drawn over each frame: its title, status lines and tooltip.
+pub struct OverlayPlugin;
+
+impl Plugin for OverlayPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_observer(on_info_pressed)
+            .add_observer(on_source_chosen)
+            .add_systems(Update, sync_hud.in_set(Stage::FrameChrome))
+            .add_systems(
+                Update,
+                (position_hud, rebuild_source_menus)
+                    .chain()
+                    .in_set(Stage::Chrome),
+            )
+            .add_systems(
+                Update,
+                (update_hud, position_tooltips, update_tooltips)
+                    .chain()
+                    .in_set(Stage::Overlay),
+            );
     }
 }

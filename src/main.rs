@@ -20,9 +20,6 @@ use bevy::prelude::*;
 use bevy::window::PresentMode;
 use clap::Parser;
 
-use app::schedule::Stage;
-use source::{DataSource, SourceExtent};
-
 /// Scatterbrain metadata for the reference point cloud.
 const DEFAULT_POINTS: &str = "https://d2o7sc91n904vd.cloudfront.net/wmb_tenx_01172024_stage-20240128193624/G4I4GFJXJB9ATZ3PTX1/ScatterBrain.json";
 
@@ -214,107 +211,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 task_pool_options: task_pool_options(),
             }),
     )
-    // Feathers styles the widgets; its slider reports value changes but leaves
-    // writing them back to the app.
     .add_plugins(render::points::PointRenderPlugin)
     .add_plugins(bevy_feathers::FeathersPlugins)
     .insert_resource(bevy_feathers::theme::UiTheme(app_theme()))
-    .add_observer(bevy_ui_widgets::slider_self_update)
-    .add_observer(ui::viewconfig::on_layout_button)
-    .add_observer(ui::viewconfig::on_add_visualization)
-    .add_observer(ui::cellpanel::on_colour_by)
-    .add_observer(ui::cellpanel::on_value_toggled)
-    .add_observer(ui::cellpanel::on_clear_property)
-    .add_observer(ui::cellpanel::on_clear_all)
-    .add_observer(view::panel_buttons)
-    .add_observer(ui::widgets::on_menu_button)
-    .add_observer(ui::widgets::toggle_accordions)
-    .add_observer(ui::sidebar::toggle_sidebar)
-    .add_observer(ui::inspector::close_inspector)
-    .add_observer(view::overlay::on_info_pressed)
-    .add_observer(view::overlay::on_source_chosen)
-    .add_message::<view::PanelRequest>()
-    .init_resource::<view::FrameArea>()
-    .init_resource::<view::SelectedPanel>()
-    .init_resource::<ui::sidebar::Sidebar>()
-    .init_resource::<ui::inspector::Inspector>()
-    .init_resource::<ui::cellpanel::OpenSections>()
-    .add_systems(
-        Update,
-        (
-            ui::sidebar::resize_sidebar,
-            ui::sidebar::sidebar_cursor,
-            ui::inspector::open_on_request,
-            ui::inspector::resize_inspector,
-            ui::inspector::inspector_cursor,
-            view::reset_frame_area,
-            ui::sidebar::reserve_space,
-            ui::inspector::reserve_space,
-        )
-            .chain()
-            .in_set(Stage::Docks),
-    )
-    .add_systems(
-        Update,
-        (
-            view::apply_panel_requests,
-            view::normalize_panels,
-            view::sync_panel_buttons,
-            view::overlay::sync_hud,
-            view::panel_controls,
-            view::update_viewports,
-        )
-            .chain()
-            .in_set(Stage::Layout),
-    )
-    .add_systems(
-        Update,
-        (
-            view::overlay::position_hud,
-            view::overlay::rebuild_source_menus,
-            ui::sidebar::update_sidebar,
-            ui::inspector::update_inspector,
-        )
-            .chain()
-            .in_set(Stage::Chrome),
-    )
-    .add_systems(
-        Update,
-        (
-            view::update_selection_border,
-            ui::widgets::update_accordions,
-            ui::widgets::truncate_accordion_titles,
-            ui::viewconfig::rebuild_layout_menu,
-            ui::widgets::dismiss_menus,
-            ui::widgets::position_menus,
-            ui::viewconfig::sync_opacity_slider,
-            ui::viewconfig::sync_point_size,
-            ui::cellpanel::record_open_sections,
-            ui::cellpanel::drag_range_handles,
-            ui::cellpanel::rebuild_cell_panel,
-            ui::cellpanel::update_property_controls,
-            ui::cellpanel::update_range_controls,
-            ui::cellpanel::update_clear_buttons,
-            ui::cellpanel::apply_selection,
-            ui::viewconfig::apply_opacity,
-            ui::viewconfig::apply_opacity_to_new,
-            ui::viewconfig::apply_point_settings,
-            ui::viewconfig::apply_point_settings_to_new,
-        )
-            .chain()
-            .in_set(Stage::Controls),
-    )
-    .add_systems(Update, view::probe_hover.in_set(Stage::HoverProbe))
-    .add_systems(
-        Update,
-        (
-            view::overlay::update_hud,
-            view::overlay::position_tooltips,
-            view::overlay::update_tooltips,
-        )
-            .chain()
-            .in_set(Stage::Overlay),
-    );
+    .add_plugins(view::ViewPlugin)
+    .add_plugins(ui::UiPlugin)
+    .add_systems(Startup, maximize_window.in_set(app::schedule::Boot::Window));
 
     // Each format is a plugin. Registration order decides which cell a source's
     // frame opens in, and nothing else here knows what the formats are.
@@ -344,17 +246,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    app.add_systems(
-        Startup,
-        (
-            maximize_window,
-            open_frames,
-            ui::viewconfig::spawn_view_config,
-            ui::cellpanel::spawn_cell_panel,
-        )
-            .chain(),
-    );
-
     app.run();
     Ok(())
 }
@@ -368,45 +259,4 @@ fn maximize_window(mut windows: Query<&mut Window, With<bevy::window::PrimaryWin
     for mut window in &mut windows {
         window.set_maximized(true);
     }
-}
-
-/// Open one frame per registered source, in registration order.
-///
-/// Sources are discovered from the world rather than listed here, so adding a
-/// format plugin is enough to get it a frame.
-fn open_frames(
-    mut commands: Commands,
-    windows: Query<&Window>,
-    sources: Query<(Entity, &DataSource, &SourceExtent)>,
-) {
-    let window = windows
-        .iter()
-        .next()
-        .map(|w| Vec2::new(w.width(), w.height()))
-        .unwrap_or(Vec2::new(1280.0, 720.0));
-
-    let mut sources: Vec<(Entity, &DataSource, &SourceExtent)> = sources.iter().collect();
-    // Layers are handed out in registration order, which is the order the
-    // plugins were added.
-    sources.sort_by_key(|(_, source, _)| source.layer);
-
-    let (columns, rows) = view::grid_for(sources.len());
-    let viewport = Vec2::new(window.x / columns as f32, window.y / rows as f32);
-
-    for (index, (entity, source, extent)) in sources.into_iter().enumerate() {
-        view::spawn_panel(
-            &mut commands,
-            entity,
-            source.layer,
-            index,
-            extent.limits(viewport),
-            None,
-        );
-    }
-
-    view::spawn_ui_camera(&mut commands);
-    view::spawn_dividers(&mut commands);
-    ui::sidebar::spawn_sidebar(&mut commands);
-    ui::inspector::spawn_inspector(&mut commands);
-    view::spawn_selection_border(&mut commands);
 }
