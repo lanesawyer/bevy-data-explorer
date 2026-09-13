@@ -5,6 +5,9 @@
 //! colours points by that property, and the checkboxes inside filter points
 //! down to the values still ticked.
 //!
+//! Which properties are listed is chosen from the section's own menu, in
+//! `visibility`; a dataset offers more of them than are worth reading at once.
+//!
 //! The section is rebuilt whenever the selected source's properties change, so
 //! a lookup that fills them in later — over HTTP, from whatever service knows
 //! the labels — needs no cooperation from this module.
@@ -17,6 +20,7 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, ValueChange};
 
 pub mod range;
+pub mod visibility;
 
 use crate::app::schedule::{Boot, Stage};
 use crate::source::DataSource;
@@ -484,17 +488,24 @@ impl Plugin for CellPanelPlugin {
             .add_observer(on_value_toggled)
             .add_observer(on_clear_property)
             .add_observer(on_clear_all)
+            .add_observer(visibility::on_show_toggled)
             .add_systems(
                 Update,
                 (record_open_sections, range::drag_range_handles)
                     .chain()
                     .in_set(Stage::ControlsRead),
             )
-            .add_systems(Update, rebuild_cell_panel.in_set(Stage::ControlsBuild))
+            .add_systems(
+                Update,
+                (rebuild_cell_panel, visibility::rebuild_visibility_menu)
+                    .chain()
+                    .in_set(Stage::ControlsBuild),
+            )
             .add_systems(
                 Update,
                 (
                     update_property_controls,
+                    visibility::update_property_visibility,
                     range::update_range_controls,
                     update_clear_buttons,
                 )

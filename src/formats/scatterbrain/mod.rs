@@ -473,14 +473,13 @@ pub fn placeholder_properties(
     numeric: &[&PointAttribute],
 ) -> CellProperties {
     const SAMPLE_VALUES: usize = 6;
-    const SHOWN: usize = 4;
 
     let mut properties: Vec<CellProperty> = categorical
         .iter()
-        .take(SHOWN)
         .map(|column| CellProperty {
             id: column.name.clone(),
             name: column.description.clone(),
+            shown: true,
             kind: PropertyKind::Categorical(
                 (0..SAMPLE_VALUES)
                     .map(|code| PropertyValue {
@@ -493,9 +492,10 @@ pub fn placeholder_properties(
         })
         .collect();
 
-    properties.extend(numeric.iter().take(SHOWN).map(|column| CellProperty {
+    properties.extend(numeric.iter().map(|column| CellProperty {
         id: column.name.clone(),
         name: column.description.clone(),
+        shown: true,
         kind: PropertyKind::Numeric(NumericRange::full(0.0, 1.0, placeholder_histogram())),
     }));
 

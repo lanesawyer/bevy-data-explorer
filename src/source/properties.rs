@@ -107,6 +107,13 @@ pub struct CellProperty {
     /// Column identifier, used to fetch the per-point values.
     pub id: String,
     pub name: String,
+    /// Whether the panel lists this property.
+    ///
+    /// A dataset can advertise more properties than the sidebar can usefully
+    /// hold, so the section's menu picks which of them appear. Hiding one drops
+    /// its filters: a property that went on filtering with no control on screen
+    /// would remove points with nothing left to explain why.
+    pub shown: bool,
     pub kind: PropertyKind,
 }
 
@@ -234,7 +241,7 @@ pub struct CellProperties {
 
 impl CellProperties {
     pub fn ready(properties: Vec<CellProperty>) -> Self {
-        let colour_by = (!properties.is_empty()).then_some(0);
+        let colour_by = properties.iter().position(|property| property.shown);
         CellProperties {
             properties,
             colour_by,
@@ -278,6 +285,26 @@ impl CellProperties {
 
     pub fn clear_all(&mut self) {
         for property in &mut self.properties {
+            property.clear();
+        }
+    }
+
+    /// List or hide one property in the panel.
+    ///
+    /// Hiding drops that property's filters, so nothing goes on excluding points
+    /// with no control on screen to say why. The property points are coloured by
+    /// cannot be hidden at all: it is what the colours on screen mean, and
+    /// hiding it would take away the only control that says which property they
+    /// came from.
+    pub fn set_shown(&mut self, index: usize, shown: bool) {
+        if !shown && self.colour_by == Some(index) {
+            return;
+        }
+        let Some(property) = self.properties.get_mut(index) else {
+            return;
+        };
+        property.shown = shown;
+        if !shown {
             property.clear();
         }
     }
@@ -327,6 +354,7 @@ mod tests {
         CellProperty {
             id: id.into(),
             name: id.into(),
+            shown: true,
             kind: PropertyKind::Categorical(
                 codes
                     .iter()
@@ -344,6 +372,7 @@ mod tests {
         CellProperty {
             id: id.into(),
             name: id.into(),
+            shown: true,
             kind: PropertyKind::Numeric(NumericRange::full(0.0, 1.0, vec![1, 2, 3, 4])),
         }
     }
@@ -512,6 +541,83 @@ mod tests {
         );
         assert_eq!(properties.applied(), 0);
         assert!(properties.selection().filters.is_empty());
+    }
+
+    #[test]
+    fn hiding_a_property_drops_its_filters() {
+        // A hidden property with a filter still on it would remove points with
+        // no control on screen to say why.
+        let mut properties = CellProperties::ready(vec![
+            categorical("class", &[0, 1]),
+            categorical("region", &[7, 8]),
+        ]);
+        pick(&mut properties.properties[1], 0);
+        assert_eq!(properties.applied(), 1);
+
+        properties.set_shown(1, false);
+        assert_eq!(properties.applied(), 0);
+        assert!(properties.selection().filters.is_empty());
+    }
+
+    #[test]
+    fn the_coloured_property_cannot_be_hidden() {
+        // The colours on screen mean whatever this property says they mean, so
+        // it stays listed until something else is coloured by.
+        let mut properties = CellProperties::ready(vec![
+            categorical("class", &[0, 1]),
+            categorical("region", &[7, 8]),
+        ]);
+        assert_eq!(properties.colour_by, Some(0));
+
+        properties.set_shown(0, false);
+        assert!(properties.properties[0].shown);
+        assert_eq!(properties.selection().colour_by.as_deref(), Some("class"));
+
+        // Colouring by something else releases it.
+        properties.colour_by = Some(1);
+        properties.set_shown(0, false);
+        assert!(!properties.properties[0].shown);
+    }
+
+    #[test]
+    fn hiding_every_other_property_leaves_the_coloured_one_listed() {
+        let mut properties = CellProperties::ready(vec![
+            categorical("class", &[0, 1]),
+            categorical("region", &[7, 8]),
+        ]);
+        for index in 0..properties.properties.len() {
+            properties.set_shown(index, false);
+        }
+        let listed: Vec<&str> = properties
+            .properties
+            .iter()
+            .filter(|property| property.shown)
+            .map(|property| property.id.as_str())
+            .collect();
+        assert_eq!(listed, ["class"]);
+    }
+
+    #[test]
+    fn listing_a_property_again_leaves_the_rest_of_the_panel_alone() {
+        // The menu edits the ticks and nothing else: showing one back does not
+        // take colouring from the property that has it.
+        let mut properties = CellProperties::ready(vec![
+            categorical("class", &[0, 1]),
+            categorical("region", &[7, 8]),
+        ]);
+        properties.set_shown(1, false);
+        properties.set_shown(1, true);
+        assert!(properties.properties[1].shown);
+        assert_eq!(properties.colour_by, Some(0));
+        assert_eq!(properties.applied(), 0);
+    }
+
+    #[test]
+    fn colouring_starts_on_the_first_listed_property() {
+        let mut hidden = categorical("class", &[0, 1]);
+        hidden.shown = false;
+        let properties = CellProperties::ready(vec![hidden, categorical("region", &[7, 8])]);
+        assert_eq!(properties.selection().colour_by.as_deref(), Some("region"));
     }
 
     #[test]

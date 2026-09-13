@@ -631,6 +631,7 @@ mod tests {
         let properties = CellProperties::ready(vec![CellProperty {
             id: "class".into(),
             name: "Class".into(),
+            shown: true,
             kind: PropertyKind::Categorical(vec![PropertyValue {
                 code: 2,
                 label: "L2/3 IT".into(),
