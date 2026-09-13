@@ -10,6 +10,7 @@ mod cellpanel;
 mod cellproperties;
 mod dataset;
 mod datasource;
+mod hover;
 mod hud;
 mod inspector;
 mod panel;
@@ -314,7 +315,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     // The overlay reads whatever each source reported this frame, so it runs
     // after every source plugin has had its turn.
-    .add_systems(Update, hud::update_hud.after(panel::update_viewports));
+    .add_systems(Update, hud::update_hud.after(panel::update_viewports))
+    // Hovering: the grid says where the pointer is, each source plugin says
+    // what is there, and the frame's tooltip shows the answer. The three are
+    // ordered around a set so a plugin only declares membership.
+    .add_systems(
+        Update,
+        panel::probe_hover
+            .after(panel::update_viewports)
+            .before(hover::HoverProbing),
+    )
+    .add_systems(
+        Update,
+        (hud::position_tooltips, hud::update_tooltips)
+            .chain()
+            .after(hover::HoverProbing)
+            .after(hud::sync_hud),
+    );
 
     // Each format is a plugin. Registration order decides which cell a source's
     // frame opens in, and nothing else here knows what the formats are.

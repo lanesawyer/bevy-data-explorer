@@ -20,14 +20,33 @@ use bevy::render::render_resource::{
 use bevy::shader::ShaderRef;
 use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dKey, Material2dPlugin};
 
-/// Unit offset of a vertex from its point's centre, expanded by the shader.
+/// Which corner of its point's quad a vertex is, and the value the point is
+/// coloured by, packed into one word.
 ///
-/// Normalised shorts rather than floats: the only values are the corners of a
-/// unit square, and a point cloud pays for this four times over. Bytes would do
-/// as well, but a vertex stride has to be a multiple of four and two bytes here
-/// leaves it at eighteen.
+/// The corner needs two bits and the category sixteen, and a vertex stride has
+/// to be a multiple of four, so the two ride together for nothing. Keeping them
+/// apart would have cost four more bytes a vertex — sixteen a point, a fifth of
+/// what a point costs — and vertex memory is what the point budgets are spent
+/// against.
+///
+/// Bit 0..=15 is the category code, bit 16 is a positive x corner and bit 17 a
+/// positive y corner.
 pub const ATTRIBUTE_CORNER: MeshVertexAttribute =
-    MeshVertexAttribute::new("Vertex_Corner", 0x9c0d_7e11, VertexFormat::Snorm16x2);
+    MeshVertexAttribute::new("Vertex_Corner", 0x9c0d_7e11, VertexFormat::Uint32);
+
+/// Packed into a vertex when the points are not coloured by anything, so no
+/// category can match the highlight.
+const NO_CATEGORY: u16 = u16::MAX;
+
+/// The highlight uniform when nothing is hovered. Above `u16::MAX`, so it can
+/// never equal a vertex's category however the data is labelled.
+pub const HIGHLIGHT_NONE: u32 = u32::MAX;
+
+/// How much larger a highlighted point is drawn than its neighbours.
+///
+/// Big enough to pick the group out at a glance in a dense cloud, small enough
+/// that it does not swamp what is around it.
+pub const HIGHLIGHT_SCALE: f32 = 2.6;
 
 /// Point colour, as bytes rather than floats for the same reason. The shader
 /// still receives it normalised to a `vec4<f32>`.
@@ -53,6 +72,12 @@ pub struct PointMaterial {
 #[derive(Clone, Copy, ShaderType)]
 pub struct PointSettings {
     pub size: f32,
+    /// The category drawn large, or [`HIGHLIGHT_NONE`]. A uniform rather than a
+    /// mesh rebuild, so hovering a dense cloud costs nothing but a 32-byte
+    /// upload per node.
+    pub highlight: u32,
+    pub highlight_scale: f32,
+    /// Multiplies every point's colour, carrying the transparency setting.
     pub tint: Vec4,
 }
 
@@ -61,6 +86,8 @@ impl Default for PointMaterial {
         PointMaterial {
             settings: PointSettings {
                 size: DEFAULT_POINT_PX,
+                highlight: HIGHLIGHT_NONE,
+                highlight_scale: HIGHLIGHT_SCALE,
                 tint: Vec4::ONE,
             },
         }
@@ -109,6 +136,19 @@ impl Default for SourcePointSize {
     }
 }
 
+/// The category currently drawn large, across every frame showing this source.
+///
+/// Set from what the pointer is over, so hovering one cell picks out every
+/// other cell sharing its value of whatever the points are coloured by.
+#[derive(Component, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SourceHighlight(pub Option<u16>);
+
+impl SourceHighlight {
+    pub fn uniform(&self) -> u32 {
+        self.0.map_or(HIGHLIGHT_NONE, u32::from)
+    }
+}
+
 pub struct PointRenderPlugin;
 
 impl Plugin for PointRenderPlugin {
@@ -118,14 +158,24 @@ impl Plugin for PointRenderPlugin {
     }
 }
 
-/// The four corners of a point's quad, and the two triangles covering it.
-/// Full-scale signed shorts, which the shader reads back as -1 and 1.
-const EDGE: i16 = i16::MAX;
-const CORNERS: [[i16; 2]; 4] = [[-EDGE, -EDGE], [EDGE, -EDGE], [EDGE, EDGE], [-EDGE, EDGE]];
+/// The corner bits of a point's quad, and the two triangles covering it. The
+/// shader reads each bit back as -1 or 1.
+const CORNERS: [u32; 4] = [0b00, 0b01, 0b11, 0b10];
+/// Where the corner bits sit above the category.
+const CORNER_SHIFT: u32 = 16;
 const TRIANGLES: [u32; 6] = [0, 1, 2, 0, 2, 3];
 
+/// Pack a vertex's corner and its point's category into one word.
+fn pack_corner(corner: u32, category: u16) -> u32 {
+    (corner << CORNER_SHIFT) | u32::from(category)
+}
+
 /// Build a mesh of quads, one per point.
-pub fn build_point_mesh(positions: &[Vec2], colours: &[[f32; 4]]) -> Mesh {
+///
+/// `categories` carries the value each point is coloured by, so that hovering
+/// one can enlarge the rest sharing it. Empty when the points are not coloured
+/// by anything, in which case nothing can be highlighted.
+pub fn build_point_mesh(positions: &[Vec2], colours: &[[f32; 4]], categories: &[u16]) -> Mesh {
     let count = positions.len().min(colours.len());
     let mut vertices = Vec::with_capacity(count * 4);
     let mut colour_data = Vec::with_capacity(count * 4);
@@ -136,10 +186,11 @@ pub fn build_point_mesh(positions: &[Vec2], colours: &[[f32; 4]]) -> Mesh {
         // World y is negated for display, matching every other source.
         let centre = [point.x, -point.y, 0.0];
         let packed = colour.map(|channel| (channel.clamp(0.0, 1.0) * 255.0) as u8);
+        let category = categories.get(index).copied().unwrap_or(NO_CATEGORY);
         for corner in CORNERS {
             vertices.push(centre);
             colour_data.push(packed);
-            corners.push(corner);
+            corners.push(pack_corner(corner, category));
         }
         let base = (index * 4) as u32;
         indices.extend(TRIANGLES.map(|offset| base + offset));
@@ -154,7 +205,7 @@ pub fn build_point_mesh(positions: &[Vec2], colours: &[[f32; 4]]) -> Mesh {
         ATTRIBUTE_POINT_COLOR,
         VertexAttributeValues::Unorm8x4(colour_data),
     );
-    mesh.insert_attribute(ATTRIBUTE_CORNER, VertexAttributeValues::Snorm16x2(corners));
+    mesh.insert_attribute(ATTRIBUTE_CORNER, VertexAttributeValues::Uint32(corners));
     mesh.insert_indices(Indices::U32(indices));
     mesh
 }
@@ -174,21 +225,64 @@ mod tests {
 
     #[test]
     fn every_point_becomes_a_quad() {
-        let mesh = build_point_mesh(&[Vec2::ZERO, Vec2::new(1.0, 2.0)], &[[1.0; 4]; 2]);
+        let mesh = build_point_mesh(&[Vec2::ZERO, Vec2::new(1.0, 2.0)], &[[1.0; 4]; 2], &[]);
         assert_eq!(mesh.count_vertices(), 8);
         assert_eq!(mesh.indices().unwrap().len(), 12);
     }
 
     #[test]
     fn the_corners_cover_a_unit_square() {
-        // The shader reads these normalised and the fragment stage cuts a disc
-        // from them, so they have to reach full scale in each axis.
-        let xs: Vec<i16> = CORNERS.iter().map(|c| c[0]).collect();
-        let ys: Vec<i16> = CORNERS.iter().map(|c| c[1]).collect();
-        assert_eq!(*xs.iter().min().unwrap(), -EDGE);
-        assert_eq!(*xs.iter().max().unwrap(), EDGE);
-        assert_eq!(*ys.iter().min().unwrap(), -EDGE);
-        assert_eq!(*ys.iter().max().unwrap(), EDGE);
+        // The shader reads each bit back as -1 or 1 and the fragment stage cuts
+        // a disc from them, so all four sign combinations have to appear.
+        let signs: std::collections::HashSet<(bool, bool)> = CORNERS
+            .iter()
+            .map(|corner| (corner & 1 != 0, corner & 2 != 0))
+            .collect();
+        assert_eq!(signs.len(), 4);
+    }
+
+    #[test]
+    fn a_vertex_carries_its_corner_without_disturbing_its_category() {
+        // The two share a word to keep a point at eighty bytes, so neither may
+        // bleed into the other.
+        for corner in CORNERS {
+            let packed = pack_corner(corner, 1234);
+            assert_eq!(packed & 0xFFFF, 1234);
+            assert_eq!(packed >> CORNER_SHIFT, corner);
+        }
+        // The widest category a column can hold must still round-trip.
+        assert_eq!(pack_corner(0b11, u16::MAX) & 0xFFFF, u32::from(u16::MAX));
+    }
+
+    #[test]
+    fn uncoloured_points_cannot_match_a_highlight() {
+        // Without a colour-by column every point would otherwise pack category
+        // zero and the whole cloud would swell together.
+        let mesh = build_point_mesh(&[Vec2::ZERO], &[[1.0; 4]], &[]);
+        let Some(VertexAttributeValues::Uint32(packed)) = mesh.attribute(ATTRIBUTE_CORNER) else {
+            panic!("expected packed corners");
+        };
+        assert_eq!(packed[0] & 0xFFFF, u32::from(NO_CATEGORY));
+        assert_ne!(HIGHLIGHT_NONE, u32::from(NO_CATEGORY));
+    }
+
+    #[test]
+    fn a_hovered_category_reaches_the_shader_as_itself() {
+        assert_eq!(SourceHighlight(Some(7)).uniform(), 7);
+        // Above every code a u16 column can hold, so nothing matches by accident.
+        assert!(SourceHighlight(None).uniform() > u32::from(u16::MAX));
+    }
+
+    #[test]
+    fn a_points_category_reaches_every_one_of_its_vertices() {
+        // All four have to agree, or one corner of the quad would expand and
+        // the others would not.
+        let mesh = build_point_mesh(&[Vec2::ZERO], &[[1.0; 4]], &[42]);
+        let Some(VertexAttributeValues::Uint32(packed)) = mesh.attribute(ATTRIBUTE_CORNER) else {
+            panic!("expected packed corners");
+        };
+        assert_eq!(packed.len(), 4);
+        assert!(packed.iter().all(|word| word & 0xFFFF == 42));
     }
 
     #[test]
@@ -200,7 +294,7 @@ mod tests {
     #[test]
     fn points_are_placed_with_y_running_downward() {
         // Display space negates y, as the image and section views do.
-        let mesh = build_point_mesh(&[Vec2::new(3.0, 5.0)], &[[1.0; 4]]);
+        let mesh = build_point_mesh(&[Vec2::new(3.0, 5.0)], &[[1.0; 4]], &[]);
         let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
             mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
@@ -222,11 +316,17 @@ mod tests {
     }
 
     #[test]
+    fn a_highlighted_point_is_clearly_larger_but_not_overwhelming() {
+        assert!(HIGHLIGHT_SCALE > 1.5);
+        assert!(DEFAULT_POINT_PX * HIGHLIGHT_SCALE <= MAX_POINT_PX);
+    }
+
+    #[test]
     fn packing_the_attributes_cut_what_a_point_costs() {
         // Floats for colour and corner cost 144 bytes a point, which put the
         // budget needed to show every slice at once out of reach.
-        // A vertex stride must be a multiple of four, which is what decides
-        // the corner's width rather than the two bytes its values need.
+        // A vertex stride must be a multiple of four, which is what left room
+        // to carry the category alongside the corner for nothing.
         assert_eq!(BYTES_PER_POINT, 80);
         assert_eq!(BYTES_PER_POINT % 4, 0);
         // Floats throughout cost 144 bytes a point, which put a budget large
@@ -240,7 +340,7 @@ mod tests {
         // Sizing points means giving each one geometry, which is four times the
         // vertices a point list needed. Worth keeping in view against the point
         // budgets the streamers enforce.
-        let mesh = build_point_mesh(&[Vec2::ZERO; 100], &[[1.0; 4]; 100]);
+        let mesh = build_point_mesh(&[Vec2::ZERO; 100], &[[1.0; 4]; 100], &[]);
         assert_eq!(mesh.count_vertices(), 400);
     }
 }

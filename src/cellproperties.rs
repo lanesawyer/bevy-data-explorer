@@ -253,6 +253,29 @@ impl CellProperties {
         self.properties.iter().map(CellProperty::applied).sum()
     }
 
+    /// How to name a code of the column points are currently coloured by: the
+    /// property's name, and the label for that value.
+    ///
+    /// Datasets store codes and the names behind them come from a service that
+    /// is not wired up yet, so a code with no label names itself rather than
+    /// showing nothing.
+    pub fn colour_label(&self, code: u16) -> (String, String) {
+        let Some(property) = self.colour_by.and_then(|index| self.properties.get(index)) else {
+            return ("value".into(), code.to_string());
+        };
+        let label = match &property.kind {
+            PropertyKind::Categorical(values) => values
+                .iter()
+                .find(|value| value.code == code)
+                .map(|value| value.label.clone()),
+            PropertyKind::Numeric(_) => None,
+        };
+        (
+            property.name.clone(),
+            label.unwrap_or_else(|| format!("code {code}")),
+        )
+    }
+
     pub fn clear_all(&mut self) {
         for property in &mut self.properties {
             property.clear();

@@ -25,6 +25,7 @@ use zarrs_codec::ArrayPartialDecoderTraits;
 
 use crate::dataset::{Channel, Dataset, TilePixels, read_tile};
 use crate::datasource::{self, SourceExtent, SourceStatus};
+use crate::hover::{HoverInfo, HoverProbe};
 use crate::panel::ShowsSource;
 
 /// Threads reserved for fetching and decoding tiles.
@@ -742,25 +743,90 @@ impl Plugin for ImagePlugin {
             },
         );
 
+        // Written from registration so the hover system can go through a query
+        // rather than through commands.
+        app.world_mut()
+            .entity_mut(source)
+            .insert(HoverInfo::default());
+
         let mut streamer = TileStreamer::new(self.dataset.clone(), source);
         streamer.z_slice = self.z_slice;
         streamer.budget_bytes = self.budget_bytes;
 
-        app.insert_resource(streamer).add_systems(
-            Update,
-            (
-                select_tiles,
-                spawn_tile_tasks,
-                collect_tile_tasks,
-                evict_tiles,
-                update_tile_visibility,
-                toggle_channels,
-                report_status,
+        app.insert_resource(streamer)
+            .add_systems(
+                Update,
+                (
+                    select_tiles,
+                    spawn_tile_tasks,
+                    collect_tile_tasks,
+                    evict_tiles,
+                    update_tile_visibility,
+                    toggle_channels,
+                    report_status,
+                )
+                    .chain()
+                    .after(crate::panel::update_viewports),
             )
-                .chain()
-                .after(crate::panel::update_viewports),
-        );
+            .add_systems(Update, resolve_hover.in_set(crate::hover::HoverProbing));
     }
+}
+
+/// Report where in the image the pointer is.
+///
+/// An image has no cells to name, so what it identifies is the place itself:
+/// the full-resolution pixel under the pointer, and the tile that covers it at
+/// the level this frame is drawing.
+fn resolve_hover(
+    streamer: Res<TileStreamer>,
+    probes: Query<&HoverProbe>,
+    mut infos: Query<&mut HoverInfo>,
+) {
+    let Ok(mut info) = infos.get_mut(streamer.source) else {
+        return;
+    };
+    let next = probes
+        .get(streamer.source)
+        .ok()
+        .and_then(|probe| describe(&streamer, probe))
+        .unwrap_or_default();
+    if *info != next {
+        *info = next;
+    }
+}
+
+fn describe(streamer: &TileStreamer, probe: &HoverProbe) -> Option<HoverInfo> {
+    let dataset = streamer.dataset();
+    let full = dataset.levels.first()?;
+    // World y is negated for display; levels are laid out in image order.
+    let (x, y) = pixel_in(full, probe.world)?;
+
+    let index = dataset.level_for(probe.units_per_px);
+    let level = dataset.levels.get(index)?;
+    let (lx, ly) = pixel_in(level, probe.world)?;
+
+    Some(
+        HoverInfo::titled(format!("px {x}, {y}"))
+            .row("level", format!("{index} of {}", dataset.levels.len() - 1))
+            .row(
+                "tile",
+                format!("{}, {}", lx / level.tile_px, ly / level.tile_px),
+            ),
+    )
+}
+
+/// A display-space point as pixel coordinates in a level, or `None` when it
+/// falls outside the image.
+fn pixel_in(level: &crate::dataset::Level, world: Vec2) -> Option<(u64, u64)> {
+    if level.scale_x <= 0.0 || level.scale_y <= 0.0 {
+        return None;
+    }
+    let x = (world.x as f64 - level.origin_x) / level.scale_x;
+    let y = (-world.y as f64 - level.origin_y) / level.scale_y;
+    if x < 0.0 || y < 0.0 || x >= level.width as f64 || y >= level.height as f64 {
+        return None;
+    }
+    Some((x as u64, y as u64))
 }
 
 /// Number keys toggle channels. Tiles bake the composite into RGBA, so the

@@ -19,6 +19,7 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::Activate;
 
 use crate::datasource::{DataSource, SourceStatus};
+use crate::hover::{HoverInfo, HoverProbe};
 use crate::panel::{BlocksFrameInput, Panel, PanelRequest, ShowsSource};
 use crate::widgets::spawn_menu;
 
@@ -84,6 +85,24 @@ impl Default for SourceChoice {
     }
 }
 
+/// What the pointer is over, in a frame's bottom corner.
+///
+/// Kept away from the header so that reading the tooltip never means reading
+/// over the dataset's name, and one entity rather than a box around a label
+/// because a `Text` is already a node and can carry its own background.
+#[derive(Component, Clone)]
+pub struct PanelTooltip {
+    panel: Entity,
+}
+
+impl Default for PanelTooltip {
+    fn default() -> Self {
+        PanelTooltip {
+            panel: Entity::PLACEHOLDER,
+        }
+    }
+}
+
 /// A status overlay bound to one panel. Bound by entity rather than by source
 /// so that duplicated panels each get their own and report their own zoom.
 #[derive(Component, Clone)]
@@ -106,11 +125,18 @@ pub fn sync_hud(
     mut commands: Commands,
     panels: Query<Entity, With<Panel>>,
     headers: Query<(Entity, &PanelHeader)>,
+    tooltips: Query<(Entity, &PanelTooltip)>,
 ) {
     // The box owns the header row and the status, so despawning it takes the
-    // whole overlay with it.
+    // whole overlay with it. The tooltip sits in the opposite corner and is its
+    // own root, so it is cleaned up alongside.
     for (entity, header) in &headers {
         if panels.get(header.panel).is_err() {
+            commands.entity(entity).despawn();
+        }
+    }
+    for (entity, tooltip) in &tooltips {
+        if panels.get(tooltip.panel).is_err() {
             commands.entity(entity).despawn();
         }
     }
@@ -120,7 +146,29 @@ pub fn sync_hud(
             continue;
         }
         spawn_overlay(&mut commands, panel);
+        spawn_tooltip(&mut commands, panel);
     }
+}
+
+/// Build one frame's tooltip, hidden until its source finds something.
+fn spawn_tooltip(commands: &mut Commands, panel: Entity) {
+    commands.spawn_scene(bsn! {
+        PanelTooltip { panel: { panel } }
+        Text
+        TextFont { font_size: { bevy::text::FontSize::Px(12.0) } }
+        TextColor({ Color::srgb(0.86, 0.90, 0.96) })
+        Node {
+            position_type: { PositionType::Absolute },
+            display: { Display::None },
+            padding: { UiRect::axes(Val::Px(8.0), Val::Px(6.0)) },
+            border_radius: { BorderRadius::all(Val::Px(5.0)) },
+        }
+        BackgroundColor({ Color::srgba(0.04, 0.05, 0.07, 0.82) })
+        // Deliberately not `BlocksFrameInput`: a tooltip that swallowed the
+        // pointer would suppress the very probe that produced it, and the
+        // tooltip would flicker on and off as it appeared under the cursor.
+        template_value(bevy::picking::Pickable::IGNORE)
+    });
 }
 
 /// Build one frame's overlay: a header row over the status it reports.
@@ -204,6 +252,66 @@ pub fn position_hud(
         node.top = Val::Px(area.origin.y + cell.y * row as f32 + 8.0);
         // Clear of the frame's own buttons in the opposite corner.
         node.max_width = Val::Px((cell.x - 90.0).max(120.0));
+    }
+}
+
+/// Place each tooltip in the bottom corner of its frame's cell.
+///
+/// Anchored from the bottom so it grows upward as a source reports more, rather
+/// than sliding off the frame.
+pub fn position_tooltips(
+    windows: Query<&Window>,
+    area: Res<crate::panel::FrameArea>,
+    panels: Query<&Panel>,
+    mut tooltips: Query<(&PanelTooltip, &mut Node)>,
+) {
+    let Ok(window) = windows.single() else { return };
+    let (columns, rows) = crate::panel::grid_for(panels.iter().count());
+    let cell = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32);
+
+    for (tooltip, mut node) in &mut tooltips {
+        let Ok(panel) = panels.get(tooltip.panel) else {
+            continue;
+        };
+        let (col, row) = (panel.index % columns, panel.index / columns);
+        let floor = area.origin.y + cell.y * (row + 1) as f32;
+        node.left = Val::Px(area.origin.x + cell.x * col as f32 + 10.0);
+        // `bottom` is measured from the bottom of the window, not of the cell.
+        node.bottom = Val::Px(window.height() - floor + 10.0);
+        node.max_width = Val::Px((cell.x - 20.0).max(120.0));
+    }
+}
+
+/// Show what the frame's source found under the pointer.
+///
+/// Driven by the probe rather than by the answer alone, so a source that has
+/// not cleared a stale `HoverInfo` still shows nothing once the pointer has
+/// moved to another frame.
+pub fn update_tooltips(
+    panels: Query<&ShowsSource>,
+    sources: Query<(&HoverInfo, &HoverProbe)>,
+    mut tooltips: Query<(&PanelTooltip, &mut Text, &mut Node)>,
+) {
+    for (tooltip, mut text, mut node) in &mut tooltips {
+        let lines = panels
+            .get(tooltip.panel)
+            .ok()
+            .and_then(|shows| sources.get(shows.0).ok())
+            .filter(|(info, probe)| probe.panel == tooltip.panel && !info.is_empty())
+            .map(|(info, _)| info.lines());
+
+        let display = if lines.is_some() {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != display {
+            node.display = display;
+        }
+        let lines = lines.unwrap_or_default();
+        if text.0 != lines {
+            text.0 = lines;
+        }
     }
 }
 

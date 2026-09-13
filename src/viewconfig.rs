@@ -17,7 +17,8 @@ use bevy_ui_widgets::SliderValue;
 use crate::datasource::DataSource;
 use crate::panel::{SelectedPanel, ShowsSource};
 use crate::points_render::{
-    DEFAULT_POINT_PX, MAX_POINT_PX, MIN_POINT_PX, PointMaterial, SourcePointSize,
+    DEFAULT_POINT_PX, HIGHLIGHT_NONE, MAX_POINT_PX, MIN_POINT_PX, PointMaterial, SourceHighlight,
+    SourcePointSize,
 };
 use crate::sidebar::SidebarContent;
 use crate::widgets::{caption, spawn_accordion, spawn_menu, spawn_slider};
@@ -602,18 +603,32 @@ pub fn sync_point_size(
     *shown = Some(source);
 }
 
-/// Push a source's point size and fade into the materials drawing it.
+/// Push a source's point size, fade and highlight into the materials drawing it.
+#[expect(
+    clippy::type_complexity,
+    reason = "one query over four source settings"
+)]
 pub fn apply_point_settings(
     sources: Query<
-        (&DataSource, &SourcePointSize, Option<&SourceOpacity>),
-        Or<(Changed<SourcePointSize>, Changed<SourceOpacity>)>,
+        (
+            &DataSource,
+            &SourcePointSize,
+            Option<&SourceOpacity>,
+            Option<&SourceHighlight>,
+        ),
+        Or<(
+            Changed<SourcePointSize>,
+            Changed<SourceOpacity>,
+            Changed<SourceHighlight>,
+        )>,
     >,
     meshes: Query<(&RenderLayers, &MeshMaterial2d<PointMaterial>)>,
     mut materials: ResMut<Assets<PointMaterial>>,
 ) {
-    for (source, size, opacity) in &sources {
+    for (source, size, opacity, highlight) in &sources {
         let layer = RenderLayers::layer(source.layer);
         let tint = fade_tint(opacity.map_or(1.0, |o| o.0)).to_linear();
+        let highlight = highlight.map_or(HIGHLIGHT_NONE, SourceHighlight::uniform);
 
         for (layers, material) in &meshes {
             if *layers != layer {
@@ -621,6 +636,7 @@ pub fn apply_point_settings(
             }
             if let Some(material) = materials.get_mut(&material.0).as_mut() {
                 material.settings.size = size.0;
+                material.settings.highlight = highlight;
                 material.settings.tint = Vec4::new(tint.red, tint.green, tint.blue, tint.alpha);
             }
         }
@@ -628,14 +644,24 @@ pub fn apply_point_settings(
 }
 
 /// Apply the settings to point geometry that arrives after they were last set.
+#[expect(
+    clippy::type_complexity,
+    reason = "one query over four source settings"
+)]
 pub fn apply_point_settings_to_new(
-    sources: Query<(&DataSource, &SourcePointSize, Option<&SourceOpacity>)>,
+    sources: Query<(
+        &DataSource,
+        &SourcePointSize,
+        Option<&SourceOpacity>,
+        Option<&SourceHighlight>,
+    )>,
     meshes: Query<(&RenderLayers, &MeshMaterial2d<PointMaterial>), Added<Mesh2d>>,
     mut materials: ResMut<Assets<PointMaterial>>,
 ) {
-    for (source, size, opacity) in &sources {
+    for (source, size, opacity, highlight) in &sources {
         let layer = RenderLayers::layer(source.layer);
         let tint = fade_tint(opacity.map_or(1.0, |o| o.0)).to_linear();
+        let highlight = highlight.map_or(HIGHLIGHT_NONE, SourceHighlight::uniform);
 
         for (layers, material) in &meshes {
             if *layers != layer {
@@ -643,6 +669,7 @@ pub fn apply_point_settings_to_new(
             }
             if let Some(material) = materials.get_mut(&material.0).as_mut() {
                 material.settings.size = size.0;
+                material.settings.highlight = highlight;
                 material.settings.tint = Vec4::new(tint.red, tint.green, tint.blue, tint.alpha);
             }
         }

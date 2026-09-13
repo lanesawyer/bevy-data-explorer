@@ -16,11 +16,12 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
-use crate::cellproperties::CellSelection;
-use crate::datasource::{self, SourceExtent, SourceStatus};
+use crate::cellproperties::{CellProperties, CellSelection};
+use crate::datasource::{self, DataSource, SourceExtent, SourceStatus};
+use crate::hover::{HoverInfo, HoverProbe};
 use crate::panel::{ShowsSource, ViewLimits};
-use crate::pointcloud::{NodeOutcome, build_mesh, load_node};
-use crate::points_render::PointMaterial;
+use crate::pointcloud::{NodeOutcome, NodePoints, PICK_PX, build_mesh, load_node, pick_reach};
+use crate::points_render::{PointMaterial, SourceHighlight};
 use crate::scatterbrain::{Rect, Scatterbrain};
 
 /// Descend into a slide's octree while its region covers at least this many
@@ -60,8 +61,21 @@ pub struct SliceNodeTag(pub SliceNode);
 
 enum Slot {
     Loading(Task<NodeOutcome>),
-    Ready { entity: Entity, points: usize },
+    Ready {
+        entity: Entity,
+        points: usize,
+        resident: NodePoints,
+    },
     Failed,
+}
+
+/// A point found under the pointer, and the slice it belongs to.
+pub struct SliceHit {
+    pub key: SliceNode,
+    /// Its offset within that node's column files.
+    pub index: usize,
+    pub position: Vec2,
+    pub category: Option<u16>,
 }
 
 #[derive(Resource)]
@@ -196,6 +210,53 @@ impl SliceStreamer {
             SliceMode::Grid => centred + self.layout.grid[slide],
             SliceMode::Single => centred,
         }
+    }
+
+    /// The resident point nearest the probe, within a few pixels of it.
+    ///
+    /// Slices share one coordinate system and are pulled apart by a per-slide
+    /// offset held in each node's transform, so the pointer is moved into a
+    /// slide's own coordinates rather than the points being moved out of them —
+    /// the same trick node selection uses, and what keeps node bounds usable as
+    /// they are.
+    pub fn pick(&self, probe: &HoverProbe) -> Option<SliceHit> {
+        let radius = probe.radius(PICK_PX);
+        let limit = radius * radius;
+
+        let mut best: Option<(f32, SliceHit)> = None;
+        for (key, slot) in &self.slots {
+            let Slot::Ready { resident, .. } = slot else {
+                continue;
+            };
+            if !self.visible(key.slide) {
+                continue;
+            }
+            let offset = self.offset(key.slide);
+            let local = probe.world - offset;
+            // World y is negated for display; node bounds are in slide space.
+            let target = Vec2::new(local.x, -local.y);
+
+            let node = &self.cloud.slides[key.slide].nodes[key.node];
+            if !node.bounds.intersects(&pick_reach(target, radius)) {
+                continue;
+            }
+            let Some((distance, index, position, category)) = resident.nearest(target, limit)
+            else {
+                continue;
+            };
+            if best.as_ref().is_none_or(|(nearest, _)| distance < *nearest) {
+                best = Some((
+                    distance,
+                    SliceHit {
+                        key: *key,
+                        index,
+                        position,
+                        category,
+                    },
+                ));
+            }
+        }
+        best.map(|(_, hit)| hit)
     }
 
     /// Whether a slide is drawn in the current mode.
@@ -432,6 +493,10 @@ pub fn collect_slice_tasks(
                 Slot::Ready {
                     entity,
                     points: count,
+                    resident: NodePoints {
+                        positions,
+                        categories,
+                    },
                 }
             }
             NodeOutcome::Failed(e) => {
@@ -566,6 +631,93 @@ mod tests {
     /// not need a live world to build one.
     fn streamer() -> SliceStreamer {
         SliceStreamer::new(sectioned(), Entity::PLACEHOLDER)
+    }
+
+    /// Make one node of `slide` resident, holding a single point.
+    fn resident(streamer: &mut SliceStreamer, slide: usize, point: [f32; 2], category: u16) {
+        streamer.slots.insert(
+            SliceNode { slide, node: 0 },
+            Slot::Ready {
+                entity: Entity::PLACEHOLDER,
+                points: 1,
+                resident: NodePoints {
+                    positions: vec![point],
+                    categories: vec![category],
+                },
+            },
+        );
+    }
+
+    fn probe_at(world: Vec2) -> HoverProbe {
+        HoverProbe {
+            panel: Entity::PLACEHOLDER,
+            world,
+            units_per_px: 1.0,
+        }
+    }
+
+    /// Where a point of `slide` is actually drawn: the mesh negates y and the
+    /// node's transform carries the layout offset.
+    fn drawn_at(streamer: &SliceStreamer, slide: usize, point: [f32; 2]) -> Vec2 {
+        Vec2::new(point[0], -point[1]) + streamer.offset(slide)
+    }
+
+    #[test]
+    fn hovering_a_laid_out_slice_picks_the_point_drawn_there() {
+        // Picking has to undo exactly what the layout did, and a sign slipped
+        // in either transform shows up only as a tooltip that never appears.
+        let mut streamer = streamer();
+        let slide = 3;
+        let point = streamer.cloud.slides[slide].tight_bounds.centre();
+        let point = [point.0, point.1];
+        resident(&mut streamer, slide, point, 5);
+
+        let hit = streamer
+            .pick(&probe_at(drawn_at(&streamer, slide, point)))
+            .expect("the pointer is on the point");
+        assert_eq!(hit.key.slide, slide);
+        assert_eq!(hit.category, Some(5));
+    }
+
+    #[test]
+    fn a_slices_own_cell_is_where_it_is_picked_from() {
+        // Slides share one coordinate system, so using raw coordinates would
+        // pick from whichever slide happened to be at the origin.
+        let mut streamer = streamer();
+        let point = streamer.cloud.slides[4].tight_bounds.centre();
+        let point = [point.0, point.1];
+        resident(&mut streamer, 4, point, 0);
+
+        assert!(
+            streamer
+                .pick(&probe_at(drawn_at(&streamer, 4, point)))
+                .is_some()
+        );
+        // The same data coordinates, but in a different slide's cell.
+        assert!(
+            streamer
+                .pick(&probe_at(drawn_at(&streamer, 0, point)))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_hidden_slice_cannot_be_hovered() {
+        // Single-slice mode leaves every other slide resident but not drawn,
+        // and what is not drawn must not answer the pointer.
+        let mut streamer = streamer();
+        let point = streamer.cloud.slides[2].tight_bounds.centre();
+        let point = [point.0, point.1];
+        resident(&mut streamer, 2, point, 0);
+
+        let world = drawn_at(&streamer, 2, point);
+        assert!(streamer.pick(&probe_at(world)).is_some());
+
+        streamer.mode = SliceMode::Single;
+        streamer.current = 0;
+        // Re-measured, since single-slice mode drops the grid offsets.
+        let world = drawn_at(&streamer, 2, point);
+        assert!(streamer.pick(&probe_at(world)).is_none());
     }
 
     #[test]
@@ -720,6 +872,10 @@ impl Plugin for SlicesPlugin {
 
         app.world_mut().entity_mut(source).insert((
             crate::points_render::SourcePointSize::default(),
+            // Both start empty, and are carried from registration so the hover
+            // systems can write through a query rather than through commands.
+            SourceHighlight::default(),
+            HoverInfo::default(),
             // Placeholder until a lookup service supplies the real value
             // labels; the column names and ids are the dataset's own.
             crate::cellproperties::placeholder_properties(
@@ -731,23 +887,99 @@ impl Plugin for SlicesPlugin {
         let mut streamer = SliceStreamer::new(self.cloud.clone(), source);
         streamer.budget = self.budget;
 
-        app.insert_resource(streamer).add_systems(
-            Update,
-            (
-                slice_controls,
-                select_slice_nodes,
-                spawn_slice_tasks,
-                collect_slice_tasks,
-                evict_slice_nodes,
-                apply_slice_layout,
-                refit_slice_camera,
-                publish_extent,
-                report_status,
+        app.insert_resource(streamer)
+            .add_systems(
+                Update,
+                (
+                    slice_controls,
+                    select_slice_nodes,
+                    spawn_slice_tasks,
+                    collect_slice_tasks,
+                    evict_slice_nodes,
+                    apply_slice_layout,
+                    refit_slice_camera,
+                    publish_extent,
+                    report_status,
+                )
+                    .chain()
+                    .after(crate::panel::update_viewports),
             )
-                .chain()
-                .after(crate::panel::update_viewports),
-        );
+            // Resolving the pointer reads the nodes that are resident now, and
+            // which slide is where, so it runs after the layout has settled.
+            .add_systems(
+                Update,
+                resolve_hover
+                    .in_set(crate::hover::HoverProbing)
+                    .after(apply_slice_layout),
+            );
     }
+}
+
+/// Answer the pointer: which cell is under it, and which cells share its value.
+pub fn resolve_hover(
+    streamer: Res<SliceStreamer>,
+    probes: Query<&HoverProbe>,
+    sources: Query<(&DataSource, &CellProperties)>,
+    mut answers: Query<(&mut HoverInfo, &mut SourceHighlight)>,
+) {
+    let Ok((mut info, mut highlight)) = answers.get_mut(streamer.source) else {
+        return;
+    };
+    let Ok((source, properties)) = sources.get(streamer.source) else {
+        return;
+    };
+
+    let hit = probes
+        .get(streamer.source)
+        .ok()
+        .and_then(|probe| streamer.pick(probe));
+
+    let category = hit.as_ref().and_then(|hit| hit.category);
+    if highlight.0 != category {
+        highlight.0 = category;
+    }
+
+    // Both are left alone when unchanged: the highlight drives a uniform upload
+    // per resident node, and the tooltip a text layout.
+    let next = hit
+        .map(|hit| describe(&hit, &streamer, source, properties))
+        .unwrap_or_default();
+    if *info != next {
+        *info = next;
+    }
+}
+
+/// Name a hit. A sectioned dataset addresses a point by slice as well as by
+/// node, since every slide shares one reference id.
+fn describe(
+    hit: &SliceHit,
+    streamer: &SliceStreamer,
+    source: &DataSource,
+    properties: &CellProperties,
+) -> HoverInfo {
+    let node = &streamer.cloud.slides[hit.key.slide].nodes[hit.key.node];
+    let mut info = HoverInfo::titled(format!("{}#{}", node.name, hit.index));
+
+    info = info.row(
+        "slice",
+        format!(
+            "{} of {}",
+            streamer.cloud.slides[hit.key.slide].index,
+            streamer.cloud.slides.len()
+        ),
+    );
+    if let Some(code) = hit.category {
+        let (property, label) = properties.colour_label(code);
+        info = info.row(property, label);
+    }
+
+    info.row(
+        "at",
+        format!(
+            "{:.1}, {:.1} {}",
+            hit.position.x, hit.position.y, source.unit
+        ),
+    )
 }
 
 fn report_status(streamer: Res<SliceStreamer>, mut sources: Query<&mut SourceStatus>) {

@@ -23,6 +23,7 @@ use bevy_feathers::display::label;
 use bevy_ui_widgets::Activate;
 
 use crate::datasource::DataSource;
+use crate::hover::HoverProbe;
 
 /// Width of the rule drawn between panels, in logical pixels.
 const DIVIDER_PX: f32 = 2.0;
@@ -785,6 +786,108 @@ fn panel_under_cursor(cursor: Vec2, window: Vec2, count: usize) -> usize {
     (row * columns + col).min(count.saturating_sub(1))
 }
 
+/// Whether the pointer is over chrome that takes input before a frame sees it.
+///
+/// Read from the picking hover state rather than from `Interaction`, because
+/// the Feathers controls carry no `Interaction` for a hit test to find.
+fn pointer_over_chrome(
+    hover: &bevy::picking::hover::HoverMap,
+    chrome: &Query<(), With<BlocksFrameInput>>,
+    parents: &Query<&ChildOf>,
+) -> bool {
+    hover.values().flat_map(|hits| hits.keys()).any(|hovered| {
+        chrome.get(*hovered).is_ok()
+            || parents
+                .iter_ancestors(*hovered)
+                .any(|ancestor| chrome.get(ancestor).is_ok())
+    })
+}
+
+/// Tell the source under the pointer where the pointer is.
+///
+/// The grid knows the cursor and which frame it falls in; only a format plugin
+/// knows what is there. This writes the one onto the source entity so the
+/// plugin can answer with the other. At most one source carries a probe, so a
+/// plugin resolving hover need not work out whether the pointer is really its
+/// own frame's.
+pub fn probe_hover(
+    mut commands: Commands,
+    windows: Query<&Window>,
+    area: Res<FrameArea>,
+    panels: Query<(&Camera, &GlobalTransform, &Projection, &Panel, &ShowsSource)>,
+    panel_entities: Query<(Entity, &Panel)>,
+    hover: Res<bevy::picking::hover::HoverMap>,
+    chrome: Query<(), With<BlocksFrameInput>>,
+    parents: Query<&ChildOf>,
+    probed: Query<Entity, With<HoverProbe>>,
+) {
+    let target = probe_target(
+        &windows,
+        &area,
+        &panels,
+        &panel_entities,
+        &hover,
+        &chrome,
+        &parents,
+    );
+
+    for entity in &probed {
+        if target.map(|(source, _)| source) != Some(entity) {
+            commands.entity(entity).remove::<HoverProbe>();
+        }
+    }
+    if let Some((source, probe)) = target {
+        commands.entity(source).insert(probe);
+    }
+}
+
+#[expect(clippy::type_complexity, reason = "split out of one system's queries")]
+fn probe_target(
+    windows: &Query<&Window>,
+    area: &FrameArea,
+    panels: &Query<(&Camera, &GlobalTransform, &Projection, &Panel, &ShowsSource)>,
+    panel_entities: &Query<(Entity, &Panel)>,
+    hover: &bevy::picking::hover::HoverMap,
+    chrome: &Query<(), With<BlocksFrameInput>>,
+    parents: &Query<&ChildOf>,
+) -> Option<(Entity, HoverProbe)> {
+    let window = windows.single().ok()?;
+    let cursor = window.cursor_position()?;
+    if pointer_over_chrome(hover, chrome, parents) {
+        return None;
+    }
+
+    // Measured inside the grid, as the pan and zoom controls are, so chrome
+    // docked beside it neither reports a hover nor shifts which frame the
+    // pointer is over.
+    let local = cursor - area.origin;
+    if !within_frames(local, area.size) {
+        return None;
+    }
+
+    let count = panels.iter().count();
+    let index = panel_under_cursor(local, area.size, count);
+    let (panel_entity, _) = panel_entities
+        .iter()
+        .find(|(_, panel)| panel.index == index)?;
+
+    let (camera, global, projection, _, shows) = panels.get(panel_entity).ok()?;
+    let Projection::Orthographic(ortho) = projection else {
+        return None;
+    };
+    let world = camera.viewport_to_world_2d(global, cursor).ok()?;
+    let viewport = camera.logical_viewport_size()?;
+
+    Some((
+        shows.0,
+        HoverProbe {
+            panel: panel_entity,
+            world,
+            units_per_px: ortho.area.width() / viewport.x.max(1.0),
+        },
+    ))
+}
+
 /// Scroll to zoom about the cursor and drag to pan, in whichever panel the
 /// pointer is over.
 pub fn panel_controls(
@@ -821,18 +924,9 @@ pub fn panel_controls(
         return;
     };
 
-    // A click on a frame's own chrome must not also pan the frame. Read from
-    // the picking hover state rather than from `Interaction`, because the
-    // Feathers controls carry no `Interaction` for a hit test to find. An
-    // existing drag is left alone, so passing over a button mid-stroke does
-    // not end it.
-    let over_chrome = hover.values().flat_map(|hits| hits.keys()).any(|hovered| {
-        chrome.get(*hovered).is_ok()
-            || parents
-                .iter_ancestors(*hovered)
-                .any(|ancestor| chrome.get(ancestor).is_ok())
-    });
-    if drag.is_none() && over_chrome {
+    // A click on a frame's own chrome must not also pan the frame. An existing
+    // drag is left alone, so passing over a button mid-stroke does not end it.
+    if drag.is_none() && pointer_over_chrome(&hover, &chrome, &parents) {
         wheel.clear();
         return;
     }

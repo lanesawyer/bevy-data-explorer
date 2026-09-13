@@ -15,10 +15,11 @@ use bevy::mesh::Mesh;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
-use crate::cellproperties::CellSelection;
-use crate::datasource::{self, SourceExtent, SourceStatus};
+use crate::cellproperties::{CellProperties, CellSelection};
+use crate::datasource::{self, DataSource, SourceExtent, SourceStatus};
+use crate::hover::{HoverInfo, HoverProbe};
 use crate::panel::ShowsSource;
-use crate::points_render::{PointMaterial, build_point_mesh};
+use crate::points_render::{PointMaterial, SourceHighlight, build_point_mesh};
 use crate::scatterbrain::{self, Node, Rect, Scatterbrain, Slide};
 
 /// Descend into a node's children while its region covers at least this many
@@ -35,6 +36,12 @@ pub const DEFAULT_POINT_BUDGET: usize = 3_000_000;
 
 const MAX_IN_FLIGHT: usize = 12;
 
+/// How close the pointer has to come to a point to pick it, in logical pixels.
+///
+/// Points draw at about a pixel and a half, so picking has to reach further
+/// than a point is wide or nothing would ever be hit.
+pub const PICK_PX: f32 = 7.0;
+
 #[derive(Component)]
 /// Marks a spawned point-cloud node. Which node it is lives in the
 /// streamer's slot map.
@@ -42,8 +49,71 @@ pub struct PointNode;
 
 enum Slot {
     Loading(Task<NodeOutcome>),
-    Ready { entity: Entity, points: usize },
+    Ready {
+        entity: Entity,
+        points: usize,
+        resident: NodePoints,
+    },
     Failed,
+}
+
+/// A resident node's points, kept on the CPU after its mesh is built.
+///
+/// The pointer has to be resolved against actual coordinates and a mesh cannot
+/// be read back, so this is what makes hovering possible at all. Ten bytes a
+/// point against the eighty each already costs on the GPU.
+pub struct NodePoints {
+    pub positions: Vec<[f32; 2]>,
+    pub categories: Vec<u16>,
+}
+
+impl NodePoints {
+    /// The point nearest `target` within `limit` squared units, as an offset
+    /// into this node and its value in the coloured-by column.
+    ///
+    /// Shared with the sectioned streamer, which differs only in having to move
+    /// the target into each slide's own coordinates first.
+    pub fn nearest(&self, target: Vec2, limit: f32) -> Option<(f32, usize, Vec2, Option<u16>)> {
+        let mut best: Option<(f32, usize, Vec2, Option<u16>)> = None;
+        for (offset, point) in self.positions.iter().enumerate() {
+            let point = Vec2::from(*point);
+            let distance = (point - target).length_squared();
+            if distance > limit {
+                continue;
+            }
+            if best.is_none_or(|(nearest, ..)| distance < nearest) {
+                best = Some((
+                    distance,
+                    offset,
+                    point,
+                    self.categories.get(offset).copied(),
+                ));
+            }
+        }
+        best
+    }
+}
+
+/// The rectangle a probe can reach, in dataset coordinates.
+pub fn pick_reach(target: Vec2, radius: f32) -> Rect {
+    Rect {
+        min_x: target.x - radius,
+        min_y: target.y - radius,
+        max_x: target.x + radius,
+        max_y: target.y + radius,
+    }
+}
+
+/// A point found under the pointer.
+pub struct Hit {
+    /// Index of the octree node holding it.
+    pub node: usize,
+    /// Its position within that node's column files, which together with the
+    /// node name is the only identifier this format gives a point.
+    pub index: usize,
+    pub position: Vec2,
+    /// Its value in the column the cloud is coloured by, if any.
+    pub category: Option<u16>,
 }
 
 pub enum NodeOutcome {
@@ -119,6 +189,47 @@ impl PointStreamer {
             .values()
             .filter(|s| matches!(s, Slot::Ready { .. }))
             .count()
+    }
+
+    /// The resident point nearest the probe, within a few pixels of it.
+    ///
+    /// Only nodes whose bounds reach the pointer are searched, which is the
+    /// path from the root down to the deepest node covering it rather than
+    /// every point on screen.
+    pub fn pick(&self, probe: &HoverProbe) -> Option<Hit> {
+        // Display space negates y; stored positions and node bounds are both in
+        // the dataset's own coordinates.
+        let target = Vec2::new(probe.world.x, -probe.world.y);
+        let radius = probe.radius(PICK_PX);
+        let reach = pick_reach(target, radius);
+        let limit = radius * radius;
+        let nodes = &self.cloud.slides[self.slide].nodes;
+
+        let mut best: Option<(f32, Hit)> = None;
+        for (index, slot) in &self.slots {
+            let Slot::Ready { resident, .. } = slot else {
+                continue;
+            };
+            if !nodes[*index].bounds.intersects(&reach) {
+                continue;
+            }
+            let Some((distance, offset, position, category)) = resident.nearest(target, limit)
+            else {
+                continue;
+            };
+            if best.as_ref().is_none_or(|(nearest, _)| distance < *nearest) {
+                best = Some((
+                    distance,
+                    Hit {
+                        node: *index,
+                        index: offset,
+                        position,
+                        category,
+                    },
+                ));
+            }
+        }
+        best.map(|(_, hit)| hit)
     }
 }
 
@@ -366,6 +477,10 @@ fn collect_for(
                 Slot::Ready {
                     entity,
                     points: count,
+                    resident: NodePoints {
+                        positions,
+                        categories,
+                    },
                 }
             }
             NodeOutcome::Failed(e) => {
@@ -385,13 +500,17 @@ fn collect_for(
 pub fn build_mesh(positions: &[[f32; 2]], categories: &[u16]) -> Mesh {
     let points: Vec<Vec2> = positions.iter().map(|p| Vec2::new(p[0], p[1])).collect();
 
-    let colours: Vec<[f32; 4]> = if categories.len() == positions.len() {
+    let coloured = categories.len() == positions.len();
+    let colours: Vec<[f32; 4]> = if coloured {
         categories.iter().map(|c| category_colour(*c)).collect()
     } else {
         vec![[0.8, 0.85, 0.9, 1.0]; positions.len()]
     };
 
-    build_point_mesh(&points, &colours)
+    // Each vertex carries its point's category so that hovering one can enlarge
+    // the rest sharing it. Without a colour-by column there are no groups to
+    // pick out, and the mesh says so by carrying none.
+    build_point_mesh(&points, &colours, if coloured { categories } else { &[] })
 }
 
 /// A repeating categorical palette. Categories here are label indices with no
@@ -544,6 +663,151 @@ mod tests {
         );
     }
 
+    /// A streamer with one node already resident, holding `points`.
+    fn resident(points: &[[f32; 2]], categories: &[u16]) -> PointStreamer {
+        let mut streamer = PointStreamer::new(Arc::new(cloud()), Entity::PLACEHOLDER);
+        streamer.slots.insert(
+            0,
+            Slot::Ready {
+                entity: Entity::PLACEHOLDER,
+                points: points.len(),
+                resident: NodePoints {
+                    positions: points.to_vec(),
+                    categories: categories.to_vec(),
+                },
+            },
+        );
+        streamer
+    }
+
+    fn probe_at(world: Vec2, units_per_px: f32) -> HoverProbe {
+        HoverProbe {
+            panel: Entity::PLACEHOLDER,
+            world,
+            units_per_px,
+        }
+    }
+
+    #[test]
+    fn hovering_picks_the_nearest_point_and_the_value_it_is_coloured_by() {
+        let cloud = cloud();
+        let (cx, cy) = slide_of(&cloud).bounds.centre();
+        let streamer = resident(&[[cx, cy], [cx + 100.0, cy]], &[3, 9]);
+
+        // Display space negates y, so the probe mirrors the dataset coordinate.
+        let hit = streamer
+            .pick(&probe_at(Vec2::new(cx + 1.0, -cy), 1.0))
+            .expect("the pointer is all but on the first point");
+        assert_eq!(hit.index, 0);
+        assert_eq!(hit.category, Some(3));
+    }
+
+    #[test]
+    fn a_probe_that_forgot_to_flip_y_finds_nothing() {
+        // The mistake this guards against is silent: the tooltip simply never
+        // appears, which looks like picking not working at all.
+        let cloud = cloud();
+        let bounds = slide_of(&cloud).bounds;
+        let (cx, _) = bounds.centre();
+        // Well off the axis, so mirroring it lands far outside the pick radius.
+        let y = bounds.max_y - bounds.height() * 0.1;
+        let streamer = resident(&[[cx, y]], &[0]);
+
+        assert!(streamer.pick(&probe_at(Vec2::new(cx, -y), 1.0)).is_some());
+        assert!(streamer.pick(&probe_at(Vec2::new(cx, y), 1.0)).is_none());
+    }
+
+    #[test]
+    fn the_pointer_has_to_come_close_to_pick() {
+        let cloud = cloud();
+        let (cx, cy) = slide_of(&cloud).bounds.centre();
+        let streamer = resident(&[[cx, cy]], &[0]);
+        assert!(
+            streamer
+                .pick(&probe_at(Vec2::new(cx + 50.0, -cy), 1.0))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn how_far_a_pick_reaches_follows_the_zoom() {
+        // Points are a pixel and a half wide whatever the zoom, so the reach
+        // has to be measured in pixels or picking would get harder the further
+        // out you went.
+        let cloud = cloud();
+        let (cx, cy) = slide_of(&cloud).bounds.centre();
+        let streamer = resident(&[[cx, cy]], &[0]);
+        let away = Vec2::new(cx + 50.0, -cy);
+        assert!(streamer.pick(&probe_at(away, 1.0)).is_none());
+        assert!(streamer.pick(&probe_at(away, 20.0)).is_some());
+    }
+
+    #[test]
+    fn nodes_the_pointer_is_nowhere_near_are_not_searched() {
+        // Every resident point on screen would be far too many to scan each
+        // frame, so only the nodes whose regions reach the pointer are.
+        let cloud = cloud();
+        let bounds = slide_of(&cloud).bounds;
+        let outside = [[bounds.max_x + 1000.0, bounds.max_y + 1000.0]];
+        let streamer = resident(&outside, &[0]);
+        let probe = probe_at(Vec2::new(outside[0][0], -outside[0][1]), 1.0);
+        assert!(
+            streamer.pick(&probe).is_none(),
+            "a point outside its own node's bounds should never be reached"
+        );
+    }
+
+    #[test]
+    fn an_uncoloured_cloud_still_identifies_what_is_under_the_pointer() {
+        let cloud = cloud();
+        let (cx, cy) = slide_of(&cloud).bounds.centre();
+        let streamer = resident(&[[cx, cy]], &[]);
+        let hit = streamer.pick(&probe_at(Vec2::new(cx, -cy), 1.0)).unwrap();
+        // Nothing to highlight, but the point still has an address.
+        assert_eq!(hit.category, None);
+    }
+
+    #[test]
+    fn a_hit_is_named_by_its_node_and_its_offset_within_it() {
+        use crate::cellproperties::{CellProperties, CellProperty, PropertyKind, PropertyValue};
+
+        let cloud = cloud();
+        let (cx, cy) = slide_of(&cloud).bounds.centre();
+        let streamer = resident(&[[cx, cy], [cx + 0.5, cy]], &[0, 2]);
+        let hit = streamer
+            .pick(&probe_at(Vec2::new(cx + 0.5, -cy), 1.0))
+            .unwrap();
+
+        let source = DataSource {
+            name: "Cells".into(),
+            unit: "um".into(),
+            detail: String::new(),
+            stat: String::new(),
+            layer: 1,
+        };
+        let properties = CellProperties::ready(vec![CellProperty {
+            id: "class".into(),
+            name: "Class".into(),
+            kind: PropertyKind::Categorical(vec![PropertyValue {
+                code: 2,
+                label: "L2/3 IT".into(),
+                selected: false,
+            }]),
+        }]);
+
+        let info = describe(&hit, &streamer, &source, &properties);
+        // Scatterbrain gives a point no id of its own: it is the nth row of one
+        // node's columns, so that pair is the whole address.
+        let node = &streamer.slide().nodes[hit.node];
+        assert_eq!(info.title, format!("{}#1", node.name));
+        assert_eq!(
+            info.rows[0],
+            ("Class".to_string(), "L2/3 IT".to_string()),
+            "the tooltip should name the value, not its code"
+        );
+        assert!(info.rows[1].1.ends_with("um"));
+    }
+
     #[test]
     fn categories_get_distinguishable_colours() {
         // Adjacent label indices are unrelated, so they must not look alike.
@@ -603,6 +867,14 @@ impl Plugin for PointCloudSystems {
             )
                 .chain()
                 .after(crate::panel::update_viewports),
+        )
+        // Resolving the pointer reads the nodes that are resident now, so it
+        // runs after this frame's arrivals and evictions.
+        .add_systems(
+            Update,
+            resolve_hover
+                .in_set(crate::hover::HoverProbing)
+                .after(evict_nodes),
         );
     }
 }
@@ -644,6 +916,11 @@ impl Plugin for PointCloudPlugin {
         // sidebar; sources without one simply do not offer it.
         app.world_mut().entity_mut(source).insert((
             crate::points_render::SourcePointSize::default(),
+            // Both start empty. Carrying them from registration means the hover
+            // systems can write through a query rather than through commands,
+            // and so can leave them untouched when nothing has changed.
+            SourceHighlight::default(),
+            HoverInfo::default(),
             // Placeholder until a lookup service supplies the real value
             // labels; the column names and ids are the dataset's own.
             crate::cellproperties::placeholder_properties(
@@ -656,6 +933,68 @@ impl Plugin for PointCloudPlugin {
         streamer.budget = self.budget;
         app.world_mut().entity_mut(source).insert(streamer);
     }
+}
+
+/// Answer the pointer: what is under it, and which cells share its value.
+///
+/// Both outputs are left alone when they have not changed, because the
+/// highlight drives a uniform upload per resident node and the tooltip drives a
+/// text layout — and the pointer sits still for most of the frames it is over a
+/// cloud.
+pub fn resolve_hover(
+    mut sources: Query<(
+        &PointStreamer,
+        &DataSource,
+        &CellProperties,
+        Option<&HoverProbe>,
+        &mut HoverInfo,
+        &mut SourceHighlight,
+    )>,
+) {
+    for (streamer, source, properties, probe, mut info, mut highlight) in &mut sources {
+        let hit = probe.and_then(|probe| streamer.pick(probe));
+        let found = hit
+            .as_ref()
+            .map(|hit| describe(hit, streamer, source, properties));
+
+        let category = hit.as_ref().and_then(|hit| hit.category);
+        if highlight.0 != category {
+            highlight.0 = category;
+        }
+
+        let next = found.unwrap_or_default();
+        if *info != next {
+            *info = next;
+        }
+    }
+}
+
+/// Name a hit the way the dataset names it.
+///
+/// Scatterbrain gives a point no identifier of its own: it is the nth row of
+/// the columns of one octree node, so the node and that offset is the whole
+/// address.
+fn describe(
+    hit: &Hit,
+    streamer: &PointStreamer,
+    source: &DataSource,
+    properties: &CellProperties,
+) -> HoverInfo {
+    let node = &streamer.slide().nodes[hit.node];
+    let mut info = HoverInfo::titled(format!("{}#{}", node.name, hit.index));
+
+    if let Some(code) = hit.category {
+        let (property, label) = properties.colour_label(code);
+        info = info.row(property, label);
+    }
+
+    info.row(
+        "at",
+        format!(
+            "{:.1}, {:.1} {}",
+            hit.position.x, hit.position.y, source.unit
+        ),
+    )
 }
 
 fn report_status(streamers: Query<&PointStreamer>, mut sources: Query<&mut SourceStatus>) {

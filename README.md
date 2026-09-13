@@ -136,6 +136,7 @@ whatever the original happened to load.
 
 | input | action |
 | --- | --- |
+| hover | identify what is under the pointer, and enlarge the cells sharing its value |
 | drag | pan the panel under the cursor |
 | scroll | zoom that panel about the cursor |
 | `R` | reset that panel's view |
@@ -163,6 +164,23 @@ nothing about the format is involved.
 Each panel carries its own overlay: the image reports the pyramid level, scale
 and tile cache; the point cloud reports octree depth, nodes loaded and points
 resident.
+
+Hovering a frame shows what is under the pointer in its bottom corner. The
+sections and point-cloud panels name the cell — Scatterbrain gives a point no
+id of its own, so its address is the octree node plus its offset within that
+node's columns, and for a sectioned dataset the slice as well — along with its
+value in whatever property the points are coloured by. The image has no cells
+to name, so it reports the place instead: the full-resolution pixel, the
+pyramid level being drawn, and the tile that covers it.
+
+Hovering also **enlarges every other cell sharing that value**, which is what
+turns a colour into something you can trace through a dense cloud. It costs no
+geometry: each vertex already had room to carry its point's category alongside
+its corner, so the highlight is a uniform naming one category and the shader
+draws those points larger. Nothing is rebuilt, refetched or re-uploaded beyond
+a few bytes per resident node, so it keeps up with the pointer over millions of
+points. With no property selected there are no groups to pick out, and the
+tooltip still names the cell.
 
 ## Releases
 
@@ -204,6 +222,15 @@ entity* carrying the few things a frame needs to know about what it is showing:
 a name, the render layer its geometry is drawn on, how much world it occupies,
 and a line of status for the overlay. The plugin then inserts its own streamer
 and systems.
+
+Hovering works the same way, and is the second half of that surface. The grid
+knows where the pointer is and which frame it is in; only a plugin knows what
+lives there. So the two meet halfway: the grid writes a `HoverProbe` onto the
+source entity of whichever frame the pointer is over, each plugin answers with
+a `HoverInfo`, and the frame's tooltip draws whatever came back. A plugin that
+cannot answer simply never writes one, and its frames show no tooltip. At most
+one source carries a probe at a time, so a plugin resolving hover never has to
+work out whether the pointer is really over its own frame.
 
 Frames refer to a source by entity rather than by a format tag, which is what
 keeps `panel` and `hud` from knowing anything about OME-Zarr or Scatterbrain —
@@ -291,6 +318,11 @@ measuring against it, and are worth knowing before changing them:
   async-compute pool caps at four threads, which allows about three concurrent
   requests. These threads are blocked on sockets rather than using CPU, so
   carving them out of the core count would starve the ECS schedule for nothing.
+- **Resident points are kept on the CPU as well as on the GPU.** A mesh cannot
+  be read back, so hit-testing the pointer needs the coordinates themselves.
+  That is ten bytes a point against the eighty each already costs as vertices,
+  and only the octree nodes whose regions actually reach the pointer are
+  searched — the path from the root down, rather than everything on screen.
 - **Tiles are cached well past leaving the viewport.** Zooming in narrows the
   wanted set to a handful of fine tiles; the surrounding coarse ones are
   exactly what is needed again on the way back out. They are evicted
