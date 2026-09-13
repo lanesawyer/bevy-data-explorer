@@ -185,13 +185,27 @@ fn spawn_sidebar(mut commands: Commands) {
                 }
             ),
             (
-                // Above the footer, and pushed down with it: the theme is a
-                // property of the whole app rather than of any section, so it
-                // sits with the control that owns the dock itself.
+                // Stacked above the footer and pushed down with it: these act on
+                // the app rather than on any section, so they sit with the
+                // control that owns the dock itself. One per row, because the
+                // ribbon is too narrow to hold two side by side.
                 Node {
                     width: { Val::Percent(100.0) },
                     align_items: { AlignItems::Center },
                     margin: { UiRect::top(Val::Auto) },
+                }
+                Children [(
+                    @FeathersToolButton {
+                        @caption: { bsn_list![button_text("log")] }
+                    }
+                    crate::ui::logpanel::LogPanelToggle
+                    BlocksFrameInput
+                )]
+            ),
+            (
+                Node {
+                    width: { Val::Percent(100.0) },
+                    align_items: { AlignItems::Center },
                 }
                 Children [(
                     @FeathersToolButton {
@@ -398,6 +412,10 @@ pub fn on_theme_pressed(
 ) {
     if buttons.get(activate.entity).is_ok() {
         mode.toggle();
+        info!(
+            "switched to the {} theme",
+            if mode.is_dark() { "dark" } else { "light" }
+        );
     }
 }
 

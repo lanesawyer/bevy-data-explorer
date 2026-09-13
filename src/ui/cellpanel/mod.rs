@@ -267,6 +267,9 @@ pub fn on_colour_by(
         return;
     };
     properties.colour_by = Some(button.property);
+    if let Some(property) = properties.properties.get(button.property) {
+        info!("colouring by {}", property.name);
+    }
 }
 
 /// Admit or exclude one value of one property.
@@ -301,6 +304,15 @@ pub fn on_value_toggled(
         })
     {
         value.selected = change.value;
+        info!(
+            "{} {}",
+            if change.value {
+                "filtering to"
+            } else {
+                "no longer filtering to"
+            },
+            value.label
+        );
     }
 }
 
@@ -346,6 +358,7 @@ pub fn on_clear_property(
     };
     if let Some(property) = properties.properties.get_mut(button.property) {
         property.clear();
+        info!("cleared the filters on {}", property.name);
     }
 }
 
@@ -367,7 +380,12 @@ pub fn on_clear_all(
     else {
         return;
     };
+    let cleared = properties.applied();
     properties.clear_all();
+    info!(
+        "cleared {cleared} {}",
+        if cleared == 1 { "filter" } else { "filters" }
+    );
 }
 
 /// Show the clear controls only when they have something to clear, and keep

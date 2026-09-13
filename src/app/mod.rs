@@ -8,6 +8,7 @@ use bevy::app::{TaskPoolOptions, TaskPoolPlugin, TaskPoolThreadAssignmentPolicy}
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 
+pub mod logs;
 pub mod schedule;
 pub mod theme;
 
@@ -30,6 +31,12 @@ impl Plugin for ExplorerPlugin {
                 .set(ImagePlugin::default_nearest())
                 .set(TaskPoolPlugin {
                     task_pool_options: task_pool_options(),
+                })
+                // The log keeps going to the terminal; this adds a copy in
+                // memory, which is the one a user can read and send back.
+                .set(bevy::log::LogPlugin {
+                    custom_layer: logs::capture,
+                    ..default()
                 }),
         );
 

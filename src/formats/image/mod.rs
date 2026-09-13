@@ -931,6 +931,12 @@ fn toggle_channels(
         };
 
         streamer.channels[index].active = !streamer.channels[index].active;
+        let channel = &streamer.channels[index];
+        info!(
+            "{} the {} channel",
+            if channel.active { "showing" } else { "hiding" },
+            channel.label
+        );
         streamer.reset(&mut commands);
     }
 }

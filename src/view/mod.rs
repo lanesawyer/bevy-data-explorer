@@ -81,6 +81,12 @@ impl FrameArea {
         let amount = amount.clamp(0.0, self.size.x);
         self.size.x -= amount;
     }
+
+    /// Take `amount` off the bottom edge, for chrome docked there.
+    pub fn reserve_bottom(&mut self, amount: f32) {
+        let amount = amount.clamp(0.0, self.size.y);
+        self.size.y -= amount;
+    }
 }
 
 /// Reset the grid to the whole window before anything reserves part of it.

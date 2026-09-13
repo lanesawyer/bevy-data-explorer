@@ -397,6 +397,13 @@ pub fn slice_controls(
                 SliceMode::Single => SliceMode::Grid,
             };
             streamer.refit = true;
+            info!(
+                "sections: {}",
+                match streamer.mode {
+                    SliceMode::Grid => "showing every slice".to_string(),
+                    SliceMode::Single => format!("showing slice {}", streamer.current + 1),
+                }
+            );
         }
 
         let mut delta = 0isize;
@@ -419,6 +426,11 @@ pub fn slice_controls(
                 streamer.mode = SliceMode::Single;
                 streamer.refit = true;
             }
+            info!(
+                "sections: showing slice {} of {}",
+                streamer.current + 1,
+                streamer.cloud.slides.len()
+            );
         }
     }
 }

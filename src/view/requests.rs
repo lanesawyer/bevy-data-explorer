@@ -91,6 +91,7 @@ pub fn apply_panel_requests(
                     }),
                     palette.frame_bg,
                 );
+                info!("duplicated the frame showing {}", source.name);
                 spawned += 1;
             }
             PanelRequest::Open(source_entity) => {
@@ -109,10 +110,18 @@ pub fn apply_panel_requests(
                     None,
                     palette.frame_bg,
                 );
+                info!("opened a frame onto {}", source.name);
                 spawned += 1;
             }
             PanelRequest::Close(panel) => {
-                if panels.get(panel).is_ok() && !closing.contains(&panel) {
+                if let Ok((.., shows, _, _, _)) = panels.get(panel)
+                    && !closing.contains(&panel)
+                {
+                    let name = sources
+                        .get(shows.0)
+                        .map(|(source, _)| source.name.as_str())
+                        .unwrap_or("a dataset");
+                    info!("closed the frame showing {name}");
                     closing.push(panel);
                 }
             }
@@ -137,6 +146,7 @@ pub fn apply_panel_requests(
                 // rather than naming a format: the camera moves to that
                 // source's layer and is reframed to its extent.
                 let limits = extent.limits(viewport);
+                info!("frame now showing {}", data.name);
                 commands.entity(panel).insert((
                     ShowsSource(source),
                     RenderLayers::layer(data.layer),

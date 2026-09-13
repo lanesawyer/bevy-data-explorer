@@ -64,6 +64,14 @@ running, such as a histogram bucket inside or outside the chosen span. What does
 not follow is the data: a dataset's own category colours mean what the dataset
 says they mean in either theme.
 
+`F12`, or the **log** button beside the theme one, opens a panel across the
+bottom holding the last few hundred log records — the same ones that go to the
+terminal, kept in memory by a `tracing` layer. It takes its height off the frame
+grid rather than covering it, newest line first, warnings and errors in their
+own colours. The **copy** button puts the whole log on the clipboard, which is
+the point of the panel: a log someone can read is useful, a log they can paste
+into a message is what actually comes back.
+
 A sidebar is docked on the left for controls that belong to no single frame —
 filters and dataset information, eventually. Drag its edge to resize it between
 a readable minimum and half the window, or collapse it to a ribbon with the

@@ -137,6 +137,13 @@ pub fn on_show_toggled(
     // from the property rather than from what was clicked: the source refuses to
     // hide the one it is coloured by.
     properties.set_shown(checkbox.property, change.value);
+    if let Some(property) = properties.properties.get(checkbox.property) {
+        info!(
+            "{} {} in the panel",
+            if property.shown { "showing" } else { "hiding" },
+            property.name
+        );
+    }
 }
 
 /// Keep the menu's ticks and the sub-sections matching which properties are
