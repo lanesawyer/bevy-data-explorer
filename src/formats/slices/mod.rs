@@ -17,7 +17,7 @@ use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
 use crate::app::schedule::Stage;
-use crate::formats::pointcloud::{
+use crate::formats::scatterbrain::nodes::{
     NodeOutcome, NodePoints, PICK_PX, build_mesh, load_node, pick_reach,
 };
 use crate::formats::scatterbrain::{Rect, Scatterbrain};

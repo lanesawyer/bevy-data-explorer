@@ -21,8 +21,8 @@ use crate::render::points::{
 };
 use crate::source::DataSource;
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
-use crate::ui::widgets::{caption, spawn_accordion, spawn_menu, spawn_slider};
 use crate::view::{SelectedPanel, ShowsSource};
+use crate::widgets::{caption, spawn_accordion, spawn_menu, spawn_slider};
 
 /// The opacity slider runs 0..100, so its built-in readout is a percentage.
 const PERCENT: f32 = 100.0;

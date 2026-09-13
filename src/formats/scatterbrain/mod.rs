@@ -17,6 +17,8 @@
 //! `u16`. A file's length is therefore exactly the node's point count times the
 //! column's stride, which is the cheapest possible integrity check.
 
+pub mod nodes;
+
 use serde::Deserialize;
 
 use crate::source::properties::{

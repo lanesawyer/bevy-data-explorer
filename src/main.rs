@@ -13,6 +13,7 @@ mod render;
 mod source;
 mod ui;
 mod view;
+mod widgets;
 
 use bevy::prelude::*;
 use clap::Parser;

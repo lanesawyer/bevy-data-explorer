@@ -1,0 +1,243 @@
+//! Routing the pointer: which frame it is over, whether chrome is in the
+//! way, and what it is pointing at.
+
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+use bevy::prelude::*;
+
+use super::grid::{Drag, active_panel, panel_under_cursor, within_frames};
+use super::{FrameArea, Panel, SelectedPanel, ShowsSource};
+use crate::source::ViewLimits;
+use crate::source::hover::HoverProbe;
+
+/// Marks interactive chrome that swallows pointer input before a frame sees it.
+///
+/// Needed because chrome can overlap the grid — the sidebar's drag handle
+/// straddles its own edge — so position alone cannot decide who gets the drag.
+#[derive(Component, Clone, Default)]
+pub struct BlocksFrameInput;
+
+/// Whether the pointer is over chrome that takes input before a frame sees it.
+///
+/// Read from the picking hover state rather than from `Interaction`, because
+/// the Feathers controls carry no `Interaction` for a hit test to find.
+fn pointer_over_chrome(
+    hover: &bevy::picking::hover::HoverMap,
+    chrome: &Query<(), With<BlocksFrameInput>>,
+    parents: &Query<&ChildOf>,
+) -> bool {
+    hover.values().flat_map(|hits| hits.keys()).any(|hovered| {
+        chrome.get(*hovered).is_ok()
+            || parents
+                .iter_ancestors(*hovered)
+                .any(|ancestor| chrome.get(ancestor).is_ok())
+    })
+}
+
+/// Tell the source under the pointer where the pointer is.
+///
+/// The grid knows the cursor and which frame it falls in; only a format plugin
+/// knows what is there. This writes the one onto the source entity so the
+/// plugin can answer with the other. At most one source carries a probe, so a
+/// plugin resolving hover need not work out whether the pointer is really its
+/// own frame's.
+pub fn probe_hover(
+    mut commands: Commands,
+    windows: Query<&Window>,
+    area: Res<FrameArea>,
+    panels: Query<(&Camera, &GlobalTransform, &Projection, &Panel, &ShowsSource)>,
+    panel_entities: Query<(Entity, &Panel)>,
+    hover: Res<bevy::picking::hover::HoverMap>,
+    chrome: Query<(), With<BlocksFrameInput>>,
+    parents: Query<&ChildOf>,
+    probed: Query<Entity, With<HoverProbe>>,
+) {
+    let target = probe_target(
+        &windows,
+        &area,
+        &panels,
+        &panel_entities,
+        &hover,
+        &chrome,
+        &parents,
+    );
+
+    for entity in &probed {
+        if target.map(|(source, _)| source) != Some(entity) {
+            commands.entity(entity).remove::<HoverProbe>();
+        }
+    }
+    if let Some((source, probe)) = target {
+        commands.entity(source).insert(probe);
+    }
+}
+
+#[expect(clippy::type_complexity, reason = "split out of one system's queries")]
+fn probe_target(
+    windows: &Query<&Window>,
+    area: &FrameArea,
+    panels: &Query<(&Camera, &GlobalTransform, &Projection, &Panel, &ShowsSource)>,
+    panel_entities: &Query<(Entity, &Panel)>,
+    hover: &bevy::picking::hover::HoverMap,
+    chrome: &Query<(), With<BlocksFrameInput>>,
+    parents: &Query<&ChildOf>,
+) -> Option<(Entity, HoverProbe)> {
+    let window = windows.single().ok()?;
+    let cursor = window.cursor_position()?;
+    if pointer_over_chrome(hover, chrome, parents) {
+        return None;
+    }
+
+    // Measured inside the grid, as the pan and zoom controls are, so chrome
+    // docked beside it neither reports a hover nor shifts which frame the
+    // pointer is over.
+    let local = cursor - area.origin;
+    if !within_frames(local, area.size) {
+        return None;
+    }
+
+    let count = panels.iter().count();
+    let index = panel_under_cursor(local, area.size, count);
+    let (panel_entity, _) = panel_entities
+        .iter()
+        .find(|(_, panel)| panel.index == index)?;
+
+    let (camera, global, projection, _, shows) = panels.get(panel_entity).ok()?;
+    let Projection::Orthographic(ortho) = projection else {
+        return None;
+    };
+    let world = camera.viewport_to_world_2d(global, cursor).ok()?;
+    let viewport = camera.logical_viewport_size()?;
+
+    Some((
+        shows.0,
+        HoverProbe {
+            panel: panel_entity,
+            world,
+            units_per_px: ortho.area.width() / viewport.x.max(1.0),
+        },
+    ))
+}
+
+/// Scroll to zoom about the cursor and drag to pan, in whichever panel the
+/// pointer is over.
+pub fn panel_controls(
+    mut wheel: MessageReader<MouseWheel>,
+    mut panels: Query<(
+        &Camera,
+        &GlobalTransform,
+        &mut Transform,
+        &mut Projection,
+        &Panel,
+        &ViewLimits,
+    )>,
+    windows: Query<&Window>,
+    area: Res<FrameArea>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    hover: Res<bevy::picking::hover::HoverMap>,
+    chrome: Query<(), With<BlocksFrameInput>>,
+    parents: Query<&ChildOf>,
+    panel_entities: Query<(Entity, &Panel)>,
+    mut selected: ResMut<SelectedPanel>,
+    mut drag: Local<Option<Drag>>,
+) {
+    let Ok(window) = windows.single() else { return };
+    let held = buttons.pressed(MouseButton::Left) || buttons.pressed(MouseButton::Middle);
+
+    let Some(cursor) = window.cursor_position() else {
+        // The pointer left the window. Hold the gesture so it resumes if the
+        // pointer comes back with the button still down.
+        if !held {
+            *drag = None;
+        }
+        wheel.clear();
+        return;
+    };
+
+    // A click on a frame's own chrome must not also pan the frame. An existing
+    // drag is left alone, so passing over a button mid-stroke does not end it.
+    if drag.is_none() && pointer_over_chrome(&hover, &chrome, &parents) {
+        wheel.clear();
+        return;
+    }
+
+    let count = panels.iter().count();
+    // Measured inside the grid, so chrome docked beside it neither receives
+    // frame input nor shifts which frame the pointer is over.
+    let local = cursor - area.origin;
+    if drag.is_none() && !within_frames(local, area.size) {
+        wheel.clear();
+        return;
+    }
+    let window_size = area.size;
+
+    if !held {
+        *drag = None;
+    } else if drag.is_none()
+        && (buttons.just_pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Middle))
+    {
+        let index = panel_under_cursor(local, window_size, count);
+        *drag = Some(Drag {
+            panel: index,
+            last: cursor,
+        });
+        selected.0 = panel_entities
+            .iter()
+            .find(|(_, panel)| panel.index == index)
+            .map(|(entity, _)| entity);
+    }
+
+    let active = active_panel(*drag, local, window_size, count);
+
+    let mut scroll = 0.0;
+    for event in wheel.read() {
+        scroll += match event.unit {
+            MouseScrollUnit::Line => event.y,
+            // Trackpads report pixels; scale them into comparable steps.
+            MouseScrollUnit::Pixel => event.y / 50.0,
+        };
+    }
+
+    for (camera, global, mut transform, mut projection, panel, limits) in &mut panels {
+        if panel.index != active {
+            continue;
+        }
+        let Projection::Orthographic(ortho) = projection.as_mut() else {
+            continue;
+        };
+
+        if keys.just_pressed(KeyCode::KeyR) {
+            transform.translation = limits.centre.extend(transform.translation.z);
+            ortho.scale = limits.fit_scale;
+            continue;
+        }
+
+        if scroll != 0.0 {
+            let before = camera.viewport_to_world_2d(global, cursor).ok();
+            let factor = 1.12_f32.powf(-scroll);
+            ortho.scale = (ortho.scale * factor).clamp(limits.min_scale, limits.max_scale);
+
+            // Pin the world point under the cursor. Bevy refreshes the
+            // projection's `area` after this system, so the post-zoom mapping
+            // is recomputed by hand from the new scale.
+            if let (Some(before), Some(viewport)) = (before, camera.logical_viewport_size()) {
+                let local = cursor - camera.logical_viewport_rect().map_or(Vec2::ZERO, |r| r.min);
+                let ndc = (local - viewport * 0.5) * Vec2::new(1.0, -1.0);
+                let after = transform.translation.truncate() + ndc * ortho.scale;
+                let correction = before - after;
+                transform.translation.x += correction.x;
+                transform.translation.y += correction.y;
+            }
+        }
+
+        if let Some(state) = *drag {
+            let delta = cursor - state.last;
+            transform.translation.x -= delta.x * ortho.scale;
+            transform.translation.y += delta.y * ortho.scale;
+        }
+    }
+
+    if let Some(state) = drag.as_mut() {
+        state.last = cursor;
+    }
+}

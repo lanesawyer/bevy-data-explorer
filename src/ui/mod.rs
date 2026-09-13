@@ -7,7 +7,6 @@ pub mod cellpanel;
 pub mod inspector;
 pub mod sidebar;
 pub mod viewconfig;
-pub mod widgets;
 
 /// The docks and everything in them.
 ///
@@ -18,7 +17,6 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
-            widgets::WidgetsPlugin,
             sidebar::SidebarPlugin,
             inspector::InspectorPlugin,
             viewconfig::ViewConfigPlugin,

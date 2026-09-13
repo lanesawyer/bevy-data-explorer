@@ -21,8 +21,8 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::Stage;
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::{DataSource, SourceStatus};
-use crate::ui::widgets::spawn_menu;
 use crate::view::{BlocksFrameInput, Panel, PanelRequest, ShowsSource};
+use crate::widgets::spawn_menu;
 
 /// The translucent panel a frame's header and status sit on.
 #[derive(Component, Clone)]

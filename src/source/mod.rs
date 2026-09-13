@@ -150,6 +150,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn fit_limits_frame_the_data_and_allow_zooming_in() {
+        // A 40 x 40 world in an 800 x 400 viewport is limited by height.
+        let limits = ViewLimits::fit(Vec2::ZERO, 40.0, 40.0, Vec2::new(800.0, 400.0), 0.001);
+        assert!((limits.fit_scale - 0.1).abs() < 1e-6);
+        assert!(limits.min_scale < limits.fit_scale);
+        assert!(limits.max_scale > limits.fit_scale);
+    }
+
+    #[test]
+    fn zoom_in_is_never_limited_to_less_than_the_fitted_view() {
+        // Data coarser than one unit per pixel must still be fully visible.
+        let limits = ViewLimits::fit(Vec2::ZERO, 1.0, 1.0, Vec2::new(800.0, 400.0), 5.0);
+        assert!(limits.min_scale <= limits.fit_scale);
+    }
+
+    #[test]
     fn layers_are_unique_and_never_the_default() {
         let mut registry = SourceRegistry::default();
         let layers: Vec<usize> = (0..8).map(|_| registry.allocate_layer()).collect();

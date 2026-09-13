@@ -42,6 +42,7 @@ impl Plugin for ExplorerPlugin {
             .insert_resource(bevy_feathers::theme::UiTheme(theme::dark()))
             .add_plugins(crate::render::points::PointRenderPlugin)
             .add_plugins(crate::view::ViewPlugin)
+            .add_plugins(crate::widgets::WidgetsPlugin)
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, maximize_window.in_set(schedule::Boot::Window));
     }
