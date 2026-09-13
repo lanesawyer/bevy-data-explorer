@@ -14,11 +14,14 @@ use bevy::window::{CursorIcon, PrimaryWindow, SystemCursorIcon};
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
+use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
+use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
 use crate::source::{DataSource, SourceStatus};
 use crate::view::{BlocksFrameInput, FrameArea, PanelRequest, SelectedPanel, ShowsSource};
+use crate::widgets::button_text;
 
 const MIN_PX: f32 = 200.0;
 const MAX_FRACTION: f32 = 0.5;
@@ -90,7 +93,7 @@ fn spawn_inspector(mut commands: Commands) {
             row_gap: { Val::Px(8.0) },
             padding: { UiRect::all(Val::Px(10.0)) },
         }
-        BackgroundColor({ Color::srgb(0.09, 0.10, 0.13) })
+        ThemeBackgroundColor({ tokens::WINDOW_BG })
         InheritableFont { font_size: { 13.0f32 } }
         Children [
             (
@@ -107,7 +110,7 @@ fn spawn_inspector(mut commands: Commands) {
                     ),
                     (
                         @FeathersToolButton {
-                            @caption: { bsn_list![label("x")] }
+                            @caption: { bsn_list![button_text("x")] }
                         }
                         InspectorClose
                         BlocksFrameInput
@@ -118,7 +121,7 @@ fn spawn_inspector(mut commands: Commands) {
                 InspectorBody
                 Text({ String::new() })
                 TextFont { font_size: { bevy::text::FontSize::Px(12.0) } }
-                TextColor({ Color::srgb(0.74, 0.79, 0.87) })
+                ThemeTextColor({ tokens::TEXT_MAIN })
             ),
         ]
     });
@@ -136,7 +139,7 @@ fn spawn_inspector(mut commands: Commands) {
             height: { Val::Percent(100.0) },
             display: { Display::None },
         }
-        BackgroundColor({ Color::srgb(0.20, 0.22, 0.28) })
+        ThemeBackgroundColor({ tokens::BUTTON_BG })
     });
 }
 

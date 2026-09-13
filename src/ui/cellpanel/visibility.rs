@@ -23,6 +23,7 @@ use bevy_ui_widgets::ValueChange;
 use crate::source::properties::CellProperties;
 use crate::ui::cellpanel::{CellPanelMenu, PropertySection};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
+use crate::widgets::button_text;
 
 /// A checkbox in the menu, listing or hiding one property.
 #[derive(Component, Clone, Default)]
@@ -89,7 +90,7 @@ pub fn rebuild_visibility_menu(
             .spawn_scene(bsn! {
                 MenuContent
                 @FeathersCheckbox {
-                    @caption: { bsn_list![label(caption)] }
+                    @caption: { bsn_list![button_text(caption)] }
                 }
                 BlocksFrameInput
                 ShowPropertyCheckbox { property: { index } }

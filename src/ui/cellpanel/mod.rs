@@ -15,7 +15,7 @@
 use bevy::prelude::*;
 use bevy::ui::Checked;
 use bevy_feathers::controls::FeathersCheckbox;
-use bevy_feathers::display::{label, label_dim};
+use bevy_feathers::display::label_dim;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, ValueChange};
 
@@ -27,7 +27,7 @@ use crate::source::DataSource;
 use crate::source::properties::{CellProperties, CellProperty, PropertyKind, PropertyState};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
-use crate::widgets::{Accordion, spawn_accordion, spawn_header_button, spawn_menu};
+use crate::widgets::{Accordion, button_text, spawn_accordion, spawn_header_button, spawn_menu};
 
 /// The section itself, hidden for sources with no properties to show.
 #[derive(Component, Clone, Default)]
@@ -104,6 +104,7 @@ pub struct CellPanelBody;
 /// Rebuild the sub-sections when the selected source's properties change.
 pub fn rebuild_cell_panel(
     mut commands: Commands,
+    palette: Res<crate::app::theme::Palette>,
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     sources: Query<(&DataSource, &CellProperties)>,
@@ -220,7 +221,7 @@ pub fn rebuild_cell_panel(
                     let row = commands
                         .spawn_scene(bsn! {
                             @FeathersCheckbox {
-                                @caption: { bsn_list![label(caption)] }
+                                @caption: { bsn_list![button_text(caption)] }
                             }
                             BlocksFrameInput
                             ValueCheckbox { property: { index }, value: { position } }
@@ -233,7 +234,12 @@ pub fn rebuild_cell_panel(
                 })
                 .collect(),
             PropertyKind::Numeric(range) => {
-                vec![range::spawn_range_control(&mut commands, index, range)]
+                vec![range::spawn_range_control(
+                    &mut commands,
+                    index,
+                    range,
+                    &palette,
+                )]
             }
         };
         commands.entity(sub.body).add_children(&rows);

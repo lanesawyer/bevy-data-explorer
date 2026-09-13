@@ -39,7 +39,7 @@ impl Plugin for ExplorerPlugin {
         schedule::configure(app);
 
         app.add_plugins(bevy_feathers::FeathersPlugins)
-            .insert_resource(bevy_feathers::theme::UiTheme(theme::dark()))
+            .add_plugins(theme::ThemePlugin)
             .add_plugins(crate::render::points::PointRenderPlugin)
             .add_plugins(crate::view::ViewPlugin)
             .add_plugins(crate::widgets::WidgetsPlugin)

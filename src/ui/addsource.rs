@@ -29,9 +29,11 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::Stage;
+use crate::app::theme::Palette;
 use crate::formats::discover::{self, Discovered};
 use crate::formats::{LoadSettings, spawn_discovered};
 use crate::view::{BlocksFrameInput, PanelRequest};
+use crate::widgets::button_text;
 
 /// The field a URL is typed into. On the inner text entity, which is the one
 /// holding the [`EditableText`], rather than on its container.
@@ -56,11 +58,6 @@ impl Default for LoadCustomButton {
 #[derive(Component, Clone, Default)]
 pub struct CustomStatus;
 
-/// Colour of a status line that reports progress rather than a problem.
-const PROGRESS: Color = Color::srgb(0.70, 0.76, 0.85);
-/// Colour of a status line naming something that went wrong.
-const PROBLEM: Color = Color::srgb(0.95, 0.48, 0.45);
-
 /// How the last attempt to open a URL went.
 #[derive(Default, PartialEq, Eq, Clone, Debug)]
 pub enum LoadStatus {
@@ -75,12 +72,16 @@ pub enum LoadStatus {
 impl LoadStatus {
     /// What the status line shows, and in what colour. An empty message hides
     /// the line rather than leaving a gap under the field.
-    pub fn message(&self) -> (String, Color) {
+    ///
+    /// The colours are handed in rather than named here: which red stands out
+    /// depends on what it is standing out against, and that is the theme's
+    /// business.
+    pub fn message(&self, palette: &Palette) -> (String, Color) {
         match self {
-            LoadStatus::Idle => (String::new(), PROGRESS),
-            LoadStatus::Loading(source) => (format!("reading {source}\u{2026}"), PROGRESS),
-            LoadStatus::Loaded(name) => (format!("loaded {name}"), PROGRESS),
-            LoadStatus::Failed(message) => (message.clone(), PROBLEM),
+            LoadStatus::Idle => (String::new(), palette.progress),
+            LoadStatus::Loading(source) => (format!("reading {source}\u{2026}"), palette.progress),
+            LoadStatus::Loaded(name) => (format!("loaded {name}"), palette.progress),
+            LoadStatus::Failed(message) => (message.clone(), palette.problem),
         }
     }
 }
@@ -178,7 +179,7 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
     let button = commands
         .spawn_scene(bsn! {
             @FeathersButton {
-                @caption: { bsn_list![label("Load")] }
+                @caption: { bsn_list![button_text("Load")] }
             }
             BlocksFrameInput
             LoadCustomButton { field: { field } }
@@ -204,7 +205,6 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
             CustomStatus
             Text({ String::new() })
             TextFont { font_size: { bevy::text::FontSize::Px(11.0) } }
-            TextColor({ PROGRESS })
             Node { display: { Display::None } }
         })
         .id();
@@ -298,14 +298,17 @@ pub fn poll_custom_load(
 pub fn sync_custom_status(
     mut commands: Commands,
     load: Res<CustomLoad>,
+    palette: Res<Palette>,
     mut labels: Query<(&mut Text, &mut TextColor, &mut Node), With<CustomStatus>>,
     buttons: Query<Entity, With<LoadCustomButton>>,
 ) {
-    if !load.is_changed() {
+    // The theme repaints what it knows about; this line is coloured by what it
+    // has to say, so it is repainted here instead.
+    if !load.is_changed() && !palette.is_changed() {
         return;
     }
 
-    let (message, colour) = load.status.message();
+    let (message, colour) = load.status.message(&palette);
     for (mut text, mut text_colour, mut node) in &mut labels {
         let wanted = if message.is_empty() {
             Display::None
@@ -359,27 +362,31 @@ mod tests {
 
     #[test]
     fn nothing_typed_yet_shows_no_status_line() {
-        let (message, _) = LoadStatus::Idle.message();
+        let (message, _) = LoadStatus::Idle.message(&Palette::dark());
         assert!(message.is_empty(), "an empty line would leave a gap");
     }
 
     #[test]
     fn a_failure_is_shown_in_its_own_colour() {
-        let (message, colour) = LoadStatus::Failed("could not recognise it".into()).message();
+        let palette = Palette::dark();
+        let (message, colour) =
+            LoadStatus::Failed("could not recognise it".into()).message(&palette);
         assert_eq!(message, "could not recognise it");
-        assert_eq!(colour, PROBLEM);
-        assert_ne!(PROBLEM, PROGRESS);
+        assert_eq!(colour, palette.problem);
+        assert_ne!(palette.problem, palette.progress);
     }
 
     #[test]
     fn progress_and_success_name_what_they_are_about() {
-        let (loading, colour) = LoadStatus::Loading("https://store/x.json".into()).message();
+        let palette = Palette::dark();
+        let (loading, colour) =
+            LoadStatus::Loading("https://store/x.json".into()).message(&palette);
         assert!(loading.contains("https://store/x.json"));
-        assert_eq!(colour, PROGRESS);
+        assert_eq!(colour, palette.progress);
 
-        let (loaded, colour) = LoadStatus::Loaded("Sections".into()).message();
+        let (loaded, colour) = LoadStatus::Loaded("Sections".into()).message(&palette);
         assert!(loaded.contains("Sections"));
-        assert_eq!(colour, PROGRESS);
+        assert_eq!(colour, palette.progress);
     }
 
     #[test]

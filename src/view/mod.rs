@@ -26,7 +26,7 @@ use bevy::prelude::*;
 use crate::app::schedule::{Boot, Stage};
 use crate::source::{DataSource, SourceExtent, ViewLimits};
 
-use camera::{clear_when_empty, normalize_panels, spawn_ui_camera, update_viewports};
+use camera::{clear_when_empty, follow_theme, normalize_panels, spawn_ui_camera, update_viewports};
 use chrome::{
     panel_buttons, spawn_dividers, spawn_selection_border, sync_panel_buttons,
     update_selection_border,
@@ -118,6 +118,10 @@ pub struct View {
 }
 
 /// Spawn a panel camera in cell `index`, showing `source`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a frame is a camera, a cell, a source, a view and the colour it clears to"
+)]
 pub fn spawn_panel(
     commands: &mut Commands,
     source: Entity,
@@ -125,6 +129,7 @@ pub fn spawn_panel(
     index: usize,
     limits: ViewLimits,
     view: Option<View>,
+    background: Color,
 ) -> Entity {
     let view = view.unwrap_or(View {
         centre: limits.centre,
@@ -134,7 +139,7 @@ pub fn spawn_panel(
         .spawn_scene(bsn! {
             Camera2d
             Camera {
-                clear_color: { clear_color_for(index) },
+                clear_color: { clear_color_for(index, background) },
                 order: { index as isize },
             }
             // Both keep private state, so they are supplied whole rather than
@@ -175,7 +180,12 @@ impl Plugin for ViewPlugin {
             .add_systems(Update, sync_panel_buttons.in_set(Stage::FrameChrome))
             .add_systems(
                 Update,
-                (panel_controls, update_viewports, clear_when_empty)
+                (
+                    panel_controls,
+                    update_viewports,
+                    clear_when_empty,
+                    follow_theme,
+                )
                     .chain()
                     .in_set(Stage::Viewports),
             )
@@ -196,6 +206,7 @@ impl Plugin for ViewPlugin {
 fn open_frames(
     mut commands: Commands,
     windows: Query<&Window>,
+    palette: Res<crate::app::theme::Palette>,
     sources: Query<(Entity, &DataSource, &SourceExtent)>,
 ) {
     let window = windows
@@ -220,6 +231,7 @@ fn open_frames(
             index,
             extent.limits(viewport),
             None,
+            palette.frame_bg,
         );
     }
 }

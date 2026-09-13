@@ -13,11 +13,14 @@ use bevy::prelude::*;
 use bevy::ui::{FocusPolicy, Interaction};
 use bevy::window::{CursorIcon, PrimaryWindow, SystemCursorIcon};
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::display::label;
+use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
+use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
+use crate::app::theme::ThemeMode;
 use crate::view::{BlocksFrameInput, FrameArea};
+use crate::widgets::button_text;
 
 /// Width when collapsed. Enough for the short title and the toggle beneath it.
 const RIBBON_PX: f32 = 52.0;
@@ -96,6 +99,10 @@ pub struct SidebarTitle;
 #[derive(Component, Clone, Default)]
 pub struct SidebarToggle;
 
+/// The button that switches between the light and dark themes.
+#[derive(Component, Clone, Default)]
+pub struct ThemeButton;
+
 /// The draggable edge.
 #[derive(Component, Clone, Default)]
 pub struct SidebarHandle;
@@ -157,13 +164,16 @@ fn spawn_sidebar(mut commands: Commands) {
             row_gap: { Val::Px(8.0) },
             padding: { UiRect::all(Val::Px(10.0)) },
         }
-        BackgroundColor({ Color::srgb(0.09, 0.10, 0.13) })
+        // Through a token rather than a literal: the theme repaints everything
+        // that names one, and a dock painted by hand would stay dark while the
+        // controls inside it went light.
+        ThemeBackgroundColor({ tokens::WINDOW_BG })
         Children [
             (
                 SidebarTitle
                 Text({ FULL_TITLE.to_string() })
                 TextFont { font_size: { bevy::text::FontSize::Px(15.0) } }
-                TextColor({ Color::srgb(0.90, 0.93, 0.97) })
+                ThemeTextColor({ tokens::TEXT_MAIN })
             ),
             (
                 SidebarContent
@@ -175,19 +185,35 @@ fn spawn_sidebar(mut commands: Commands) {
                 }
             ),
             (
-                // The footer sits on the bottom edge: an automatic top margin
-                // eats the free space above it, so it stays there whether the
+                // Above the footer, and pushed down with it: the theme is a
+                // property of the whole app rather than of any section, so it
+                // sits with the control that owns the dock itself.
+                Node {
+                    width: { Val::Percent(100.0) },
+                    align_items: { AlignItems::Center },
+                    margin: { UiRect::top(Val::Auto) },
+                }
+                Children [(
+                    @FeathersToolButton {
+                        @caption: { bsn_list![button_text("light")] }
+                    }
+                    ThemeButton
+                    BlocksFrameInput
+                )]
+            ),
+            (
+                // The footer sits on the bottom edge: the margin above belongs
+                // to the theme row now, so both stay down there whether the
                 // sections are showing or the dock is collapsed to its ribbon.
                 Node {
                     width: { Val::Percent(100.0) },
                     align_items: { AlignItems::Center },
                     justify_content: { JustifyContent::SpaceBetween },
-                    margin: { UiRect::top(Val::Auto) },
                 }
                 Children [
                     (
                         @FeathersToolButton {
-                            @caption: { bsn_list![label("<")] }
+                            @caption: { bsn_list![button_text("<")] }
                         }
                         SidebarToggle
                         BlocksFrameInput
@@ -196,7 +222,7 @@ fn spawn_sidebar(mut commands: Commands) {
                         SidebarVersion
                         Text({ VERSION.to_string() })
                         TextFont { font_size: { bevy::text::FontSize::Px(13.0) } }
-                        TextColor({ Color::srgb(0.58, 0.64, 0.73) })
+                        ThemeTextColor({ tokens::TEXT_DIM })
                     ),
                 ]
             ),
@@ -216,7 +242,7 @@ fn spawn_sidebar(mut commands: Commands) {
             width: { Val::Px(HANDLE_PX) },
             height: { Val::Percent(100.0) },
         }
-        BackgroundColor({ Color::srgb(0.20, 0.22, 0.28) })
+        ThemeBackgroundColor({ tokens::BUTTON_BG })
     });
 }
 
@@ -364,6 +390,37 @@ pub fn update_sidebar(
     }
 }
 
+/// Switch the theme when the button is pressed.
+pub fn on_theme_pressed(
+    activate: On<Activate>,
+    buttons: Query<(), With<ThemeButton>>,
+    mut mode: ResMut<ThemeMode>,
+) {
+    if buttons.get(activate.entity).is_ok() {
+        mode.toggle();
+    }
+}
+
+/// Keep the theme button naming the theme it would switch to, shortened to fit
+/// the ribbon the way the title is.
+pub fn sync_theme_button(
+    mode: Res<ThemeMode>,
+    sidebar: Res<Sidebar>,
+    buttons: Query<&Children, With<ThemeButton>>,
+    mut texts: Query<&mut Text>,
+) {
+    let wanted = mode.other_name(sidebar.collapsed);
+    for children in &buttons {
+        for child in children.iter() {
+            if let Ok(mut text) = texts.get_mut(child)
+                && text.0 != wanted
+            {
+                text.0 = wanted.to_string();
+            }
+        }
+    }
+}
+
 /// The dock on the left, and the space it claims from the grid.
 pub struct SidebarPlugin;
 
@@ -371,6 +428,7 @@ impl Plugin for SidebarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Sidebar>()
             .add_observer(toggle_sidebar)
+            .add_observer(on_theme_pressed)
             .add_systems(
                 Update,
                 (resize_sidebar, sidebar_cursor)
@@ -378,7 +436,12 @@ impl Plugin for SidebarPlugin {
                     .in_set(Stage::DockInput),
             )
             .add_systems(Update, reserve_space.in_set(Stage::DockReserve))
-            .add_systems(Update, update_sidebar.in_set(Stage::Chrome))
+            .add_systems(
+                Update,
+                (update_sidebar, sync_theme_button)
+                    .chain()
+                    .in_set(Stage::Chrome),
+            )
             .add_systems(Startup, spawn_sidebar.in_set(Boot::Shell))
             .add_systems(Startup, order_sections.in_set(Boot::DockOrder));
     }

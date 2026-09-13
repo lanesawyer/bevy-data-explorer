@@ -34,13 +34,14 @@ use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::display::label;
+use bevy_feathers::theme::ThemeTextColor;
 
 use crate::app::schedule::Stage;
 use crate::source::DataSource;
 use crate::view::chrome::{PanelButton, SelectionBorder};
 use crate::view::overlay::{PanelHeader, PanelTooltip};
 use crate::view::{BlocksFrameInput, Panel, ShowsSource};
+use crate::widgets::button_text;
 
 /// Where pictures are written, relative to where the app was started.
 const FOLDER: &str = "screenshots";
@@ -130,7 +131,7 @@ pub(super) fn spawn_capture_button(commands: &mut Commands, header: Entity, pane
                 // Text, not a symbol: the default font carries no camera or
                 // box glyph and draws a missing one as `?`. It names what it
                 // writes, which is what the other header controls do.
-                @caption: { bsn_list![label("png")] }
+                @caption: { bsn_list![button_text("png")] }
             }
             BlocksFrameInput
             PanelCaptureButton { panel: { panel } }
@@ -148,7 +149,7 @@ pub(super) fn spawn_capture_notice(commands: &mut Commands, box_: Entity, panel:
             CaptureNotice { panel: { panel } }
             Text
             TextFont { font_size: { bevy::text::FontSize::Px(11.0) } }
-            TextColor({ Color::srgb(0.70, 0.85, 0.72) })
+            ThemeTextColor({ crate::app::theme::token::OVERLAY_DIM })
             Node { display: { Display::None } }
         })
         .id();
@@ -187,6 +188,7 @@ pub fn drive_capture(
     buttons: Query<(Entity, &PanelButton)>,
     outline: Query<Entity, With<SelectionBorder>>,
     hidden: Query<Entity, With<HiddenForCapture>>,
+    palette: Res<crate::app::theme::Palette>,
 ) {
     match capture.stage {
         Progress::Idle => {}
@@ -240,6 +242,10 @@ pub fn drive_capture(
                 .unwrap_or_else(|_| "frame".into());
             let rect = (viewport.physical_position, viewport.physical_size);
             let path = picture_path(&name);
+            // Read now rather than in the task: what is keyed out has to be the
+            // colour the frame was clearing to when the shot was taken,
+            // whatever the theme does afterwards.
+            let background = palette.frame_bg;
 
             commands.spawn(Screenshot::primary_window()).observe(
                 move |captured: On<ScreenshotCaptured>,
@@ -258,7 +264,7 @@ pub fn drive_capture(
                     capture.writing = Some((
                         panel,
                         AsyncComputeTaskPool::get()
-                            .spawn(async move { save_cropped(image, rect, path) }),
+                            .spawn(async move { save_cropped(image, rect, path, background) }),
                     ));
                 },
             );
@@ -372,7 +378,12 @@ fn file_stem(name: &str) -> String {
 }
 
 /// Cut `rect` out of a captured window and write it as a PNG.
-fn save_cropped(image: Image, rect: (UVec2, UVec2), path: PathBuf) -> Result<PathBuf, String> {
+fn save_cropped(
+    image: Image,
+    rect: (UVec2, UVec2),
+    path: PathBuf,
+    background: Color,
+) -> Result<PathBuf, String> {
     let whole = image.try_into_dynamic().map_err(|e| e.to_string())?;
     let (origin, size) = crop(rect, UVec2::new(whole.width(), whole.height()));
     if size.x == 0 || size.y == 0 {
@@ -385,7 +396,7 @@ fn save_cropped(image: Image, rect: (UVec2, UVec2), path: PathBuf) -> Result<Pat
     let mut cut = whole
         .crop_imm(origin.x, origin.y, size.x, size.y)
         .to_rgba8();
-    let background = background_bytes();
+    let background = background_bytes(background);
     for pixel in cut.pixels_mut() {
         // Written rather than kept: the alpha that comes back from the window
         // means brightness, not opacity, so every pixel has to be told what it
@@ -400,9 +411,9 @@ fn save_cropped(image: Image, rect: (UVec2, UVec2), path: PathBuf) -> Result<Pat
     Ok(path)
 }
 
-/// The frame's clear colour as the bytes a screenshot of it comes back as.
-fn background_bytes() -> [u8; 3] {
-    let srgb = crate::view::grid::FRAME_BACKGROUND.to_srgba();
+/// A frame's clear colour as the bytes a screenshot of it comes back as.
+fn background_bytes(background: Color) -> [u8; 3] {
+    let srgb = background.to_srgba();
     [srgb.red, srgb.green, srgb.blue].map(|channel| (channel * 255.0).round() as u8)
 }
 
@@ -479,12 +490,15 @@ mod tests {
     fn the_colour_a_frame_clears_to_is_what_gets_keyed_out() {
         // Measured from a real capture: the clear colour comes back as these
         // bytes. If the background ever changes, this is what says so.
-        assert_eq!(background_bytes(), [10, 10, 15]);
+        assert_eq!(
+            background_bytes(crate::app::theme::Palette::dark().frame_bg),
+            [10, 10, 15]
+        );
     }
 
     #[test]
     fn background_goes_transparent_and_everything_else_does_not() {
-        let background = background_bytes();
+        let background = background_bytes(crate::app::theme::Palette::dark().frame_bg);
         assert!(is_background([10, 10, 15, 255], background));
         // A channel of rounding slack, and no more.
         assert!(is_background([11, 9, 15, 255], background));

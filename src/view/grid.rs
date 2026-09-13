@@ -39,20 +39,13 @@ pub(super) fn assign_cells(mut frames: Vec<(usize, Entity)>) -> Vec<(usize, Enti
 
 /// Only the first camera clears the window; a later clear would wipe the panels
 /// already drawn.
-pub(super) fn clear_color_for(index: usize) -> ClearColorConfig {
+pub(super) fn clear_color_for(index: usize, background: Color) -> ClearColorConfig {
     if index == 0 {
-        ClearColorConfig::Custom(FRAME_BACKGROUND)
+        ClearColorConfig::Custom(background)
     } else {
         ClearColorConfig::None
     }
 }
-
-/// What a frame clears to where it has drawn nothing.
-///
-/// Named because a saved picture keys it out to transparency, and a colour key
-/// that disagreed with what was actually drawn would leave a background in the
-/// file or eat the data.
-pub(super) const FRAME_BACKGROUND: Color = Color::srgb(0.04, 0.04, 0.06);
 
 /// Whether a pointer position, measured from the grid's origin, is over the
 /// grid at all.
@@ -243,7 +236,10 @@ pub(super) mod tests {
         let clearing = cells
             .iter()
             .filter(|(position, _)| {
-                matches!(clear_color_for(*position), ClearColorConfig::Custom(_))
+                matches!(
+                    clear_color_for(*position, Color::WHITE),
+                    ClearColorConfig::Custom(_)
+                )
             })
             .count();
         assert_eq!(clearing, 1);
@@ -256,7 +252,7 @@ pub(super) mod tests {
         let cells = assign_cells(vec![(1, e(2)), (2, e(3))]);
         assert_eq!(cells[0].0, 0);
         assert!(matches!(
-            clear_color_for(cells[0].0),
+            clear_color_for(cells[0].0, Color::WHITE),
             ClearColorConfig::Custom(_)
         ));
     }
@@ -264,9 +260,15 @@ pub(super) mod tests {
     #[test]
     fn only_the_first_cell_clears_the_window() {
         // A second clear would wipe the panels already drawn beneath it.
-        assert!(matches!(clear_color_for(0), ClearColorConfig::Custom(_)));
+        assert!(matches!(
+            clear_color_for(0, Color::WHITE),
+            ClearColorConfig::Custom(_)
+        ));
         for index in 1..MAX_PANELS {
-            assert!(matches!(clear_color_for(index), ClearColorConfig::None));
+            assert!(matches!(
+                clear_color_for(index, Color::WHITE),
+                ClearColorConfig::None
+            ));
         }
     }
 

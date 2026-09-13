@@ -21,6 +21,7 @@ use crate::app::schedule::{Boot, Stage};
 use crate::formats::EXAMPLES;
 use crate::ui::addsource::{CustomLoad, spawn_custom_section};
 use crate::view::{BlocksFrameInput, FrameArea, Panel};
+use crate::widgets::button_text;
 
 /// The empty-state panel itself.
 #[derive(Component, Clone, Default)]
@@ -129,7 +130,7 @@ fn example_row(commands: &mut Commands, index: usize, name: &str, kind: &str) ->
                 (
                     @FeathersButton {
                         @variant: { ButtonVariant::Normal },
-                        @caption: { bsn_list![label(name)] }
+                        @caption: { bsn_list![button_text(name)] }
                     }
                     BlocksFrameInput
                     ExampleButton { example: { index } }

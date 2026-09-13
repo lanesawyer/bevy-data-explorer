@@ -45,6 +45,7 @@ pub fn apply_panel_requests(
         &ViewLimits,
     )>,
     sources: Query<(&DataSource, &crate::source::SourceExtent)>,
+    palette: Res<crate::app::theme::Palette>,
 ) {
     let requests: Vec<PanelRequest> = requests.read().copied().collect();
     if requests.is_empty() {
@@ -88,6 +89,7 @@ pub fn apply_panel_requests(
                         centre: transform.translation.truncate(),
                         scale: ortho.scale,
                     }),
+                    palette.frame_bg,
                 );
                 spawned += 1;
             }
@@ -105,6 +107,7 @@ pub fn apply_panel_requests(
                     open.len() + spawned,
                     extent.limits(viewport),
                     None,
+                    palette.frame_bg,
                 );
                 spawned += 1;
             }

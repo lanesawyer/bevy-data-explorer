@@ -14,7 +14,9 @@ use bevy::prelude::*;
 use bevy::ui::UiGlobalTransform;
 use bevy_feathers::display::label_dim;
 use bevy_feathers::font_styles::InheritableFont;
+use bevy_feathers::theme::ThemeBackgroundColor;
 
+use crate::app::theme::{Palette, token};
 use crate::source::properties::{CellProperties, NumericRange, RangeEnd};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
 
@@ -67,11 +69,11 @@ pub struct RangeBar {
 
 /// Buckets inside the chosen span are drawn lit, the rest dimmed, so the whole
 /// distribution stays visible while part of it is picked.
-fn bar_colour(inside: bool) -> Color {
+fn bar_colour(inside: bool, palette: &Palette) -> Color {
     if inside {
-        Color::srgb(0.38, 0.60, 0.90)
+        palette.fill
     } else {
-        Color::srgb(0.22, 0.25, 0.31)
+        palette.bar_dim
     }
 }
 
@@ -89,6 +91,7 @@ pub(super) fn spawn_range_control(
     commands: &mut Commands,
     property: usize,
     range: &NumericRange,
+    palette: &Palette,
 ) -> Entity {
     let peak = range.histogram.iter().copied().max().unwrap_or(1).max(1);
     let bars: Vec<Entity> = range
@@ -109,7 +112,7 @@ pub(super) fn spawn_range_control(
                         height: { Val::Px(height) },
                         margin: { UiRect::horizontal(Val::Px(0.5)) },
                     }
-                    BackgroundColor({ bar_colour(inside) })
+                    BackgroundColor({ bar_colour(inside, palette) })
                 })
                 .id()
         })
@@ -149,7 +152,7 @@ pub(super) fn spawn_range_control(
                 height: { Val::Px(RANGE_TRACK_PX) },
                 border_radius: { BorderRadius::all(Val::Px(RANGE_TRACK_PX * 0.5)) },
             }
-            BackgroundColor({ Color::srgb(0.20, 0.22, 0.28) })
+            ThemeBackgroundColor({ token::TRACK })
             Children [(
                 RangeFill { property: { property } }
                 Node {
@@ -158,7 +161,7 @@ pub(super) fn spawn_range_control(
                     width: { Val::Percent((to - from) * 100.0) },
                     height: { Val::Percent(100.0) },
                 }
-                BackgroundColor({ Color::srgb(0.38, 0.60, 0.90) })
+                ThemeBackgroundColor({ token::SELECTION })
             )]
         })
         .id();
@@ -181,7 +184,7 @@ pub(super) fn spawn_range_control(
                     margin: { UiRect::left(Val::Px(handle_placement(fraction).1)) },
                     border_radius: { BorderRadius::all(Val::Px(RANGE_THUMB_PX * 0.5)) },
                 }
-                BackgroundColor({ Color::srgb(0.85, 0.89, 0.95) })
+                ThemeBackgroundColor({ token::THUMB })
             })
             .id();
         commands.entity(track).add_child(handle);
@@ -292,6 +295,7 @@ pub fn drag_range_handles(
 /// the very handle under the pointer — which stopped a drag dead after the
 /// first step. Everything a range draws is updated in place instead.
 pub fn update_range_controls(
+    palette: Res<Palette>,
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     sources: Query<&CellProperties>,
@@ -343,7 +347,7 @@ pub fn update_range_controls(
             continue;
         };
         let centre = (bar.bucket as f32 + 0.5) / range.histogram.len().max(1) as f32;
-        let wanted = bar_colour(range.admits(range.value_at(centre)));
+        let wanted = bar_colour(range.admits(range.value_at(centre)), &palette);
         if colour.0 != wanted {
             colour.0 = wanted;
         }

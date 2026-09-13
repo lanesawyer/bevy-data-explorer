@@ -11,6 +11,7 @@ use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
+use bevy_feathers::theme::ThemeTextColor;
 use bevy_ui_widgets::Activate;
 use bevy_ui_widgets::SliderValue;
 
@@ -22,7 +23,7 @@ use crate::render::points::{
 use crate::source::DataSource;
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{SelectedPanel, ShowsSource};
-use crate::widgets::{caption, spawn_accordion, spawn_menu, spawn_slider};
+use crate::widgets::{button_text, caption, spawn_accordion, spawn_menu, spawn_slider};
 
 /// The opacity slider runs 0..100, so its built-in readout is a percentage.
 const PERCENT: f32 = 100.0;
@@ -92,7 +93,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
             SelectedName
             Text({ String::new() })
             TextFont { font_size: { bevy::text::FontSize::Px(12.0) } }
-            TextColor({ Color::srgb(0.70, 0.76, 0.85) })
+            ThemeTextColor({ bevy_feathers::tokens::TEXT_DIM })
         })
         .id();
 
@@ -537,7 +538,7 @@ fn add_row(commands: &mut Commands, source: Entity, data: &DataSource, full: boo
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![label("+")] }
+                @caption: { bsn_list![button_text("+")] }
             }
             crate::view::BlocksFrameInput
             AddVisualization { source: { source } }
@@ -563,7 +564,7 @@ fn action_button(
     commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![label(glyph)] }
+                @caption: { bsn_list![button_text(glyph)] }
             }
             crate::view::BlocksFrameInput
             LayoutButton { panel: { panel }, action: { action } }

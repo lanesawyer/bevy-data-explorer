@@ -41,6 +41,29 @@ The command line is not the only way in either: a dataset can be opened by URL
 from the sidebar at any time, without restarting. See **Custom visualization**
 below.
 
+Above the collapse control is a button naming the theme it would switch to.
+Bevy reports the desktop's preference on the window, and that is where the
+theme starts; pressing the button stops it following, since a theme changing
+back under you is worse than not following at all. Feathers ships only a dark
+theme, so the light one is made by turning the dark one over: near-neutral
+tokens have their OKLCH lightness flipped, which keeps each one the same
+distance from the background, while colours that carry meaning — the accent,
+the axis colours — and the white label text on them stay where they are. It is
+a starting point rather than a designed palette. Text is the part worth
+knowing about: a button keeps its pale label, because the button under it keeps
+its dark background, while a menu item's and a text field's turn over with
+theirs. Getting that wrong writes white on white.
+
+Everything the app paints follows it, frames included: what a frame clears to,
+the translucent panel its header sits on, the rules between cells, the outline
+round the selected one, the range controls and the status lines. The colours
+this app names for itself that Feathers has no token for live in one `Palette`,
+and leave it two ways — as theme tokens for controls that are spawned once, so
+Feathers repaints them, and as a resource read where a colour is chosen while
+running, such as a histogram bucket inside or outside the chosen span. What does
+not follow is the data: a dataset's own category colours mean what the dataset
+says they mean in either theme.
+
 A sidebar is docked on the left for controls that belong to no single frame —
 filters and dataset information, eventually. Drag its edge to resize it between
 a readable minimum and half the window, or collapse it to a ribbon with the

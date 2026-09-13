@@ -16,12 +16,16 @@ use bevy::prelude::*;
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
+use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
+
+use crate::app::theme::token;
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::Stage;
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::{DataSource, SourceStatus};
 use crate::view::{BlocksFrameInput, Panel, PanelRequest, ShowsSource};
+use crate::widgets::button_text;
 use crate::widgets::spawn_menu;
 
 /// The translucent panel a frame's header and status sit on.
@@ -157,14 +161,14 @@ fn spawn_tooltip(commands: &mut Commands, panel: Entity) {
         PanelTooltip { panel: { panel } }
         Text
         TextFont { font_size: { bevy::text::FontSize::Px(12.0) } }
-        TextColor({ Color::srgb(0.86, 0.90, 0.96) })
+        ThemeTextColor({ token::OVERLAY_TEXT })
         Node {
             position_type: { PositionType::Absolute },
             display: { Display::None },
             padding: { UiRect::axes(Val::Px(8.0), Val::Px(6.0)) },
             border_radius: { BorderRadius::all(Val::Px(5.0)) },
         }
-        BackgroundColor({ Color::srgba(0.04, 0.05, 0.07, 0.82) })
+        ThemeBackgroundColor({ token::OVERLAY_BG })
         // Deliberately not `BlocksFrameInput`: a tooltip that swallowed the
         // pointer would suppress the very probe that produced it, and the
         // tooltip would flicker on and off as it appeared under the cursor.
@@ -184,9 +188,10 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
                 padding: { UiRect::axes(Val::Px(8.0), Val::Px(6.0)) },
                 border_radius: { BorderRadius::all(Val::Px(5.0)) },
             }
-            // Dark and translucent, so the overlay reads over pale tissue and
-            // over the black around it alike.
-            BackgroundColor({ Color::srgba(0.04, 0.05, 0.07, 0.72) })
+            // Translucent, and on the same side as the theme: over imagery
+            // rather than over the window, so a dark panel in a light theme
+            // would read as a hole punched in the picture.
+            ThemeBackgroundColor({ token::OVERLAY_BG })
             InheritableFont { font_size: { 13.0f32 } }
         })
         .id();
@@ -212,7 +217,7 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
     let info = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![label("i")] }
+                @caption: { bsn_list![button_text("i")] }
             }
             BlocksFrameInput
             PanelInfoButton { panel: { panel } }
@@ -231,7 +236,7 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
             PanelText { panel: { panel } }
             Text
             TextFont { font_size: { bevy::text::FontSize::Px(12.0) } }
-            TextColor({ Color::srgb(0.78, 0.83, 0.90) })
+            ThemeTextColor({ token::OVERLAY_DIM })
         })
         .id();
 
@@ -448,7 +453,7 @@ pub fn rebuild_source_menus(
                 commands
                     .spawn_scene(bsn! {
                         @FeathersToolButton {
-                            @caption: { bsn_list![label(caption)] }
+                            @caption: { bsn_list![button_text(caption)] }
                         }
                         BlocksFrameInput
                         SourceChoice { panel: { menu.panel }, source: { *entity } }

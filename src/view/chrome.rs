@@ -3,7 +3,10 @@
 
 use bevy::prelude::*;
 use bevy_feathers::controls::{ButtonVariant, FeathersToolButton};
-use bevy_feathers::display::label;
+use bevy_feathers::theme::{ThemeBackgroundColor, ThemeBorderColor};
+
+use crate::app::theme::token;
+use crate::widgets::button_text;
 use bevy_ui_widgets::Activate;
 
 use super::grid::{MAX_COLUMNS, MAX_ROWS, grid_for};
@@ -37,7 +40,7 @@ pub(super) fn spawn_dividers(mut commands: Commands) {
                 position_type: { PositionType::Absolute },
                 display: { Display::None },
             }
-            BackgroundColor({ Color::srgb(0.25, 0.27, 0.32) })
+            ThemeBackgroundColor({ token::DIVIDER })
             // Decoration, like the selection outline: it must not swallow
             // pointer events along a frame's edge.
             template_value(Pickable::IGNORE)
@@ -70,7 +73,7 @@ pub(super) fn spawn_selection_border(mut commands: Commands) {
             display: { Display::None },
         }
         GlobalZIndex({ SELECTION_Z })
-        template_value(BorderColor::all(SELECTION_COLOUR))
+        ThemeBorderColor({ token::SELECTION })
     });
 }
 
@@ -109,7 +112,6 @@ pub fn update_selection_border(
 }
 
 const SELECTION_PX: f32 = 2.0;
-const SELECTION_COLOUR: Color = Color::srgb(0.38, 0.60, 0.90);
 
 /// Draw order for the selection outline.
 ///
@@ -201,7 +203,7 @@ pub fn sync_panel_buttons(
             let glyph = action.glyph().to_string();
             commands.spawn_scene(bsn! {
                 @FeathersToolButton {
-                    @caption: { bsn_list![label(glyph)] },
+                    @caption: { bsn_list![button_text(glyph)] },
                     @variant: { variant_for(action) }
                 }
                 BlocksFrameInput

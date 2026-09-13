@@ -9,6 +9,7 @@ use bevy::ui::IsDefaultUiCamera;
 use super::chrome::{Axis, BUTTON_GAP, BUTTON_PX, DIVIDER_PX, PanelButton, PanelDivider};
 use super::grid::{MAX_PANELS, assign_cells, clear_color_for, grid_for};
 use super::{FrameArea, Panel};
+use crate::app::theme::Palette;
 
 /// Marks the camera that the UI is laid out against.
 #[derive(Component, Clone, Default)]
@@ -127,18 +128,37 @@ pub fn update_viewports(
 /// frames at all nothing clears, and the window keeps whatever was last drawn
 /// into it behind the empty-window panel. The UI camera draws after every
 /// frame the grid can hold, so it takes the job only while the grid is empty.
-pub fn clear_when_empty(panels: Query<&Panel>, mut cameras: Query<&mut Camera, With<UiCamera>>) {
+pub fn clear_when_empty(
+    palette: Res<Palette>,
+    panels: Query<&Panel>,
+    mut cameras: Query<&mut Camera, With<UiCamera>>,
+) {
     let empty = panels.iter().next().is_none();
     for mut camera in &mut cameras {
         let clearing = !matches!(camera.clear_color, ClearColorConfig::None);
-        if clearing == empty {
+        // Repainted when the theme changes as well as when the grid empties:
+        // the colour it clears to is not the same in both themes.
+        if clearing == empty && !palette.is_changed() {
             continue;
         }
         camera.clear_color = if empty {
-            clear_color_for(0)
+            clear_color_for(0, palette.frame_bg)
         } else {
             ClearColorConfig::None
         };
+    }
+}
+
+/// Repaint what the frames clear to when the theme changes.
+///
+/// Only cell 0 clears, and which cell that is can change, so this writes every
+/// camera's colour rather than tracking the one that happens to hold the job.
+pub fn follow_theme(palette: Res<Palette>, mut panels: Query<(&Panel, &mut Camera)>) {
+    if !palette.is_changed() {
+        return;
+    }
+    for (panel, mut camera) in &mut panels {
+        camera.clear_color = clear_color_for(panel.index, palette.frame_bg);
     }
 }
 
@@ -149,7 +169,10 @@ pub fn clear_when_empty(panels: Query<&Panel>, mut cameras: Query<&mut Camera, W
 /// out a duplicate index, and a frame spawned this tick is not yet visible to
 /// the code that renumbers the survivors, so ownership of the invariant sits in
 /// one place that runs after the dust settles.
-pub fn normalize_panels(mut panels: Query<(Entity, &mut Panel, &mut Camera)>) {
+pub fn normalize_panels(
+    background: Res<Palette>,
+    mut panels: Query<(Entity, &mut Panel, &mut Camera)>,
+) {
     let cells = assign_cells(
         panels
             .iter()
@@ -170,6 +193,6 @@ pub fn normalize_panels(mut panels: Query<(Entity, &mut Panel, &mut Camera)>) {
         // Only the first camera clears. Losing the frame that held that job
         // leaves nothing clearing the window, and every frame then paints over
         // the last one instead of replacing it.
-        camera.clear_color = clear_color_for(position);
+        camera.clear_color = clear_color_for(position, background.frame_bg);
     }
 }

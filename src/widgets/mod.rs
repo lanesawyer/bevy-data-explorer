@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy_feathers::controls::{ButtonVariant, FeathersButton, FeathersSlider, FeathersToolButton};
 use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
-use bevy_feathers::theme::ThemeBackgroundColor;
+use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
 use bevy_ui_widgets::ScrollArea;
@@ -183,7 +183,7 @@ pub fn spawn_header_button(commands: &mut Commands, header: Entity, caption: &st
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![label(caption)] }
+                @caption: { bsn_list![button_text(caption)] }
             }
             BlocksFrameInput
             // Header buttons hold their size; the title beside them gives way
@@ -273,7 +273,7 @@ pub fn spawn_menu(commands: &mut Commands, parent: Entity) -> Entity {
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![label("...")] }
+                @caption: { bsn_list![button_text("...")] }
             }
             BlocksFrameInput
             MenuButton { menu: { menu } }
@@ -539,6 +539,22 @@ pub fn spawn_slider(
             SliderPrecision({ decimals })
         })
         .id()
+}
+
+/// A button's caption, painted from the button's own text token.
+///
+/// Feathers' `label` carries `ThemeTextColor(TEXT_MAIN)` on the text itself,
+/// and a colour named directly on a span beats the one a button propagates to
+/// it. In the dark theme both are pale so nothing looked wrong; in the light
+/// one the window's text colour is dark, and every button wore dark text over a
+/// background that had stayed dark. Naming the button token on the caption is
+/// what puts it back — and what the theme repaints when it changes.
+pub fn button_text(text: impl Into<String>) -> impl bevy::scene::Scene {
+    let text = text.into();
+    bsn! {
+        label(text)
+        ThemeTextColor({ tokens::BUTTON_TEXT })
+    }
 }
 
 /// A dim caption, for the secondary lines of a listing.
