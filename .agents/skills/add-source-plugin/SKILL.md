@@ -8,7 +8,7 @@ argument-hint: 'The format name, and a metadata URL or file to read'
 
 Every format is a plugin that registers a source entity. Done properly, nothing
 outside the new module changes: `main` discovers sources by querying the world,
-and `panel` and `hud` never name a format.
+and nothing in `view` or `ui` ever names a format.
 
 ## Step 1: Probe the format first
 

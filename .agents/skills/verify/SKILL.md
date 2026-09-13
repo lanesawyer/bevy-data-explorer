@@ -1,6 +1,6 @@
 ---
 name: verify
-description: 'Run the full check loop for bevy-data-explorer: format, build, test, and a headless smoke run that catches runtime-only failures. Use when: finishing a change, before committing, checking whether something actually works, after editing shaders or UI.'
+description: 'Run the full check loop for bevy-data-explorer: format, build, test, and a windowed smoke run that catches runtime-only failures. Use when: finishing a change, before committing, checking whether something actually works, after editing shaders or UI.'
 ---
 
 # Verify

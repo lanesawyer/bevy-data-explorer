@@ -6,15 +6,32 @@ easy to get wrong.
 
 ## Extending it
 
-Every format is a Bevy plugin that registers a *source entity*. Adding one
-means writing a plugin and adding it — `panel`, `hud` and `main` need no
-changes, and `main` discovers sources by querying the world. See
-`.agents/skills/add-source-plugin`.
+Every format is a Bevy plugin under `src/formats/` that registers a *source
+entity*. Adding one means writing a plugin and adding it — nothing in `view`,
+`ui` or `main` changes, and frames are opened by querying the world for
+sources. See `.agents/skills/add-source-plugin`.
 
-Frames point at a source entity rather than naming a format. Streamers bind to
-their source on construction and select panels with `shows.0 == streamer.source`
-rather than by type, which is what will let two frames show different datasets
-of the same format.
+The tree is layered, and the layers only point one way:
+
+    source/    the vocabulary every format and frame is written against
+    formats/   the readers, one plugin each
+    render/    the point pipeline both point-cloud formats draw through
+    view/      the frame grid: grid, camera, chrome, requests, input, overlay
+    widgets/   generic controls, used by both view and ui
+    ui/        the docks and the controls inside them
+    app/       the shell: window, task pool, theme, schedule
+    cli.rs     the command line
+    main.rs    parse arguments, add format plugins, run
+
+`src/source` imports nothing from above it. Keep it that way: it is what lets
+a frame point at any dataset without naming a format.
+
+Frames point at a source entity rather than naming a format. Every streamer is
+a component of the source entity it serves, and selects panels with
+`shows.0 == streamer.source` rather than by type, so two frames can show
+different datasets of the same format. Do not make a streamer a `Resource`
+again — that is what previously limited images and sectioned data to one
+apiece, and it hides the limit until someone opens a second.
 
 ## Verify before claiming
 
@@ -36,13 +53,13 @@ several real bugs here built cleanly and did nothing.
 These came from measuring against the live stores. Changing them without
 re-measuring will regress something:
 
-- **512px tiles** (`dataset.rs`). Bytes transferred are the same at any tile
+- **512px tiles** (`formats/image/dataset.rs`). Bytes transferred are the same at any tile
   size; round trips are not, and 128px was ten times slower.
-- **Per-shard decoder cache** (`tiles.rs`). `retrieve_array_subset` refetches
+- **Per-shard decoder cache** (`formats/image/mod.rs`). `retrieve_array_subset` refetches
   the 16KB shard index for every tile.
-- **24 tile threads on top of the core count** (`main.rs`). Reads are blocking,
+- **24 tile threads on top of the core count** (`app/mod.rs`). Reads are blocking,
   so one tile holds one thread; Bevy's async-compute pool caps at four.
-- **4M section budget** (`slices.rs`). The grid draws every slice at once and
+- **4M section budget** (`formats/slices/mod.rs`). The grid draws every slice at once and
   their root subsamples alone come to ~3M points. Below that, whole slices
   vanish rather than the grid thinning.
 
@@ -66,4 +83,11 @@ re-measuring will regress something:
 - **BSN scene components** are patched `@Component { @prop: {expr} }`, with the
   `@` on both. Components with private fields cannot be patched field by field;
   supply them whole with `template_value(...)`.
-- **Bevy system tuples cap at 20.** Split into sets rather than one long chain.
+- **Ordering lives in `app/schedule.rs` and nowhere else.** A system declares
+  `.in_set(Stage::...)`; it never orders itself against another module's
+  system. Two bugs came from ordering by chain membership — a menu positioned
+  before it was built, and an overlay documented as running after the sources
+  that did not. If a new system needs a slot that does not exist, add a stage
+  and say in its doc comment why the boundary is there.
+- **Bevy system tuples cap at 20.** The stages keep chains short; if one is
+  approaching twenty, that is the signal to split it rather than to grow it.
