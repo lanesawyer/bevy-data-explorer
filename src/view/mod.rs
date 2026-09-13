@@ -13,6 +13,7 @@
 //! cameras draw the same entities from different viewpoints.
 
 pub mod camera;
+pub mod capture;
 pub mod chrome;
 pub mod grid;
 pub mod input;
@@ -157,7 +158,7 @@ pub struct ViewPlugin;
 
 impl Plugin for ViewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(overlay::OverlayPlugin)
+        app.add_plugins((overlay::OverlayPlugin, capture::CapturePlugin))
             .add_message::<PanelRequest>()
             .init_resource::<FrameArea>()
             .init_resource::<SelectedPanel>()

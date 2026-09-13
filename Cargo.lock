@@ -434,6 +434,7 @@ dependencies = [
  "bevy_feathers",
  "bevy_ui_widgets",
  "clap",
+ "image",
  "ome_zarr_metadata",
  "reqwest",
  "serde",

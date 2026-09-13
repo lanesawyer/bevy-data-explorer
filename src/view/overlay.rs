@@ -27,7 +27,7 @@ use crate::widgets::spawn_menu;
 /// The translucent panel a frame's header and status sit on.
 #[derive(Component, Clone)]
 pub struct PanelHeader {
-    panel: Entity,
+    pub panel: Entity,
 }
 
 impl Default for PanelHeader {
@@ -93,7 +93,7 @@ impl Default for SourceChoice {
 /// because a `Text` is already a node and can carry its own background.
 #[derive(Component, Clone)]
 pub struct PanelTooltip {
-    panel: Entity,
+    pub panel: Entity,
 }
 
 impl Default for PanelTooltip {
@@ -220,6 +220,9 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
         .id();
 
     commands.entity(header).add_children(&[title, info]);
+    // Beside the button that opens the inspector: both are about this frame
+    // rather than about the grid, which is what the corner buttons are for.
+    super::capture::spawn_capture_button(commands, header, panel);
     let menu = spawn_menu(commands, header);
     commands.entity(menu).insert(SourceMenu { panel });
 
@@ -233,6 +236,7 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
         .id();
 
     commands.entity(box_).add_children(&[header, status]);
+    super::capture::spawn_capture_notice(commands, box_, panel);
 }
 
 /// Keep each overlay over its panel's cell.

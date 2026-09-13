@@ -41,11 +41,18 @@ pub(super) fn assign_cells(mut frames: Vec<(usize, Entity)>) -> Vec<(usize, Enti
 /// already drawn.
 pub(super) fn clear_color_for(index: usize) -> ClearColorConfig {
     if index == 0 {
-        ClearColorConfig::Custom(Color::srgb(0.04, 0.04, 0.06))
+        ClearColorConfig::Custom(FRAME_BACKGROUND)
     } else {
         ClearColorConfig::None
     }
 }
+
+/// What a frame clears to where it has drawn nothing.
+///
+/// Named because a saved picture keys it out to transparency, and a colour key
+/// that disagreed with what was actually drawn would leave a background in the
+/// file or eat the data.
+pub(super) const FRAME_BACKGROUND: Color = Color::srgb(0.04, 0.04, 0.06);
 
 /// Whether a pointer position, measured from the grid's origin, is over the
 /// grid at all.

@@ -165,6 +165,18 @@ and grows sideways, which keeps cells closer to square than a single row of
 eight would. Input goes to whichever panel the pointer is over, so the views
 pan and zoom independently.
 
+Each frame's header carries `i`, which opens the inspector on it, and `png`,
+which saves a picture of it. The picture is the frame's own viewport cut out of
+a window screenshot, at the size it is on screen, with that frame's chrome
+hidden for the shot so the header, its buttons and the selection outline are not
+burnt into it. Where the frame drew nothing the picture is transparent: the
+window's own alpha carries brightness rather than opacity when HDR is on, so the
+colour the frame clears to is keyed out instead — which cuts hard, leaving a
+dark fringe on antialiased edges. Files go to `screenshots/`, named after the
+dataset and the moment, and the frame says where its last one went. The encode
+runs on a task, since several megapixels of PNG is enough work to freeze the
+window if done where the pixels arrive.
+
 The `+` in a panel's corner duplicates it, and the `x` closes it. Closing
 renumbers the remaining frames so the grid stays contiguous. The last frame can
 be closed too: the window returns to the empty state it started in, examples and
