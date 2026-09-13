@@ -844,6 +844,28 @@ mod tests {
     }
 }
 
+/// Rebuild when this source's colouring or filters change.
+///
+/// Colouring and filtering both decide what the vertices are, and the raw
+/// columns are not kept after a node is built, so a change means loading those
+/// nodes again. The same trade the image panel makes for its channels.
+///
+/// The properties and the streamer are both components of the source entity, so
+/// this is one query and nothing outside this module needs to know the streamer
+/// exists.
+fn apply_selection(
+    mut commands: Commands,
+    mut streamers: Query<(&CellProperties, &mut PointStreamer), Changed<CellProperties>>,
+) {
+    for (properties, mut streamer) in &mut streamers {
+        let selection = properties.selection();
+        if streamer.selection != selection {
+            streamer.selection = selection;
+            streamer.reset(&mut commands);
+        }
+    }
+}
+
 /// Streams a single Scatterbrain point cloud.
 pub struct PointCloudPlugin {
     /// Shown in the overlay and in listings. Passed in because a dataset's own
@@ -862,6 +884,7 @@ impl Plugin for PointCloudSystems {
         app.add_systems(
             Update,
             (
+                apply_selection,
                 select_nodes,
                 spawn_node_tasks,
                 collect_node_tasks,

@@ -65,10 +65,13 @@ pub struct TileKey {
     pub tx: u64,
 }
 
-/// Marks a spawned tile sprite, carrying which tile it draws so that
-/// visibility can follow the active level.
+/// Marks a spawned tile sprite.
+///
+/// Which tile it draws is not recorded here: the streamer's own slots say that,
+/// and reading it from there is what keeps one image's visibility from reaching
+/// another image's tiles.
 #[derive(Component)]
-pub struct Tile(pub TileKey);
+pub struct Tile;
 
 struct Slot {
     state: SlotState,
@@ -143,7 +146,7 @@ impl DecoderCache {
     }
 }
 
-#[derive(Resource)]
+#[derive(Component)]
 pub struct TileStreamer {
     /// The source entity this streamer serves. Panels showing it are the ones
     /// whose views drive loading.
@@ -229,293 +232,299 @@ impl TileStreamer {
 
 /// Work out the visible world rectangle and queue the tiles that cover it.
 pub fn select_tiles(
-    mut streamer: ResMut<TileStreamer>,
+    mut streamers: Query<&mut TileStreamer>,
     panels: Query<(&Camera, &GlobalTransform, &Projection, &ShowsSource)>,
 ) {
-    let dataset = streamer.dataset.clone();
-    let mut wanted = Vec::new();
-    let mut seen = HashSet::new();
-    // The finest level any panel is asking for. Visibility is driven from this
-    // so that a tile one panel needs is never hidden on behalf of another.
-    let mut active = dataset.levels.len().saturating_sub(1);
+    for mut streamer in &mut streamers {
+        let dataset = streamer.dataset.clone();
+        let mut wanted = Vec::new();
+        let mut seen = HashSet::new();
+        // The finest level any panel is asking for. Visibility is driven from this
+        // so that a tile one panel needs is never hidden on behalf of another.
+        let mut active = dataset.levels.len().saturating_sub(1);
 
-    // Every panel of this kind draws the same entities, so the resident set is
-    // the union of what each of them needs. A duplicated panel zoomed somewhere
-    // else therefore pulls in its own tiles.
-    let source = streamer.source;
-    for (camera, transform, projection, _) in
-        panels.iter().filter(|(_, _, _, shows)| shows.0 == source)
-    {
-        let Projection::Orthographic(ortho) = projection else {
-            continue;
-        };
-        let Some(viewport) = camera.logical_viewport_size() else {
-            continue;
-        };
-
-        let centre = transform.translation().truncate();
-        let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
-        // A margin keeps tiles just off screen ready before they are panned into.
-        let margin = half * 0.15;
-        let min = centre - half - margin;
-        let max = centre + half + margin;
-
-        let units_per_px = ortho.area.width() / viewport.x.max(1.0);
-        let panel_active = dataset.level_for(units_per_px);
-        active = active.min(panel_active);
-
-        // Coarsest first so the cheap, fast tiles are requested ahead of fine ones.
-        for level_index in (panel_active..dataset.levels.len()).rev() {
-            let level = &dataset.levels[level_index];
-            let scale_x = level.scale_x as f32;
-            let scale_y = level.scale_y as f32;
-            if scale_x <= 0.0 || scale_y <= 0.0 {
+        // Every panel of this kind draws the same entities, so the resident set is
+        // the union of what each of them needs. A duplicated panel zoomed somewhere
+        // else therefore pulls in its own tiles.
+        let source = streamer.source;
+        for (camera, transform, projection, _) in
+            panels.iter().filter(|(_, _, _, shows)| shows.0 == source)
+        {
+            let Projection::Orthographic(ortho) = projection else {
                 continue;
-            }
+            };
+            let Some(viewport) = camera.logical_viewport_size() else {
+                continue;
+            };
 
-            // World rect -> level pixels -> tile indices. World y runs downward in
-            // image space but upward in Bevy, hence the negation.
-            let px_x0 = (min.x - level.origin_x as f32) / scale_x;
-            let px_x1 = (max.x - level.origin_x as f32) / scale_x;
-            let px_y0 = (-max.y - level.origin_y as f32) / scale_y;
-            let px_y1 = (-min.y - level.origin_y as f32) / scale_y;
+            let centre = transform.translation().truncate();
+            let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
+            // A margin keeps tiles just off screen ready before they are panned into.
+            let margin = half * 0.15;
+            let min = centre - half - margin;
+            let max = centre + half + margin;
 
-            let tx0 = (px_x0 / level.tile_px as f32).floor().max(0.0) as u64;
-            let ty0 = (px_y0 / level.tile_px as f32).floor().max(0.0) as u64;
-            let tx1 = (px_x1 / level.tile_px as f32).ceil().max(0.0) as u64;
-            let ty1 = (px_y1 / level.tile_px as f32).ceil().max(0.0) as u64;
+            let units_per_px = ortho.area.width() / viewport.x.max(1.0);
+            let panel_active = dataset.level_for(units_per_px);
+            active = active.min(panel_active);
 
-            // Within a level, ask for the tiles nearest the middle of the view
-            // first: on a fast pan or zoom those are what the eye lands on, and
-            // the outer ones are the likeliest to be abandoned.
-            let mut level_tiles: Vec<(u64, TileKey)> = Vec::new();
-            for ty in ty0..ty1.min(level.tiles_y) {
-                for tx in tx0..tx1.min(level.tiles_x) {
-                    let key = TileKey {
-                        level: level_index,
-                        ty,
-                        tx,
-                    };
-                    let Some((wx0, wy0, wx1, wy1)) = level.tile_world_rect(ty, tx) else {
-                        continue;
-                    };
-                    let mid = Vec2::new((wx0 + wx1) * 0.5, -(wy0 + wy1) * 0.5);
-                    level_tiles.push((mid.distance_squared(centre) as u64, key));
+            // Coarsest first so the cheap, fast tiles are requested ahead of fine ones.
+            for level_index in (panel_active..dataset.levels.len()).rev() {
+                let level = &dataset.levels[level_index];
+                let scale_x = level.scale_x as f32;
+                let scale_y = level.scale_y as f32;
+                if scale_x <= 0.0 || scale_y <= 0.0 {
+                    continue;
                 }
+
+                // World rect -> level pixels -> tile indices. World y runs downward in
+                // image space but upward in Bevy, hence the negation.
+                let px_x0 = (min.x - level.origin_x as f32) / scale_x;
+                let px_x1 = (max.x - level.origin_x as f32) / scale_x;
+                let px_y0 = (-max.y - level.origin_y as f32) / scale_y;
+                let px_y1 = (-min.y - level.origin_y as f32) / scale_y;
+
+                let tx0 = (px_x0 / level.tile_px as f32).floor().max(0.0) as u64;
+                let ty0 = (px_y0 / level.tile_px as f32).floor().max(0.0) as u64;
+                let tx1 = (px_x1 / level.tile_px as f32).ceil().max(0.0) as u64;
+                let ty1 = (px_y1 / level.tile_px as f32).ceil().max(0.0) as u64;
+
+                // Within a level, ask for the tiles nearest the middle of the view
+                // first: on a fast pan or zoom those are what the eye lands on, and
+                // the outer ones are the likeliest to be abandoned.
+                let mut level_tiles: Vec<(u64, TileKey)> = Vec::new();
+                for ty in ty0..ty1.min(level.tiles_y) {
+                    for tx in tx0..tx1.min(level.tiles_x) {
+                        let key = TileKey {
+                            level: level_index,
+                            ty,
+                            tx,
+                        };
+                        let Some((wx0, wy0, wx1, wy1)) = level.tile_world_rect(ty, tx) else {
+                            continue;
+                        };
+                        let mid = Vec2::new((wx0 + wx1) * 0.5, -(wy0 + wy1) * 0.5);
+                        level_tiles.push((mid.distance_squared(centre) as u64, key));
+                    }
+                }
+                level_tiles.sort_unstable_by_key(|(distance, _)| *distance);
+                wanted.extend(
+                    level_tiles
+                        .into_iter()
+                        .map(|(_, key)| key)
+                        .filter(|key| seen.insert(*key)),
+                );
             }
-            level_tiles.sort_unstable_by_key(|(distance, _)| *distance);
-            wanted.extend(
-                level_tiles
-                    .into_iter()
-                    .map(|(_, key)| key)
-                    .filter(|key| seen.insert(*key)),
-            );
         }
-    }
 
-    streamer.active_level = active;
+        streamer.active_level = active;
 
-    // Touch everything wanted so eviction can tell live tiles from stale ones.
-    streamer.frame = streamer.frame.wrapping_add(1);
-    let frame = streamer.frame;
-    for key in &wanted {
-        if let Some(slot) = streamer.slots.get_mut(key) {
-            slot.last_wanted = frame;
+        // Touch everything wanted so eviction can tell live tiles from stale ones.
+        streamer.frame = streamer.frame.wrapping_add(1);
+        let frame = streamer.frame;
+        for key in &wanted {
+            if let Some(slot) = streamer.slots.get_mut(key) {
+                slot.last_wanted = frame;
+            }
         }
-    }
 
-    // Publish for the workers, so queued tasks can check whether they still
-    // matter before doing any network work.
-    if let Ok(mut shared) = streamer.wanted_shared.write() {
-        shared.clear();
-        shared.extend(wanted.iter().copied());
-    }
+        // Publish for the workers, so queued tasks can check whether they still
+        // matter before doing any network work.
+        if let Ok(mut shared) = streamer.wanted_shared.write() {
+            shared.clear();
+            shared.extend(wanted.iter().copied());
+        }
 
-    streamer.wanted = wanted;
+        streamer.wanted = wanted;
+    }
 }
 
 /// Start tasks for wanted tiles that are not loaded yet.
-pub fn spawn_tile_tasks(mut streamer: ResMut<TileStreamer>) {
-    let pool = AsyncComputeTaskPool::get();
-    let dataset = streamer.dataset.clone();
-    let decoders = streamer.decoders.clone();
-    let z = streamer.z_slice;
-    let channels = streamer.channels.clone();
+pub fn spawn_tile_tasks(mut streamers: Query<&mut TileStreamer>) {
+    for mut streamer in &mut streamers {
+        let pool = AsyncComputeTaskPool::get();
+        let dataset = streamer.dataset.clone();
+        let decoders = streamer.decoders.clone();
+        let z = streamer.z_slice;
+        let channels = streamer.channels.clone();
 
-    let shared = streamer.wanted_shared.clone();
-    let wanted = std::mem::take(&mut streamer.wanted);
-    for key in &wanted {
-        if streamer.in_flight >= MAX_IN_FLIGHT {
-            break;
+        let shared = streamer.wanted_shared.clone();
+        let wanted = std::mem::take(&mut streamer.wanted);
+        for key in &wanted {
+            if streamer.in_flight >= MAX_IN_FLIGHT {
+                break;
+            }
+            if streamer.slots.contains_key(key) {
+                continue;
+            }
+
+            let dataset = dataset.clone();
+            let decoders = decoders.clone();
+            let channels = channels.clone();
+            let shared = shared.clone();
+            let key = *key;
+            let task = pool.spawn(async move {
+                // A blocking read cannot be interrupted once it is under way, so
+                // the useful moment to give up is before starting. Tasks queued
+                // behind a busy pool reach here long after being spawned, by which
+                // point a pan or zoom may have made them irrelevant.
+                let still_wanted = |shared: &RwLock<HashSet<TileKey>>| {
+                    shared.read().map(|w| w.contains(&key)).unwrap_or(true)
+                };
+                if !still_wanted(&shared) {
+                    return TileOutcome::Cancelled;
+                }
+
+                let level = &dataset.levels[key.level];
+                let shard = level.shard_of(&dataset.layout, key.ty, key.tx, z);
+                let decoder = match decoders.get(&dataset, (key.level, shard)) {
+                    Ok(d) => d,
+                    Err(e) => return TileOutcome::Failed(e),
+                };
+
+                // Fetching a shard index is itself a round trip, so check again
+                // before paying for the tile body.
+                if !still_wanted(&shared) {
+                    return TileOutcome::Cancelled;
+                }
+                match read_tile(
+                    &dataset,
+                    level,
+                    &channels,
+                    decoder.as_ref(),
+                    key.ty,
+                    key.tx,
+                    z,
+                ) {
+                    Ok(Some(pixels)) => TileOutcome::Ready(pixels),
+                    Ok(None) => TileOutcome::Blank,
+                    Err(e) => TileOutcome::Failed(e),
+                }
+            });
+
+            let frame = streamer.frame;
+            streamer.slots.insert(
+                key,
+                Slot {
+                    state: SlotState::Loading(task),
+                    last_wanted: frame,
+                },
+            );
+            streamer.in_flight += 1;
         }
-        if streamer.slots.contains_key(key) {
-            continue;
-        }
-
-        let dataset = dataset.clone();
-        let decoders = decoders.clone();
-        let channels = channels.clone();
-        let shared = shared.clone();
-        let key = *key;
-        let task = pool.spawn(async move {
-            // A blocking read cannot be interrupted once it is under way, so
-            // the useful moment to give up is before starting. Tasks queued
-            // behind a busy pool reach here long after being spawned, by which
-            // point a pan or zoom may have made them irrelevant.
-            let still_wanted = |shared: &RwLock<HashSet<TileKey>>| {
-                shared.read().map(|w| w.contains(&key)).unwrap_or(true)
-            };
-            if !still_wanted(&shared) {
-                return TileOutcome::Cancelled;
-            }
-
-            let level = &dataset.levels[key.level];
-            let shard = level.shard_of(&dataset.layout, key.ty, key.tx, z);
-            let decoder = match decoders.get(&dataset, (key.level, shard)) {
-                Ok(d) => d,
-                Err(e) => return TileOutcome::Failed(e),
-            };
-
-            // Fetching a shard index is itself a round trip, so check again
-            // before paying for the tile body.
-            if !still_wanted(&shared) {
-                return TileOutcome::Cancelled;
-            }
-            match read_tile(
-                &dataset,
-                level,
-                &channels,
-                decoder.as_ref(),
-                key.ty,
-                key.tx,
-                z,
-            ) {
-                Ok(Some(pixels)) => TileOutcome::Ready(pixels),
-                Ok(None) => TileOutcome::Blank,
-                Err(e) => TileOutcome::Failed(e),
-            }
-        });
-
-        let frame = streamer.frame;
-        streamer.slots.insert(
-            key,
-            Slot {
-                state: SlotState::Loading(task),
-                last_wanted: frame,
-            },
-        );
-        streamer.in_flight += 1;
+        streamer.wanted = wanted;
     }
-    streamer.wanted = wanted;
 }
 
 /// Turn finished tasks into sprites.
 pub fn collect_tile_tasks(
     mut commands: Commands,
-    mut streamer: ResMut<TileStreamer>,
+    mut streamers: Query<&mut TileStreamer>,
     mut images: ResMut<Assets<Image>>,
     sources: Query<&source::DataSource>,
 ) {
-    let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
-        return;
-    };
-    let dataset = streamer.dataset.clone();
-    let level_count = dataset.levels.len();
-    let mut finished = Vec::new();
-
-    for (key, slot) in streamer.slots.iter_mut() {
-        let SlotState::Loading(task) = &mut slot.state else {
+    for mut streamer in &mut streamers {
+        let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
             continue;
         };
-        if let Some(outcome) = block_on(poll_once(task)) {
-            finished.push((*key, outcome));
-        }
-    }
+        let dataset = streamer.dataset.clone();
+        let level_count = dataset.levels.len();
+        let mut finished = Vec::new();
 
-    for (key, outcome) in finished {
-        streamer.in_flight = streamer.in_flight.saturating_sub(1);
-
-        if matches!(outcome, TileOutcome::Cancelled) {
-            // Forget it entirely: it did no work, and dropping the slot lets it
-            // be requested again if the view comes back.
-            streamer.slots.remove(&key);
-            streamer.cancelled += 1;
-            continue;
+        for (key, slot) in streamer.slots.iter_mut() {
+            let SlotState::Loading(task) = &mut slot.state else {
+                continue;
+            };
+            if let Some(outcome) = block_on(poll_once(task)) {
+                finished.push((*key, outcome));
+            }
         }
 
-        let level = &dataset.levels[key.level];
+        for (key, outcome) in finished {
+            streamer.in_flight = streamer.in_flight.saturating_sub(1);
 
-        let state = match outcome {
-            TileOutcome::Ready(pixels) => {
-                let Some((x0, y0, x1, y1)) = level.tile_world_rect(key.ty, key.tx) else {
-                    let frame = streamer.frame;
-                    streamer.slots.insert(
-                        key,
-                        Slot {
-                            state: SlotState::Blank,
-                            last_wanted: frame,
+            if matches!(outcome, TileOutcome::Cancelled) {
+                // Forget it entirely: it did no work, and dropping the slot lets it
+                // be requested again if the view comes back.
+                streamer.slots.remove(&key);
+                streamer.cancelled += 1;
+                continue;
+            }
+
+            let level = &dataset.levels[key.level];
+
+            let state = match outcome {
+                TileOutcome::Ready(pixels) => {
+                    let Some((x0, y0, x1, y1)) = level.tile_world_rect(key.ty, key.tx) else {
+                        let frame = streamer.frame;
+                        streamer.slots.insert(
+                            key,
+                            Slot {
+                                state: SlotState::Blank,
+                                last_wanted: frame,
+                            },
+                        );
+                        continue;
+                    };
+                    let bytes = pixels.rgba.len();
+
+                    let mut image = Image::new(
+                        Extent3d {
+                            width: pixels.width,
+                            height: pixels.height,
+                            depth_or_array_layers: 1,
                         },
+                        TextureDimension::D2,
+                        pixels.rgba,
+                        TextureFormat::Rgba8UnormSrgb,
+                        RenderAssetUsages::RENDER_WORLD,
                     );
-                    continue;
-                };
-                let bytes = pixels.rgba.len();
+                    // Nearest magnification keeps individual pixels crisp past 1:1;
+                    // linear minification avoids shimmer when zoomed out. Clamping
+                    // stops neighbouring tiles bleeding across their seams.
+                    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                        mag_filter: ImageFilterMode::Nearest,
+                        min_filter: ImageFilterMode::Linear,
+                        mipmap_filter: ImageFilterMode::Linear,
+                        address_mode_u: ImageAddressMode::ClampToEdge,
+                        address_mode_v: ImageAddressMode::ClampToEdge,
+                        ..default()
+                    });
 
-                let mut image = Image::new(
-                    Extent3d {
-                        width: pixels.width,
-                        height: pixels.height,
-                        depth_or_array_layers: 1,
-                    },
-                    TextureDimension::D2,
-                    pixels.rgba,
-                    TextureFormat::Rgba8UnormSrgb,
-                    RenderAssetUsages::RENDER_WORLD,
-                );
-                // Nearest magnification keeps individual pixels crisp past 1:1;
-                // linear minification avoids shimmer when zoomed out. Clamping
-                // stops neighbouring tiles bleeding across their seams.
-                image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-                    mag_filter: ImageFilterMode::Nearest,
-                    min_filter: ImageFilterMode::Linear,
-                    mipmap_filter: ImageFilterMode::Linear,
-                    address_mode_u: ImageAddressMode::ClampToEdge,
-                    address_mode_v: ImageAddressMode::ClampToEdge,
-                    ..default()
-                });
-
-                // Finer levels sit on top of coarser ones.
-                let z = (level_count - key.level) as f32;
-                let entity = commands
-                    .spawn((
-                        Sprite {
-                            image: images.add(image),
-                            custom_size: Some(Vec2::new(x1 - x0, y1 - y0)),
-                            ..default()
-                        },
-                        Anchor::TOP_LEFT,
-                        Transform::from_xyz(x0, -y0, z),
-                        RenderLayers::layer(layer),
-                        Tile(key),
-                    ))
-                    .id();
-                streamer.resident_bytes += bytes;
-                SlotState::Ready { entity, bytes }
-            }
-            TileOutcome::Blank => SlotState::Blank,
-            TileOutcome::Failed(e) => {
-                warn!("tile {:?}: {e}", key);
-                SlotState::Failed
-            }
-            TileOutcome::Cancelled => unreachable!("handled above"),
-        };
-        let frame = streamer.frame;
-        streamer.slots.insert(
-            key,
-            Slot {
-                state,
-                last_wanted: frame,
-            },
-        );
+                    // Finer levels sit on top of coarser ones.
+                    let z = (level_count - key.level) as f32;
+                    let entity = commands
+                        .spawn((
+                            Sprite {
+                                image: images.add(image),
+                                custom_size: Some(Vec2::new(x1 - x0, y1 - y0)),
+                                ..default()
+                            },
+                            Anchor::TOP_LEFT,
+                            Transform::from_xyz(x0, -y0, z),
+                            RenderLayers::layer(layer),
+                            Tile,
+                        ))
+                        .id();
+                    streamer.resident_bytes += bytes;
+                    SlotState::Ready { entity, bytes }
+                }
+                TileOutcome::Blank => SlotState::Blank,
+                TileOutcome::Failed(e) => {
+                    warn!("tile {:?}: {e}", key);
+                    SlotState::Failed
+                }
+                TileOutcome::Cancelled => unreachable!("handled above"),
+            };
+            let frame = streamer.frame;
+            streamer.slots.insert(
+                key,
+                Slot {
+                    state,
+                    last_wanted: frame,
+                },
+            );
+        }
     }
 }
 
@@ -527,64 +536,66 @@ pub fn collect_tile_tasks(
 /// ones covering the surrounding area are exactly what is needed again a moment
 /// later when zooming back out. Holding them until memory runs short makes that
 /// round trip free.
-pub fn evict_tiles(mut commands: Commands, mut streamer: ResMut<TileStreamer>) {
-    let wanted: HashSet<TileKey> = streamer.wanted.iter().copied().collect();
-    if wanted.is_empty() {
-        return;
-    }
+pub fn evict_tiles(mut commands: Commands, mut streamers: Query<&mut TileStreamer>) {
+    for mut streamer in &mut streamers {
+        let wanted: HashSet<TileKey> = streamer.wanted.iter().copied().collect();
+        if wanted.is_empty() {
+            continue;
+        }
 
-    let candidates: Vec<Candidate> = streamer
-        .slots
-        .iter()
-        .filter(|(key, _)| !wanted.contains(*key))
-        .filter_map(|(key, slot)| match slot.state {
-            SlotState::Ready { bytes, .. } => Some(Candidate {
-                key: *key,
-                last_wanted: slot.last_wanted,
-                bytes,
-            }),
-            _ => None,
-        })
-        .collect();
+        let candidates: Vec<Candidate> = streamer
+            .slots
+            .iter()
+            .filter(|(key, _)| !wanted.contains(*key))
+            .filter_map(|(key, slot)| match slot.state {
+                SlotState::Ready { bytes, .. } => Some(Candidate {
+                    key: *key,
+                    last_wanted: slot.last_wanted,
+                    bytes,
+                }),
+                _ => None,
+            })
+            .collect();
 
-    for key in plan_eviction(candidates, streamer.resident_bytes, streamer.budget_bytes) {
-        if let Some(slot) = streamer.slots.remove(&key) {
-            if let SlotState::Ready { entity, bytes } = slot.state {
-                commands.entity(entity).despawn();
-                streamer.resident_bytes = streamer.resident_bytes.saturating_sub(bytes);
+        for key in plan_eviction(candidates, streamer.resident_bytes, streamer.budget_bytes) {
+            if let Some(slot) = streamer.slots.remove(&key) {
+                if let SlotState::Ready { entity, bytes } = slot.state {
+                    commands.entity(entity).despawn();
+                    streamer.resident_bytes = streamer.resident_bytes.saturating_sub(bytes);
+                }
             }
         }
-    }
 
-    // Blank and failed slots cost no texture memory, but should not grow without
-    // bound on a long pan across a large image.
-    let empty_slots = streamer
-        .slots
-        .values()
-        .filter(|slot| !slot.state.holds_texture())
-        .count();
-    if empty_slots > MAX_EMPTY_SLOTS {
-        let cutoff = streamer.frame.saturating_sub(600);
-        streamer.slots.retain(|key, slot| {
-            slot.state.holds_texture()
-                || wanted.contains(key)
-                || slot.last_wanted > cutoff
-                || matches!(slot.state, SlotState::Loading(_))
-        });
-    }
+        // Blank and failed slots cost no texture memory, but should not grow without
+        // bound on a long pan across a large image.
+        let empty_slots = streamer
+            .slots
+            .values()
+            .filter(|slot| !slot.state.holds_texture())
+            .count();
+        if empty_slots > MAX_EMPTY_SLOTS {
+            let cutoff = streamer.frame.saturating_sub(600);
+            streamer.slots.retain(|key, slot| {
+                slot.state.holds_texture()
+                    || wanted.contains(key)
+                    || slot.last_wanted > cutoff
+                    || matches!(slot.state, SlotState::Loading(_))
+            });
+        }
 
-    let dataset = streamer.dataset.clone();
-    let keep: HashSet<ShardKey> = wanted
-        .iter()
-        .map(|key| {
-            let level = &dataset.levels[key.level];
-            (
-                key.level,
-                level.shard_of(&dataset.layout, key.ty, key.tx, streamer.z_slice),
-            )
-        })
-        .collect();
-    streamer.decoders.retain(&keep);
+        let dataset = streamer.dataset.clone();
+        let keep: HashSet<ShardKey> = wanted
+            .iter()
+            .map(|key| {
+                let level = &dataset.levels[key.level];
+                (
+                    key.level,
+                    level.shard_of(&dataset.layout, key.ty, key.tx, streamer.z_slice),
+                )
+            })
+            .collect();
+        streamer.decoders.retain(&keep);
+    }
 }
 
 /// A resident tile considered for eviction.
@@ -626,18 +637,28 @@ fn tile_visible(level: usize, active_level: usize) -> bool {
 /// shimmering as it minifies. Hiding keeps it resident and instantly available
 /// without letting it paint.
 pub fn update_tile_visibility(
-    streamer: Res<TileStreamer>,
-    mut tiles: Query<(&Tile, &mut Visibility)>,
+    streamers: Query<&TileStreamer>,
+    mut tiles: Query<&mut Visibility, With<Tile>>,
 ) {
-    let active = streamer.active_level;
-    for (tile, mut visibility) in &mut tiles {
-        let wanted = if tile_visible(tile.0.level, active) {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
-        if *visibility != wanted {
-            *visibility = wanted;
+    // Walked per streamer rather than over every tile in the world, so one
+    // image's active level cannot hide another image's tiles.
+    for streamer in &streamers {
+        let active = streamer.active_level;
+        for (key, slot) in &streamer.slots {
+            let SlotState::Ready { entity, .. } = slot.state else {
+                continue;
+            };
+            let Ok(mut visibility) = tiles.get_mut(entity) else {
+                continue;
+            };
+            let wanted = if tile_visible(key.level, active) {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            if *visibility != wanted {
+                *visibility = wanted;
+            }
         }
     }
 }
@@ -757,25 +778,26 @@ impl Plugin for ImagePlugin {
         streamer.z_slice = self.z_slice;
         streamer.budget_bytes = self.budget_bytes;
 
-        app.insert_resource(streamer)
-            .add_systems(
-                Update,
-                (
-                    select_tiles,
-                    spawn_tile_tasks,
-                    collect_tile_tasks,
-                    evict_tiles,
-                    update_tile_visibility,
-                    toggle_channels,
-                    report_status,
-                )
-                    .chain()
-                    .in_set(Stage::Sources),
+        app.world_mut().entity_mut(source).insert(streamer);
+
+        app.add_systems(
+            Update,
+            (
+                select_tiles,
+                spawn_tile_tasks,
+                collect_tile_tasks,
+                evict_tiles,
+                update_tile_visibility,
+                toggle_channels,
+                report_status,
             )
-            .add_systems(
-                Update,
-                resolve_hover.in_set(crate::source::hover::HoverProbing),
-            );
+                .chain()
+                .in_set(Stage::Sources),
+        )
+        .add_systems(
+            Update,
+            resolve_hover.in_set(crate::source::hover::HoverProbing),
+        );
     }
 }
 
@@ -785,20 +807,22 @@ impl Plugin for ImagePlugin {
 /// the full-resolution pixel under the pointer, and the tile that covers it at
 /// the level this frame is drawing.
 fn resolve_hover(
-    streamer: Res<TileStreamer>,
+    streamers: Query<&TileStreamer>,
     probes: Query<&HoverProbe>,
     mut infos: Query<&mut HoverInfo>,
 ) {
-    let Ok(mut info) = infos.get_mut(streamer.source) else {
-        return;
-    };
-    let next = probes
-        .get(streamer.source)
-        .ok()
-        .and_then(|probe| describe(&streamer, probe))
-        .unwrap_or_default();
-    if *info != next {
-        *info = next;
+    for streamer in &streamers {
+        let Ok(mut info) = infos.get_mut(streamer.source) else {
+            continue;
+        };
+        let next = probes
+            .get(streamer.source)
+            .ok()
+            .and_then(|probe| describe(streamer, probe))
+            .unwrap_or_default();
+        if *info != next {
+            *info = next;
+        }
     }
 }
 
@@ -842,75 +866,79 @@ fn pixel_in(level: &crate::formats::image::dataset::Level, world: Vec2) -> Optio
 fn toggle_channels(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
-    mut streamer: ResMut<TileStreamer>,
+    mut streamers: Query<&mut TileStreamer>,
 ) {
-    const DIGITS: [KeyCode; 9] = [
-        KeyCode::Digit1,
-        KeyCode::Digit2,
-        KeyCode::Digit3,
-        KeyCode::Digit4,
-        KeyCode::Digit5,
-        KeyCode::Digit6,
-        KeyCode::Digit7,
-        KeyCode::Digit8,
-        KeyCode::Digit9,
-    ];
+    for mut streamer in &mut streamers {
+        const DIGITS: [KeyCode; 9] = [
+            KeyCode::Digit1,
+            KeyCode::Digit2,
+            KeyCode::Digit3,
+            KeyCode::Digit4,
+            KeyCode::Digit5,
+            KeyCode::Digit6,
+            KeyCode::Digit7,
+            KeyCode::Digit8,
+            KeyCode::Digit9,
+        ];
 
-    let Some(index) = DIGITS
-        .iter()
-        .position(|key| keys.just_pressed(*key))
-        .filter(|i| *i < streamer.channels.len())
-    else {
-        return;
-    };
+        let Some(index) = DIGITS
+            .iter()
+            .position(|key| keys.just_pressed(*key))
+            .filter(|i| *i < streamer.channels.len())
+        else {
+            continue;
+        };
 
-    streamer.channels[index].active = !streamer.channels[index].active;
-    streamer.reset(&mut commands);
+        streamer.channels[index].active = !streamer.channels[index].active;
+        streamer.reset(&mut commands);
+    }
 }
 
-fn report_status(streamer: Res<TileStreamer>, mut sources: Query<&mut SourceStatus>) {
-    let Ok(mut status) = sources.get_mut(streamer.source) else {
-        return;
-    };
-    let dataset = streamer.dataset();
-    let level = &dataset.levels[streamer.active_level];
+fn report_status(streamers: Query<&TileStreamer>, mut sources: Query<&mut SourceStatus>) {
+    for streamer in &streamers {
+        let Ok(mut status) = sources.get_mut(streamer.source) else {
+            continue;
+        };
+        let dataset = streamer.dataset();
+        let level = &dataset.levels[streamer.active_level];
 
-    let channels = streamer
-        .channels
-        .iter()
-        .enumerate()
-        .map(|(i, c)| {
-            let mark = if c.active { '*' } else { ' ' };
-            format!("{}{}:{}", mark, i + 1, c.label)
-        })
-        .collect::<Vec<_>>()
-        .join("  ");
+        let channels = streamer
+            .channels
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let mark = if c.active { '*' } else { ' ' };
+                format!("{}{}:{}", mark, i + 1, c.label)
+            })
+            .collect::<Vec<_>>()
+            .join("  ");
 
-    let mut notes = String::new();
-    if streamer.cancelled > 0 {
-        notes.push_str(&format!(", {} cancelled", streamer.cancelled));
-    }
-    let failed = streamer.failed();
-    if failed > 0 {
-        notes.push_str(&format!(", {failed} failed"));
-    }
+        let mut notes = String::new();
+        if streamer.cancelled > 0 {
+            notes.push_str(&format!(", {} cancelled", streamer.cancelled));
+        }
+        let failed = streamer.failed();
+        if failed > 0 {
+            notes.push_str(&format!(", {failed} failed"));
+        }
 
-    status.0 = format!(
-        "level {}/{}  ({} x {} px, {:.4} {}/px)\n\
+        status.0 = format!(
+            "level {}/{}  ({} x {} px, {:.4} {}/px)\n\
          tiles {} cached ({} MB / {} MB), {} loading{}\n\
          channels  {}\n\
          1-9 toggle channel",
-        streamer.active_level,
-        dataset.levels.len() - 1,
-        level.width,
-        level.height,
-        level.scale_x,
-        dataset.unit,
-        streamer.loaded(),
-        streamer.resident_bytes() / (1024 * 1024),
-        streamer.budget_bytes / (1024 * 1024),
-        streamer.in_flight,
-        notes,
-        channels,
-    );
+            streamer.active_level,
+            dataset.levels.len() - 1,
+            level.width,
+            level.height,
+            level.scale_x,
+            dataset.unit,
+            streamer.loaded(),
+            streamer.resident_bytes() / (1024 * 1024),
+            streamer.budget_bytes / (1024 * 1024),
+            streamer.in_flight,
+            notes,
+            channels,
+        );
+    }
 }

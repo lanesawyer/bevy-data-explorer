@@ -317,39 +317,6 @@ pub fn record_open_sections(
     }
 }
 
-/// Push each source's selection into the streamer drawing it, rebuilding the
-/// resident points when it changes.
-///
-/// Colouring and filtering both decide what the vertices are, and the raw
-/// columns are not kept after a node is built, so a change means loading those
-/// nodes again. The same trade the image panel makes for its channels.
-pub fn apply_selection(
-    mut commands: Commands,
-    changed: Query<(Entity, &CellProperties), Changed<CellProperties>>,
-    mut points: Query<&mut crate::formats::pointcloud::PointStreamer>,
-    mut slices: Option<ResMut<crate::formats::slices::SliceStreamer>>,
-) {
-    for (entity, properties) in &changed {
-        let selection = properties.selection();
-
-        // The streamer lives on the source entity, so the cloud whose
-        // properties changed is the one to rebuild.
-        if let Ok(mut streamer) = points.get_mut(entity)
-            && streamer.selection != selection
-        {
-            streamer.selection = selection.clone();
-            streamer.reset(&mut commands);
-        }
-        if let Some(streamer) = slices.as_mut()
-            && streamer.source == entity
-            && streamer.selection != selection
-        {
-            streamer.selection = selection.clone();
-            streamer.reset(&mut commands);
-        }
-    }
-}
-
 /// Height of the histogram drawn above a numeric range.
 const HISTOGRAM_PX: f32 = 44.0;
 const RANGE_TRACK_PX: f32 = 6.0;
@@ -875,7 +842,6 @@ impl Plugin for CellPanelPlugin {
                     .chain()
                     .in_set(Stage::ControlsPlace),
             )
-            .add_systems(Update, apply_selection.in_set(Stage::ControlsApply))
             .add_systems(Startup, spawn_cell_panel.in_set(Boot::DockContent));
     }
 }

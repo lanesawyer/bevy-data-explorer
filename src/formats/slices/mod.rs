@@ -59,8 +59,13 @@ pub struct SliceNode {
     pub node: usize,
 }
 
+/// Marks a spawned slice node.
+///
+/// Which node it draws is not recorded here: the streamer's own slots say that,
+/// and reading it from there is what keeps one sectioned source from laying out
+/// another's nodes.
 #[derive(Component)]
-pub struct SliceNodeTag(pub SliceNode);
+pub struct SliceNodeTag;
 
 enum Slot {
     Loading(Task<NodeOutcome>),
@@ -81,7 +86,7 @@ pub struct SliceHit {
     pub category: Option<u16>,
 }
 
-#[derive(Resource)]
+#[derive(Component)]
 pub struct SliceStreamer {
     /// The source entity this streamer serves.
     pub source: Entity,
@@ -309,208 +314,216 @@ impl SliceStreamer {
 }
 
 /// `G` switches layout; arrows, brackets and page keys step through slices.
-pub fn slice_controls(keys: Res<ButtonInput<KeyCode>>, mut streamer: ResMut<SliceStreamer>) {
-    if keys.just_pressed(KeyCode::KeyG) {
-        streamer.mode = match streamer.mode {
-            SliceMode::Grid => SliceMode::Single,
-            SliceMode::Single => SliceMode::Grid,
-        };
-        streamer.refit = true;
-    }
-
-    let mut delta = 0isize;
-    for (key, step) in [
-        (KeyCode::BracketRight, 1),
-        (KeyCode::BracketLeft, -1),
-        (KeyCode::ArrowRight, 1),
-        (KeyCode::ArrowLeft, -1),
-        (KeyCode::PageDown, 1),
-        (KeyCode::PageUp, -1),
-    ] {
-        if keys.just_pressed(key) {
-            delta += step;
-        }
-    }
-    if delta != 0 {
-        streamer.step(delta);
-        // Stepping in grid mode would be invisible, so show the slice instead.
-        if streamer.mode == SliceMode::Grid {
-            streamer.mode = SliceMode::Single;
+pub fn slice_controls(keys: Res<ButtonInput<KeyCode>>, mut streamers: Query<&mut SliceStreamer>) {
+    for mut streamer in &mut streamers {
+        if keys.just_pressed(KeyCode::KeyG) {
+            streamer.mode = match streamer.mode {
+                SliceMode::Grid => SliceMode::Single,
+                SliceMode::Single => SliceMode::Grid,
+            };
             streamer.refit = true;
+        }
+
+        let mut delta = 0isize;
+        for (key, step) in [
+            (KeyCode::BracketRight, 1),
+            (KeyCode::BracketLeft, -1),
+            (KeyCode::ArrowRight, 1),
+            (KeyCode::ArrowLeft, -1),
+            (KeyCode::PageDown, 1),
+            (KeyCode::PageUp, -1),
+        ] {
+            if keys.just_pressed(key) {
+                delta += step;
+            }
+        }
+        if delta != 0 {
+            streamer.step(delta);
+            // Stepping in grid mode would be invisible, so show the slice instead.
+            if streamer.mode == SliceMode::Grid {
+                streamer.mode = SliceMode::Single;
+                streamer.refit = true;
+            }
         }
     }
 }
 
 /// Decide which slide nodes should be resident.
 pub fn select_slice_nodes(
-    mut streamer: ResMut<SliceStreamer>,
+    mut streamers: Query<&mut SliceStreamer>,
     panels: Query<(&Camera, &GlobalTransform, &Projection, &ShowsSource)>,
 ) {
-    let source = streamer.source;
-    let cloud = streamer.cloud.clone();
-    let mut seen = HashSet::new();
-    // Collected with their depth so the budget can be spent shallowest first.
-    // Walking slide by slide and paying as we went let the early slides spend
-    // it all on their own detail, and the later ones never loaded at all.
-    let mut candidates: Vec<(usize, SliceNode)> = Vec::new();
+    for mut streamer in &mut streamers {
+        let source = streamer.source;
+        let cloud = streamer.cloud.clone();
+        let mut seen = HashSet::new();
+        // Collected with their depth so the budget can be spent shallowest first.
+        // Walking slide by slide and paying as we went let the early slides spend
+        // it all on their own detail, and the later ones never loaded at all.
+        let mut candidates: Vec<(usize, SliceNode)> = Vec::new();
 
-    // Every panel of this kind draws the same entities, so the resident set is
-    // the union of what each of them needs.
-    for (camera, transform, projection, _) in
-        panels.iter().filter(|(_, _, _, shows)| shows.0 == source)
-    {
-        let Projection::Orthographic(ortho) = projection else {
-            continue;
-        };
-        let Some(viewport) = camera.logical_viewport_size() else {
-            continue;
-        };
-
-        let centre = transform.translation().truncate();
-        let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
-        let units_per_px = ortho.area.width() / viewport.x.max(1.0);
-
-        for slide_index in 0..cloud.slides.len() {
-            if !streamer.visible(slide_index) {
+        // Every panel of this kind draws the same entities, so the resident set is
+        // the union of what each of them needs.
+        for (camera, transform, projection, _) in
+            panels.iter().filter(|(_, _, _, shows)| shows.0 == source)
+        {
+            let Projection::Orthographic(ortho) = projection else {
                 continue;
-            }
-            let offset = streamer.offset(slide_index);
-            // Compare in the slide's own coordinates by moving the view rather
-            // than the points, which keeps node bounds usable as they are.
-            let view = Rect {
-                min_x: centre.x - half.x - offset.x,
-                min_y: -(centre.y + half.y - offset.y),
-                max_x: centre.x + half.x - offset.x,
-                max_y: -(centre.y - half.y - offset.y),
+            };
+            let Some(viewport) = camera.logical_viewport_size() else {
+                continue;
             };
 
-            let slide = &cloud.slides[slide_index];
-            // Cull the whole slide before walking it. Zoomed into one cell of a
-            // 53-slice grid, this skips almost every slide outright.
-            if !slide.bounds.intersects(&view) {
-                continue;
-            }
-            let mut queue = vec![0usize];
-            while let Some(node_index) = queue.pop() {
-                let node = &slide.nodes[node_index];
-                if !node.bounds.intersects(&view) {
+            let centre = transform.translation().truncate();
+            let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
+            let units_per_px = ortho.area.width() / viewport.x.max(1.0);
+
+            for slide_index in 0..cloud.slides.len() {
+                if !streamer.visible(slide_index) {
                     continue;
                 }
-                let key = SliceNode {
-                    slide: slide_index,
-                    node: node_index,
+                let offset = streamer.offset(slide_index);
+                // Compare in the slide's own coordinates by moving the view rather
+                // than the points, which keeps node bounds usable as they are.
+                let view = Rect {
+                    min_x: centre.x - half.x - offset.x,
+                    min_y: -(centre.y + half.y - offset.y),
+                    max_x: centre.x + half.x - offset.x,
+                    max_y: -(centre.y - half.y - offset.y),
                 };
-                if seen.insert(key) {
-                    candidates.push((node.depth, key));
-                }
 
-                if node.bounds.width() / units_per_px.max(f32::MIN_POSITIVE) >= SUBDIVIDE_PX {
-                    queue.extend(node.children.iter().copied());
+                let slide = &cloud.slides[slide_index];
+                // Cull the whole slide before walking it. Zoomed into one cell of a
+                // 53-slice grid, this skips almost every slide outright.
+                if !slide.bounds.intersects(&view) {
+                    continue;
+                }
+                let mut queue = vec![0usize];
+                while let Some(node_index) = queue.pop() {
+                    let node = &slide.nodes[node_index];
+                    if !node.bounds.intersects(&view) {
+                        continue;
+                    }
+                    let key = SliceNode {
+                        slide: slide_index,
+                        node: node_index,
+                    };
+                    if seen.insert(key) {
+                        candidates.push((node.depth, key));
+                    }
+
+                    if node.bounds.width() / units_per_px.max(f32::MIN_POSITIVE) >= SUBDIVIDE_PX {
+                        queue.extend(node.children.iter().copied());
+                    }
                 }
             }
         }
-    }
 
-    // Shallowest first, so a budget too small to hold everything gives up
-    // detail rather than dropping whole slices out of the grid.
-    candidates.sort_by_key(|(depth, _)| *depth);
+        // Shallowest first, so a budget too small to hold everything gives up
+        // detail rather than dropping whole slices out of the grid.
+        candidates.sort_by_key(|(depth, _)| *depth);
 
-    let mut budget = streamer.budget;
-    let mut wanted = Vec::with_capacity(candidates.len());
-    for (_, key) in candidates {
-        let count = cloud.slides[key.slide].nodes[key.node].count as usize;
-        if count > budget {
-            continue;
+        let mut budget = streamer.budget;
+        let mut wanted = Vec::with_capacity(candidates.len());
+        for (_, key) in candidates {
+            let count = cloud.slides[key.slide].nodes[key.node].count as usize;
+            if count > budget {
+                continue;
+            }
+            budget -= count;
+            wanted.push(key);
         }
-        budget -= count;
-        wanted.push(key);
-    }
 
-    streamer.wanted = wanted;
+        streamer.wanted = wanted;
+    }
 }
 
-pub fn spawn_slice_tasks(mut streamer: ResMut<SliceStreamer>) {
-    let pool = AsyncComputeTaskPool::get();
-    let cloud = streamer.cloud.clone();
-    let selection = streamer.selection.clone();
-    let wanted = std::mem::take(&mut streamer.wanted);
+pub fn spawn_slice_tasks(mut streamers: Query<&mut SliceStreamer>) {
+    for mut streamer in &mut streamers {
+        let pool = AsyncComputeTaskPool::get();
+        let cloud = streamer.cloud.clone();
+        let selection = streamer.selection.clone();
+        let wanted = std::mem::take(&mut streamer.wanted);
 
-    for &key in &wanted {
-        if streamer.in_flight >= MAX_IN_FLIGHT {
-            break;
-        }
-        if streamer.slots.contains_key(&key) {
-            continue;
-        }
-
-        let cloud = cloud.clone();
-        let selection = selection.clone();
-        let task = pool.spawn(async move {
-            let node = &cloud.slides[key.slide].nodes[key.node];
-            match load_node(&cloud, node, &selection) {
-                Ok((positions, categories)) => NodeOutcome::Ready(positions, categories),
-                Err(e) => NodeOutcome::Failed(e),
+        for &key in &wanted {
+            if streamer.in_flight >= MAX_IN_FLIGHT {
+                break;
             }
-        });
-        streamer.slots.insert(key, Slot::Loading(task));
-        streamer.in_flight += 1;
+            if streamer.slots.contains_key(&key) {
+                continue;
+            }
+
+            let cloud = cloud.clone();
+            let selection = selection.clone();
+            let task = pool.spawn(async move {
+                let node = &cloud.slides[key.slide].nodes[key.node];
+                match load_node(&cloud, node, &selection) {
+                    Ok((positions, categories)) => NodeOutcome::Ready(positions, categories),
+                    Err(e) => NodeOutcome::Failed(e),
+                }
+            });
+            streamer.slots.insert(key, Slot::Loading(task));
+            streamer.in_flight += 1;
+        }
+        streamer.wanted = wanted;
     }
-    streamer.wanted = wanted;
 }
 
 pub fn collect_slice_tasks(
     mut commands: Commands,
-    mut streamer: ResMut<SliceStreamer>,
+    mut streamers: Query<&mut SliceStreamer>,
     sources: Query<&source::DataSource>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<PointMaterial>>,
 ) {
-    let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
-        return;
-    };
-    let mut finished = Vec::new();
-    for (key, slot) in streamer.slots.iter_mut() {
-        let Slot::Loading(task) = slot else { continue };
-        if let Some(outcome) = block_on(poll_once(task)) {
-            finished.push((*key, outcome));
-        }
-    }
-
-    for (key, outcome) in finished {
-        streamer.in_flight = streamer.in_flight.saturating_sub(1);
-        let slot = match outcome {
-            NodeOutcome::Ready(positions, categories) => {
-                let count = positions.len();
-                let mesh = build_mesh(&positions, &categories);
-                let offset = streamer.offset(key.slide);
-                let entity = commands
-                    .spawn((
-                        Mesh2d(meshes.add(mesh)),
-                        MeshMaterial2d(materials.add(PointMaterial::default())),
-                        Transform::from_translation(offset.extend(0.0)),
-                        RenderLayers::layer(layer),
-                        SliceNodeTag(key),
-                    ))
-                    .id();
-                streamer.resident_points += count;
-                Slot::Ready {
-                    entity,
-                    points: count,
-                    resident: NodePoints {
-                        positions,
-                        categories,
-                    },
-                }
-            }
-            NodeOutcome::Failed(e) => {
-                warn!(
-                    "slice node {}: {e}",
-                    streamer.cloud.slides[key.slide].nodes[key.node].name
-                );
-                Slot::Failed
-            }
+    for mut streamer in &mut streamers {
+        let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
+            continue;
         };
-        streamer.slots.insert(key, slot);
+        let mut finished = Vec::new();
+        for (key, slot) in streamer.slots.iter_mut() {
+            let Slot::Loading(task) = slot else { continue };
+            if let Some(outcome) = block_on(poll_once(task)) {
+                finished.push((*key, outcome));
+            }
+        }
+
+        for (key, outcome) in finished {
+            streamer.in_flight = streamer.in_flight.saturating_sub(1);
+            let slot = match outcome {
+                NodeOutcome::Ready(positions, categories) => {
+                    let count = positions.len();
+                    let mesh = build_mesh(&positions, &categories);
+                    let offset = streamer.offset(key.slide);
+                    let entity = commands
+                        .spawn((
+                            Mesh2d(meshes.add(mesh)),
+                            MeshMaterial2d(materials.add(PointMaterial::default())),
+                            Transform::from_translation(offset.extend(0.0)),
+                            RenderLayers::layer(layer),
+                            SliceNodeTag,
+                        ))
+                        .id();
+                    streamer.resident_points += count;
+                    Slot::Ready {
+                        entity,
+                        points: count,
+                        resident: NodePoints {
+                            positions,
+                            categories,
+                        },
+                    }
+                }
+                NodeOutcome::Failed(e) => {
+                    warn!(
+                        "slice node {}: {e}",
+                        streamer.cloud.slides[key.slide].nodes[key.node].name
+                    );
+                    Slot::Failed
+                }
+            };
+            streamer.slots.insert(key, slot);
+        }
     }
 }
 
@@ -519,24 +532,34 @@ pub fn collect_slice_tasks(
 /// Layout lives entirely in the transform, so this is all that a mode switch
 /// costs — no node is refetched or rebuilt.
 pub fn apply_slice_layout(
-    streamer: Res<SliceStreamer>,
-    mut nodes: Query<(&SliceNodeTag, &mut Transform, &mut Visibility)>,
+    streamers: Query<Ref<SliceStreamer>>,
+    mut nodes: Query<(&mut Transform, &mut Visibility), With<SliceNodeTag>>,
 ) {
-    if !streamer.is_changed() {
-        return;
-    }
-    for (tag, mut transform, mut visibility) in &mut nodes {
-        let offset = streamer.offset(tag.0.slide).extend(0.0);
-        if transform.translation != offset {
-            transform.translation = offset;
+    // Walked per streamer rather than over every node in the world, so one
+    // sectioned source cannot lay out another's nodes.
+    for streamer in &streamers {
+        if !streamer.is_changed() {
+            continue;
         }
-        let wanted = if streamer.visible(tag.0.slide) {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
-        if *visibility != wanted {
-            *visibility = wanted;
+        for (key, slot) in &streamer.slots {
+            let Slot::Ready { entity, .. } = slot else {
+                continue;
+            };
+            let Ok((mut transform, mut visibility)) = nodes.get_mut(*entity) else {
+                continue;
+            };
+            let offset = streamer.offset(key.slide).extend(0.0);
+            if transform.translation != offset {
+                transform.translation = offset;
+            }
+            let wanted = if streamer.visible(key.slide) {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            if *visibility != wanted {
+                *visibility = wanted;
+            }
         }
     }
 }
@@ -546,19 +569,21 @@ pub fn apply_slice_layout(
 /// A frame opened onto the sections later is framed from this, so leaving it at
 /// the value registered on startup left a new frame unable to zoom out past a
 /// single slice until something happened to trigger a refit.
-pub fn publish_extent(streamer: Res<SliceStreamer>, mut sources: Query<&mut SourceExtent>) {
-    if !streamer.is_changed() {
-        return;
+pub fn publish_extent(streamers: Query<Ref<SliceStreamer>>, mut sources: Query<&mut SourceExtent>) {
+    for streamer in &streamers {
+        if !streamer.is_changed() {
+            continue;
+        }
+        let Ok(mut extent) = sources.get_mut(streamer.source) else {
+            continue;
+        };
+        *extent = streamer.extent();
     }
-    let Ok(mut extent) = sources.get_mut(streamer.source) else {
-        return;
-    };
-    *extent = streamer.extent();
 }
 
 /// Refit the panel camera when the mode or the selected slice changes.
 pub fn refit_slice_camera(
-    mut streamer: ResMut<SliceStreamer>,
+    mut streamers: Query<&mut SliceStreamer>,
     mut panels: Query<(
         &Camera,
         &mut Transform,
@@ -567,57 +592,61 @@ pub fn refit_slice_camera(
         &ShowsSource,
     )>,
 ) {
-    if !streamer.refit {
-        return;
-    }
-    let source = streamer.source;
-    for (camera, mut transform, mut projection, mut limits, shows) in &mut panels {
-        if shows.0 != source {
+    for mut streamer in &mut streamers {
+        if !streamer.refit {
             continue;
         }
-        let Some(viewport) = camera.logical_viewport_size() else {
-            return;
-        };
-        let Projection::Orthographic(ortho) = projection.as_mut() else {
-            continue;
-        };
-        let fitted = streamer.limits(viewport);
-        *limits = fitted;
-        transform.translation = fitted.centre.extend(transform.translation.z);
-        ortho.scale = fitted.fit_scale;
-        streamer.refit = false;
+        let source = streamer.source;
+        for (camera, mut transform, mut projection, mut limits, shows) in &mut panels {
+            if shows.0 != source {
+                continue;
+            }
+            let Some(viewport) = camera.logical_viewport_size() else {
+                continue;
+            };
+            let Projection::Orthographic(ortho) = projection.as_mut() else {
+                continue;
+            };
+            let fitted = streamer.limits(viewport);
+            *limits = fitted;
+            transform.translation = fitted.centre.extend(transform.translation.z);
+            ortho.scale = fitted.fit_scale;
+            streamer.refit = false;
+        }
     }
 }
 
 /// Drop nodes that are no longer wanted once the budget is exceeded.
-pub fn evict_slice_nodes(mut commands: Commands, mut streamer: ResMut<SliceStreamer>) {
-    let wanted: HashSet<SliceNode> = streamer.wanted.iter().copied().collect();
-    if wanted.is_empty() || streamer.resident_points <= streamer.budget {
-        return;
-    }
-
-    let cloud = streamer.cloud.clone();
-    let mut candidates: Vec<(usize, usize, SliceNode)> = streamer
-        .slots
-        .iter()
-        .filter(|(key, _)| !wanted.contains(*key))
-        .filter_map(|(key, slot)| match slot {
-            Slot::Ready { points, .. } => {
-                Some((cloud.slides[key.slide].nodes[key.node].depth, *points, *key))
-            }
-            _ => None,
-        })
-        .collect();
-    // Deepest first: shallow nodes are cheap and needed at every zoom level.
-    candidates.sort_unstable_by(|a, b| b.0.cmp(&a.0));
-
-    for (_, points, key) in candidates {
-        if streamer.resident_points <= streamer.budget {
-            break;
+pub fn evict_slice_nodes(mut commands: Commands, mut streamers: Query<&mut SliceStreamer>) {
+    for mut streamer in &mut streamers {
+        let wanted: HashSet<SliceNode> = streamer.wanted.iter().copied().collect();
+        if wanted.is_empty() || streamer.resident_points <= streamer.budget {
+            continue;
         }
-        if let Some(Slot::Ready { entity, .. }) = streamer.slots.remove(&key) {
-            commands.entity(entity).despawn();
-            streamer.resident_points = streamer.resident_points.saturating_sub(points);
+
+        let cloud = streamer.cloud.clone();
+        let mut candidates: Vec<(usize, usize, SliceNode)> = streamer
+            .slots
+            .iter()
+            .filter(|(key, _)| !wanted.contains(*key))
+            .filter_map(|(key, slot)| match slot {
+                Slot::Ready { points, .. } => {
+                    Some((cloud.slides[key.slide].nodes[key.node].depth, *points, *key))
+                }
+                _ => None,
+            })
+            .collect();
+        // Deepest first: shallow nodes are cheap and needed at every zoom level.
+        candidates.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+
+        for (_, points, key) in candidates {
+            if streamer.resident_points <= streamer.budget {
+                break;
+            }
+            if let Some(Slot::Ready { entity, .. }) = streamer.slots.remove(&key) {
+                commands.entity(entity).despawn();
+                streamer.resident_points = streamer.resident_points.saturating_sub(points);
+            }
         }
     }
 }
@@ -847,6 +876,28 @@ mod tests {
     }
 }
 
+/// Rebuild when this source's colouring or filters change.
+///
+/// Colouring and filtering both decide what the vertices are, and the raw
+/// columns are not kept after a node is built, so a change means loading those
+/// nodes again. The same trade the image panel makes for its channels.
+///
+/// The properties and the streamer are both components of the source entity, so
+/// this is one query and nothing outside this module needs to know the streamer
+/// exists.
+fn apply_selection(
+    mut commands: Commands,
+    mut streamers: Query<(&CellProperties, &mut SliceStreamer), Changed<CellProperties>>,
+) {
+    for (properties, mut streamer) in &mut streamers {
+        let selection = properties.selection();
+        if streamer.selection != selection {
+            streamer.selection = selection;
+            streamer.reset(&mut commands);
+        }
+    }
+}
+
 /// Streams a sectioned Scatterbrain dataset.
 pub struct SlicesPlugin {
     pub cloud: Arc<Scatterbrain>,
@@ -890,64 +941,68 @@ impl Plugin for SlicesPlugin {
         let mut streamer = SliceStreamer::new(self.cloud.clone(), source);
         streamer.budget = self.budget;
 
-        app.insert_resource(streamer)
-            .add_systems(
-                Update,
-                (
-                    slice_controls,
-                    select_slice_nodes,
-                    spawn_slice_tasks,
-                    collect_slice_tasks,
-                    evict_slice_nodes,
-                    apply_slice_layout,
-                    refit_slice_camera,
-                    publish_extent,
-                    report_status,
-                )
-                    .chain()
-                    .in_set(Stage::Sources),
+        app.world_mut().entity_mut(source).insert(streamer);
+
+        app.add_systems(
+            Update,
+            (
+                apply_selection,
+                slice_controls,
+                select_slice_nodes,
+                spawn_slice_tasks,
+                collect_slice_tasks,
+                evict_slice_nodes,
+                apply_slice_layout,
+                refit_slice_camera,
+                publish_extent,
+                report_status,
             )
-            // Resolving the pointer reads the nodes that are resident now, and
-            // which slide is where; the schedule already puts `HoverProbing`
-            // after the layout has settled.
-            .add_systems(
-                Update,
-                resolve_hover.in_set(crate::source::hover::HoverProbing),
-            );
+                .chain()
+                .in_set(Stage::Sources),
+        )
+        // Resolving the pointer reads the nodes that are resident now, and
+        // which slide is where; the schedule already puts `HoverProbing`
+        // after the layout has settled.
+        .add_systems(
+            Update,
+            resolve_hover.in_set(crate::source::hover::HoverProbing),
+        );
     }
 }
 
 /// Answer the pointer: which cell is under it, and which cells share its value.
 pub fn resolve_hover(
-    streamer: Res<SliceStreamer>,
+    streamers: Query<&SliceStreamer>,
     probes: Query<&HoverProbe>,
     sources: Query<(&DataSource, &CellProperties)>,
     mut answers: Query<(&mut HoverInfo, &mut SourceHighlight)>,
 ) {
-    let Ok((mut info, mut highlight)) = answers.get_mut(streamer.source) else {
-        return;
-    };
-    let Ok((source, properties)) = sources.get(streamer.source) else {
-        return;
-    };
+    for streamer in &streamers {
+        let Ok((mut info, mut highlight)) = answers.get_mut(streamer.source) else {
+            continue;
+        };
+        let Ok((source, properties)) = sources.get(streamer.source) else {
+            continue;
+        };
 
-    let hit = probes
-        .get(streamer.source)
-        .ok()
-        .and_then(|probe| streamer.pick(probe));
+        let hit = probes
+            .get(streamer.source)
+            .ok()
+            .and_then(|probe| streamer.pick(probe));
 
-    let category = hit.as_ref().and_then(|hit| hit.category);
-    if highlight.0 != category {
-        highlight.0 = category;
-    }
+        let category = hit.as_ref().and_then(|hit| hit.category);
+        if highlight.0 != category {
+            highlight.0 = category;
+        }
 
-    // Both are left alone when unchanged: the highlight drives a uniform upload
-    // per resident node, and the tooltip a text layout.
-    let next = hit
-        .map(|hit| describe(&hit, &streamer, source, properties))
-        .unwrap_or_default();
-    if *info != next {
-        *info = next;
+        // Both are left alone when unchanged: the highlight drives a uniform upload
+        // per resident node, and the tooltip a text layout.
+        let next = hit
+            .map(|hit| describe(&hit, &streamer, source, properties))
+            .unwrap_or_default();
+        if *info != next {
+            *info = next;
+        }
     }
 }
 
@@ -984,57 +1039,59 @@ fn describe(
     )
 }
 
-fn report_status(streamer: Res<SliceStreamer>, mut sources: Query<&mut SourceStatus>) {
-    let Ok(mut status) = sources.get_mut(streamer.source) else {
-        return;
-    };
-    let cloud = streamer.cloud();
-    let colour = streamer
-        .selection
-        .colour_by
-        .as_ref()
-        .and_then(|name| {
-            cloud
-                .attributes
-                .iter()
-                .find(|a| &a.name == name)
-                .map(|a| a.description.clone())
-        })
-        .unwrap_or_else(|| "none".into());
+fn report_status(streamers: Query<&SliceStreamer>, mut sources: Query<&mut SourceStatus>) {
+    for streamer in &streamers {
+        let Ok(mut status) = sources.get_mut(streamer.source) else {
+            continue;
+        };
+        let cloud = streamer.cloud();
+        let colour = streamer
+            .selection
+            .colour_by
+            .as_ref()
+            .and_then(|name| {
+                cloud
+                    .attributes
+                    .iter()
+                    .find(|a| &a.name == name)
+                    .map(|a| a.description.clone())
+            })
+            .unwrap_or_else(|| "none".into());
 
-    let showing = match streamer.mode {
-        SliceMode::Grid => format!(
-            "grid of {} across {} columns",
-            cloud.slides.len(),
-            streamer.columns()
-        ),
-        SliceMode::Single => {
-            let slide = &cloud.slides[streamer.current];
-            format!(
-                "slice {} of {}  [{}]  {} points",
-                slide.index + 1,
+        let showing = match streamer.mode {
+            SliceMode::Grid => format!(
+                "grid of {} across {} columns",
                 cloud.slides.len(),
-                slide.id,
-                slide.total_points,
-            )
-        }
-    };
+                streamer.columns()
+            ),
+            SliceMode::Single => {
+                let slide = &cloud.slides[streamer.current];
+                format!(
+                    "slice {} of {}  [{}]  {} points",
+                    slide.index + 1,
+                    cloud.slides.len(),
+                    slide.id,
+                    slide.total_points,
+                )
+            }
+        };
 
-    status.0 = format!(
-        "{} points in {} slices\n\
+        status.0 = format!(
+            "{} points in {} slices\n\
          {}\n\
          {} nodes loaded, {} loading\n\
          {} / {} points resident ({} MB)\n\
          colour by  {}\n\
          G grid/single · arrows or [ ] step slices",
-        cloud.total_points(),
-        cloud.slides.len(),
-        showing,
-        streamer.loaded_nodes(),
-        streamer.in_flight,
-        streamer.resident_points,
-        streamer.budget,
-        crate::render::points::budget_megabytes(streamer.resident_points),
-        colour,
-    );
+            cloud.total_points(),
+            cloud.slides.len(),
+            showing,
+            streamer.loaded_nodes(),
+            streamer.in_flight,
+            streamer.resident_points,
+            streamer.budget,
+            crate::render::points::budget_megabytes(streamer.resident_points),
+            colour,
+        );
+    }
 }
