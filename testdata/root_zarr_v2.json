@@ -1,0 +1,221 @@
+{
+    "multiscales": [
+        {
+            "axes": [
+                {
+                    "name": "c",
+                    "type": "channel"
+                },
+                {
+                    "name": "z",
+                    "scale": 0.03,
+                    "type": "space",
+                    "unit": "millimeter"
+                },
+                {
+                    "name": "y",
+                    "scale": 0.00065001,
+                    "type": "space",
+                    "unit": "millimeter"
+                },
+                {
+                    "name": "x",
+                    "scale": 0.00065001,
+                    "type": "space",
+                    "unit": "millimeter"
+                }
+            ],
+            "datasets": [
+                {
+                    "coordinateTransformations": [
+                        {
+                            "scale": [
+                                1.0,
+                                0.03,
+                                0.00065001,
+                                0.00065001
+                            ],
+                            "type": "scale"
+                        },
+                        {
+                            "translation": [
+                                0.0,
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "type": "translation"
+                        }
+                    ],
+                    "path": "0"
+                },
+                {
+                    "coordinateTransformations": [
+                        {
+                            "scale": [
+                                1.0,
+                                0.03,
+                                0.00130002,
+                                0.00130002
+                            ],
+                            "type": "scale"
+                        },
+                        {
+                            "translation": [
+                                0.0,
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "type": "translation"
+                        }
+                    ],
+                    "path": "1"
+                },
+                {
+                    "coordinateTransformations": [
+                        {
+                            "scale": [
+                                1.0,
+                                0.03,
+                                0.00260004,
+                                0.00260004
+                            ],
+                            "type": "scale"
+                        },
+                        {
+                            "translation": [
+                                0.0,
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "type": "translation"
+                        }
+                    ],
+                    "path": "2"
+                },
+                {
+                    "coordinateTransformations": [
+                        {
+                            "scale": [
+                                1.0,
+                                0.03,
+                                0.00520008,
+                                0.00520008
+                            ],
+                            "type": "scale"
+                        },
+                        {
+                            "translation": [
+                                0.0,
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "type": "translation"
+                        }
+                    ],
+                    "path": "3"
+                },
+                {
+                    "coordinateTransformations": [
+                        {
+                            "scale": [
+                                1.0,
+                                0.03,
+                                0.01040016,
+                                0.01040016
+                            ],
+                            "type": "scale"
+                        },
+                        {
+                            "translation": [
+                                0.0,
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "type": "translation"
+                        }
+                    ],
+                    "path": "4"
+                },
+                {
+                    "coordinateTransformations": [
+                        {
+                            "scale": [
+                                1.0,
+                                0.03,
+                                0.02080032,
+                                0.02080032
+                            ],
+                            "type": "scale"
+                        },
+                        {
+                            "translation": [
+                                0.0,
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "type": "translation"
+                        }
+                    ],
+                    "path": "5"
+                },
+                {
+                    "coordinateTransformations": [
+                        {
+                            "scale": [
+                                1.0,
+                                0.03,
+                                0.04160064,
+                                0.04160064
+                            ],
+                            "type": "scale"
+                        },
+                        {
+                            "translation": [
+                                0.0,
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "type": "translation"
+                        }
+                    ],
+                    "path": "6"
+                }
+            ],
+            "name": "/",
+            "version": "0.4"
+        }
+    ],
+    "omero": {
+        "channels": [
+            {
+                "active": true,
+                "color": "#0df",
+                "label": "CFP",
+                "window": {
+                    "end": 19636.0,
+                    "max": 65535,
+                    "min": 0,
+                    "start": 0.0
+                }
+            },
+            {
+                "active": true,
+                "color": "#fffd00",
+                "label": "YFP",
+                "window": {
+                    "end": 60828.0,
+                    "max": 65535,
+                    "min": 0,
+                    "start": 0.0
+                }
+            }
+        ]
+    }
+}

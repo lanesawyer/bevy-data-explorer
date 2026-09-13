@@ -54,9 +54,14 @@ These came from measuring against the live stores. Changing them without
 re-measuring will regress something:
 
 - **512px tiles** (`formats/image/dataset.rs`). Bytes transferred are the same at any tile
-  size; round trips are not, and 128px was ten times slower.
+  size; round trips are not, and 128px was ten times slower. A sharded level
+  cuts the tile from one shard; an unsharded one (every v2 store) reads whole
+  chunks from the array so they are fetched together — 159ms against 1.1s for
+  the same 512px region read chunk by chunk.
 - **Per-shard decoder cache** (`formats/image/mod.rs`). `retrieve_array_subset` refetches
-  the 16KB shard index for every tile.
+  the 16KB shard index for every tile. Unsharded levels have no index to hold,
+  so they skip the cache entirely rather than filling it with one entry a
+  chunk.
 - **24 tile threads on top of the core count** (`app/mod.rs`). Reads are blocking,
   so one tile holds one thread; Bevy's async-compute pool caps at four.
 - **4M section budget** (`formats/slices/mod.rs`). The grid draws every slice at once and

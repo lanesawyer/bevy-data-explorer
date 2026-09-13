@@ -128,6 +128,7 @@ pub(crate) fn parse_ome(
 ) -> Result<(Vec<MultiscaleSpec>, Option<Omero>), String> {
     let mut attrs = attrs.clone();
     normalize_omero_colors(&mut attrs);
+    strip_axis_extras(&mut attrs);
     let attrs = &attrs;
 
     if let Some(ome) = attrs.get("ome") {
@@ -193,6 +194,40 @@ fn normalize_omero_colors(attrs: &mut serde_json::Value) {
                 *color = serde_json::Value::String(fixed);
             }
         }
+    }
+}
+
+/// Drop from each axis anything the spec does not define.
+///
+/// An axis is a name, a type and a unit. The v2 reference image also writes a
+/// `scale` on every axis — the same number the dataset's
+/// `coordinateTransformations` already carries — and the metadata crate refuses
+/// the whole document over it. The transforms are what the viewer reads, so the
+/// duplicate is dropped rather than allowed to cost us the dataset.
+fn strip_axis_extras(attrs: &mut serde_json::Value) {
+    const DEFINED: [&str; 3] = ["name", "type", "unit"];
+    let node = ome_root(attrs);
+    if let Some(multiscales) = node.get_mut("multiscales").and_then(|m| m.as_array_mut()) {
+        for multiscale in multiscales {
+            let Some(axes) = multiscale.get_mut("axes").and_then(|a| a.as_array_mut()) else {
+                continue;
+            };
+            for axis in axes {
+                if let Some(fields) = axis.as_object_mut() {
+                    fields.retain(|name, _| DEFINED.contains(&name.as_str()));
+                }
+            }
+        }
+    }
+}
+
+/// Where the OME metadata sits: nested under `ome` in 0.5, at the top level in
+/// 0.4.
+fn ome_root(attrs: &mut serde_json::Value) -> &mut serde_json::Value {
+    if attrs.get("ome").is_some() {
+        attrs.get_mut("ome").expect("just checked")
+    } else {
+        attrs
     }
 }
 
@@ -266,6 +301,96 @@ mod tests {
             (255, 0, 0)
         );
         assert_eq!(omero.channels[0].window.end, 255.0);
+    }
+
+    #[test]
+    fn parses_the_v2_root_attributes() {
+        // A Zarr v2 store keeps its attributes in `.zattrs`, with the OME
+        // fields at the top level rather than under `ome`. Saved from the
+        // reference v2 image, which is what the axis and colour quirks below
+        // were found in.
+        let attrs: serde_json::Value =
+            serde_json::from_str(include_str!("../../../testdata/root_zarr_v2.json")).unwrap();
+        let (multiscales, omero) = parse_ome(&attrs).unwrap();
+
+        assert_eq!(multiscales.len(), 1);
+        assert_eq!(multiscales[0].datasets.len(), 7);
+        assert_eq!(multiscales[0].axes.len(), 4);
+        assert_eq!(multiscales[0].axes[3].name, "x");
+
+        let omero = omero.expect("the reference v2 image declares omero channels");
+        assert_eq!(omero.channels.len(), 2);
+        // `#0df`, expanded from CSS shorthand.
+        let cyan = &omero.channels[0].color;
+        assert_eq!((cyan.r, cyan.g, cyan.b), (0, 0xdd, 0xff));
+        assert_eq!(omero.channels[1].window.end, 60828.0);
+    }
+
+    #[test]
+    fn an_axis_keeps_only_the_fields_the_spec_defines() {
+        // The v2 reference image writes a `scale` on every axis, which the
+        // metadata crate rejects outright — it belongs in the dataset's
+        // coordinate transformations, where the viewer reads it from.
+        let mut attrs = serde_json::json!({
+            "multiscales": [{
+                "axes": [{"name": "x", "type": "space", "unit": "millimeter", "scale": 0.00065}],
+                "datasets": [],
+            }]
+        });
+        strip_axis_extras(&mut attrs);
+        let axis = &attrs["multiscales"][0]["axes"][0];
+        assert!(axis.get("scale").is_none());
+        assert_eq!(axis["unit"], "millimeter");
+    }
+
+    #[test]
+    fn the_0_5_layout_is_stripped_where_it_actually_sits() {
+        // Nested under `ome`, so stripping the top level would miss it.
+        let mut attrs = serde_json::json!({
+            "ome": {"multiscales": [{"axes": [{"name": "y", "scale": 1.0}]}]}
+        });
+        strip_axis_extras(&mut attrs);
+        assert!(
+            attrs["ome"]["multiscales"][0]["axes"][0]
+                .get("scale")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_v2_array_declares_no_codec_chain() {
+        // Which is how a level is known not to be sharded: v2 names a single
+        // `compressor`, and has no `codecs` for a sharding codec to sit in.
+        let meta: serde_json::Value =
+            serde_json::from_str(include_str!("../../../testdata/array0_zarr_v2.json")).unwrap();
+        assert_eq!(meta["zarr_format"], 2);
+        assert!(meta.get("codecs").is_none());
+        assert_eq!(meta["compressor"]["id"], "blosc");
+        assert_eq!(meta["chunks"], serde_json::json!([2, 1, 128, 128]));
+    }
+
+    #[test]
+    fn a_manifest_carrying_v2_attributes_parses() {
+        // The manifests written alongside these conversions add fields of their
+        // own — the Zarr version, the array shapes, a colour listing — none of
+        // which the viewer reads. They must not stop the OME fields being
+        // found.
+        let manifest: Manifest = serde_json::from_str(
+            r#"{"url":"https://example.com/a.zarr/",
+                "zarrVersion":2,
+                "arrays":[{"path":"0","shape":[2,1,26669,53718],"attrs":{}}],
+                "colorChannels":[{"label":"CFP"}],
+                "attrs":{"zarrVersion":2,
+                         "multiscales":[{"version":"0.4",
+                            "axes":[{"name":"y","type":"space","scale":0.00065},
+                                    {"name":"x","type":"space","scale":0.00065}],
+                            "datasets":[{"path":"0","coordinateTransformations":[
+                                {"type":"scale","scale":[0.00065,0.00065]}]}]}]}}"#,
+        )
+        .unwrap();
+        let (multiscales, _) = parse_ome(&manifest.attrs.unwrap()).unwrap();
+        assert_eq!(multiscales.len(), 1);
+        assert_eq!(multiscales[0].datasets.len(), 1);
     }
 
     #[test]

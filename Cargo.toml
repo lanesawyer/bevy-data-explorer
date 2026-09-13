@@ -12,7 +12,10 @@ ome_zarr_metadata = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-zarrs = "0.23"
+# `zlib` is not one of zarrs' default codecs, and is what numcodecs names the
+# compressor a good share of older Zarr v2 stores were written with. It costs
+# nothing: flate2 is already in the build for gzip.
+zarrs = { version = "0.23", features = ["zlib"] }
 zarrs_codec = "0.2"
 zarrs_http = "0.3"
 zarrs_plugin = "0.4"

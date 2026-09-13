@@ -110,6 +110,14 @@ pub struct Level {
     pub origin_y: f64,
     /// Tile edge in level pixels.
     pub tile_px: u64,
+    /// Whether the top-level chunk is a shard holding inner chunks.
+    ///
+    /// A shard is one object holding many chunks, so a tile cut from it costs
+    /// one round trip and is worth decoding through a decoder positioned on it.
+    /// Without sharding — every Zarr v2 store, and any v3 store written without
+    /// the codec — a chunk is its own object, and a tile spanning several of
+    /// them is read straight from the array so they are fetched together.
+    pub sharded: bool,
     /// Top-level chunk (shard) extent in level pixels, along y and x.
     pub shard_y_px: u64,
     pub shard_x_px: u64,
@@ -223,13 +231,19 @@ impl Dataset {
                 .chunk_shape(&vec![0; layout.ndim])
                 .map_err(|e| format!("chunk shape of `{path}`: {e}"))?
                 .to_array_shape();
-            let inner = inner_chunk_shape(&array).unwrap_or_else(|| chunk.clone());
+            let inner = inner_chunk_shape(&array);
+            let sharded = inner.is_some();
+            let inner = inner.unwrap_or_else(|| chunk.clone());
 
-            let tile_px = choose_tile_px(
-                inner[layout.y].min(inner[layout.x]),
-                chunk[layout.y].min(chunk[layout.x]),
-                TARGET_TILE_PX,
-            );
+            let tile_px = if sharded {
+                choose_tile_px(
+                    inner[layout.y].min(inner[layout.x]),
+                    chunk[layout.y].min(chunk[layout.x]),
+                    TARGET_TILE_PX,
+                )
+            } else {
+                whole_chunks_per_tile(chunk[layout.y].min(chunk[layout.x]), TARGET_TILE_PX)
+            };
 
             let width = shape[layout.x];
             let height = shape[layout.y];
@@ -244,6 +258,7 @@ impl Dataset {
                 origin_x: translation[layout.x],
                 origin_y: translation[layout.y],
                 tile_px,
+                sharded,
                 shard_y_px: chunk[layout.y],
                 shard_x_px: chunk[layout.x],
                 tiles_x: width.div_ceil(tile_px),
@@ -297,13 +312,26 @@ impl Dataset {
     }
 }
 
-/// Read a tile through a decoder already positioned on its shard, compositing
-/// the active channels into RGBA.
+/// Where a tile's bytes come from.
+pub enum TileSource<'a> {
+    /// A decoder already positioned on the shard holding the tile. Subsets are
+    /// relative to that shard, and the decoder holds its index so successive
+    /// tiles from the same shard cost no further round trips.
+    Shard(&'a dyn ArrayPartialDecoderTraits),
+    /// The array itself, addressed absolutely. For a store with no shards this
+    /// is what lets one tile span several chunks and have them fetched
+    /// together: measured against the v2 reference image, a 512px tile read
+    /// this way took 159ms where the same region as sixteen per-chunk decodes
+    /// took 1.1s.
+    Array,
+}
+
+/// Read one tile, compositing the active channels into RGBA.
 pub fn read_tile(
     dataset: &Dataset,
     level: &Level,
     channels: &[Channel],
-    decoder: &dyn ArrayPartialDecoderTraits,
+    source: TileSource<'_>,
     ty: u64,
     tx: u64,
     z: u64,
@@ -312,16 +340,23 @@ pub fn read_tile(
     let Some((x0, y0, x1, y1)) = level.tile_extent(ty, tx) else {
         return Ok(None);
     };
-    let (per_y, per_x) = (
-        level.shard_y_px / level.tile_px,
-        level.shard_x_px / level.tile_px,
-    );
-    let shard_y = ty / per_y;
-    let shard_x = tx / per_x;
-
-    // Subsets handed to a partial decoder are relative to its chunk.
-    let rel_y = y0 - shard_y * level.shard_y_px;
-    let rel_x = x0 - shard_x * level.shard_x_px;
+    // A shard decoder is addressed from the shard's own origin; the array is
+    // addressed from the image's.
+    let (origin_y, origin_x) = match source {
+        TileSource::Shard(_) => {
+            let (per_y, per_x) = (
+                level.shard_y_px / level.tile_px,
+                level.shard_x_px / level.tile_px,
+            );
+            (
+                (ty / per_y) * level.shard_y_px,
+                (tx / per_x) * level.shard_x_px,
+            )
+        }
+        TileSource::Array => (0, 0),
+    };
+    let rel_y = y0 - origin_y;
+    let rel_x = x0 - origin_x;
     let (w, h) = ((x1 - x0) as usize, (y1 - y0) as usize);
 
     let mut accum = vec![0f32; w * h * 3];
@@ -358,7 +393,12 @@ pub fn read_tile(
         let group_base = group * channel_chunk;
         if let Some(c) = layout.c {
             let count = channel_chunk.min(level.array.shape()[c] - group_base);
-            ranges[c] = 0..count;
+            // The shard decoder covers one chunk of channels, starting at its
+            // own zero; the array is addressed by the channel's own index.
+            ranges[c] = match source {
+                TileSource::Shard(_) => 0..count,
+                TileSource::Array => group_base..group_base + count,
+            };
         }
         if let Some(zi) = layout.z {
             let chunk_z = level
@@ -367,14 +407,22 @@ pub fn read_tile(
                 .map(|s| s.to_array_shape()[zi])
                 .unwrap_or(1)
                 .max(1);
-            let rel_z = z % chunk_z;
-            ranges[zi] = rel_z..rel_z + 1;
+            ranges[zi] = match source {
+                TileSource::Shard(_) => z % chunk_z..z % chunk_z + 1,
+                TileSource::Array => z..z + 1,
+            };
         }
 
         let subset = ArraySubset::new_with_ranges(&ranges);
-        let bytes = decoder
-            .partial_decode(&subset, &Default::default())
-            .map_err(|e| format!("decoding tile ({ty},{tx}) of {}: {e}", level.path))?;
+        let bytes = match source {
+            TileSource::Shard(decoder) => decoder
+                .partial_decode(&subset, &Default::default())
+                .map_err(|e| format!("decoding tile ({ty},{tx}) of {}: {e}", level.path))?,
+            TileSource::Array => level
+                .array
+                .retrieve_array_subset(&subset)
+                .map_err(|e| format!("reading tile ({ty},{tx}) of {}: {e}", level.path))?,
+        };
         let raw = bytes
             .into_fixed()
             .map_err(|_| "variable-length data types are not supported".to_string())?;
@@ -619,6 +667,17 @@ fn choose_tile_px(inner: u64, shard: u64, target: u64) -> u64 {
         .unwrap_or(shard)
 }
 
+/// Tile edge for a level with no shards: as many whole chunks as fit within the
+/// target, and never less than one.
+///
+/// A tile is not obliged to divide anything here, because it is read from the
+/// array rather than from one chunk's decoder. Whole chunks are still preferred
+/// so that no chunk is fetched and decoded to have most of it thrown away.
+fn whole_chunks_per_tile(chunk: u64, target: u64) -> u64 {
+    let chunk = chunk.max(1);
+    chunk * (target / chunk).max(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -707,6 +766,20 @@ mod tests {
         let (scale1, _) = transforms(&ms.datasets[1].coordinate_transformations, 4);
         assert!(scale1[3] > scale[3] * 1.99 && scale1[3] < scale[3] * 2.01);
         assert_ne!(scale1[3], scale[3] * 2.0);
+    }
+
+    #[test]
+    fn an_unsharded_level_tiles_by_whole_chunks() {
+        // The v2 reference image chunks at 128px with no shard around them, so
+        // a tile is sixteen of them: read from the array they are fetched
+        // together, where sixteen separate tiles were sixteen round trips.
+        assert_eq!(whole_chunks_per_tile(128, TARGET_TILE_PX), 512);
+        // A chunk larger than the target is a tile on its own rather than
+        // something to cut up.
+        assert_eq!(whole_chunks_per_tile(1024, TARGET_TILE_PX), 1024);
+        // Chunks that do not divide the target leave the remainder unfetched.
+        assert_eq!(whole_chunks_per_tile(300, 512), 300);
+        assert_eq!(whole_chunks_per_tile(0, 512), 512);
     }
 
     #[test]

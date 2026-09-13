@@ -6,8 +6,9 @@ panels, each streaming only what its own view needs and pulling in finer detail
 as you zoom. Two formats are supported so far:
 
 - **OME-Zarr** multiscale images, read through
-  [`zarrs`](https://crates.io/crates/zarrs). The reference image is
-  75803 × 56233 px at full resolution.
+  [`zarrs`](https://crates.io/crates/zarrs), in both Zarr v3 and v2. The
+  reference image is 75803 × 56233 px at full resolution; the reference v2
+  image is 53718 × 26669 px.
 - **Scatterbrain**, the Allen Institute's point-cloud format, in two shapes: a
   single cloud (the reference one holds 4,042,976 points in an octree) and a
   *sectioned* dataset of many slices (53 slices, 3,739,961 points), which gets
@@ -291,10 +292,20 @@ layer, so one panel's contents cannot leak into another.
 
 ### OME-Zarr images
 
-`zarrs` handles the format: Zarr v3 metadata, the codec pipeline, and partial
-reads of sharded arrays. `ome_zarr_metadata` parses the multiscale and channel
-metadata. This crate adds the pyramid mapped into world space, tile streaming,
-caching and the camera.
+`zarrs` handles the format: Zarr v3 and v2 metadata, the codec pipeline, and
+partial reads of sharded arrays. `ome_zarr_metadata` parses the multiscale and
+channel metadata. This crate adds the pyramid mapped into world space, tile
+streaming, caching and the camera.
+
+Which Zarr version a store is written in never reaches this crate: `zarrs` reads
+`zarr.json` where there is one and `.zgroup`/`.zarray` where there is not, and
+presents either as the same array. What does reach it is sharding, which only v3
+has. A sharded level is one object per shard, so a tile is cut from a shard
+through a decoder that holds its index, and successive tiles from that shard
+cost no further round trips. An unsharded level is one object per chunk, so a
+tile spans several chunks and is read straight from the array, which fetches
+them together: against the reference v2 image a 512px tile read that way took
+159ms, where the same region as sixteen per-chunk reads took 1.1s.
 
 Reading is driven by what is on screen. Each frame the viewer picks the level
 whose pixels are closest to screen pixels, then requests the tiles covering the
@@ -371,6 +382,10 @@ measuring against it, and are worth knowing before changing them:
 - OME-NGFF specifies omero channel colours as six bare hex digits, and
   `ome_zarr_metadata` enforces that. Real converters write `#RRGGBB`, and
   sometimes the CSS shorthand `#0df`. Both are normalised rather than rejected.
+- An axis is a name, a type and a unit. The reference v2 image also writes a
+  `scale` on every axis — the same number its `coordinateTransformations`
+  already carries — and the metadata crate refuses the whole document over it.
+  Undefined axis fields are dropped before parsing.
 - `zarrs_http` joins keys onto the base URL with an unconditional `/`, so a
   root that already ends in one produces `...zarr//zarr.json` — a different,
   missing key on an object store. Store roots are trimmed, since manifests

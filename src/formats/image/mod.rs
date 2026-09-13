@@ -27,7 +27,7 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use zarrs_codec::ArrayPartialDecoderTraits;
 
 use crate::app::schedule::Stage;
-use crate::formats::image::dataset::{Channel, Dataset, TilePixels, read_tile};
+use crate::formats::image::dataset::{Channel, Dataset, TilePixels, TileSource, read_tile};
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::{self, SourceExtent, SourceStatus};
 use crate::view::ShowsSource;
@@ -376,10 +376,17 @@ pub fn spawn_tile_tasks(mut streamers: Query<&mut TileStreamer>) {
                 }
 
                 let level = &dataset.levels[key.level];
-                let shard = level.shard_of(&dataset.layout, key.ty, key.tx, z);
-                let decoder = match decoders.get(&dataset, (key.level, shard)) {
-                    Ok(d) => d,
-                    Err(e) => return TileOutcome::Failed(e),
+                // Without shards there is no index to fetch and nothing for a
+                // decoder to hold, so the tile is read from the array and its
+                // chunks are fetched together.
+                let decoder = if level.sharded {
+                    let shard = level.shard_of(&dataset.layout, key.ty, key.tx, z);
+                    match decoders.get(&dataset, (key.level, shard)) {
+                        Ok(d) => Some(d),
+                        Err(e) => return TileOutcome::Failed(e),
+                    }
+                } else {
+                    None
                 };
 
                 // Fetching a shard index is itself a round trip, so check again
@@ -387,15 +394,11 @@ pub fn spawn_tile_tasks(mut streamers: Query<&mut TileStreamer>) {
                 if !still_wanted(&shared) {
                     return TileOutcome::Cancelled;
                 }
-                match read_tile(
-                    &dataset,
-                    level,
-                    &channels,
-                    decoder.as_ref(),
-                    key.ty,
-                    key.tx,
-                    z,
-                ) {
+                let source = match decoder.as_ref() {
+                    Some(decoder) => TileSource::Shard(decoder.as_ref()),
+                    None => TileSource::Array,
+                };
+                match read_tile(&dataset, level, &channels, source, key.ty, key.tx, z) {
                     Ok(Some(pixels)) => TileOutcome::Ready(pixels),
                     Ok(None) => TileOutcome::Blank,
                     Err(e) => TileOutcome::Failed(e),
@@ -586,6 +589,7 @@ pub fn evict_tiles(mut commands: Commands, mut streamers: Query<&mut TileStreame
         let dataset = streamer.dataset.clone();
         let keep: HashSet<ShardKey> = wanted
             .iter()
+            .filter(|key| dataset.levels[key.level].sharded)
             .map(|key| {
                 let level = &dataset.levels[key.level];
                 (
