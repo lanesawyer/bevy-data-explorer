@@ -459,11 +459,11 @@ mod tests {
     use super::*;
 
     fn reference() -> Scatterbrain {
-        Scatterbrain::parse(include_str!("../testdata/scatterbrain.json")).unwrap()
+        Scatterbrain::parse(include_str!("../../../testdata/scatterbrain.json")).unwrap()
     }
 
     fn sectioned() -> Scatterbrain {
-        Scatterbrain::parse(include_str!("../testdata/scatterbrain_slides.json")).unwrap()
+        Scatterbrain::parse(include_str!("../../../testdata/scatterbrain_slides.json")).unwrap()
     }
 
     #[test]
@@ -615,7 +615,7 @@ mod tests {
 
     #[test]
     fn rejects_a_spatial_column_that_is_not_an_f32_pair() {
-        let text = include_str!("../testdata/scatterbrain.json").replace(
+        let text = include_str!("../../../testdata/scatterbrain.json").replace(
             r#""elements":2,"name":"G4I4GFJXJB9ATZ3PTX1Coordinates","size":8"#,
             r#""elements":3,"name":"G4I4GFJXJB9ATZ3PTX1Coordinates","size":12"#,
         );
@@ -625,7 +625,7 @@ mod tests {
 
     #[test]
     fn rejects_metadata_whose_spatial_column_is_missing() {
-        let text = include_str!("../testdata/scatterbrain.json").replace(
+        let text = include_str!("../../../testdata/scatterbrain.json").replace(
             r#""spatialColumn":"G4I4GFJXJB9ATZ3PTX1Coordinates""#,
             r#""spatialColumn":"NoSuchColumn""#,
         );

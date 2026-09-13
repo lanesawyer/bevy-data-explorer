@@ -6,23 +6,11 @@
 //! panel streams only what its own view needs and pulls in more detail as you
 //! zoom.
 
-mod cellpanel;
-mod cellproperties;
-mod dataset;
-mod datasource;
-mod hover;
-mod hud;
-mod inspector;
-mod panel;
-mod pointcloud;
-mod points_render;
-mod scatterbrain;
-mod sidebar;
-mod slices;
+mod formats;
+mod render;
 mod source;
-mod tiles;
-mod viewconfig;
-mod widgets;
+mod ui;
+mod view;
 
 use std::sync::Arc;
 
@@ -31,7 +19,7 @@ use bevy::prelude::*;
 use bevy::window::PresentMode;
 use clap::Parser;
 
-use datasource::{DataSource, SourceExtent};
+use source::{DataSource, SourceExtent};
 
 /// Scatterbrain metadata for the reference point cloud.
 const DEFAULT_POINTS: &str = "https://d2o7sc91n904vd.cloudfront.net/wmb_tenx_01172024_stage-20240128193624/G4I4GFJXJB9ATZ3PTX1/ScatterBrain.json";
@@ -51,7 +39,7 @@ const DEFAULT_SLICES: &str = "https://d2o7sc91n904vd.cloudfront.net/bkppg-sfs-st
 struct Args {
     /// OME-Zarr store (http(s) URL or local directory), or a manifest .json
     /// describing one. Defaults to the reference image.
-    #[arg(default_value = source::DEFAULT_SOURCE)]
+    #[arg(default_value = formats::image::store::DEFAULT_SOURCE)]
     source: String,
 
     /// Scatterbrain metadata JSON (http(s) URL or local file). Pass `none` to
@@ -65,7 +53,7 @@ struct Args {
 
     /// Texture memory budget for cached tiles, in MB. Larger values make
     /// zooming back out and revisiting areas redraw without refetching.
-    #[arg(long, default_value_t = tiles::DEFAULT_CACHE_BUDGET_MB)]
+    #[arg(long, default_value_t = formats::image::DEFAULT_CACHE_BUDGET_MB)]
     cache_mb: usize,
 
     /// Sectioned Scatterbrain metadata JSON, shown as a third panel. Pass
@@ -79,11 +67,11 @@ struct Args {
     cells: String,
 
     /// Maximum points held on the GPU for the point cloud.
-    #[arg(long, default_value_t = pointcloud::DEFAULT_POINT_BUDGET)]
+    #[arg(long, default_value_t = formats::pointcloud::DEFAULT_POINT_BUDGET)]
     point_budget: usize,
 
     /// Maximum points held on the GPU for the sectioned panel.
-    #[arg(long, default_value_t = slices::DEFAULT_SLICE_BUDGET)]
+    #[arg(long, default_value_t = formats::slices::DEFAULT_SLICE_BUDGET)]
     slice_budget: usize,
 }
 
@@ -96,10 +84,11 @@ struct Args {
 /// compute pool that runs the ECS schedule.
 fn task_pool_options() -> TaskPoolOptions {
     TaskPoolOptions {
-        min_total_threads: bevy::tasks::available_parallelism() + tiles::TILE_FETCH_THREADS,
+        min_total_threads: bevy::tasks::available_parallelism()
+            + formats::image::TILE_FETCH_THREADS,
         async_compute: TaskPoolThreadAssignmentPolicy {
-            min_threads: tiles::TILE_FETCH_THREADS,
-            max_threads: tiles::TILE_FETCH_THREADS,
+            min_threads: formats::image::TILE_FETCH_THREADS,
+            max_threads: formats::image::TILE_FETCH_THREADS,
             percent: 1.0,
             on_thread_spawn: None,
             on_thread_destroy: None,
@@ -108,7 +97,7 @@ fn task_pool_options() -> TaskPoolOptions {
     }
 }
 
-fn load_points(source: &str) -> Result<scatterbrain::Scatterbrain, String> {
+fn load_points(source: &str) -> Result<formats::scatterbrain::Scatterbrain, String> {
     let text = if source.starts_with("http://") || source.starts_with("https://") {
         reqwest::blocking::get(source)
             .and_then(|r| r.error_for_status())
@@ -117,7 +106,7 @@ fn load_points(source: &str) -> Result<scatterbrain::Scatterbrain, String> {
     } else {
         std::fs::read_to_string(source).map_err(|e| format!("reading {source}: {e}"))?
     };
-    scatterbrain::Scatterbrain::parse(&text)
+    formats::scatterbrain::Scatterbrain::parse(&text)
 }
 
 /// Feathers' dark theme, with the button states pushed further apart.
@@ -153,7 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Open both sources before opening a window, so a bad URL fails on the
     // command line rather than behind a blank panel.
     println!("opening image  {}", args.source);
-    let dataset = Arc::new(source::open(&args.source)?);
+    let dataset = Arc::new(formats::image::store::open(&args.source)?);
     println!(
         "  {}: {} levels, {} channels, {} x {} px",
         dataset.name,
@@ -163,7 +152,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         dataset.levels[0].height
     );
 
-    let describe = |label: &str, cloud: &scatterbrain::Scatterbrain| {
+    let describe = |label: &str, cloud: &formats::scatterbrain::Scatterbrain| {
         println!(
             "  {} points across {} slide(s), {} octree nodes, depth {} [{label}]",
             cloud.total_points(),
@@ -228,42 +217,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     // Feathers styles the widgets; its slider reports value changes but leaves
     // writing them back to the app.
-    .add_plugins(points_render::PointRenderPlugin)
+    .add_plugins(render::points::PointRenderPlugin)
     .add_plugins(bevy_feathers::FeathersPlugins)
     .insert_resource(bevy_feathers::theme::UiTheme(app_theme()))
     .add_observer(bevy_ui_widgets::slider_self_update)
-    .add_observer(viewconfig::on_layout_button)
-    .add_observer(viewconfig::on_add_visualization)
-    .add_observer(cellpanel::on_colour_by)
-    .add_observer(cellpanel::on_value_toggled)
-    .add_observer(cellpanel::on_clear_property)
-    .add_observer(cellpanel::on_clear_all)
-    .add_observer(panel::panel_buttons)
-    .add_observer(widgets::on_menu_button)
-    .add_observer(widgets::toggle_accordions)
-    .add_observer(sidebar::toggle_sidebar)
-    .add_observer(inspector::close_inspector)
-    .add_observer(hud::on_info_pressed)
-    .add_observer(hud::on_source_chosen)
-    .add_message::<panel::PanelRequest>()
-    .init_resource::<panel::FrameArea>()
-    .init_resource::<panel::SelectedPanel>()
-    .init_resource::<sidebar::Sidebar>()
-    .init_resource::<inspector::Inspector>()
-    .init_resource::<cellpanel::OpenSections>()
+    .add_observer(ui::viewconfig::on_layout_button)
+    .add_observer(ui::viewconfig::on_add_visualization)
+    .add_observer(ui::cellpanel::on_colour_by)
+    .add_observer(ui::cellpanel::on_value_toggled)
+    .add_observer(ui::cellpanel::on_clear_property)
+    .add_observer(ui::cellpanel::on_clear_all)
+    .add_observer(view::panel_buttons)
+    .add_observer(ui::widgets::on_menu_button)
+    .add_observer(ui::widgets::toggle_accordions)
+    .add_observer(ui::sidebar::toggle_sidebar)
+    .add_observer(ui::inspector::close_inspector)
+    .add_observer(view::overlay::on_info_pressed)
+    .add_observer(view::overlay::on_source_chosen)
+    .add_message::<view::PanelRequest>()
+    .init_resource::<view::FrameArea>()
+    .init_resource::<view::SelectedPanel>()
+    .init_resource::<ui::sidebar::Sidebar>()
+    .init_resource::<ui::inspector::Inspector>()
+    .init_resource::<ui::cellpanel::OpenSections>()
     // The docks claim their space first; everything that places a frame or its
     // chrome measures against what is left.
     .add_systems(
         Update,
         (
-            sidebar::resize_sidebar,
-            sidebar::sidebar_cursor,
-            inspector::open_on_request,
-            inspector::resize_inspector,
-            inspector::inspector_cursor,
-            panel::reset_frame_area,
-            sidebar::reserve_space,
-            inspector::reserve_space,
+            ui::sidebar::resize_sidebar,
+            ui::sidebar::sidebar_cursor,
+            ui::inspector::open_on_request,
+            ui::inspector::resize_inspector,
+            ui::inspector::inspector_cursor,
+            view::reset_frame_area,
+            ui::sidebar::reserve_space,
+            ui::inspector::reserve_space,
         )
             .chain()
             .in_set(DockSystems),
@@ -271,16 +260,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .add_systems(
         Update,
         (
-            panel::apply_panel_requests,
-            panel::normalize_panels,
-            panel::sync_panel_buttons,
-            hud::sync_hud,
-            panel::panel_controls,
-            panel::update_viewports,
-            hud::position_hud,
-            hud::rebuild_source_menus,
-            sidebar::update_sidebar,
-            inspector::update_inspector,
+            view::apply_panel_requests,
+            view::normalize_panels,
+            view::sync_panel_buttons,
+            view::overlay::sync_hud,
+            view::panel_controls,
+            view::update_viewports,
+            view::overlay::position_hud,
+            view::overlay::rebuild_source_menus,
+            ui::sidebar::update_sidebar,
+            ui::inspector::update_inspector,
         )
             .chain()
             .after(DockSystems),
@@ -290,72 +279,78 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .add_systems(
         Update,
         (
-            panel::update_selection_border,
-            widgets::update_accordions,
-            widgets::truncate_accordion_titles,
-            viewconfig::rebuild_layout_menu,
-            widgets::dismiss_menus,
-            widgets::position_menus,
-            viewconfig::sync_opacity_slider,
-            viewconfig::sync_point_size,
-            cellpanel::record_open_sections,
-            cellpanel::drag_range_handles,
-            cellpanel::rebuild_cell_panel,
-            cellpanel::update_property_controls,
-            cellpanel::update_range_controls,
-            cellpanel::update_clear_buttons,
-            cellpanel::apply_selection,
-            viewconfig::apply_opacity,
-            viewconfig::apply_opacity_to_new,
-            viewconfig::apply_point_settings,
-            viewconfig::apply_point_settings_to_new,
+            view::update_selection_border,
+            ui::widgets::update_accordions,
+            ui::widgets::truncate_accordion_titles,
+            ui::viewconfig::rebuild_layout_menu,
+            ui::widgets::dismiss_menus,
+            ui::widgets::position_menus,
+            ui::viewconfig::sync_opacity_slider,
+            ui::viewconfig::sync_point_size,
+            ui::cellpanel::record_open_sections,
+            ui::cellpanel::drag_range_handles,
+            ui::cellpanel::rebuild_cell_panel,
+            ui::cellpanel::update_property_controls,
+            ui::cellpanel::update_range_controls,
+            ui::cellpanel::update_clear_buttons,
+            ui::cellpanel::apply_selection,
+            ui::viewconfig::apply_opacity,
+            ui::viewconfig::apply_opacity_to_new,
+            ui::viewconfig::apply_point_settings,
+            ui::viewconfig::apply_point_settings_to_new,
         )
             .chain()
-            .after(panel::update_viewports),
+            .after(view::update_viewports),
     )
     // The overlay reads whatever each source reported this frame, so it runs
     // after every source plugin has had its turn.
-    .add_systems(Update, hud::update_hud.after(panel::update_viewports))
+    .add_systems(
+        Update,
+        view::overlay::update_hud.after(view::update_viewports),
+    )
     // Hovering: the grid says where the pointer is, each source plugin says
     // what is there, and the frame's tooltip shows the answer. The three are
     // ordered around a set so a plugin only declares membership.
     .add_systems(
         Update,
-        panel::probe_hover
-            .after(panel::update_viewports)
-            .before(hover::HoverProbing),
+        view::probe_hover
+            .after(view::update_viewports)
+            .before(source::hover::HoverProbing),
     )
     .add_systems(
         Update,
-        (hud::position_tooltips, hud::update_tooltips)
+        (
+            view::overlay::position_tooltips,
+            view::overlay::update_tooltips,
+        )
             .chain()
-            .after(hover::HoverProbing)
-            .after(hud::sync_hud),
+            .after(source::hover::HoverProbing)
+            .after(view::overlay::sync_hud),
     );
 
     // Each format is a plugin. Registration order decides which cell a source's
     // frame opens in, and nothing else here knows what the formats are.
-    app.add_plugins(tiles::ImagePlugin {
+    app.add_plugins(formats::image::ImagePlugin {
         dataset,
         z_slice: args.z,
         budget_bytes: args.cache_mb * 1024 * 1024,
     });
     if let Some(cloud) = cloud {
-        app.add_plugins(pointcloud::PointCloudPlugin {
+        app.add_plugins(formats::pointcloud::PointCloudPlugin {
             name: "Point cloud".into(),
             cloud,
             budget: args.point_budget,
         });
     }
     if let Some(cloud) = cells {
-        app.add_plugins(pointcloud::PointCloudPlugin {
+        app.add_plugins(formats::pointcloud::PointCloudPlugin {
             name: "SEA-AD mapped cells".into(),
             cloud,
             budget: args.point_budget,
         });
     }
     if let Some(cloud) = sections {
-        app.add_plugins(slices::SlicesPlugin {
+        app.add_plugins(formats::slices::SlicesPlugin {
             cloud,
             budget: args.slice_budget,
         });
@@ -366,8 +361,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (
             maximize_window,
             open_frames,
-            viewconfig::spawn_view_config,
-            cellpanel::spawn_cell_panel,
+            ui::viewconfig::spawn_view_config,
+            ui::cellpanel::spawn_cell_panel,
         )
             .chain(),
     );
@@ -407,11 +402,11 @@ fn open_frames(
     // plugins were added.
     sources.sort_by_key(|(_, source, _)| source.layer);
 
-    let (columns, rows) = panel::grid_for(sources.len());
+    let (columns, rows) = view::grid_for(sources.len());
     let viewport = Vec2::new(window.x / columns as f32, window.y / rows as f32);
 
     for (index, (entity, source, extent)) in sources.into_iter().enumerate() {
-        panel::spawn_panel(
+        view::spawn_panel(
             &mut commands,
             entity,
             source.layer,
@@ -421,9 +416,9 @@ fn open_frames(
         );
     }
 
-    panel::spawn_ui_camera(&mut commands);
-    panel::spawn_dividers(&mut commands);
-    sidebar::spawn_sidebar(&mut commands);
-    inspector::spawn_inspector(&mut commands);
-    panel::spawn_selection_border(&mut commands);
+    view::spawn_ui_camera(&mut commands);
+    view::spawn_dividers(&mut commands);
+    ui::sidebar::spawn_sidebar(&mut commands);
+    ui::inspector::spawn_inspector(&mut commands);
+    view::spawn_selection_border(&mut commands);
 }

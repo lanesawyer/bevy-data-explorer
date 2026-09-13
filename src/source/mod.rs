@@ -10,9 +10,12 @@
 //! Scatterbrain. Swapping what a frame displays is then a matter of pointing it
 //! at a different entity and moving its camera onto that source's layer.
 
+pub mod hover;
+pub mod properties;
+
 use bevy::prelude::*;
 
-use crate::panel::ViewLimits;
+use crate::view::ViewLimits;
 
 /// A loaded dataset that a frame can display.
 #[derive(Component, Debug, Clone)]

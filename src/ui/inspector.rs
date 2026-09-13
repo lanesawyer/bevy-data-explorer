@@ -16,8 +16,8 @@ use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::Activate;
 
-use crate::datasource::{DataSource, SourceStatus};
-use crate::panel::{BlocksFrameInput, FrameArea, PanelRequest, SelectedPanel, ShowsSource};
+use crate::source::{DataSource, SourceStatus};
+use crate::view::{BlocksFrameInput, FrameArea, PanelRequest, SelectedPanel, ShowsSource};
 
 const MIN_PX: f32 = 200.0;
 const MAX_FRACTION: f32 = 0.5;

@@ -7,7 +7,7 @@
 //! costs nothing to change.
 
 use bevy::asset::RenderAssetUsages;
-use bevy::asset::{Asset, embedded_asset};
+use bevy::asset::{Asset, AssetPath, embedded_asset, embedded_path};
 use bevy::mesh::{
     Indices, MeshVertexAttribute, MeshVertexBufferLayoutRef, PrimitiveTopology,
     VertexAttributeValues,
@@ -94,13 +94,24 @@ impl Default for PointMaterial {
     }
 }
 
+/// Where `embedded_asset!` below put the shader.
+///
+/// Derived rather than spelled out, because the embedded path encodes this
+/// file's location under `src/`: writing it as a literal makes moving this
+/// module compile cleanly and then fail to find its shader at runtime.
+fn shader() -> ShaderRef {
+    ShaderRef::Path(
+        AssetPath::from_path_buf(embedded_path!("point_material.wgsl")).with_source("embedded"),
+    )
+}
+
 impl Material2d for PointMaterial {
     fn vertex_shader() -> ShaderRef {
-        ShaderRef::Path("embedded://bevy_data_explorer/point_material.wgsl".into())
+        shader()
     }
 
     fn fragment_shader() -> ShaderRef {
-        ShaderRef::Path("embedded://bevy_data_explorer/point_material.wgsl".into())
+        shader()
     }
 
     fn alpha_mode(&self) -> AlphaMode2d {

@@ -328,8 +328,8 @@ impl CellSelection {
 /// [`CellProperties`] from wherever the answer arrives — nothing that reads it
 /// needs to change.
 pub fn placeholder_properties(
-    categorical: &[&crate::scatterbrain::PointAttribute],
-    numeric: &[&crate::scatterbrain::PointAttribute],
+    categorical: &[&crate::formats::scatterbrain::PointAttribute],
+    numeric: &[&crate::formats::scatterbrain::PointAttribute],
 ) -> CellProperties {
     const SAMPLE_VALUES: usize = 6;
     const SHOWN: usize = 4;
@@ -538,8 +538,8 @@ mod tests {
     fn the_placeholder_uses_the_datasets_own_columns() {
         // Colouring has to work against live data, so the ids must be real
         // column identifiers even while the labels and counts are invented.
-        let cloud = crate::scatterbrain::Scatterbrain::parse(include_str!(
-            "../testdata/scatterbrain_cells.json"
+        let cloud = crate::formats::scatterbrain::Scatterbrain::parse(include_str!(
+            "../../testdata/scatterbrain_cells.json"
         ))
         .unwrap();
         let categorical = cloud.category_columns();
@@ -569,8 +569,8 @@ mod tests {
     #[test]
     fn placeholder_properties_start_unfiltered() {
         // Opening the panel must not silently hide anything.
-        let cloud = crate::scatterbrain::Scatterbrain::parse(include_str!(
-            "../testdata/scatterbrain_cells.json"
+        let cloud = crate::formats::scatterbrain::Scatterbrain::parse(include_str!(
+            "../../testdata/scatterbrain_cells.json"
         ))
         .unwrap();
         let properties =

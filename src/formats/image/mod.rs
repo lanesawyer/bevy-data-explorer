@@ -11,6 +11,9 @@
 //! back out, or panning away and returning, redraws from what is already
 //! resident instead of refetching it.
 
+pub mod dataset;
+pub mod store;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
@@ -23,10 +26,10 @@ use bevy::sprite::Anchor;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use zarrs_codec::ArrayPartialDecoderTraits;
 
-use crate::dataset::{Channel, Dataset, TilePixels, read_tile};
-use crate::datasource::{self, SourceExtent, SourceStatus};
-use crate::hover::{HoverInfo, HoverProbe};
-use crate::panel::ShowsSource;
+use crate::formats::image::dataset::{Channel, Dataset, TilePixels, read_tile};
+use crate::source::hover::{HoverInfo, HoverProbe};
+use crate::source::{self, SourceExtent, SourceStatus};
+use crate::view::ShowsSource;
 
 /// Threads reserved for fetching and decoding tiles.
 ///
@@ -410,7 +413,7 @@ pub fn collect_tile_tasks(
     mut commands: Commands,
     mut streamer: ResMut<TileStreamer>,
     mut images: ResMut<Assets<Image>>,
-    sources: Query<&datasource::DataSource>,
+    sources: Query<&source::DataSource>,
 ) {
     let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
         return;
@@ -723,9 +726,9 @@ impl Plugin for ImagePlugin {
     fn build(&self, app: &mut App) {
         let (x0, y0, x1, y1) = self.dataset.world;
         let level = &self.dataset.levels[0];
-        let source = datasource::register(
+        let source = source::register(
             app,
-            datasource::SourceInfo {
+            source::SourceInfo {
                 name: self.dataset.name.clone(),
                 unit: self.dataset.unit.clone(),
                 detail: format!(
@@ -766,9 +769,12 @@ impl Plugin for ImagePlugin {
                     report_status,
                 )
                     .chain()
-                    .after(crate::panel::update_viewports),
+                    .after(crate::view::update_viewports),
             )
-            .add_systems(Update, resolve_hover.in_set(crate::hover::HoverProbing));
+            .add_systems(
+                Update,
+                resolve_hover.in_set(crate::source::hover::HoverProbing),
+            );
     }
 }
 
@@ -817,7 +823,7 @@ fn describe(streamer: &TileStreamer, probe: &HoverProbe) -> Option<HoverInfo> {
 
 /// A display-space point as pixel coordinates in a level, or `None` when it
 /// falls outside the image.
-fn pixel_in(level: &crate::dataset::Level, world: Vec2) -> Option<(u64, u64)> {
+fn pixel_in(level: &crate::formats::image::dataset::Level, world: Vec2) -> Option<(u64, u64)> {
     if level.scale_x <= 0.0 || level.scale_y <= 0.0 {
         return None;
     }

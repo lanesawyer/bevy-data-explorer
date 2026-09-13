@@ -1,6 +1,6 @@
 //! What is under the pointer, asked of a source and reported back to its frame.
 //!
-//! This is part of the source plugin surface, alongside [`crate::datasource`].
+//! This is part of the source plugin surface, alongside [`crate::source`].
 //! The grid knows where the pointer is and which frame it is in; only a format
 //! plugin knows what lives at that spot. So the two meet halfway: the grid
 //! writes a [`HoverProbe`] onto the source entity of whichever frame the

@@ -12,6 +12,8 @@
 //! same layer, which is why duplicating costs no extra geometry: the two
 //! cameras draw the same entities from different viewpoints.
 
+pub mod overlay;
+
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, Viewport};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
@@ -22,8 +24,8 @@ use bevy_feathers::controls::{ButtonVariant, FeathersToolButton};
 use bevy_feathers::display::label;
 use bevy_ui_widgets::Activate;
 
-use crate::datasource::DataSource;
-use crate::hover::HoverProbe;
+use crate::source::DataSource;
+use crate::source::hover::HoverProbe;
 
 /// Width of the rule drawn between panels, in logical pixels.
 const DIVIDER_PX: f32 = 2.0;
@@ -550,7 +552,7 @@ pub fn apply_panel_requests(
         &Projection,
         &ViewLimits,
     )>,
-    sources: Query<(&DataSource, &crate::datasource::SourceExtent)>,
+    sources: Query<(&DataSource, &crate::source::SourceExtent)>,
 ) {
     let requests: Vec<PanelRequest> = requests.read().copied().collect();
     if requests.is_empty() {

@@ -14,14 +14,14 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::Activate;
 use bevy_ui_widgets::SliderValue;
 
-use crate::datasource::DataSource;
-use crate::panel::{SelectedPanel, ShowsSource};
-use crate::points_render::{
+use crate::render::points::{
     DEFAULT_POINT_PX, HIGHLIGHT_NONE, MAX_POINT_PX, MIN_POINT_PX, PointMaterial, SourceHighlight,
     SourcePointSize,
 };
-use crate::sidebar::SidebarContent;
-use crate::widgets::{caption, spawn_accordion, spawn_menu, spawn_slider};
+use crate::source::DataSource;
+use crate::ui::sidebar::SidebarContent;
+use crate::ui::widgets::{caption, spawn_accordion, spawn_menu, spawn_slider};
+use crate::view::{SelectedPanel, ShowsSource};
 
 /// The opacity slider runs 0..100, so its built-in readout is a percentage.
 const PERCENT: f32 = 100.0;
@@ -360,7 +360,7 @@ impl Default for AddVisualization {
 pub fn rebuild_layout_menu(
     mut commands: Commands,
     menus: Query<Entity, With<LayoutMenu>>,
-    panels: Query<(Entity, &crate::panel::Panel, &ShowsSource)>,
+    panels: Query<(Entity, &crate::view::Panel, &ShowsSource)>,
     sources: Query<(Entity, &DataSource)>,
     content: Query<Entity, With<LayoutContent>>,
     mut previous: Local<Option<Vec<(Entity, Entity)>>>,
@@ -398,7 +398,7 @@ pub fn rebuild_layout_menu(
     }
 
     children.push(heading(&mut commands, "Add visualization", 12.0, 8.0));
-    let full = current.len() >= crate::panel::MAX_PANELS;
+    let full = current.len() >= crate::view::MAX_PANELS;
     for (source, data) in &sources {
         children.push(add_row(&mut commands, source, data, full));
     }
@@ -484,7 +484,7 @@ fn add_row(commands: &mut Commands, source: Entity, data: &DataSource, full: boo
             @FeathersToolButton {
                 @caption: { bsn_list![label("+")] }
             }
-            crate::panel::BlocksFrameInput
+            crate::view::BlocksFrameInput
             AddVisualization { source: { source } }
         })
         .id();
@@ -510,7 +510,7 @@ fn action_button(
             @FeathersToolButton {
                 @caption: { bsn_list![label(glyph)] }
             }
-            crate::panel::BlocksFrameInput
+            crate::view::BlocksFrameInput
             LayoutButton { panel: { panel }, action: { action } }
         })
         .id()
@@ -527,14 +527,14 @@ fn action_button(
 pub fn on_layout_button(
     activate: On<Activate>,
     buttons: Query<&LayoutButton>,
-    mut requests: MessageWriter<crate::panel::PanelRequest>,
+    mut requests: MessageWriter<crate::view::PanelRequest>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
         return;
     };
     requests.write(match button.action {
-        LayoutAction::Clone => crate::panel::PanelRequest::Duplicate(button.panel),
-        LayoutAction::Remove => crate::panel::PanelRequest::Close(button.panel),
+        LayoutAction::Clone => crate::view::PanelRequest::Duplicate(button.panel),
+        LayoutAction::Remove => crate::view::PanelRequest::Close(button.panel),
     });
 }
 
@@ -542,12 +542,12 @@ pub fn on_layout_button(
 pub fn on_add_visualization(
     activate: On<Activate>,
     rows: Query<&AddVisualization>,
-    mut requests: MessageWriter<crate::panel::PanelRequest>,
+    mut requests: MessageWriter<crate::view::PanelRequest>,
 ) {
     let Ok(add) = rows.get(activate.entity) else {
         return;
     };
-    requests.write(crate::panel::PanelRequest::Open(add.source));
+    requests.write(crate::view::PanelRequest::Open(add.source));
 }
 
 /// Point the size slider at the selected source, and write its value back.

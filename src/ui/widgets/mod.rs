@@ -15,7 +15,7 @@ use bevy_ui_widgets::Activate;
 use bevy_ui_widgets::ScrollArea;
 use bevy_ui_widgets::SliderPrecision;
 
-use crate::panel::BlocksFrameInput;
+use crate::view::BlocksFrameInput;
 
 pub const ACCORDION_INDENT: f32 = 8.0;
 /// Size the accordion titles are drawn at, which sets how many characters fit.

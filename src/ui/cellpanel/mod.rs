@@ -17,13 +17,13 @@ use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, ValueChange};
 
-use crate::cellproperties::{
+use crate::source::DataSource;
+use crate::source::properties::{
     CellProperties, CellProperty, NumericRange, PropertyKind, PropertyState, RangeEnd,
 };
-use crate::datasource::DataSource;
-use crate::panel::{BlocksFrameInput, SelectedPanel, ShowsSource};
-use crate::sidebar::SidebarContent;
-use crate::widgets::{Accordion, spawn_accordion, spawn_header_button, spawn_menu};
+use crate::ui::sidebar::SidebarContent;
+use crate::ui::widgets::{Accordion, spawn_accordion, spawn_header_button, spawn_menu};
+use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
 
 /// The section itself, hidden for sources with no properties to show.
 #[derive(Component, Clone, Default)]
@@ -321,8 +321,8 @@ pub fn record_open_sections(
 pub fn apply_selection(
     mut commands: Commands,
     changed: Query<(Entity, &CellProperties), Changed<CellProperties>>,
-    mut points: Query<&mut crate::pointcloud::PointStreamer>,
-    mut slices: Option<ResMut<crate::slices::SliceStreamer>>,
+    mut points: Query<&mut crate::formats::pointcloud::PointStreamer>,
+    mut slices: Option<ResMut<crate::formats::slices::SliceStreamer>>,
 ) {
     for (entity, properties) in &changed {
         let selection = properties.selection();

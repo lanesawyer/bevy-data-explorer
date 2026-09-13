@@ -15,12 +15,12 @@ use bevy::mesh::Mesh;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
-use crate::cellproperties::{CellProperties, CellSelection};
-use crate::datasource::{self, DataSource, SourceExtent, SourceStatus};
-use crate::hover::{HoverInfo, HoverProbe};
-use crate::panel::ShowsSource;
-use crate::points_render::{PointMaterial, SourceHighlight, build_point_mesh};
-use crate::scatterbrain::{self, Node, Rect, Scatterbrain, Slide};
+use crate::formats::scatterbrain::{self, Node, Rect, Scatterbrain, Slide};
+use crate::render::points::{PointMaterial, SourceHighlight, build_point_mesh};
+use crate::source::hover::{HoverInfo, HoverProbe};
+use crate::source::properties::{CellProperties, CellSelection};
+use crate::source::{self, DataSource, SourceExtent, SourceStatus};
+use crate::view::ShowsSource;
 
 /// Descend into a node's children while its region covers at least this many
 /// screen pixels. Lower values load deeper, denser detail sooner.
@@ -31,7 +31,7 @@ const SUBDIVIDE_PX: f32 = 420.0;
 /// Maximum points held on the GPU.
 ///
 /// Each point is a quad so it can be given a size: four vertices of position,
-/// packed colour and corner, or [`crate::points_render::BYTES_PER_POINT`].
+/// packed colour and corner, or [`crate::render::points::BYTES_PER_POINT`].
 pub const DEFAULT_POINT_BUDGET: usize = 3_000_000;
 
 const MAX_IN_FLIGHT: usize = 12;
@@ -425,7 +425,7 @@ fn fetch(url: &str) -> Result<Vec<u8>, String> {
 pub fn collect_node_tasks(
     mut commands: Commands,
     mut streamers: Query<&mut PointStreamer>,
-    sources: Query<&datasource::DataSource>,
+    sources: Query<&source::DataSource>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<PointMaterial>>,
 ) {
@@ -443,7 +443,7 @@ pub fn collect_node_tasks(
 fn collect_for(
     commands: &mut Commands,
     streamer: &mut PointStreamer,
-    sources: &Query<&datasource::DataSource>,
+    sources: &Query<&source::DataSource>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<PointMaterial>,
 ) {
@@ -568,7 +568,7 @@ mod tests {
     use super::*;
 
     fn cloud() -> Scatterbrain {
-        Scatterbrain::parse(include_str!("../testdata/scatterbrain.json")).unwrap()
+        Scatterbrain::parse(include_str!("../../../testdata/scatterbrain.json")).unwrap()
     }
 
     fn slide_of(cloud: &Scatterbrain) -> &Slide {
@@ -769,7 +769,9 @@ mod tests {
 
     #[test]
     fn a_hit_is_named_by_its_node_and_its_offset_within_it() {
-        use crate::cellproperties::{CellProperties, CellProperty, PropertyKind, PropertyValue};
+        use crate::source::properties::{
+            CellProperties, CellProperty, PropertyKind, PropertyValue,
+        };
 
         let cloud = cloud();
         let (cx, cy) = slide_of(&cloud).bounds.centre();
@@ -825,7 +827,7 @@ mod tests {
         // given a size.
         assert_eq!(mesh.count_vertices(), 8);
         assert!(
-            mesh.attribute(crate::points_render::ATTRIBUTE_POINT_COLOR)
+            mesh.attribute(crate::render::points::ATTRIBUTE_POINT_COLOR)
                 .is_some()
         );
     }
@@ -866,14 +868,14 @@ impl Plugin for PointCloudSystems {
                 report_status,
             )
                 .chain()
-                .after(crate::panel::update_viewports),
+                .after(crate::view::update_viewports),
         )
         // Resolving the pointer reads the nodes that are resident now, so it
         // runs after this frame's arrivals and evictions.
         .add_systems(
             Update,
             resolve_hover
-                .in_set(crate::hover::HoverProbing)
+                .in_set(crate::source::hover::HoverProbing)
                 .after(evict_nodes),
         );
     }
@@ -893,16 +895,13 @@ impl Plugin for PointCloudPlugin {
 
         let bounds = self.cloud.slides[0].tight_bounds;
         let (cx, cy) = bounds.centre();
-        let source = datasource::register(
+        let source = source::register(
             app,
-            datasource::SourceInfo {
+            source::SourceInfo {
                 name: self.name.clone(),
                 unit: self.cloud.unit.clone(),
                 detail: format!("Scatterbrain octree, depth {}", self.cloud.max_depth()),
-                stat: format!(
-                    "{} CELLS",
-                    datasource::compact_count(self.cloud.total_points())
-                ),
+                stat: format!("{} CELLS", source::compact_count(self.cloud.total_points())),
             },
             SourceExtent {
                 // World y is negated for display, matching the image panel.
@@ -915,7 +914,7 @@ impl Plugin for PointCloudPlugin {
         // Advertising a point size is what puts the size control in the
         // sidebar; sources without one simply do not offer it.
         app.world_mut().entity_mut(source).insert((
-            crate::points_render::SourcePointSize::default(),
+            crate::render::points::SourcePointSize::default(),
             // Both start empty. Carrying them from registration means the hover
             // systems can write through a query rather than through commands,
             // and so can leave them untouched when nothing has changed.
@@ -923,7 +922,7 @@ impl Plugin for PointCloudPlugin {
             HoverInfo::default(),
             // Placeholder until a lookup service supplies the real value
             // labels; the column names and ids are the dataset's own.
-            crate::cellproperties::placeholder_properties(
+            crate::source::properties::placeholder_properties(
                 &self.cloud.category_columns(),
                 &self.cloud.numeric_columns(),
             ),
@@ -1034,7 +1033,7 @@ fn report_for(streamer: &PointStreamer, sources: &mut Query<&mut SourceStatus>) 
         streamer.in_flight,
         streamer.resident_points,
         streamer.budget,
-        crate::points_render::budget_megabytes(streamer.resident_points),
+        crate::render::points::budget_megabytes(streamer.resident_points),
         colour,
     );
 }

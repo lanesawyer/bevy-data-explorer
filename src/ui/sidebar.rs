@@ -16,7 +16,7 @@ use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::display::label;
 use bevy_ui_widgets::Activate;
 
-use crate::panel::{BlocksFrameInput, FrameArea};
+use crate::view::{BlocksFrameInput, FrameArea};
 
 /// Width when collapsed. Enough for the short title and the toggle beneath it.
 const RIBBON_PX: f32 = 52.0;

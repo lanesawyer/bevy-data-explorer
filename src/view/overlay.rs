@@ -18,10 +18,10 @@ use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::Activate;
 
-use crate::datasource::{DataSource, SourceStatus};
-use crate::hover::{HoverInfo, HoverProbe};
-use crate::panel::{BlocksFrameInput, Panel, PanelRequest, ShowsSource};
-use crate::widgets::spawn_menu;
+use crate::source::hover::{HoverInfo, HoverProbe};
+use crate::source::{DataSource, SourceStatus};
+use crate::ui::widgets::spawn_menu;
+use crate::view::{BlocksFrameInput, Panel, PanelRequest, ShowsSource};
 
 /// The translucent panel a frame's header and status sit on.
 #[derive(Component, Clone)]
@@ -236,11 +236,11 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
 
 /// Keep each overlay over its panel's cell.
 pub fn position_hud(
-    area: Res<crate::panel::FrameArea>,
+    area: Res<crate::view::FrameArea>,
     panels: Query<&Panel>,
     mut texts: Query<(&PanelHeader, &mut Node)>,
 ) {
-    let (columns, rows) = crate::panel::grid_for(panels.iter().count());
+    let (columns, rows) = crate::view::grid_for(panels.iter().count());
     let cell = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32);
 
     for (text, mut node) in &mut texts {
@@ -261,12 +261,12 @@ pub fn position_hud(
 /// than sliding off the frame.
 pub fn position_tooltips(
     windows: Query<&Window>,
-    area: Res<crate::panel::FrameArea>,
+    area: Res<crate::view::FrameArea>,
     panels: Query<&Panel>,
     mut tooltips: Query<(&PanelTooltip, &mut Node)>,
 ) {
     let Ok(window) = windows.single() else { return };
-    let (columns, rows) = crate::panel::grid_for(panels.iter().count());
+    let (columns, rows) = crate::view::grid_for(panels.iter().count());
     let cell = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32);
 
     for (tooltip, mut node) in &mut tooltips {

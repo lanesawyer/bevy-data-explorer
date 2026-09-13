@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use ome_zarr_metadata::v0_4::AxisType;
 
-use crate::source::MultiscaleSpec;
+use crate::formats::image::store::MultiscaleSpec;
 use zarrs::array::{Array, ArraySubset, ChunkShapeTraits};
 use zarrs::storage::ReadableStorageTraits;
 use zarrs_codec::ArrayPartialDecoderTraits;
@@ -624,10 +624,12 @@ mod tests {
     use super::*;
 
     /// The reference image's root attributes, parsed the way the viewer does.
-    fn reference_multiscale() -> Vec<crate::source::MultiscaleSpec> {
+    fn reference_multiscale() -> Vec<crate::formats::image::store::MultiscaleSpec> {
         let root: serde_json::Value =
-            serde_json::from_str(include_str!("../testdata/root_zarr_v3.json")).unwrap();
-        crate::source::parse_ome(&root["attributes"]).unwrap().0
+            serde_json::from_str(include_str!("../../../testdata/root_zarr_v3.json")).unwrap();
+        crate::formats::image::store::parse_ome(&root["attributes"])
+            .unwrap()
+            .0
     }
 
     #[test]
@@ -710,7 +712,7 @@ mod tests {
     #[test]
     fn inner_chunk_shape_is_found_in_the_sharding_codec() {
         let meta: serde_json::Value =
-            serde_json::from_str(include_str!("../testdata/array0_zarr_v3.json")).unwrap();
+            serde_json::from_str(include_str!("../../../testdata/array0_zarr_v3.json")).unwrap();
         let codecs = meta["codecs"].as_array().unwrap();
         let sharding = codecs
             .iter()

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use ome_zarr_metadata::v0_4::{Axis, MultiscaleImageDataset, Omero};
 use serde::Deserialize;
 
-use crate::dataset::{Dataset, ReadStore};
+use crate::formats::image::dataset::{Dataset, ReadStore};
 
 /// The reference image, used when no source is given.
 pub const DEFAULT_SOURCE: &str = "https://h301-scanning-802451596237-us-west-2.s3.us-west-2.amazonaws.com/2402091625/ome_zarr_conversion/1458501514.zarr/";
@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn parses_the_real_root_attributes() {
         let root: serde_json::Value =
-            serde_json::from_str(include_str!("../testdata/root_zarr_v3.json")).unwrap();
+            serde_json::from_str(include_str!("../../../testdata/root_zarr_v3.json")).unwrap();
         let (multiscales, omero) = parse_ome(&root["attributes"]).unwrap();
 
         assert_eq!(multiscales.len(), 1);

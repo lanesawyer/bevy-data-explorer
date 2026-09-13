@@ -16,13 +16,15 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
-use crate::cellproperties::{CellProperties, CellSelection};
-use crate::datasource::{self, DataSource, SourceExtent, SourceStatus};
-use crate::hover::{HoverInfo, HoverProbe};
-use crate::panel::{ShowsSource, ViewLimits};
-use crate::pointcloud::{NodeOutcome, NodePoints, PICK_PX, build_mesh, load_node, pick_reach};
-use crate::points_render::{PointMaterial, SourceHighlight};
-use crate::scatterbrain::{Rect, Scatterbrain};
+use crate::formats::pointcloud::{
+    NodeOutcome, NodePoints, PICK_PX, build_mesh, load_node, pick_reach,
+};
+use crate::formats::scatterbrain::{Rect, Scatterbrain};
+use crate::render::points::{PointMaterial, SourceHighlight};
+use crate::source::hover::{HoverInfo, HoverProbe};
+use crate::source::properties::{CellProperties, CellSelection};
+use crate::source::{self, DataSource, SourceExtent, SourceStatus};
+use crate::view::{ShowsSource, ViewLimits};
 
 /// Descend into a slide's octree while its region covers at least this many
 /// screen pixels.
@@ -458,7 +460,7 @@ pub fn spawn_slice_tasks(mut streamer: ResMut<SliceStreamer>) {
 pub fn collect_slice_tasks(
     mut commands: Commands,
     mut streamer: ResMut<SliceStreamer>,
-    sources: Query<&datasource::DataSource>,
+    sources: Query<&source::DataSource>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<PointMaterial>>,
 ) {
@@ -624,7 +626,10 @@ mod tests {
     use super::*;
 
     fn sectioned() -> Arc<Scatterbrain> {
-        Arc::new(Scatterbrain::parse(include_str!("../testdata/scatterbrain_slides.json")).unwrap())
+        Arc::new(
+            Scatterbrain::parse(include_str!("../../../testdata/scatterbrain_slides.json"))
+                .unwrap(),
+        )
     }
 
     /// The streamer only compares its source entity for equality, so tests do
@@ -850,16 +855,13 @@ pub struct SlicesPlugin {
 impl Plugin for SlicesPlugin {
     fn build(&self, app: &mut App) {
         let (w, h) = self.cloud.max_slide_extent();
-        let source = datasource::register(
+        let source = source::register(
             app,
-            datasource::SourceInfo {
+            source::SourceInfo {
                 name: "Sections".into(),
                 unit: self.cloud.unit.clone(),
                 detail: format!("Scatterbrain, {} sections", self.cloud.slides.len()),
-                stat: format!(
-                    "{} CELLS",
-                    datasource::compact_count(self.cloud.total_points())
-                ),
+                stat: format!("{} CELLS", source::compact_count(self.cloud.total_points())),
             },
             // Replaced on the first update by `publish_extent`, once the grid
             // layout is known.
@@ -871,14 +873,14 @@ impl Plugin for SlicesPlugin {
         );
 
         app.world_mut().entity_mut(source).insert((
-            crate::points_render::SourcePointSize::default(),
+            crate::render::points::SourcePointSize::default(),
             // Both start empty, and are carried from registration so the hover
             // systems can write through a query rather than through commands.
             SourceHighlight::default(),
             HoverInfo::default(),
             // Placeholder until a lookup service supplies the real value
             // labels; the column names and ids are the dataset's own.
-            crate::cellproperties::placeholder_properties(
+            crate::source::properties::placeholder_properties(
                 &self.cloud.category_columns(),
                 &self.cloud.numeric_columns(),
             ),
@@ -902,14 +904,14 @@ impl Plugin for SlicesPlugin {
                     report_status,
                 )
                     .chain()
-                    .after(crate::panel::update_viewports),
+                    .after(crate::view::update_viewports),
             )
             // Resolving the pointer reads the nodes that are resident now, and
             // which slide is where, so it runs after the layout has settled.
             .add_systems(
                 Update,
                 resolve_hover
-                    .in_set(crate::hover::HoverProbing)
+                    .in_set(crate::source::hover::HoverProbing)
                     .after(apply_slice_layout),
             );
     }
@@ -1032,7 +1034,7 @@ fn report_status(streamer: Res<SliceStreamer>, mut sources: Query<&mut SourceSta
         streamer.in_flight,
         streamer.resident_points,
         streamer.budget,
-        crate::points_render::budget_megabytes(streamer.resident_points),
+        crate::render::points::budget_megabytes(streamer.resident_points),
         colour,
     );
 }
