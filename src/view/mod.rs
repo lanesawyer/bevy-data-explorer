@@ -26,7 +26,7 @@ use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
 use crate::source::hover::HoverProbe;
-use crate::source::{DataSource, SourceExtent};
+use crate::source::{DataSource, SourceExtent, ViewLimits};
 
 /// Width of the rule drawn between panels, in logical pixels.
 const DIVIDER_PX: f32 = 2.0;
@@ -144,31 +144,6 @@ pub struct ShowsSource(pub Entity);
 impl Default for ShowsSource {
     fn default() -> Self {
         ShowsSource(Entity::PLACEHOLDER)
-    }
-}
-
-/// Pan and zoom bounds for a panel, derived from the extent of its data.
-#[derive(Component, Clone, Copy, Default)]
-pub struct ViewLimits {
-    pub min_scale: f32,
-    pub max_scale: f32,
-    pub fit_scale: f32,
-    pub centre: Vec2,
-}
-
-impl ViewLimits {
-    /// Frame `width` x `height` of world in a viewport, allowing zoom in to
-    /// `finest_detail` world units per pixel and out to a few screens' worth.
-    pub fn fit(centre: Vec2, width: f32, height: f32, viewport: Vec2, finest_detail: f32) -> Self {
-        let fit_scale = (width / viewport.x.max(1.0))
-            .max(height / viewport.y.max(1.0))
-            .max(f32::MIN_POSITIVE);
-        ViewLimits {
-            min_scale: finest_detail.min(fit_scale),
-            max_scale: fit_scale * 4.0,
-            fit_scale,
-            centre,
-        }
     }
 }
 

@@ -19,6 +19,10 @@
 
 use serde::Deserialize;
 
+use crate::source::properties::{
+    CellProperties, CellProperty, NumericRange, PropertyKind, PropertyValue,
+};
+
 /// Axis-aligned rectangle in dataset coordinates.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {
@@ -454,9 +458,107 @@ pub fn decode_categories(bytes: &[u8], expected: u64) -> Result<Vec<u16>, String
         .collect())
 }
 
+/// Stand-in properties built from a Scatterbrain's own categorical columns.
+///
+/// The column names and identifiers are real, so colouring by a property works
+/// against the live data. The value labels are placeholders: the datasets store
+/// codes, and the names behind them come from a separate service that is not
+/// wired up yet. Replacing this with that lookup means writing
+/// [`CellProperties`] from wherever the answer arrives — nothing that reads it
+/// needs to change.
+pub fn placeholder_properties(
+    categorical: &[&PointAttribute],
+    numeric: &[&PointAttribute],
+) -> CellProperties {
+    const SAMPLE_VALUES: usize = 6;
+    const SHOWN: usize = 4;
+
+    let mut properties: Vec<CellProperty> = categorical
+        .iter()
+        .take(SHOWN)
+        .map(|column| CellProperty {
+            id: column.name.clone(),
+            name: column.description.clone(),
+            kind: PropertyKind::Categorical(
+                (0..SAMPLE_VALUES)
+                    .map(|code| PropertyValue {
+                        code: code as u16,
+                        label: format!("{} {code}", column.description),
+                        selected: false,
+                    })
+                    .collect(),
+            ),
+        })
+        .collect();
+
+    properties.extend(numeric.iter().take(SHOWN).map(|column| CellProperty {
+        id: column.name.clone(),
+        name: column.description.clone(),
+        kind: PropertyKind::Numeric(NumericRange::full(0.0, 1.0, placeholder_histogram())),
+    }));
+
+    CellProperties::ready(properties)
+}
+
+/// A stand-in distribution, skewed high the way a confidence score tends to be.
+///
+/// Real counts have to be binned over the whole dataset, which is a question
+/// for the service that will supply the labels rather than something to compute
+/// from the nodes that happen to be resident.
+fn placeholder_histogram() -> Vec<u32> {
+    const BUCKETS: usize = 24;
+    (0..BUCKETS)
+        .map(|bucket| {
+            let t = bucket as f32 / (BUCKETS - 1) as f32;
+            let weight = 0.05 + t.powi(3);
+            (weight * 900.0) as u32 + 12
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::source::properties::PropertyState;
+
+    #[test]
+    fn the_placeholder_uses_the_datasets_own_columns() {
+        // Colouring has to work against live data, so the ids must be real
+        // column identifiers even while the labels and counts are invented.
+        let cloud =
+            Scatterbrain::parse(include_str!("../../../testdata/scatterbrain_cells.json")).unwrap();
+        let categorical = cloud.category_columns();
+        let numeric = cloud.numeric_columns();
+        assert!(!numeric.is_empty(), "this dataset has float columns");
+
+        let properties = placeholder_properties(&categorical, &numeric);
+        assert_eq!(properties.state, PropertyState::Ready);
+
+        let known: Vec<&str> = categorical
+            .iter()
+            .chain(numeric.iter())
+            .map(|column| column.name.as_str())
+            .collect();
+        for property in &properties.properties {
+            assert!(known.contains(&property.id.as_str()));
+        }
+        assert!(
+            properties
+                .properties
+                .iter()
+                .any(|property| property.range().is_some()),
+            "numeric columns should surface as ranges"
+        );
+    }
+    #[test]
+    fn placeholder_properties_start_unfiltered() {
+        // Opening the panel must not silently hide anything.
+        let cloud =
+            Scatterbrain::parse(include_str!("../../../testdata/scatterbrain_cells.json")).unwrap();
+        let properties =
+            placeholder_properties(&cloud.category_columns(), &cloud.numeric_columns());
+        assert!(properties.selection().filters.is_empty());
+    }
 
     fn reference() -> Scatterbrain {
         Scatterbrain::parse(include_str!("../../../testdata/scatterbrain.json")).unwrap()

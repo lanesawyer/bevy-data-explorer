@@ -945,7 +945,7 @@ impl Plugin for PointCloudPlugin {
             HoverInfo::default(),
             // Placeholder until a lookup service supplies the real value
             // labels; the column names and ids are the dataset's own.
-            crate::source::properties::placeholder_properties(
+            crate::formats::scatterbrain::placeholder_properties(
                 &self.cloud.category_columns(),
                 &self.cloud.numeric_columns(),
             ),

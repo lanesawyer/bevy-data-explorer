@@ -22,10 +22,11 @@ use crate::formats::pointcloud::{
 };
 use crate::formats::scatterbrain::{Rect, Scatterbrain};
 use crate::render::points::{PointMaterial, SourceHighlight};
+use crate::source::ViewLimits;
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::properties::{CellProperties, CellSelection};
 use crate::source::{self, DataSource, SourceExtent, SourceStatus};
-use crate::view::{ShowsSource, ViewLimits};
+use crate::view::ShowsSource;
 
 /// Descend into a slide's octree while its region covers at least this many
 /// screen pixels.
@@ -932,7 +933,7 @@ impl Plugin for SlicesPlugin {
             HoverInfo::default(),
             // Placeholder until a lookup service supplies the real value
             // labels; the column names and ids are the dataset's own.
-            crate::source::properties::placeholder_properties(
+            crate::formats::scatterbrain::placeholder_properties(
                 &self.cloud.category_columns(),
                 &self.cloud.numeric_columns(),
             ),
