@@ -78,6 +78,15 @@ enum Slot {
     Failed,
 }
 
+/// Whether a node is drawn, as the component that says so.
+fn visibility_of(shown: bool) -> Visibility {
+    if shown {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    }
+}
+
 /// A point found under the pointer, and the slice it belongs to.
 pub struct SliceHit {
     pub key: SliceNode,
@@ -102,6 +111,10 @@ pub struct SliceStreamer {
     layout: Layout,
     slots: HashMap<SliceNode, Slot>,
     wanted: Vec<SliceNode>,
+    /// Nodes of the selection being replaced, kept on screen until the new one
+    /// is built. Empty except while a swap is pending, and keyed so that a mode
+    /// change lays them out like any other node.
+    retiring: Vec<(SliceNode, Entity)>,
     pub in_flight: usize,
     pub resident_points: usize,
     pub budget: usize,
@@ -168,6 +181,7 @@ impl SliceStreamer {
             layout,
             slots: HashMap::new(),
             wanted: Vec::new(),
+            retiring: Vec::new(),
             in_flight: 0,
             resident_points: 0,
             budget: DEFAULT_SLICE_BUDGET,
@@ -175,20 +189,67 @@ impl SliceStreamer {
         }
     }
 
-    /// Drop every resident node so they are built again.
+    /// Start every node again, keeping what is on screen until the new set is
+    /// built.
     ///
     /// Colouring and filtering decide what a node's vertices are, and the raw
     /// columns are not kept once a node is built, so changing either means
-    /// loading them afresh.
-    pub fn reset(&mut self, commands: &mut Commands) {
-        for slot in self.slots.values() {
+    /// loading them afresh. Despawning them here is what made the sections blink
+    /// away for as long as that took; instead they are handed to
+    /// [`Self::reveal`], which drops them only once their replacements are all
+    /// resident.
+    pub fn retire(&mut self, commands: &mut Commands) {
+        // A second change while a swap is pending: what is in the slots this
+        // time has never been shown and is already out of date, while the nodes
+        // retired earlier are still the last complete picture there was.
+        let pending = self.swapping();
+        for (key, slot) in &self.slots {
             if let Slot::Ready { entity, .. } = slot {
-                commands.entity(*entity).despawn();
+                if pending {
+                    commands.entity(*entity).despawn();
+                } else {
+                    self.retiring.push((*key, *entity));
+                }
             }
         }
         self.slots.clear();
         self.in_flight = 0;
         self.resident_points = 0;
+    }
+
+    /// Whether nodes are being held on screen while their replacements load.
+    pub fn swapping(&self) -> bool {
+        !self.retiring.is_empty()
+    }
+
+    /// Whether everything the current selection asked for has been built.
+    ///
+    /// Failed nodes count as done: a node that cannot be read is not going to
+    /// arrive, and waiting on it would hold the previous selection on screen
+    /// for good.
+    fn generation_ready(&self) -> bool {
+        self.in_flight == 0
+            && self
+                .wanted
+                .iter()
+                .all(|key| matches!(self.slots.get(key), Some(Slot::Ready { .. } | Slot::Failed)))
+    }
+
+    /// Show the new selection and drop the one it replaces.
+    ///
+    /// Revealing goes through the same rule as the layout, so a slide hidden by
+    /// the current mode stays hidden.
+    fn reveal(&mut self, commands: &mut Commands) {
+        for (_, entity) in self.retiring.drain(..) {
+            commands.entity(entity).despawn();
+        }
+        for (key, slot) in &self.slots {
+            if let Slot::Ready { entity, .. } = slot {
+                commands
+                    .entity(*entity)
+                    .insert(visibility_of(self.visible(key.slide)));
+            }
+        }
     }
 
     pub fn cloud(&self) -> &Arc<Scatterbrain> {
@@ -503,6 +564,10 @@ pub fn collect_slice_tasks(
                             Transform::from_translation(offset.extend(0.0)),
                             RenderLayers::layer(layer),
                             SliceNodeTag,
+                            // Held back while the selection it replaces is still
+                            // on screen: showing each node as it arrived would
+                            // draw the new picture half-built over the old one.
+                            visibility_of(!streamer.swapping() && streamer.visible(key.slide)),
                         ))
                         .id();
                     streamer.resident_points += count;
@@ -528,6 +593,23 @@ pub fn collect_slice_tasks(
     }
 }
 
+/// Show a new selection once all of it has arrived, and drop the one it
+/// replaces.
+///
+/// The two sets are on the GPU together for as long as the swap takes, which is
+/// what buys the picture staying put. Nothing is revealed early, so a filter
+/// either applies to every section or to none of them.
+pub fn swap_slice_generations(mut commands: Commands, mut streamers: Query<&mut SliceStreamer>) {
+    for mut streamer in &mut streamers {
+        // Read before touching it: taking the streamer mutably every frame would
+        // mark it changed for everything watching.
+        if !streamer.swapping() || !streamer.generation_ready() {
+            continue;
+        }
+        streamer.reveal(&mut commands);
+    }
+}
+
 /// Move and show/hide slides after a mode or slice change.
 ///
 /// Layout lives entirely in the transform, so this is all that a mode switch
@@ -542,22 +624,26 @@ pub fn apply_slice_layout(
         if !streamer.is_changed() {
             continue;
         }
-        for (key, slot) in &streamer.slots {
-            let Slot::Ready { entity, .. } = slot else {
+        // The nodes being replaced are laid out like any other: a mode change
+        // mid-swap has to move what is on screen, not what is waiting behind it.
+        let staged = streamer.slots.iter().filter_map(|(key, slot)| match slot {
+            Slot::Ready { entity, .. } => Some((key.slide, *entity, !streamer.swapping())),
+            _ => None,
+        });
+        let retiring = streamer
+            .retiring
+            .iter()
+            .map(|(key, entity)| (key.slide, *entity, true));
+
+        for (slide, entity, showable) in staged.chain(retiring) {
+            let Ok((mut transform, mut visibility)) = nodes.get_mut(entity) else {
                 continue;
             };
-            let Ok((mut transform, mut visibility)) = nodes.get_mut(*entity) else {
-                continue;
-            };
-            let offset = streamer.offset(key.slide).extend(0.0);
+            let offset = streamer.offset(slide).extend(0.0);
             if transform.translation != offset {
                 transform.translation = offset;
             }
-            let wanted = if streamer.visible(key.slide) {
-                Visibility::Inherited
-            } else {
-                Visibility::Hidden
-            };
+            let wanted = visibility_of(showable && streamer.visible(slide));
             if *visibility != wanted {
                 *visibility = wanted;
             }
@@ -894,7 +980,7 @@ fn apply_selection(
         let selection = properties.selection();
         if streamer.selection != selection {
             streamer.selection = selection;
-            streamer.reset(&mut commands);
+            streamer.retire(&mut commands);
         }
     }
 }
@@ -952,6 +1038,7 @@ impl Plugin for SlicesPlugin {
                 select_slice_nodes,
                 spawn_slice_tasks,
                 collect_slice_tasks,
+                swap_slice_generations,
                 evict_slice_nodes,
                 apply_slice_layout,
                 refit_slice_camera,

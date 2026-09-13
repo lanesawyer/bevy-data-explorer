@@ -84,6 +84,9 @@ pub struct PointStreamer {
     pub slide: usize,
     slots: HashMap<usize, Slot>,
     wanted: Vec<usize>,
+    /// Nodes of the selection being replaced, kept on screen until the new one
+    /// is built. Empty except while a swap is pending.
+    retiring: Vec<Entity>,
     pub in_flight: usize,
     pub resident_points: usize,
     pub budget: usize,
@@ -99,6 +102,7 @@ impl PointStreamer {
             slide: 0,
             slots: HashMap::new(),
             wanted: Vec::new(),
+            retiring: Vec::new(),
             in_flight: 0,
             resident_points: 0,
             budget: DEFAULT_POINT_BUDGET,
@@ -106,20 +110,64 @@ impl PointStreamer {
         }
     }
 
-    /// Drop every resident node so they are built again.
+    /// Start every node again, keeping what is on screen until the new set is
+    /// built.
     ///
     /// Colouring and filtering decide what a node's vertices are, and the raw
     /// columns are not kept once a node is built, so changing either means
-    /// loading them afresh.
-    pub fn reset(&mut self, commands: &mut Commands) {
+    /// loading them afresh. Despawning them here is what made the cloud blink
+    /// away for as long as that took; instead they are handed to
+    /// [`Self::reveal`], which drops them only once their replacements are all
+    /// resident.
+    pub fn retire(&mut self, commands: &mut Commands) {
+        // A second change while a swap is pending: what is in the slots this
+        // time has never been shown and is already out of date, while the nodes
+        // retired earlier are still the last complete picture there was.
+        let pending = self.swapping();
         for slot in self.slots.values() {
             if let Slot::Ready { entity, .. } = slot {
-                commands.entity(*entity).despawn();
+                if pending {
+                    commands.entity(*entity).despawn();
+                } else {
+                    self.retiring.push(*entity);
+                }
             }
         }
         self.slots.clear();
         self.in_flight = 0;
         self.resident_points = 0;
+    }
+
+    /// Whether nodes are being held on screen while their replacements load.
+    pub fn swapping(&self) -> bool {
+        !self.retiring.is_empty()
+    }
+
+    /// Whether everything the current selection asked for has been built.
+    ///
+    /// Failed nodes count as done: a node that cannot be read is not going to
+    /// arrive, and waiting on it would hold the previous selection on screen
+    /// for good.
+    fn generation_ready(&self) -> bool {
+        self.in_flight == 0
+            && self.wanted.iter().all(|index| {
+                matches!(
+                    self.slots.get(index),
+                    Some(Slot::Ready { .. } | Slot::Failed)
+                )
+            })
+    }
+
+    /// Show the new selection and drop the one it replaces.
+    fn reveal(&mut self, commands: &mut Commands) {
+        for entity in self.retiring.drain(..) {
+            commands.entity(entity).despawn();
+        }
+        for slot in self.slots.values() {
+            if let Slot::Ready { entity, .. } = slot {
+                commands.entity(*entity).insert(Visibility::Inherited);
+            }
+        }
     }
 
     pub fn cloud(&self) -> &Arc<Scatterbrain> {
@@ -342,6 +390,14 @@ fn collect_for(
                         Transform::default(),
                         RenderLayers::layer(layer),
                         PointNode,
+                        // Held back while the selection it replaces is still on
+                        // screen: showing each node as it arrived would draw
+                        // the new picture half-built over the old one.
+                        if streamer.swapping() {
+                            Visibility::Hidden
+                        } else {
+                            Visibility::Inherited
+                        },
                     ))
                     .id();
                 streamer.resident_points += count;
@@ -360,6 +416,23 @@ fn collect_for(
             }
         };
         streamer.slots.insert(index, slot);
+    }
+}
+
+/// Show a new selection once all of it has arrived, and drop the one it
+/// replaces.
+///
+/// The two sets are on the GPU together for as long as the swap takes, which is
+/// what buys the picture staying put. Nothing is revealed early, so a filter
+/// either applies to the whole cloud or to none of it.
+pub fn swap_generations(mut commands: Commands, mut streamers: Query<&mut PointStreamer>) {
+    for mut streamer in &mut streamers {
+        // Read before touching it: taking the streamer mutably every frame
+        // would mark it changed for everything watching.
+        if !streamer.swapping() || !streamer.generation_ready() {
+            continue;
+        }
+        streamer.reveal(&mut commands);
     }
 }
 
@@ -434,6 +507,67 @@ mod tests {
             }
         }
         wanted
+    }
+
+    /// A streamer with `nodes` asked for and the first `built` of them resident.
+    fn staged(asked: &[usize], built: usize) -> PointStreamer {
+        let mut streamer = PointStreamer::new(Arc::new(cloud()), Entity::PLACEHOLDER);
+        streamer.wanted = asked.to_vec();
+        for index in &asked[..built] {
+            streamer.slots.insert(
+                *index,
+                Slot::Ready {
+                    entity: Entity::PLACEHOLDER,
+                    points: 1,
+                    resident: NodePoints {
+                        positions: vec![[0.0, 0.0]],
+                        categories: Vec::new(),
+                    },
+                },
+            );
+        }
+        streamer
+    }
+
+    #[test]
+    fn a_selection_is_shown_only_once_every_node_it_asked_for_is_built() {
+        // The whole point of holding the previous nodes on screen: revealing a
+        // half-built set is the flash, drawn over the old picture instead of
+        // replacing it.
+        let mut streamer = staged(&[0, 1, 2], 2);
+        assert!(!streamer.generation_ready(), "one node is still missing");
+
+        streamer = staged(&[0, 1, 2], 3);
+        assert!(streamer.generation_ready());
+    }
+
+    #[test]
+    fn a_node_still_loading_holds_the_swap() {
+        let mut streamer = staged(&[0, 1], 2);
+        streamer.in_flight = 1;
+        assert!(!streamer.generation_ready());
+    }
+
+    #[test]
+    fn a_node_that_cannot_be_read_does_not_hold_the_swap_for_good() {
+        // Waiting on a node that will never arrive would leave the previous
+        // selection on screen with no way back.
+        let mut streamer = staged(&[0, 1], 1);
+        streamer.slots.insert(1, Slot::Failed);
+        assert!(streamer.generation_ready());
+    }
+
+    #[test]
+    fn a_selection_that_asks_for_nothing_is_ready_at_once() {
+        // Panned off the data there is nothing to wait for, and nothing to show.
+        assert!(staged(&[], 0).generation_ready());
+    }
+
+    #[test]
+    fn nothing_is_held_back_when_there_was_nothing_on_screen() {
+        // The first selection has no previous picture to protect, so its nodes
+        // are drawn as they arrive rather than waiting for the whole set.
+        assert!(!staged(&[0, 1], 1).swapping());
     }
 
     #[test]
@@ -692,7 +826,7 @@ fn apply_selection(
         let selection = properties.selection();
         if streamer.selection != selection {
             streamer.selection = selection;
-            streamer.reset(&mut commands);
+            streamer.retire(&mut commands);
         }
     }
 }
@@ -719,6 +853,7 @@ impl Plugin for PointCloudSystems {
                 select_nodes,
                 spawn_node_tasks,
                 collect_node_tasks,
+                swap_generations,
                 evict_nodes,
                 report_status,
             )
