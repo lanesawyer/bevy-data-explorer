@@ -2,7 +2,11 @@
 //!
 //! Sits at the bottom of View configuration's **Edit layout** menu, under the
 //! datasets already loaded, because that menu is where what is on screen is
-//! chosen and this is one more thing to choose.
+//! chosen and this is one more thing to choose. The empty window spawns a
+//! second one, so the section is built by a function rather than being a place:
+//! each carries its own field, button and status line, and a button loads from
+//! the field it was spawned beside rather than from whichever field is found
+//! first.
 //!
 //! What the URL points at is worked out by reading it rather than by asking:
 //! `formats::discover` recognises the format, and whatever it finds is
@@ -34,9 +38,19 @@ use crate::view::{BlocksFrameInput, PanelRequest};
 #[derive(Component, Clone, Default)]
 pub struct CustomUrlInput;
 
-/// The button that opens whatever the field names.
-#[derive(Component, Clone, Default)]
-pub struct LoadCustomButton;
+/// The button that opens whatever its own field names.
+#[derive(Component, Clone)]
+pub struct LoadCustomButton {
+    pub field: Entity,
+}
+
+impl Default for LoadCustomButton {
+    fn default() -> Self {
+        LoadCustomButton {
+            field: Entity::PLACEHOLDER,
+        }
+    }
+}
 
 /// The line under the field reporting how the last attempt went.
 #[derive(Component, Clone, Default)]
@@ -75,6 +89,10 @@ impl LoadStatus {
 #[derive(Resource, Default)]
 pub struct CustomLoad {
     task: Option<Task<Result<Discovered, String>>>,
+    /// The field the URL was typed into, so that opening it clears that field
+    /// and not one the user is still typing in elsewhere. Absent for a load
+    /// that came from a button rather than a field.
+    field: Option<Entity>,
     pub status: LoadStatus,
 }
 
@@ -89,6 +107,21 @@ impl CustomLoad {
     /// and a second press while the first is still fetching reads as the first
     /// press not having worked.
     pub fn start(&mut self, url: String) {
+        self.field = None;
+        self.begin(url);
+    }
+
+    /// Start reading what was typed into `field`, which is emptied once the
+    /// dataset is open.
+    pub fn start_from(&mut self, field: Entity, url: String) {
+        if self.is_loading() {
+            return;
+        }
+        self.field = Some(field);
+        self.begin(url);
+    }
+
+    fn begin(&mut self, url: String) {
         if self.is_loading() {
             return;
         }
@@ -127,6 +160,34 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
         })
         .id();
 
+    // Spawned before the row so the button can be told which field it loads.
+    let field = commands
+        .spawn_scene(bsn! {
+            @FeathersTextInput
+            CustomUrlInput
+        })
+        .id();
+    let entry = commands
+        .spawn_scene(bsn! {
+            @FeathersTextInputContainer
+            BlocksFrameInput
+        })
+        .id();
+    commands.entity(entry).add_child(field);
+
+    let button = commands
+        .spawn_scene(bsn! {
+            @FeathersButton {
+                @caption: { bsn_list![label("Load")] }
+            }
+            BlocksFrameInput
+            LoadCustomButton { field: { field } }
+            // The field gives way instead, so a long URL never squeezes the
+            // button out of the row.
+            Node { flex_shrink: { 0.0_f32 } }
+        })
+        .id();
+
     let row = commands
         .spawn_scene(bsn! {
             Node {
@@ -134,28 +195,9 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
                 align_items: { AlignItems::Center },
                 column_gap: { Val::Px(6.0) },
             }
-            Children [
-                (
-                    @FeathersTextInputContainer
-                    BlocksFrameInput
-                    Children [(
-                        @FeathersTextInput
-                        CustomUrlInput
-                    )]
-                ),
-                (
-                    @FeathersButton {
-                        @caption: { bsn_list![label("Load")] }
-                    }
-                    BlocksFrameInput
-                    LoadCustomButton
-                    // The field gives way instead, so a long URL never squeezes
-                    // the button out of the row.
-                    Node { flex_shrink: { 0.0_f32 } }
-                ),
-            ]
         })
         .id();
+    commands.entity(row).add_children(&[entry, button]);
 
     let status = commands
         .spawn_scene(bsn! {
@@ -178,14 +220,17 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
 /// polling for a changed interaction.
 pub fn on_load_pressed(
     activate: On<Activate>,
-    buttons: Query<(), With<LoadCustomButton>>,
+    buttons: Query<&LoadCustomButton>,
     inputs: Query<&EditableText, With<CustomUrlInput>>,
     mut load: ResMut<CustomLoad>,
 ) {
-    if buttons.get(activate.entity).is_err() {
+    let Ok(button) = buttons.get(activate.entity) else {
         return;
-    }
-    load.start(typed(&inputs));
+    };
+    let Ok(typed) = inputs.get(button.field) else {
+        return;
+    };
+    load.start_from(button.field, typed.value().to_string());
 }
 
 /// Open what the field names when return is pressed in it.
@@ -197,20 +242,15 @@ pub fn on_url_submitted(
     inputs: Query<&EditableText, With<CustomUrlInput>>,
     mut load: ResMut<CustomLoad>,
 ) {
-    if inputs.get(key.focused_entity).is_err() || !key.input.state.is_pressed() {
+    let Ok(typed) = inputs.get(key.focused_entity) else {
+        return;
+    };
+    if !key.input.state.is_pressed() {
         return;
     }
     if matches!(key.input.key_code, KeyCode::Enter | KeyCode::NumpadEnter) {
-        load.start(typed(&inputs));
+        load.start_from(key.focused_entity, typed.value().to_string());
     }
-}
-
-fn typed(inputs: &Query<&EditableText, With<CustomUrlInput>>) -> String {
-    inputs
-        .iter()
-        .next()
-        .map(|text| text.value().to_string())
-        .unwrap_or_default()
 }
 
 /// Register whatever the task came back with, and open a frame onto it.
@@ -243,7 +283,7 @@ pub fn poll_custom_load(
             });
             // The URL has been opened, so leave the field ready for the next
             // one rather than holding a value that would load a duplicate.
-            for mut text in &mut inputs {
+            if let Some(mut text) = load.field.and_then(|field| inputs.get_mut(field).ok()) {
                 text.clear();
             }
         }

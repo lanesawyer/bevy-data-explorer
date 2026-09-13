@@ -8,6 +8,7 @@ pub mod cellpanel;
 pub mod inspector;
 pub mod sidebar;
 pub mod viewconfig;
+pub mod welcome;
 
 /// The docks and everything in them.
 ///
@@ -23,6 +24,7 @@ impl Plugin for UiPlugin {
             viewconfig::ViewConfigPlugin,
             addsource::AddSourcePlugin,
             cellpanel::CellPanelPlugin,
+            welcome::WelcomePlugin,
         ));
     }
 }

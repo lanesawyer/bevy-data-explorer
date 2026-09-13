@@ -37,25 +37,6 @@ pub(super) fn assign_cells(mut frames: Vec<(usize, Entity)>) -> Vec<(usize, Enti
         .collect()
 }
 
-/// The panels left after closing, in the order they should occupy cells.
-///
-/// Returns empty when everything would be closed, which the caller treats as a
-/// refusal rather than emptying the window.
-pub(super) fn renumber(existing: &[(Entity, usize)], closing: &[Entity]) -> Vec<Entity> {
-    if existing.iter().all(|(entity, _)| closing.contains(entity)) {
-        return Vec::new();
-    }
-    let mut remaining: Vec<(Entity, usize)> = existing
-        .iter()
-        .copied()
-        .filter(|(entity, _)| !closing.contains(entity))
-        .collect();
-    // Keep the surviving panels in their existing order so closing one shuffles
-    // the rest along rather than rearranging the whole grid.
-    remaining.sort_by_key(|(_, index)| *index);
-    remaining.into_iter().map(|(entity, _)| entity).collect()
-}
-
 /// Only the first camera clears the window; a later clear would wipe the panels
 /// already drawn.
 pub(super) fn clear_color_for(index: usize) -> ClearColorConfig {
@@ -178,19 +159,45 @@ pub(super) mod tests {
         assert_eq!(panel_under_cursor(Vec2::new(700.0, 500.0), window, 3), 2);
     }
 
+    /// The cells the survivors are given after some panels are despawned.
+    fn after_closing(count: usize, closed: &[usize]) -> Vec<Entity> {
+        let all = panels(count);
+        let left: Vec<(usize, Entity)> = all
+            .iter()
+            .filter(|(_, index)| !closed.contains(index))
+            .map(|(entity, index)| (*index, *entity))
+            .collect();
+        assign_cells(left)
+            .into_iter()
+            .map(|(_, entity)| entity)
+            .collect()
+    }
+
     #[test]
     fn closing_a_panel_closes_the_gap_it_leaves() {
         let all = panels(4);
         // Close the second of four.
-        let left = renumber(&all, &[all[1].0]);
-        assert_eq!(left, vec![all[0].0, all[2].0, all[3].0]);
+        assert_eq!(
+            after_closing(4, &[1]),
+            vec![all[0].0, all[2].0, all[3].0],
+            "the survivors should take cells 0, 1 and 2"
+        );
     }
 
     #[test]
     fn the_surviving_panels_keep_their_relative_order() {
         let all = panels(5);
-        let left = renumber(&all, &[all[0].0]);
-        assert_eq!(left, vec![all[1].0, all[2].0, all[3].0, all[4].0]);
+        assert_eq!(
+            after_closing(5, &[0]),
+            vec![all[1].0, all[2].0, all[3].0, all[4].0]
+        );
+    }
+
+    #[test]
+    fn closing_everything_leaves_no_cells() {
+        // Allowed since the window has an empty state to fall back to: the
+        // welcome screen shows itself exactly when no frame is left.
+        assert!(assign_cells(Vec::new()).is_empty());
     }
 
     #[test]
@@ -198,8 +205,12 @@ pub(super) mod tests {
         // ECS iteration order is not the cell order, so the result has to come
         // from the recorded indices rather than from how panels are visited.
         let all = panels(4);
-        let shuffled = vec![all[2], all[0], all[3], all[1]];
-        assert_eq!(renumber(&shuffled, &[]), renumber(&all, &[]));
+        let ordered: Vec<(usize, Entity)> = all
+            .iter()
+            .map(|(entity, index)| (*index, *entity))
+            .collect();
+        let shuffled = vec![ordered[2], ordered[0], ordered[3], ordered[1]];
+        assert_eq!(assign_cells(shuffled), assign_cells(ordered));
     }
 
     #[test]

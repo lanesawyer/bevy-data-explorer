@@ -81,8 +81,8 @@ pub fn update_selection_border(
     panels: Query<(Entity, &Panel)>,
     mut border: Query<&mut Node, With<SelectionBorder>>,
 ) {
-    // A closed frame leaves the selection dangling, and there is always a frame
-    // to fall back to because the last one cannot be closed.
+    // A closed frame leaves the selection dangling, so it falls back to the
+    // first frame left — or to nothing, once the last one is closed.
     let still_there = selected.0.is_some_and(|entity| panels.get(entity).is_ok());
     if !still_there {
         selected.0 = panels

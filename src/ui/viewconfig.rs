@@ -447,13 +447,11 @@ pub fn rebuild_layout_menu(
 
     let mut children = vec![heading(&mut commands, "Edit layout", 15.0, 0.0)];
 
-    // The last frame cannot be closed, so its row offers no remove button.
-    let removable = current.len() > 1;
     for (panel, source) in &current {
         let Ok((_, data)) = sources.get(*source) else {
             continue;
         };
-        children.push(frame_row(&mut commands, *panel, data, removable));
+        children.push(frame_row(&mut commands, *panel, data));
     }
 
     children.push(heading(&mut commands, "Add visualization", 12.0, 8.0));
@@ -501,7 +499,7 @@ fn summary(commands: &mut Commands, data: &DataSource) -> Entity {
     row
 }
 
-fn frame_row(commands: &mut Commands, panel: Entity, data: &DataSource, removable: bool) -> Entity {
+fn frame_row(commands: &mut Commands, panel: Entity, data: &DataSource) -> Entity {
     let row = commands
         .spawn_scene(bsn! {
             LayoutContent
@@ -516,12 +514,10 @@ fn frame_row(commands: &mut Commands, panel: Entity, data: &DataSource, removabl
 
     let details = summary(commands, data);
     let clone = action_button(commands, panel, LayoutAction::Clone, "Clone");
-    commands.entity(row).add_children(&[details, clone]);
-
-    if removable {
-        let remove = action_button(commands, panel, LayoutAction::Remove, "Close");
-        commands.entity(row).add_child(remove);
-    }
+    // Every frame offers to close, the last one included: the window it leaves
+    // behind offers the examples again.
+    let remove = action_button(commands, panel, LayoutAction::Remove, "Close");
+    commands.entity(row).add_children(&[details, clone, remove]);
     row
 }
 

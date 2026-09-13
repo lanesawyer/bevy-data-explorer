@@ -2,6 +2,11 @@
 //!
 //! Everything is opened before the window is, so a bad URL fails on the command
 //! line rather than behind a blank panel.
+//!
+//! Nothing is opened unless it is named. The window starts empty and offers the
+//! examples in `formats::EXAMPLES` instead, because a first run that spends a
+//! minute fetching three reference datasets nobody asked for is a first run
+//! spent waiting.
 
 use std::sync::Arc;
 
@@ -10,19 +15,6 @@ use clap::Parser;
 use crate::formats::image::dataset::Dataset;
 use crate::formats::scatterbrain::Scatterbrain;
 
-/// Scatterbrain metadata for the reference point cloud.
-const DEFAULT_POINTS: &str = "https://d2o7sc91n904vd.cloudfront.net/wmb_tenx_01172024_stage-20240128193624/G4I4GFJXJB9ATZ3PTX1/ScatterBrain.json";
-
-/// Scatterbrain metadata for the SEA-AD mapped dataset, which carries numeric
-/// properties alongside categorical ones.
-const DEFAULT_CELLS: &str = "https://d2o7sc91n904vd.cloudfront.net/bkppg-sfs-stage-mjff-updates-03262025-20250403032833/839TIB6YQVFHZSGX401/ScatterBrain.json";
-
-/// Scatterbrain metadata for the reference sectioned dataset.
-const DEFAULT_SLICES: &str = "https://d2o7sc91n904vd.cloudfront.net/bkppg-sfs-stage-wmb-imputed-genes-20240918212918/VFOFYPFQGRKUDQUZ3FF/ScatterBrain.json";
-
-/// What a source has to be set to for it to be left out.
-const NONE: &str = "none";
-
 #[derive(Parser, Debug)]
 #[command(
     name = "bevy-data-explorer",
@@ -30,14 +22,12 @@ const NONE: &str = "none";
 )]
 pub struct Args {
     /// OME-Zarr store (http(s) URL or local directory), or a manifest .json
-    /// describing one. Defaults to the reference image.
-    #[arg(default_value = crate::formats::image::store::DEFAULT_SOURCE)]
-    pub source: String,
+    /// describing one. Left out, the window starts empty.
+    pub source: Option<String>,
 
-    /// Scatterbrain metadata JSON (http(s) URL or local file). Pass `none` to
-    /// show the image on its own.
-    #[arg(long, default_value = DEFAULT_POINTS)]
-    pub points: String,
+    /// Scatterbrain metadata JSON (http(s) URL or local file).
+    #[arg(long)]
+    pub points: Option<String>,
 
     /// Z slice to display for volumetric images.
     #[arg(long, default_value_t = 0)]
@@ -48,15 +38,13 @@ pub struct Args {
     #[arg(long, default_value_t = crate::formats::image::DEFAULT_CACHE_BUDGET_MB)]
     pub cache_mb: usize,
 
-    /// Sectioned Scatterbrain metadata JSON, shown as a third panel. Pass
-    /// `none` to leave it out.
-    #[arg(long, default_value = DEFAULT_SLICES)]
-    pub slices: String,
+    /// Sectioned Scatterbrain metadata JSON, shown as its own panel.
+    #[arg(long)]
+    pub slices: Option<String>,
 
-    /// A second Scatterbrain point cloud, shown as a fourth panel. Pass `none`
-    /// to leave it out.
-    #[arg(long, default_value = DEFAULT_CELLS)]
-    pub cells: String,
+    /// A second Scatterbrain point cloud, shown as its own panel.
+    #[arg(long)]
+    pub cells: Option<String>,
 
     /// Maximum points held on the GPU for the point cloud.
     #[arg(long, default_value_t = crate::formats::pointcloud::DEFAULT_POINT_BUDGET)]
@@ -82,7 +70,7 @@ impl Args {
 
 /// Everything the command line named, opened and ready to be handed to plugins.
 pub struct Datasets {
-    pub image: Arc<Dataset>,
+    pub image: Option<Arc<Dataset>>,
     pub points: Option<Arc<Scatterbrain>>,
     pub cells: Option<Arc<Scatterbrain>>,
     pub sections: Option<Arc<Scatterbrain>>,
@@ -91,8 +79,20 @@ pub struct Datasets {
 impl Args {
     /// Open every source named, reporting each as it lands.
     pub fn open(&self) -> Result<Datasets, String> {
-        println!("opening {:<6} {}", "image", self.source);
-        let image = Arc::new(crate::formats::image::store::open(&self.source)?);
+        Ok(Datasets {
+            image: self.open_image()?,
+            points: open_cloud("points", self.points.as_deref())?,
+            cells: open_cloud("cells", self.cells.as_deref())?,
+            sections: open_cloud("slices", self.slices.as_deref())?,
+        })
+    }
+
+    fn open_image(&self) -> Result<Option<Arc<Dataset>>, String> {
+        let Some(source) = self.source.as_deref() else {
+            return Ok(None);
+        };
+        println!("opening {:<6} {source}", "image");
+        let image = Arc::new(crate::formats::image::store::open(source)?);
         println!(
             "  {}: {} levels, {} channels, {} x {} px",
             image.name,
@@ -101,21 +101,15 @@ impl Args {
             image.levels[0].width,
             image.levels[0].height
         );
-
-        Ok(Datasets {
-            image,
-            points: open_cloud("points", &self.points)?,
-            cells: open_cloud("cells", &self.cells)?,
-            sections: open_cloud("slices", &self.slices)?,
-        })
+        Ok(Some(image))
     }
 }
 
-/// Open a point cloud, unless it was turned off.
-fn open_cloud(label: &str, source: &str) -> Result<Option<Arc<Scatterbrain>>, String> {
-    if source.eq_ignore_ascii_case(NONE) {
+/// Open a point cloud, if one was named.
+fn open_cloud(label: &str, source: Option<&str>) -> Result<Option<Arc<Scatterbrain>>, String> {
+    let Some(source) = source else {
         return Ok(None);
-    }
+    };
     println!("opening {label:<6} {source}");
     let cloud = Arc::new(load_points(source)?);
     describe(label, &cloud);

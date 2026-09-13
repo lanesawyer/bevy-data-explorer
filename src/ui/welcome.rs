@@ -1,0 +1,227 @@
+//! What an empty window shows.
+//!
+//! Nothing is loaded at startup any more, so the frame area would otherwise be
+//! a cleared rectangle with no way into the app. This fills it: what the viewer
+//! is for, one example of each kind of dataset it can draw, and the same URL
+//! field the sidebar carries, for anything else.
+//!
+//! It is UI rather than frame chrome, but it is placed against
+//! [`FrameArea`] like the chrome is, so the docks take their space off it
+//! without this knowing they exist. It shows itself exactly when there are no
+//! frames, which is a state the grid already allows rather than one invented
+//! here.
+
+use bevy::prelude::*;
+use bevy_feathers::controls::{ButtonVariant, FeathersButton};
+use bevy_feathers::display::{label, label_dim};
+use bevy_feathers::font_styles::InheritableFont;
+use bevy_ui_widgets::Activate;
+
+use crate::app::schedule::{Boot, Stage};
+use crate::formats::EXAMPLES;
+use crate::ui::addsource::{CustomLoad, spawn_custom_section};
+use crate::view::{BlocksFrameInput, FrameArea, Panel};
+
+/// The empty-state panel itself.
+#[derive(Component, Clone, Default)]
+pub struct WelcomeScreen;
+
+/// A button that opens one of [`EXAMPLES`], by its position in that list.
+#[derive(Component, Clone, Default)]
+pub struct ExampleButton {
+    pub example: usize,
+}
+
+/// Width the prose and the controls are held to, so neither runs the width of a
+/// wide window.
+const COLUMN_PX: f32 = 520.0;
+
+/// Above the frames, which is where it is drawn, but below the menus that open
+/// over everything.
+const WELCOME_Z: i32 = 5;
+
+const BLURB: &str = "An experimental streaming explorer for large scientific datasets. \
+                     Currently supports OME-Zarr v2 and v3 and the Allen Institute \
+                     Scatterbrain format for point clouds.";
+
+pub fn spawn_welcome(mut commands: Commands) {
+    let screen = commands
+        .spawn_scene(bsn! {
+            WelcomeScreen
+            // It covers the grid, so it has to stop clicks reaching whatever is
+            // behind it. Frames can be opened while it is on screen.
+            BlocksFrameInput
+            Node {
+                position_type: { PositionType::Absolute },
+                display: { Display::None },
+                flex_direction: { FlexDirection::Column },
+                align_items: { AlignItems::Center },
+                justify_content: { JustifyContent::Center },
+                row_gap: { Val::Px(14.0) },
+                padding: { UiRect::all(Val::Px(24.0)) },
+            }
+            GlobalZIndex({ WELCOME_Z })
+            InheritableFont { font_size: { 13.0f32 } }
+        })
+        .id();
+
+    let title = commands
+        .spawn_scene(bsn! {
+            label("Bevy Data Explorer")
+            InheritableFont { font_size: { 22.0f32 } }
+        })
+        .id();
+
+    let blurb = commands
+        .spawn_scene(bsn! {
+            label_dim(BLURB)
+            InheritableFont { font_size: { 13.0f32 } }
+            Node { max_width: { Val::Px(COLUMN_PX) } }
+            TextLayout { justify: { Justify::Center } }
+        })
+        .id();
+
+    let heading = commands
+        .spawn_scene(bsn! {
+            label("Open an example")
+            InheritableFont { font_size: { 13.0f32 } }
+            Node { margin: { UiRect::top(Val::Px(10.0)) } }
+        })
+        .id();
+
+    let mut children = vec![title, blurb, heading];
+    for (index, example) in EXAMPLES.iter().enumerate() {
+        children.push(example_row(
+            &mut commands,
+            index,
+            example.name,
+            example.kind,
+        ));
+    }
+
+    // The same field, button and status line the sidebar's Edit layout menu
+    // carries: one dataset field spawned twice rather than two of them.
+    let custom = spawn_custom_section(&mut commands);
+    commands.entity(custom).insert(Node {
+        flex_direction: FlexDirection::Column,
+        width: Val::Px(COLUMN_PX),
+        row_gap: Val::Px(4.0),
+        margin: UiRect::top(Val::Px(14.0)),
+        ..default()
+    });
+    children.push(custom);
+
+    commands.entity(screen).add_children(&children);
+}
+
+/// One example: a button that opens it, and the kind of dataset it is.
+fn example_row(commands: &mut Commands, index: usize, name: &str, kind: &str) -> Entity {
+    let name = name.to_string();
+    let kind = kind.to_string();
+    commands
+        .spawn_scene(bsn! {
+            Node {
+                width: { Val::Px(COLUMN_PX) },
+                align_items: { AlignItems::Center },
+                column_gap: { Val::Px(10.0) },
+            }
+            Children [
+                (
+                    @FeathersButton {
+                        @variant: { ButtonVariant::Normal },
+                        @caption: { bsn_list![label(name)] }
+                    }
+                    BlocksFrameInput
+                    ExampleButton { example: { index } }
+                    Node { flex_grow: { 1.0_f32 } }
+                ),
+                (
+                    label_dim(kind)
+                    InheritableFont { font_size: { 12.0f32 } }
+                    // The kind holds its width; the button beside it gives way.
+                    Node { flex_shrink: { 0.0_f32 } }
+                ),
+            ]
+        })
+        .id()
+}
+
+/// Open the example whose button was pressed.
+///
+/// It goes through the same load the URL field uses, so an example is opened by
+/// exactly the path a typed URL is — including the status line under the field
+/// saying how it went.
+pub fn on_example_pressed(
+    activate: On<Activate>,
+    buttons: Query<&ExampleButton>,
+    mut load: ResMut<CustomLoad>,
+) {
+    let Ok(button) = buttons.get(activate.entity) else {
+        return;
+    };
+    let Some(example) = EXAMPLES.get(button.example) else {
+        return;
+    };
+    load.start(example.url.to_string());
+}
+
+/// Cover the frame area while there are no frames, and stand down once there
+/// are.
+pub fn place_welcome(
+    area: Res<FrameArea>,
+    panels: Query<&Panel>,
+    mut screens: Query<&mut Node, With<WelcomeScreen>>,
+) {
+    let empty = panels.iter().next().is_none();
+    for mut node in &mut screens {
+        let wanted = if empty { Display::Flex } else { Display::None };
+        if node.display != wanted {
+            node.display = wanted;
+        }
+        if !empty {
+            continue;
+        }
+        node.left = Val::Px(area.origin.x);
+        node.top = Val::Px(area.origin.y);
+        node.width = Val::Px(area.size.x);
+        node.height = Val::Px(area.size.y);
+    }
+}
+
+/// The empty window, and the examples it offers.
+pub struct WelcomePlugin;
+
+impl Plugin for WelcomePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_observer(on_example_pressed)
+            // Placed with the rest of the chrome that measures against the
+            // frame area, once the docks have taken their share of it.
+            .add_systems(Update, place_welcome.in_set(Stage::Chrome))
+            .add_systems(Startup, spawn_welcome.in_set(Boot::Shell));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_kind_the_viewer_draws_is_offered() {
+        // One image, one point cloud, one sectioned dataset: an empty window
+        // should not leave a panel kind undiscoverable.
+        let kinds: Vec<&str> = EXAMPLES.iter().map(|example| example.kind).collect();
+        assert_eq!(kinds.len(), 3);
+        assert!(kinds.iter().any(|kind| kind.contains("image")));
+        assert!(kinds.iter().any(|kind| kind.contains("point cloud")));
+        assert!(kinds.iter().any(|kind| kind.contains("sections")));
+    }
+
+    #[test]
+    fn every_example_names_a_url_and_is_named_itself() {
+        for example in &EXAMPLES {
+            assert!(example.url.starts_with("https://"), "{}", example.name);
+            assert!(!example.name.is_empty());
+            assert!(!example.kind.is_empty());
+        }
+    }
+}

@@ -30,6 +30,36 @@ impl Plugin for FormatsPlugin {
     }
 }
 
+/// A dataset offered as a starting point, one per kind the viewer can draw.
+///
+/// Listed here rather than in the command line or in the UI because it is the
+/// formats that know what there is to open. Nothing loads on its own any more,
+/// so this is what an empty window has to offer.
+pub struct Example {
+    pub name: &'static str,
+    /// What kind of dataset it is, in the words shown beside it.
+    pub kind: &'static str,
+    pub url: &'static str,
+}
+
+pub const EXAMPLES: [Example; 3] = [
+    Example {
+        name: "Epifluorescence whole slide",
+        kind: "OME-Zarr image",
+        url: "https://h301-scanning-802451596237-us-west-2.s3.us-west-2.amazonaws.com/2402091625/ome_zarr_conversion/1458501514.zarr/",
+    },
+    Example {
+        name: "Whole mouse brain cells",
+        kind: "Scatterbrain point cloud",
+        url: "https://d2o7sc91n904vd.cloudfront.net/wmb_tenx_01172024_stage-20240128193624/G4I4GFJXJB9ATZ3PTX1/ScatterBrain.json",
+    },
+    Example {
+        name: "Imputed genes, 53 sections",
+        kind: "Scatterbrain sections",
+        url: "https://d2o7sc91n904vd.cloudfront.net/bkppg-sfs-stage-wmb-imputed-genes-20240918212918/VFOFYPFQGRKUDQUZ3FF/ScatterBrain.json",
+    },
+];
+
 /// The budgets a dataset is opened with, kept so that one opened at runtime is
 /// given the same allowances as one named on the command line.
 #[derive(Resource, Clone, Copy)]

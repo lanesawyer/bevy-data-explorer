@@ -6,7 +6,7 @@
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 
-use super::grid::{MAX_PANELS, grid_for, renumber};
+use super::grid::{MAX_PANELS, grid_for};
 use super::{FrameArea, Panel, SelectedPanel, ShowsSource, View, spawn_panel};
 use crate::source::{DataSource, ViewLimits};
 
@@ -149,37 +149,11 @@ pub fn apply_panel_requests(
         }
     }
 
-    if closing.is_empty() {
-        return;
-    }
-    let existing: Vec<(Entity, usize)> = panels
-        .iter()
-        .map(|(entity, panel, ..)| (entity, panel.index))
-        .collect();
-    // Never close the last frame: an empty window offers no way back.
-    if renumber(&existing, &closing).is_empty() && spawned == 0 {
-        return;
-    }
+    // Closing them all is allowed: the window falls back to the empty state it
+    // starts in, which is a way back rather than a dead end.
     for entity in closing {
         commands.entity(entity).despawn();
     }
     // Cells, draw order and which camera clears are settled by
     // `normalize_panels` once the despawns have taken effect.
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::view::grid::tests::panels;
-
-    #[test]
-    fn the_last_panel_cannot_be_closed() {
-        let all = panels(1);
-        assert!(renumber(&all, &[all[0].0]).is_empty());
-
-        // Nor can every panel be closed at once.
-        let all = panels(3);
-        let everything: Vec<Entity> = all.iter().map(|(e, _)| *e).collect();
-        assert!(renumber(&all, &everything).is_empty());
-    }
 }

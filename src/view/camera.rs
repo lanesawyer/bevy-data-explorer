@@ -121,6 +121,27 @@ pub fn update_viewports(
     }
 }
 
+/// Clear the window from the UI camera while there is no frame to do it.
+///
+/// Cell 0 clears whenever a frame exists, and nothing else may — but with no
+/// frames at all nothing clears, and the window keeps whatever was last drawn
+/// into it behind the empty-window panel. The UI camera draws after every
+/// frame the grid can hold, so it takes the job only while the grid is empty.
+pub fn clear_when_empty(panels: Query<&Panel>, mut cameras: Query<&mut Camera, With<UiCamera>>) {
+    let empty = panels.iter().next().is_none();
+    for mut camera in &mut cameras {
+        let clearing = !matches!(camera.clear_color, ClearColorConfig::None);
+        if clearing == empty {
+            continue;
+        }
+        camera.clear_color = if empty {
+            clear_color_for(0)
+        } else {
+            ClearColorConfig::None
+        };
+    }
+}
+
 /// Keep cells contiguous, and keep draw order and clearing in step with them.
 ///
 /// Every path that adds or removes a frame funnels through here rather than

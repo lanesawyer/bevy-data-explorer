@@ -33,14 +33,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.add_plugins(formats::FormatsPlugin)
         .insert_resource(args.load_settings());
 
-    // Each dataset is a plugin. Registration order decides which cell a
-    // source's frame opens in, and nothing else here knows what the formats
-    // are.
-    app.add_plugins(formats::image::ImagePlugin {
-        dataset: data.image,
-        z_slice: args.z,
-        budget_bytes: args.cache_mb * 1024 * 1024,
-    });
+    // Each dataset named on the command line is a plugin. Registration order
+    // decides which cell a source's frame opens in, and nothing else here knows
+    // what the formats are. Naming none of them is the ordinary case: the
+    // window opens empty and offers the examples instead.
+    if let Some(dataset) = data.image {
+        app.add_plugins(formats::image::ImagePlugin {
+            dataset,
+            z_slice: args.z,
+            budget_bytes: args.cache_mb * 1024 * 1024,
+        });
+    }
     if let Some(cloud) = data.points {
         app.add_plugins(formats::pointcloud::PointCloudPlugin {
             name: "Point cloud".into(),

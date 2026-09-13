@@ -19,12 +19,11 @@ Neither is ever loaded in its entirety.
 ## Running
 
 ```sh
-cargo run --release                          # both reference datasets
+cargo run --release                          # an empty window, and the examples
 cargo run --release -- <url-or-dir>          # any OME-Zarr root
 cargo run --release -- metadata.json         # a manifest describing one
 cargo run --release -- --points <url|file>   # a Scatterbrain metadata JSON
 cargo run --release -- --slices <url|file>   # a sectioned Scatterbrain JSON
-cargo run --release -- --points none --slices none   # image panel only
 cargo run --release -- --z 3 <source>        # pick a z slice
 cargo run --release -- --cache-mb 1024       # a larger tile cache
 cargo run --release -- --point-budget 8000000
@@ -32,9 +31,15 @@ cargo run --release -- --point-budget 8000000
 
 Use `--release`. Tile decoding is real work and a debug build makes it obvious.
 
-The command line is not the only way in: a dataset can also be opened by URL
-from the sidebar once the window is up, without restarting. See **Custom
-visualization** below.
+Nothing is loaded unless it is named. Started with no arguments the window is
+empty, and offers one example of each kind of dataset it can draw along with a
+field for the URL of anything else — a first run that spends a minute fetching
+reference datasets nobody asked for is a first run spent waiting. Each example
+goes through exactly the path a typed URL does.
+
+The command line is not the only way in either: a dataset can be opened by URL
+from the sidebar at any time, without restarting. See **Custom visualization**
+below.
 
 A sidebar is docked on the left for controls that belong to no single frame —
 filters and dataset information, eventually. Drag its edge to resize it between
@@ -153,8 +158,9 @@ eight would. Input goes to whichever panel the pointer is over, so the views
 pan and zoom independently.
 
 The `+` in a panel's corner duplicates it, and the `x` closes it. Closing
-renumbers the remaining frames so the grid stays contiguous, and the last frame
-cannot be closed — an empty window offers no way back.
+renumbers the remaining frames so the grid stays contiguous. The last frame can
+be closed too: the window returns to the empty state it started in, examples and
+all.
 
 Duplicating: The copy inherits the source's
 current centre and zoom rather than its fitted defaults, so it starts as the

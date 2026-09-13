@@ -25,7 +25,7 @@ use bevy::prelude::*;
 use crate::app::schedule::{Boot, Stage};
 use crate::source::{DataSource, SourceExtent, ViewLimits};
 
-use camera::{normalize_panels, spawn_ui_camera, update_viewports};
+use camera::{clear_when_empty, normalize_panels, spawn_ui_camera, update_viewports};
 use chrome::{
     panel_buttons, spawn_dividers, spawn_selection_border, sync_panel_buttons,
     update_selection_border,
@@ -174,7 +174,7 @@ impl Plugin for ViewPlugin {
             .add_systems(Update, sync_panel_buttons.in_set(Stage::FrameChrome))
             .add_systems(
                 Update,
-                (panel_controls, update_viewports)
+                (panel_controls, update_viewports, clear_when_empty)
                     .chain()
                     .in_set(Stage::Viewports),
             )

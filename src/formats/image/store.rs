@@ -11,9 +11,6 @@ use serde::Deserialize;
 
 use crate::formats::image::dataset::{Dataset, ReadStore};
 
-/// The reference image, used when no source is given.
-pub const DEFAULT_SOURCE: &str = "https://h301-scanning-802451596237-us-west-2.s3.us-west-2.amazonaws.com/2402091625/ome_zarr_conversion/1458501514.zarr/";
-
 /// A multiscale image normalised across OME-Zarr versions. The 0.4 and 0.5
 /// types are separate wrappers around identical axis and dataset types.
 #[derive(Debug, Clone)]
@@ -275,8 +272,8 @@ mod tests {
     }
 
     #[test]
-    fn the_default_source_survives_normalisation() {
-        assert!(!http_base(DEFAULT_SOURCE).ends_with('/'));
+    fn the_example_store_survives_normalisation() {
+        assert!(!http_base(crate::formats::EXAMPLES[0].url).ends_with('/'));
     }
 
     #[test]
