@@ -460,6 +460,19 @@ pub fn decode_categories(bytes: &[u8], expected: u64) -> Result<Vec<u16>, String
         .collect())
 }
 
+/// Whether the placeholder offers the numeric columns as properties.
+///
+/// Off. A categorical placeholder invents only the *labels* — the column, its
+/// codes and the points they colour are the dataset's own, so the control does
+/// something real. A numeric one invents the bounds and the whole histogram,
+/// which makes the control a picture of nothing: a span chosen against it
+/// filters by numbers that came from here rather than from the data.
+///
+/// Everything behind it stays — the range control, the filtering, the tests —
+/// because what is missing is the measurement, not the code. Turn this on when
+/// a service supplies real bounds and counts.
+const PLACEHOLDER_RANGES: bool = false;
+
 /// Stand-in properties built from a Scatterbrain's own categorical columns.
 ///
 /// The column names and identifiers are real, so colouring by a property works
@@ -492,12 +505,14 @@ pub fn placeholder_properties(
         })
         .collect();
 
-    properties.extend(numeric.iter().map(|column| CellProperty {
-        id: column.name.clone(),
-        name: column.description.clone(),
-        shown: true,
-        kind: PropertyKind::Numeric(NumericRange::full(0.0, 1.0, placeholder_histogram())),
-    }));
+    if PLACEHOLDER_RANGES {
+        properties.extend(numeric.iter().map(|column| CellProperty {
+            id: column.name.clone(),
+            name: column.description.clone(),
+            shown: true,
+            kind: PropertyKind::Numeric(NumericRange::full(0.0, 1.0, placeholder_histogram())),
+        }));
+    }
 
     CellProperties::ready(properties)
 }
@@ -544,13 +559,30 @@ mod tests {
         for property in &properties.properties {
             assert!(known.contains(&property.id.as_str()));
         }
+    }
+
+    #[test]
+    fn no_property_is_offered_with_invented_numbers_behind_it() {
+        // A categorical placeholder invents labels over the dataset's own
+        // codes; a numeric one would invent the bounds and the histogram too,
+        // and a span chosen against that filters by numbers from nowhere.
+        let cloud =
+            Scatterbrain::parse(include_str!("../../../testdata/scatterbrain_cells.json")).unwrap();
+        assert!(
+            !cloud.numeric_columns().is_empty(),
+            "this dataset has float columns, so the placeholder has the chance"
+        );
+
+        let properties =
+            placeholder_properties(&cloud.category_columns(), &cloud.numeric_columns());
         assert!(
             properties
                 .properties
                 .iter()
-                .any(|property| property.range().is_some()),
-            "numeric columns should surface as ranges"
+                .all(|property| property.range().is_none()),
+            "ranges wait for a service that can measure them"
         );
+        assert!(!properties.properties.is_empty(), "the columns still show");
     }
     #[test]
     fn placeholder_properties_start_unfiltered() {

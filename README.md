@@ -62,10 +62,18 @@ ticked, and excluded points are dropped as a node is built rather than hidden
 afterwards, so they cost no vertices.
 
 The properties themselves are a plain component on the source entity, so
-nothing that reads them knows where they came from. They are built from the dataset's own column list today — real names and
-identifiers, so colouring works against live data, with placeholder value
-labels and bin counts. A lookup against whatever service knows the real ones
-replaces that by writing the same component.
+nothing that reads them knows where they came from. They are built from the
+dataset's own column list today — real names and identifiers, so colouring
+works against live data, with placeholder value labels. A lookup against
+whatever service knows the real ones replaces that by writing the same
+component.
+
+No numeric property is offered yet, so the range control above describes
+something you will not currently see. A categorical placeholder invents only
+the labels, over codes that are the dataset's own; a numeric one would have to
+invent the bounds and the whole histogram, and a span chosen against that
+filters by numbers that came from nowhere. The control, the filtering and their
+tests all stay — what is missing is the measurement, not the code.
 
 The sidebar holds accordions. They are generic containers — a title, an open
 flag, and whatever children a caller hangs off the body — because which
