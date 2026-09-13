@@ -6,6 +6,7 @@
 //! panel streams only what its own view needs and pulls in more detail as you
 //! zoom.
 
+mod app;
 mod formats;
 mod render;
 mod source;
@@ -19,6 +20,7 @@ use bevy::prelude::*;
 use bevy::window::PresentMode;
 use clap::Parser;
 
+use app::schedule::Stage;
 use source::{DataSource, SourceExtent};
 
 /// Scatterbrain metadata for the reference point cloud.
@@ -132,10 +134,6 @@ fn app_theme() -> bevy_feathers::theme::ThemeProps {
     theme
 }
 
-/// The docks, which reserve their space before the frames are laid out.
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-struct DockSystems;
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
@@ -200,6 +198,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut app = App::new();
+    app::schedule::configure(&mut app);
     app.add_plugins(
         DefaultPlugins
             .set(WindowPlugin {
@@ -240,8 +239,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .init_resource::<ui::sidebar::Sidebar>()
     .init_resource::<ui::inspector::Inspector>()
     .init_resource::<ui::cellpanel::OpenSections>()
-    // The docks claim their space first; everything that places a frame or its
-    // chrome measures against what is left.
     .add_systems(
         Update,
         (
@@ -255,7 +252,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ui::inspector::reserve_space,
         )
             .chain()
-            .in_set(DockSystems),
+            .in_set(Stage::Docks),
     )
     .add_systems(
         Update,
@@ -266,16 +263,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             view::overlay::sync_hud,
             view::panel_controls,
             view::update_viewports,
+        )
+            .chain()
+            .in_set(Stage::Layout),
+    )
+    .add_systems(
+        Update,
+        (
             view::overlay::position_hud,
             view::overlay::rebuild_source_menus,
             ui::sidebar::update_sidebar,
             ui::inspector::update_inspector,
         )
             .chain()
-            .after(DockSystems),
+            .in_set(Stage::Chrome),
     )
-    // The sidebar's controls read the selection and write through to the
-    // source, so they run after the frames have settled for the frame.
     .add_systems(
         Update,
         (
@@ -300,32 +302,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ui::viewconfig::apply_point_settings_to_new,
         )
             .chain()
-            .after(view::update_viewports),
+            .in_set(Stage::Controls),
     )
-    // The overlay reads whatever each source reported this frame, so it runs
-    // after every source plugin has had its turn.
-    .add_systems(
-        Update,
-        view::overlay::update_hud.after(view::update_viewports),
-    )
-    // Hovering: the grid says where the pointer is, each source plugin says
-    // what is there, and the frame's tooltip shows the answer. The three are
-    // ordered around a set so a plugin only declares membership.
-    .add_systems(
-        Update,
-        view::probe_hover
-            .after(view::update_viewports)
-            .before(source::hover::HoverProbing),
-    )
+    .add_systems(Update, view::probe_hover.in_set(Stage::HoverProbe))
     .add_systems(
         Update,
         (
+            view::overlay::update_hud,
             view::overlay::position_tooltips,
             view::overlay::update_tooltips,
         )
             .chain()
-            .after(source::hover::HoverProbing)
-            .after(view::overlay::sync_hud),
+            .in_set(Stage::Overlay),
     );
 
     // Each format is a plugin. Registration order decides which cell a source's

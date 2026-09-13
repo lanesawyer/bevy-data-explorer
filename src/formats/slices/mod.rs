@@ -16,6 +16,7 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
+use crate::app::schedule::Stage;
 use crate::formats::pointcloud::{
     NodeOutcome, NodePoints, PICK_PX, build_mesh, load_node, pick_reach,
 };
@@ -904,15 +905,14 @@ impl Plugin for SlicesPlugin {
                     report_status,
                 )
                     .chain()
-                    .after(crate::view::update_viewports),
+                    .in_set(Stage::Sources),
             )
             // Resolving the pointer reads the nodes that are resident now, and
-            // which slide is where, so it runs after the layout has settled.
+            // which slide is where; the schedule already puts `HoverProbing`
+            // after the layout has settled.
             .add_systems(
                 Update,
-                resolve_hover
-                    .in_set(crate::source::hover::HoverProbing)
-                    .after(apply_slice_layout),
+                resolve_hover.in_set(crate::source::hover::HoverProbing),
             );
     }
 }

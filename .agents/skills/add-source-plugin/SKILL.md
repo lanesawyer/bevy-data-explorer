@@ -23,12 +23,17 @@ exists — `zarrs` handles Zarr v3 entirely, including sharded partial reads.
 
 ## Step 3: Write the plugin
 
+Put the module under `src/formats/`, and register against `crate::source`.
+
 ```rust
+use crate::app::schedule::Stage;
+use crate::source::{self, SourceExtent};
+
 impl Plugin for MyFormatPlugin {
     fn build(&self, app: &mut App) {
-        let source = datasource::register(
+        let source = source::register(
             app,
-            datasource::SourceInfo {
+            source::SourceInfo {
                 name: ...,
                 unit: ...,    // physical unit, for reporting zoom
                 detail: ...,  // provenance, shown in listings
@@ -38,10 +43,17 @@ impl Plugin for MyFormatPlugin {
         );
 
         app.insert_resource(MyStreamer::new(data, source))
-            .add_systems(Update, (...).chain().after(crate::panel::update_viewports));
+            .add_systems(Update, (...).chain().in_set(Stage::Sources));
     }
 }
 ```
+
+Declare a stage, never an ordering against another module's system. The stages
+are defined and ordered in `src/app/schedule.rs`, which is the only place that
+decides what runs before what. `Stage::Sources` already runs after the frames
+have their viewports and after the dock controls have written through, and
+`HoverProbing` already runs after `Stage::Sources`, so a hover resolver needs
+no `.after(...)` of its own.
 
 `SourceExtent` is in **display** coordinates, where y is negated so images read
 top-down. If what the source shows changes at runtime, keep the extent updated

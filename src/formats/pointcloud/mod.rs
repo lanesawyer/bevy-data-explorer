@@ -15,6 +15,7 @@ use bevy::mesh::Mesh;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
+use crate::app::schedule::Stage;
 use crate::formats::scatterbrain::{self, Node, Rect, Scatterbrain, Slide};
 use crate::render::points::{PointMaterial, SourceHighlight, build_point_mesh};
 use crate::source::hover::{HoverInfo, HoverProbe};
@@ -868,15 +869,14 @@ impl Plugin for PointCloudSystems {
                 report_status,
             )
                 .chain()
-                .after(crate::view::update_viewports),
+                .in_set(Stage::Sources),
         )
-        // Resolving the pointer reads the nodes that are resident now, so it
-        // runs after this frame's arrivals and evictions.
+        // Resolving the pointer reads the nodes that are resident now; the
+        // schedule already puts `HoverProbing` after this frame's arrivals and
+        // evictions.
         .add_systems(
             Update,
-            resolve_hover
-                .in_set(crate::source::hover::HoverProbing)
-                .after(evict_nodes),
+            resolve_hover.in_set(crate::source::hover::HoverProbing),
         );
     }
 }

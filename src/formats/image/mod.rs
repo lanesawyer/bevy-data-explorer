@@ -26,6 +26,7 @@ use bevy::sprite::Anchor;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use zarrs_codec::ArrayPartialDecoderTraits;
 
+use crate::app::schedule::Stage;
 use crate::formats::image::dataset::{Channel, Dataset, TilePixels, read_tile};
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::{self, SourceExtent, SourceStatus};
@@ -769,7 +770,7 @@ impl Plugin for ImagePlugin {
                     report_status,
                 )
                     .chain()
-                    .after(crate::view::update_viewports),
+                    .in_set(Stage::Sources),
             )
             .add_systems(
                 Update,
