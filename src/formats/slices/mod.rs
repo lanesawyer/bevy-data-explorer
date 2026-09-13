@@ -381,7 +381,15 @@ impl SliceStreamer {
 }
 
 /// `G` switches layout; arrows, brackets and page keys step through slices.
-pub fn slice_controls(keys: Res<ButtonInput<KeyCode>>, mut streamers: Query<&mut SliceStreamer>) {
+pub fn slice_controls(
+    keys: Res<ButtonInput<KeyCode>>,
+    typing: Res<crate::view::TextEntryFocused>,
+    mut streamers: Query<&mut SliceStreamer>,
+) {
+    // Arrow keys move a cursor through a URL rather than through the slices.
+    if typing.0 {
+        return;
+    }
     for mut streamer in &mut streamers {
         if keys.just_pressed(KeyCode::KeyG) {
             streamer.mode = match streamer.mode {
@@ -1002,45 +1010,12 @@ pub struct SlicesPlugin {
     pub budget: usize,
 }
 
-impl Plugin for SlicesPlugin {
+/// The systems every sectioned dataset shares, registered once however many
+/// are open.
+pub struct SlicesSystems;
+
+impl Plugin for SlicesSystems {
     fn build(&self, app: &mut App) {
-        let (w, h) = self.cloud.max_slide_extent();
-        let source = source::register(
-            app,
-            source::SourceInfo {
-                name: "Sections".into(),
-                unit: self.cloud.unit.clone(),
-                detail: format!("Scatterbrain, {} sections", self.cloud.slides.len()),
-                stat: format!("{} CELLS", source::compact_count(self.cloud.total_points())),
-            },
-            // Replaced on the first update by `publish_extent`, once the grid
-            // layout is known.
-            SourceExtent {
-                centre: Vec2::ZERO,
-                size: Vec2::new(w, h),
-                finest: w / 100_000.0,
-            },
-        );
-
-        app.world_mut().entity_mut(source).insert((
-            crate::render::points::SourcePointSize::default(),
-            // Both start empty, and are carried from registration so the hover
-            // systems can write through a query rather than through commands.
-            SourceHighlight::default(),
-            HoverInfo::default(),
-            // Placeholder until a lookup service supplies the real value
-            // labels; the column names and ids are the dataset's own.
-            crate::formats::scatterbrain::placeholder_properties(
-                &self.cloud.category_columns(),
-                &self.cloud.numeric_columns(),
-            ),
-        ));
-
-        let mut streamer = SliceStreamer::new(self.cloud.clone(), source);
-        streamer.budget = self.budget;
-
-        app.world_mut().entity_mut(source).insert(streamer);
-
         app.add_systems(
             Update,
             (
@@ -1067,6 +1042,61 @@ impl Plugin for SlicesPlugin {
             resolve_hover.in_set(crate::source::hover::HoverProbing),
         );
     }
+}
+
+impl Plugin for SlicesPlugin {
+    /// Each sectioned dataset is its own instance of this plugin, so Bevy must
+    /// not treat a second one as a duplicate.
+    fn is_unique(&self) -> bool {
+        false
+    }
+
+    fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<SlicesSystems>() {
+            app.add_plugins(SlicesSystems);
+        }
+        spawn_source(app.world_mut(), self.cloud.clone(), self.budget);
+    }
+}
+
+/// Register a parsed sectioned dataset as a source, and bind a streamer to it.
+pub fn spawn_source(world: &mut World, cloud: Arc<Scatterbrain>, budget: usize) -> Entity {
+    let (w, h) = cloud.max_slide_extent();
+    let source = source::register_in(
+        world,
+        source::SourceInfo {
+            name: "Sections".into(),
+            unit: cloud.unit.clone(),
+            detail: format!("Scatterbrain, {} sections", cloud.slides.len()),
+            stat: format!("{} CELLS", source::compact_count(cloud.total_points())),
+        },
+        // Replaced on the first update by `publish_extent`, once the grid
+        // layout is known.
+        SourceExtent {
+            centre: Vec2::ZERO,
+            size: Vec2::new(w, h),
+            finest: w / 100_000.0,
+        },
+    );
+
+    world.entity_mut(source).insert((
+        crate::render::points::SourcePointSize::default(),
+        // Both start empty, and are carried from registration so the hover
+        // systems can write through a query rather than through commands.
+        SourceHighlight::default(),
+        HoverInfo::default(),
+        // Placeholder until a lookup service supplies the real value
+        // labels; the column names and ids are the dataset's own.
+        crate::formats::scatterbrain::placeholder_properties(
+            &cloud.category_columns(),
+            &cloud.numeric_columns(),
+        ),
+    ));
+
+    let mut streamer = SliceStreamer::new(cloud, source);
+    streamer.budget = budget;
+    world.entity_mut(source).insert(streamer);
+    source
 }
 
 /// Answer the pointer: which cell is under it, and which cells share its value.

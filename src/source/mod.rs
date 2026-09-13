@@ -114,13 +114,16 @@ impl SourceRegistry {
 
 /// Register a source and spawn its entity, returning it so the plugin can bind
 /// its streamer to it.
-pub fn register(app: &mut App, info: SourceInfo, extent: SourceExtent) -> Entity {
-    let layer = app
-        .world_mut()
+///
+/// Takes the world rather than the [`App`] so that the same registration serves
+/// a dataset opened after the window is up as one opened while the plugins are
+/// still being built.
+pub fn register_in(world: &mut World, info: SourceInfo, extent: SourceExtent) -> Entity {
+    let layer = world
         .get_resource_or_init::<SourceRegistry>()
         .allocate_layer();
 
-    app.world_mut()
+    world
         .spawn((
             DataSource {
                 name: info.name,
@@ -211,8 +214,8 @@ mod tests {
     #[test]
     fn registering_a_source_spawns_it_with_its_own_layer() {
         let mut app = App::new();
-        let first = register(&mut app, info("First", "mm"), extent());
-        let second = register(&mut app, info("Second", "um"), extent());
+        let first = register_in(app.world_mut(), info("First", "mm"), extent());
+        let second = register_in(app.world_mut(), info("Second", "um"), extent());
 
         let world = app.world();
         let first = world.get::<DataSource>(first).unwrap();
@@ -231,7 +234,7 @@ mod tests {
         // The overlay reads this component every frame, so it has to exist from
         // registration rather than appearing once the plugin first runs.
         let mut app = App::new();
-        let source = register(&mut app, info("Thing", "mm"), extent());
+        let source = register_in(app.world_mut(), info("Thing", "mm"), extent());
         assert!(app.world().get::<SourceStatus>(source).is_some());
         assert!(app.world().get::<SourceExtent>(source).is_some());
     }

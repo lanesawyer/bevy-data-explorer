@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bevy = { version = "0.19", default-features = false, features = ["bevy_winit", "bevy_sprite", "bevy_window", "bevy_core_pipeline", "bevy_render", "bevy_asset", "bevy_log", "bevy_text", "bevy_ui", "bevy_ui_render", "x11", "wayland", "multi_threaded", "default_font", "bevy_picking", "bevy_scene", "bevy_ui_widgets", "ui_picking", "bevy_feathers"] }
+bevy = { version = "0.19", default-features = false, features = ["bevy_winit", "bevy_sprite", "bevy_window", "bevy_core_pipeline", "bevy_render", "bevy_asset", "bevy_log", "bevy_text", "bevy_ui", "bevy_ui_render", "x11", "wayland", "multi_threaded", "default_font", "bevy_picking", "bevy_scene", "bevy_ui_widgets", "ui_picking", "bevy_feathers", "system_clipboard"] }
 bevy_feathers = "0.19"
 bevy_ui_widgets = "0.19"
 clap = { version = "4", features = ["derive"] }

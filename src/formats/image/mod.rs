@@ -744,42 +744,14 @@ pub struct ImagePlugin {
     pub budget_bytes: usize,
 }
 
-impl Plugin for ImagePlugin {
+/// The systems every image shares, registered once however many are open.
+///
+/// Separate from [`ImagePlugin`] so that a store opened after the window is up
+/// streams through the same systems as one named on the command line.
+pub struct ImageSystems;
+
+impl Plugin for ImageSystems {
     fn build(&self, app: &mut App) {
-        let (x0, y0, x1, y1) = self.dataset.world;
-        let level = &self.dataset.levels[0];
-        let source = source::register(
-            app,
-            source::SourceInfo {
-                name: self.dataset.name.clone(),
-                unit: self.dataset.unit.clone(),
-                detail: format!(
-                    "OME-Zarr image, {} levels, {} channels",
-                    self.dataset.levels.len(),
-                    self.dataset.channels.len()
-                ),
-                stat: format!("{} x {} PX", level.width, level.height),
-            },
-            SourceExtent {
-                // World y is negated so the image reads top-down.
-                centre: Vec2::new((x0 + x1) * 0.5, -(y0 + y1) * 0.5),
-                size: Vec2::new((x1 - x0).abs(), (y1 - y0).abs()),
-                finest: self.dataset.levels[0].scale_x as f32 / 8.0,
-            },
-        );
-
-        // Written from registration so the hover system can go through a query
-        // rather than through commands.
-        app.world_mut()
-            .entity_mut(source)
-            .insert(HoverInfo::default());
-
-        let mut streamer = TileStreamer::new(self.dataset.clone(), source);
-        streamer.z_slice = self.z_slice;
-        streamer.budget_bytes = self.budget_bytes;
-
-        app.world_mut().entity_mut(source).insert(streamer);
-
         app.add_systems(
             Update,
             (
@@ -797,6 +769,66 @@ impl Plugin for ImagePlugin {
         .add_systems(
             Update,
             resolve_hover.in_set(crate::source::hover::HoverProbing),
+        );
+    }
+}
+
+/// Register an open image as a source, and bind a streamer to it.
+pub fn spawn_source(
+    world: &mut World,
+    dataset: Arc<Dataset>,
+    z_slice: u64,
+    budget_bytes: usize,
+) -> Entity {
+    let (x0, y0, x1, y1) = dataset.world;
+    let level = &dataset.levels[0];
+    let source = source::register_in(
+        world,
+        source::SourceInfo {
+            name: dataset.name.clone(),
+            unit: dataset.unit.clone(),
+            detail: format!(
+                "OME-Zarr image, {} levels, {} channels",
+                dataset.levels.len(),
+                dataset.channels.len()
+            ),
+            stat: format!("{} x {} PX", level.width, level.height),
+        },
+        SourceExtent {
+            // World y is negated so the image reads top-down.
+            centre: Vec2::new((x0 + x1) * 0.5, -(y0 + y1) * 0.5),
+            size: Vec2::new((x1 - x0).abs(), (y1 - y0).abs()),
+            finest: dataset.levels[0].scale_x as f32 / 8.0,
+        },
+    );
+
+    // Written from registration so the hover system can go through a query
+    // rather than through commands.
+    world.entity_mut(source).insert(HoverInfo::default());
+
+    let mut streamer = TileStreamer::new(dataset, source);
+    streamer.z_slice = z_slice;
+    streamer.budget_bytes = budget_bytes;
+    world.entity_mut(source).insert(streamer);
+    source
+}
+
+impl Plugin for ImagePlugin {
+    /// Each image is its own instance of this plugin, so Bevy must not treat a
+    /// second one as a duplicate.
+    fn is_unique(&self) -> bool {
+        false
+    }
+
+    fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<ImageSystems>() {
+            app.add_plugins(ImageSystems);
+        }
+        spawn_source(
+            app.world_mut(),
+            self.dataset.clone(),
+            self.z_slice,
+            self.budget_bytes,
         );
     }
 }
@@ -866,8 +898,13 @@ fn pixel_in(level: &crate::formats::image::dataset::Level, world: Vec2) -> Optio
 fn toggle_channels(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
+    typing: Res<crate::view::TextEntryFocused>,
     mut streamers: Query<&mut TileStreamer>,
 ) {
+    // A digit typed into a URL is a digit, not a channel.
+    if typing.0 {
+        return;
+    }
     for mut streamer in &mut streamers {
         const DIGITS: [KeyCode; 9] = [
             KeyCode::Digit1,

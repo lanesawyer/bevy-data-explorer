@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 
+pub mod addsource;
 pub mod cellpanel;
 pub mod inspector;
 pub mod sidebar;
@@ -20,6 +21,7 @@ impl Plugin for UiPlugin {
             sidebar::SidebarPlugin,
             inspector::InspectorPlugin,
             viewconfig::ViewConfigPlugin,
+            addsource::AddSourcePlugin,
             cellpanel::CellPanelPlugin,
         ));
     }

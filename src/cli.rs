@@ -67,6 +67,19 @@ pub struct Args {
     pub slice_budget: usize,
 }
 
+impl Args {
+    /// The budgets every dataset is opened with, including one opened later
+    /// from the sidebar rather than from here.
+    pub fn load_settings(&self) -> crate::formats::LoadSettings {
+        crate::formats::LoadSettings {
+            z_slice: self.z,
+            cache_bytes: self.cache_mb * 1024 * 1024,
+            point_budget: self.point_budget,
+            slice_budget: self.slice_budget,
+        }
+    }
+}
+
 /// Everything the command line named, opened and ready to be handed to plugins.
 pub struct Datasets {
     pub image: Arc<Dataset>,
@@ -110,15 +123,7 @@ fn open_cloud(label: &str, source: &str) -> Result<Option<Arc<Scatterbrain>>, St
 }
 
 fn load_points(source: &str) -> Result<Scatterbrain, String> {
-    let text = if source.starts_with("http://") || source.starts_with("https://") {
-        reqwest::blocking::get(source)
-            .and_then(|r| r.error_for_status())
-            .and_then(|r| r.text())
-            .map_err(|e| format!("fetching {source}: {e}"))?
-    } else {
-        std::fs::read_to_string(source).map_err(|e| format!("reading {source}: {e}"))?
-    };
-    Scatterbrain::parse(&text)
+    Scatterbrain::parse(&crate::formats::discover::fetch_text(source)?)
 }
 
 fn describe(label: &str, cloud: &Scatterbrain) {

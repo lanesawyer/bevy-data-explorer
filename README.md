@@ -31,6 +31,10 @@ cargo run --release -- --point-budget 8000000
 
 Use `--release`. Tile decoding is real work and a debug build makes it obvious.
 
+The command line is not the only way in: a dataset can also be opened by URL
+from the sidebar once the window is up, without restarting. See **Custom
+visualization** below.
+
 A sidebar is docked on the left for controls that belong to no single frame —
 filters and dataset information, eventually. Drag its edge to resize it between
 a readable minimum and half the window, or collapse it to a ribbon with the
@@ -103,6 +107,32 @@ row per loaded dataset to open a new frame onto it. Both that menu and a
 frame's own corner buttons raise the same `PanelRequest`, so the rules about
 what may be opened or closed live in one place and the two routes cannot drift
 apart.
+
+At the bottom of that menu is **Custom visualization**: a text field for the
+URL of a dataset that was not named on the command line. Nothing asks which
+format it is — the URL is read and the format worked out from what comes back,
+so an OME-Zarr store, a single point cloud and a sectioned dataset are all
+pasted into the same field. A `.json` is tried as Scatterbrain metadata first
+and as an image manifest second; anything else is tried as a Zarr store. A
+sectioned dataset is recognised by its metadata listing more than one slide,
+which is the same distinction `--points` and `--slices` make by hand.
+
+Whatever is recognised is registered as a source like any other and opens into
+a new frame, so it is indistinguishable afterwards from one named on the
+command line — it appears in the list above, carries its own transparency and
+point size, and offers its cell properties in the sidebar. A URL that matches
+nothing leaves the reason under the field, naming what was tried rather than
+failing silently. The read is a blocking fetch and parse, so it runs on a task
+and the window keeps drawing while it is in flight; the field takes one at a
+time.
+
+A text field takes the keyboard while it has focus, so the frame shortcuts —
+`r`, the digits, the arrows — stand down for as long as something is being
+typed into. That is settled once a frame, before anything reads a key, because
+the shortcuts are spread across the grid and two format plugins. Dismissing the
+menu hands the keyboard back, since a closed menu is only hidden and a field
+inside one would otherwise go on swallowing keystrokes with nothing on screen
+to show where they were going.
 
 An inspector docks on the right, opened from a frame's info button and closed
 from its own. It follows the selection rather than pinning itself to the frame
@@ -217,8 +247,16 @@ component tuple. Those run every frame as data arrives, where a scene buys
 nothing over a bundle.
 
 
-Every format is a Bevy plugin. On build it registers itself as a *source
-entity* carrying the few things a frame needs to know about what it is showing:
+Every format is a Bevy plugin, and a plugin's *systems* and its *datasets* are
+registered separately. The systems go in once whether or not the command line
+named anything of that format, which is what lets a URL typed in later open
+into the same machinery — including a format that was switched off at startup.
+Registering a dataset takes the world rather than the `App`, so the same call
+serves one opened while the plugins are being built and one opened after the
+window is up.
+
+A registered dataset is a *source entity* carrying the few things a frame needs
+to know about what it is showing:
 a name, the render layer its geometry is drawn on, how much world it occupies,
 and a line of status for the overlay. The plugin then inserts its own streamer
 and systems.
@@ -348,9 +386,9 @@ measuring against it, and are worth knowing before changing them:
   empty cell rather than redistributing the space.
 - A frame cannot yet be repointed at a different source from the UI. The
   indirection that would allow it is in place, but nothing drives it.
-- Point clouds keep their streamer on the source entity, so several can be open
-  at once. The image and section streamers are still resources, so those
-  formats support one dataset each.
+- A custom dataset is opened into a frame but cannot be closed again as a
+  *source*: closing its frame leaves the source registered, still holding
+  whatever it has streamed, and its render layer is not handed back.
 - The sections panel always draws slices in metadata order. It carries no
   notion of anatomical position, so the grid is a contact sheet rather than a
   reconstruction.

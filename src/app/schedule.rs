@@ -17,6 +17,11 @@ use crate::source::hover::HoverProbing;
 /// The stages of a frame, in the order they run.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Stage {
+    /// Which control owns the keyboard is settled. First, because a text field
+    /// with focus takes the keys away from the frame shortcuts, and several of
+    /// those run before any dock or control does — typing a URL would otherwise
+    /// reset a view on `r` and toggle channels on every digit.
+    Focus,
     /// Docks read the pointer: dragging an edge, opening, collapsing. Their new
     /// sizes are settled before anything measures against them.
     DockInput,
@@ -101,6 +106,7 @@ pub fn configure(app: &mut App) {
     .configure_sets(
         Update,
         (
+            Stage::Focus,
             Stage::DockInput,
             Stage::FrameArea,
             Stage::DockReserve,

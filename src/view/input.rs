@@ -2,12 +2,37 @@
 //! way, and what it is pointing at.
 
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
+use bevy::text::EditableText;
 
 use super::grid::{Drag, active_panel, panel_under_cursor, within_frames};
 use super::{FrameArea, Panel, SelectedPanel, ShowsSource};
 use crate::source::ViewLimits;
 use crate::source::hover::HoverProbe;
+
+/// Whether a text field currently owns the keyboard.
+///
+/// Read rather than each keyboard shortcut asking about focus itself, because
+/// the shortcuts are spread across the grid and two format plugins, and they
+/// run in stages either side of the controls. Settled once, in [`Stage::Focus`],
+/// so every one of them answers the same way for a whole frame.
+///
+/// [`Stage::Focus`]: crate::app::schedule::Stage::Focus
+#[derive(Resource, Default)]
+pub struct TextEntryFocused(pub bool);
+
+/// Record whether what has focus is something being typed into.
+pub fn track_text_focus(
+    focus: Res<InputFocus>,
+    editable: Query<(), With<EditableText>>,
+    mut captured: ResMut<TextEntryFocused>,
+) {
+    let wanted = focus.get().is_some_and(|entity| editable.contains(entity));
+    if captured.0 != wanted {
+        captured.0 = wanted;
+    }
+}
 
 /// Marks interactive chrome that swallows pointer input before a frame sees it.
 ///
@@ -139,6 +164,7 @@ pub fn panel_controls(
     parents: Query<&ChildOf>,
     panel_entities: Query<(Entity, &Panel)>,
     mut selected: ResMut<SelectedPanel>,
+    typing: Res<TextEntryFocused>,
     mut drag: Local<Option<Drag>>,
 ) {
     let Ok(window) = windows.single() else { return };
@@ -206,7 +232,7 @@ pub fn panel_controls(
             continue;
         };
 
-        if keys.just_pressed(KeyCode::KeyR) {
+        if !typing.0 && keys.just_pressed(KeyCode::KeyR) {
             transform.translation = limits.centre.extend(transform.translation.z);
             ortho.scale = limits.fit_scale;
             continue;

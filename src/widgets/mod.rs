@@ -4,6 +4,7 @@
 //! sidebar's contents will vary with whatever dataset is selected: a section is
 //! a title, an open flag, and whatever children a caller hangs off it.
 
+use bevy::input_focus::InputFocus;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy_feathers::controls::{ButtonVariant, FeathersButton, FeathersSlider, FeathersToolButton};
@@ -375,6 +376,29 @@ pub fn position_menus(
     }
 }
 
+/// Let go of the keyboard when the menu holding it closes.
+///
+/// A closed menu is only hidden, so a text field inside one keeps focus and
+/// goes on swallowing every keystroke — with the field itself no longer on
+/// screen to show where they are going.
+pub fn release_focus_from_closed_menus(
+    mut focus: ResMut<InputFocus>,
+    menus: Query<(Entity, &Menu)>,
+    parents: Query<&ChildOf>,
+) {
+    let Some(focused) = focus.get() else { return };
+    let inside_a_closed_menu = menus.iter().any(|(entity, menu)| {
+        !menu.open
+            && (focused == entity
+                || parents
+                    .iter_ancestors(focused)
+                    .any(|ancestor| ancestor == entity))
+    });
+    if inside_a_closed_menu {
+        focus.clear();
+    }
+}
+
 /// An accordion's untruncated title, kept because the text it is shown through
 /// is rewritten to fit.
 #[derive(Component, Clone, Default)]
@@ -530,6 +554,7 @@ impl Plugin for WidgetsPlugin {
                     update_accordions,
                     truncate_accordion_titles,
                     dismiss_menus,
+                    release_focus_from_closed_menus,
                     position_menus,
                 )
                     .chain()

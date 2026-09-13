@@ -31,13 +31,13 @@ use chrome::{
     update_selection_border,
 };
 use grid::clear_color_for;
-use input::{panel_controls, probe_hover};
+use input::{panel_controls, probe_hover, track_text_focus};
 use requests::apply_panel_requests;
 
 // The grid's vocabulary, kept importable from `view` itself so that what a
 // caller needs to know does not depend on how this module is cut up.
 pub use grid::{MAX_PANELS, grid_for};
-pub use input::BlocksFrameInput;
+pub use input::{BlocksFrameInput, TextEntryFocused};
 pub use requests::PanelRequest;
 
 /// The frame the sidebar's controls act on.
@@ -161,7 +161,9 @@ impl Plugin for ViewPlugin {
             .add_message::<PanelRequest>()
             .init_resource::<FrameArea>()
             .init_resource::<SelectedPanel>()
+            .init_resource::<TextEntryFocused>()
             .add_observer(panel_buttons)
+            .add_systems(Update, track_text_focus.in_set(Stage::Focus))
             .add_systems(Update, reset_frame_area.in_set(Stage::FrameArea))
             .add_systems(
                 Update,

@@ -27,8 +27,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new();
     app.add_plugins(ExplorerPlugin);
 
-    // Each format is a plugin. Registration order decides which cell a source's
-    // frame opens in, and nothing else here knows what the formats are.
+    // Every format's systems go in whether or not the command line named a
+    // dataset for it, so a URL typed into the sidebar later opens into the
+    // same machinery. The budgets go in beside them, for the same reason.
+    app.add_plugins(formats::FormatsPlugin)
+        .insert_resource(args.load_settings());
+
+    // Each dataset is a plugin. Registration order decides which cell a
+    // source's frame opens in, and nothing else here knows what the formats
+    // are.
     app.add_plugins(formats::image::ImagePlugin {
         dataset: data.image,
         z_slice: args.z,

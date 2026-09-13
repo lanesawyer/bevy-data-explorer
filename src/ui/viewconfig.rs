@@ -68,6 +68,23 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     commands.entity(parent).add_child(accordion.section);
     let menu = spawn_menu(&mut commands, accordion.header);
     commands.entity(menu).insert(LayoutMenu);
+
+    // The frame rows are rebuilt wholesale, so they get a container of their
+    // own: the custom dataset field below them holds what has been typed into
+    // it, and would lose it every time a frame was opened or closed.
+    let rows = commands
+        .spawn_scene(bsn! {
+            LayoutRows
+            Node {
+                flex_direction: { FlexDirection::Column },
+                width: { Val::Percent(100.0) },
+                row_gap: { Val::Px(2.0) },
+            }
+        })
+        .id();
+    let custom = crate::ui::addsource::spawn_custom_section(&mut commands);
+    commands.entity(menu).add_children(&[rows, custom]);
+
     let body = accordion.body;
 
     let name = commands
@@ -352,6 +369,11 @@ pub struct LayoutMenu;
 #[derive(Component, Clone, Default)]
 pub struct LayoutContent;
 
+/// The part of the menu that is rebuilt, which is everything above the custom
+/// dataset field.
+#[derive(Component, Clone, Default)]
+pub struct LayoutRows;
+
 /// What a button in the layout menu does.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum LayoutAction {
@@ -396,7 +418,7 @@ impl Default for AddVisualization {
 /// one is added or removed.
 pub fn rebuild_layout_menu(
     mut commands: Commands,
-    menus: Query<Entity, With<LayoutMenu>>,
+    menus: Query<Entity, With<LayoutRows>>,
     panels: Query<(Entity, &crate::view::Panel, &ShowsSource)>,
     sources: Query<(Entity, &DataSource)>,
     content: Query<Entity, With<LayoutContent>>,

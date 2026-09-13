@@ -860,7 +860,7 @@ pub struct PointCloudPlugin {
 
 /// The systems every point cloud shares, registered once however many clouds
 /// are open.
-struct PointCloudSystems;
+pub struct PointCloudSystems;
 
 impl Plugin for PointCloudSystems {
     fn build(&self, app: &mut App) {
@@ -899,46 +899,61 @@ impl Plugin for PointCloudPlugin {
         if !app.is_plugin_added::<PointCloudSystems>() {
             app.add_plugins(PointCloudSystems);
         }
-
-        let bounds = self.cloud.slides[0].tight_bounds;
-        let (cx, cy) = bounds.centre();
-        let source = source::register(
-            app,
-            source::SourceInfo {
-                name: self.name.clone(),
-                unit: self.cloud.unit.clone(),
-                detail: format!("Scatterbrain octree, depth {}", self.cloud.max_depth()),
-                stat: format!("{} CELLS", source::compact_count(self.cloud.total_points())),
-            },
-            SourceExtent {
-                // World y is negated for display, matching the image panel.
-                centre: Vec2::new(cx, -cy),
-                size: Vec2::new(bounds.width(), bounds.height()),
-                finest: bounds.width() / 100_000.0,
-            },
+        spawn_source(
+            app.world_mut(),
+            self.name.clone(),
+            self.cloud.clone(),
+            self.budget,
         );
-
-        // Advertising a point size is what puts the size control in the
-        // sidebar; sources without one simply do not offer it.
-        app.world_mut().entity_mut(source).insert((
-            crate::render::points::SourcePointSize::default(),
-            // Both start empty. Carrying them from registration means the hover
-            // systems can write through a query rather than through commands,
-            // and so can leave them untouched when nothing has changed.
-            SourceHighlight::default(),
-            HoverInfo::default(),
-            // Placeholder until a lookup service supplies the real value
-            // labels; the column names and ids are the dataset's own.
-            crate::formats::scatterbrain::placeholder_properties(
-                &self.cloud.category_columns(),
-                &self.cloud.numeric_columns(),
-            ),
-        ));
-
-        let mut streamer = PointStreamer::new(self.cloud.clone(), source);
-        streamer.budget = self.budget;
-        app.world_mut().entity_mut(source).insert(streamer);
     }
+}
+
+/// Register a parsed cloud as a source, and bind a streamer to it.
+pub fn spawn_source(
+    world: &mut World,
+    name: String,
+    cloud: Arc<Scatterbrain>,
+    budget: usize,
+) -> Entity {
+    let bounds = cloud.slides[0].tight_bounds;
+    let (cx, cy) = bounds.centre();
+    let source = source::register_in(
+        world,
+        source::SourceInfo {
+            name,
+            unit: cloud.unit.clone(),
+            detail: format!("Scatterbrain octree, depth {}", cloud.max_depth()),
+            stat: format!("{} CELLS", source::compact_count(cloud.total_points())),
+        },
+        SourceExtent {
+            // World y is negated for display, matching the image panel.
+            centre: Vec2::new(cx, -cy),
+            size: Vec2::new(bounds.width(), bounds.height()),
+            finest: bounds.width() / 100_000.0,
+        },
+    );
+
+    // Advertising a point size is what puts the size control in the
+    // sidebar; sources without one simply do not offer it.
+    world.entity_mut(source).insert((
+        crate::render::points::SourcePointSize::default(),
+        // Both start empty. Carrying them from registration means the hover
+        // systems can write through a query rather than through commands,
+        // and so can leave them untouched when nothing has changed.
+        SourceHighlight::default(),
+        HoverInfo::default(),
+        // Placeholder until a lookup service supplies the real value
+        // labels; the column names and ids are the dataset's own.
+        crate::formats::scatterbrain::placeholder_properties(
+            &cloud.category_columns(),
+            &cloud.numeric_columns(),
+        ),
+    ));
+
+    let mut streamer = PointStreamer::new(cloud, source);
+    streamer.budget = budget;
+    world.entity_mut(source).insert(streamer);
+    source
 }
 
 /// Answer the pointer: what is under it, and which cells share its value.

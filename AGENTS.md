@@ -89,5 +89,10 @@ re-measuring will regress something:
   before it was built, and an overlay documented as running after the sources
   that did not. If a new system needs a slot that does not exist, add a stage
   and say in its doc comment why the boundary is there.
+- **`system_clipboard` is load-bearing in the feature list.** `bevy_ui_widgets`
+  already binds Ctrl+V in the text field, but without that Cargo feature
+  Bevy's clipboard is an in-app buffer: copy and paste work inside the window
+  and pasting a URL from a browser does nothing. It pulls in `arboard`, and
+  the `wayland` feature already wires that through.
 - **Bevy system tuples cap at 20.** The stages keep chains short; if one is
   approaching twenty, that is the signal to split it rather than to grow it.
