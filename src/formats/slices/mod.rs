@@ -75,6 +75,9 @@ enum Slot {
         points: usize,
         resident: NodePoints,
     },
+    /// Loaded, and the filters left nothing of it. Nothing is spawned for a
+    /// node like this: see the note where it is built.
+    Empty,
     Failed,
 }
 
@@ -229,10 +232,12 @@ impl SliceStreamer {
     /// for good.
     fn generation_ready(&self) -> bool {
         self.in_flight == 0
-            && self
-                .wanted
-                .iter()
-                .all(|key| matches!(self.slots.get(key), Some(Slot::Ready { .. } | Slot::Failed)))
+            && self.wanted.iter().all(|key| {
+                matches!(
+                    self.slots.get(key),
+                    Some(Slot::Ready { .. } | Slot::Empty | Slot::Failed)
+                )
+            })
     }
 
     /// Show the new selection and drop the one it replaces.
@@ -263,7 +268,7 @@ impl SliceStreamer {
     pub fn loaded_nodes(&self) -> usize {
         self.slots
             .values()
-            .filter(|s| matches!(s, Slot::Ready { .. }))
+            .filter(|s| matches!(s, Slot::Ready { .. } | Slot::Empty))
             .count()
     }
 
@@ -553,6 +558,12 @@ pub fn collect_slice_tasks(
         for (key, outcome) in finished {
             streamer.in_flight = streamer.in_flight.saturating_sub(1);
             let slot = match outcome {
+                // A filter can leave a node with nothing in it. Spawning it
+                // anyway costs an entity and a draw call to draw no points, and
+                // Bevy's mesh allocator skips allocating a zero-length vertex
+                // buffer while still copying into it, which it reports as a
+                // use-after-free for as long as the node stays resident.
+                NodeOutcome::Ready(positions, _) if positions.is_empty() => Slot::Empty,
                 NodeOutcome::Ready(positions, categories) => {
                     let count = positions.len();
                     let mesh = build_mesh(&positions, &categories);

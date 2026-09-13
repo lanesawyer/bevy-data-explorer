@@ -52,6 +52,9 @@ enum Slot {
         points: usize,
         resident: NodePoints,
     },
+    /// Loaded, and the filters left nothing of it. Nothing is spawned for a
+    /// node like this: see the note where it is built.
+    Empty,
     Failed,
 }
 
@@ -153,7 +156,7 @@ impl PointStreamer {
             && self.wanted.iter().all(|index| {
                 matches!(
                     self.slots.get(index),
-                    Some(Slot::Ready { .. } | Slot::Failed)
+                    Some(Slot::Ready { .. } | Slot::Empty | Slot::Failed)
                 )
             })
     }
@@ -181,7 +184,7 @@ impl PointStreamer {
     pub fn loaded_nodes(&self) -> usize {
         self.slots
             .values()
-            .filter(|s| matches!(s, Slot::Ready { .. }))
+            .filter(|s| matches!(s, Slot::Ready { .. } | Slot::Empty))
             .count()
     }
 
@@ -380,6 +383,12 @@ fn collect_for(
     for (index, outcome) in finished {
         streamer.in_flight = streamer.in_flight.saturating_sub(1);
         let slot = match outcome {
+            // A filter can leave a node with nothing in it. Spawning it anyway
+            // costs an entity and a draw call to draw no points, and Bevy's mesh
+            // allocator skips allocating a zero-length vertex buffer while still
+            // copying into it, which it reports as a use-after-free for as long
+            // as the node stays resident.
+            NodeOutcome::Ready(positions, _) if positions.is_empty() => Slot::Empty,
             NodeOutcome::Ready(positions, categories) => {
                 let count = positions.len();
                 let mesh = build_mesh(&positions, &categories);
@@ -555,6 +564,15 @@ mod tests {
         let mut streamer = staged(&[0, 1], 1);
         streamer.slots.insert(1, Slot::Failed);
         assert!(streamer.generation_ready());
+    }
+
+    #[test]
+    fn a_node_the_filter_emptied_counts_as_arrived() {
+        // Nothing is spawned for it, so the swap has nothing to wait for.
+        let mut streamer = staged(&[0, 1], 1);
+        streamer.slots.insert(1, Slot::Empty);
+        assert!(streamer.generation_ready());
+        assert_eq!(streamer.loaded_nodes(), 2);
     }
 
     #[test]
