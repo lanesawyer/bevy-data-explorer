@@ -10,10 +10,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use crate::app::net::{Fetching, fetching};
 use bevy::camera::visibility::RenderLayers;
 use bevy::mesh::Mesh;
 use bevy::prelude::*;
-use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
 use crate::app::schedule::Stage;
 use crate::formats::scatterbrain::nodes::{
@@ -46,7 +46,7 @@ const MAX_IN_FLIGHT: usize = 12;
 pub struct PointNode;
 
 enum Slot {
-    Loading(Task<NodeOutcome>),
+    Loading(Fetching<NodeOutcome>),
     Ready {
         entity: Entity,
         points: usize,
@@ -91,6 +91,10 @@ pub struct PointStreamer {
     /// is built. Empty except while a swap is pending.
     retiring: Vec<Entity>,
     pub in_flight: usize,
+    /// Reads given up on because the view moved off them, counted for the
+    /// status line: it is the number that says whether panning is costing
+    /// anything.
+    pub cancelled: usize,
     pub resident_points: usize,
     pub budget: usize,
     pub deepest: usize,
@@ -107,6 +111,7 @@ impl PointStreamer {
             wanted: Vec::new(),
             retiring: Vec::new(),
             in_flight: 0,
+            cancelled: 0,
             resident_points: 0,
             budget: DEFAULT_POINT_BUDGET,
             deepest: 0,
@@ -314,11 +319,28 @@ pub fn spawn_node_tasks(mut streamers: Query<&mut PointStreamer>) {
 }
 
 fn spawn_for(streamer: &mut PointStreamer) {
-    let pool = AsyncComputeTaskPool::get();
     let cloud = streamer.cloud.clone();
     let selection = streamer.selection.clone();
     let slide = streamer.slide;
     let wanted = std::mem::take(&mut streamer.wanted);
+
+    // Give up on nodes the view has moved off. Dropping the slot aborts the
+    // request behind it, which is the whole reason the reads are asynchronous:
+    // a pan across a cloud used to pay for every node it crossed, because a
+    // blocking read could only be declined before it started. It also frees a
+    // place in the queue below for a node that is wanted.
+    let keep: HashSet<usize> = wanted.iter().copied().collect();
+    let mut cancelled = 0usize;
+    streamer.slots.retain(|index, slot| {
+        let loading = matches!(slot, Slot::Loading(_));
+        if loading && !keep.contains(index) {
+            cancelled += 1;
+            return false;
+        }
+        true
+    });
+    streamer.in_flight = streamer.in_flight.saturating_sub(cancelled);
+    streamer.cancelled += cancelled;
 
     for &index in &wanted {
         if streamer.in_flight >= MAX_IN_FLIGHT {
@@ -330,9 +352,9 @@ fn spawn_for(streamer: &mut PointStreamer) {
 
         let cloud = cloud.clone();
         let selection = selection.clone();
-        let task = pool.spawn(async move {
+        let task = fetching(async move {
             let node = &cloud.slides[slide].nodes[index];
-            match load_node(&cloud, node, &selection) {
+            match load_node(&cloud, node, &selection).await {
                 Ok((positions, categories)) => NodeOutcome::Ready(positions, categories),
                 Err(e) => NodeOutcome::Failed(e),
             }
@@ -375,7 +397,7 @@ fn collect_for(
     let mut finished = Vec::new();
     for (index, slot) in streamer.slots.iter_mut() {
         let Slot::Loading(task) = slot else { continue };
-        if let Some(outcome) = block_on(poll_once(task)) {
+        if let Some(outcome) = task.take() {
             finished.push((*index, outcome));
         }
     }
@@ -1042,9 +1064,15 @@ fn report_for(streamer: &PointStreamer, sources: &mut Query<&mut SourceStatus>) 
         })
         .unwrap_or_else(|| "none".into());
 
+    let given_up = if streamer.cancelled > 0 {
+        format!(", {} cancelled", streamer.cancelled)
+    } else {
+        String::new()
+    };
+
     status.0 = format!(
         "{} points in {} octree nodes, depth {}\n\
-         showing depth {}, {} nodes loaded, {} loading\n\
+         showing depth {}, {} nodes loaded, {} loading{given_up}\n\
          {} / {} points resident ({} MB)\n\
          colour by  {}",
         cloud.total_points(),

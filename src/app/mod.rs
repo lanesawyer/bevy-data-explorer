@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use bevy::window::PresentMode;
 
 pub mod logs;
+pub mod net;
 pub mod schedule;
 pub mod theme;
 

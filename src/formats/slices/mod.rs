@@ -12,9 +12,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use crate::app::net::{Fetching, fetching};
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
-use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 
 use crate::app::schedule::Stage;
 use crate::formats::scatterbrain::nodes::{
@@ -69,7 +69,7 @@ pub struct SliceNode {
 pub struct SliceNodeTag;
 
 enum Slot {
-    Loading(Task<NodeOutcome>),
+    Loading(Fetching<NodeOutcome>),
     Ready {
         entity: Entity,
         points: usize,
@@ -119,6 +119,9 @@ pub struct SliceStreamer {
     /// change lays them out like any other node.
     retiring: Vec<(SliceNode, Entity)>,
     pub in_flight: usize,
+    /// Reads given up on because the view moved off them, counted for the
+    /// status line.
+    pub cancelled: usize,
     pub resident_points: usize,
     pub budget: usize,
     /// Set when the mode or slice changed and the camera should refit.
@@ -186,6 +189,7 @@ impl SliceStreamer {
             wanted: Vec::new(),
             retiring: Vec::new(),
             in_flight: 0,
+            cancelled: 0,
             resident_points: 0,
             budget: DEFAULT_SLICE_BUDGET,
             refit: true,
@@ -534,10 +538,24 @@ pub fn select_slice_nodes(
 
 pub fn spawn_slice_tasks(mut streamers: Query<&mut SliceStreamer>) {
     for mut streamer in &mut streamers {
-        let pool = AsyncComputeTaskPool::get();
         let cloud = streamer.cloud.clone();
         let selection = streamer.selection.clone();
         let wanted = std::mem::take(&mut streamer.wanted);
+
+        // Give up on nodes the view has moved off — stepping to another slice
+        // abandons a whole grid's worth at once. Dropping the slot aborts the
+        // request behind it, and frees a place in the queue below.
+        let keep: HashSet<SliceNode> = wanted.iter().copied().collect();
+        let mut cancelled = 0usize;
+        streamer.slots.retain(|key, slot| {
+            if matches!(slot, Slot::Loading(_)) && !keep.contains(key) {
+                cancelled += 1;
+                return false;
+            }
+            true
+        });
+        streamer.in_flight = streamer.in_flight.saturating_sub(cancelled);
+        streamer.cancelled += cancelled;
 
         for &key in &wanted {
             if streamer.in_flight >= MAX_IN_FLIGHT {
@@ -549,9 +567,9 @@ pub fn spawn_slice_tasks(mut streamers: Query<&mut SliceStreamer>) {
 
             let cloud = cloud.clone();
             let selection = selection.clone();
-            let task = pool.spawn(async move {
+            let task = fetching(async move {
                 let node = &cloud.slides[key.slide].nodes[key.node];
-                match load_node(&cloud, node, &selection) {
+                match load_node(&cloud, node, &selection).await {
                     Ok((positions, categories)) => NodeOutcome::Ready(positions, categories),
                     Err(e) => NodeOutcome::Failed(e),
                 }
@@ -577,7 +595,7 @@ pub fn collect_slice_tasks(
         let mut finished = Vec::new();
         for (key, slot) in streamer.slots.iter_mut() {
             let Slot::Loading(task) = slot else { continue };
-            if let Some(outcome) = block_on(poll_once(task)) {
+            if let Some(outcome) = task.take() {
                 finished.push((*key, outcome));
             }
         }

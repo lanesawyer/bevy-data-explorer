@@ -75,16 +75,16 @@ pub enum NodeOutcome {
 ///
 /// Filtered-out points are dropped here rather than hidden later, so they cost
 /// no vertices and no budget.
-pub fn load_node(
+pub async fn load_node(
     cloud: &Scatterbrain,
     node: &Node,
     selection: &CellSelection,
 ) -> Result<(Vec<[f32; 2]>, Vec<u16>), String> {
-    let mut positions = decode_positions(&fetch(&cloud.positions_url(node))?, node.count)?;
+    let mut positions = decode_positions(&fetch(&cloud.positions_url(node)).await?, node.count)?;
 
     let mut categories = match &selection.colour_by {
         Some(column) => {
-            let bytes = fetch(&cloud.column_url(column, node))?;
+            let bytes = fetch(&cloud.column_url(column, node)).await?;
             decode_categories(&bytes, node.count)?
         }
         None => Vec::new(),
@@ -98,7 +98,7 @@ pub fn load_node(
     // for a categorical filter, floats for a numeric one.
     let mut columns: Vec<Vec<f32>> = Vec::with_capacity(selection.filters.len());
     for (column, restriction) in &selection.filters {
-        let bytes = fetch(&cloud.column_url(column, node))?;
+        let bytes = fetch(&cloud.column_url(column, node)).await?;
         let values = if restriction.is_numeric() {
             decode_floats(&bytes, node.count)?
         } else {
@@ -134,14 +134,8 @@ pub fn load_node(
     Ok((positions, categories))
 }
 
-fn fetch(url: &str) -> Result<Vec<u8>, String> {
-    let response = reqwest::blocking::get(url)
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| format!("fetching {url}: {e}"))?;
-    response
-        .bytes()
-        .map(|b| b.to_vec())
-        .map_err(|e| format!("reading {url}: {e}"))
+async fn fetch(url: &str) -> Result<Vec<u8>, String> {
+    crate::app::net::fetch(url).await
 }
 
 /// Build a point-list mesh, colouring each point by its category.

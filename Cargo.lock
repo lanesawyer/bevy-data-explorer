@@ -439,6 +439,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "tokio",
  "zarrs",
  "zarrs_codec",
  "zarrs_http",
