@@ -32,10 +32,12 @@ cargo run --release -- --point-budget 8000000
 Use `--release`. Tile decoding is real work and a debug build makes it obvious.
 
 Nothing is loaded unless it is named. Started with no arguments the window is
-empty, and offers one example of each kind of dataset it can draw along with a
-field for the URL of anything else — a first run that spends a minute fetching
-reference datasets nobody asked for is a first run spent waiting. Each example
-goes through exactly the path a typed URL does.
+empty, and offers every dataset it knows the address of along with a field for
+the URL of anything else — a first run that spends a minute fetching reference
+datasets nobody asked for is a first run spent waiting. All of them are listed
+rather than one per kind, because they differ in more than kind: a Zarr v2 store
+against a v3 one, a flat image against a stack of sections, a single cloud
+against a sectioned one. Each goes through exactly the path a typed URL does.
 
 The command line is not the only way in either: a dataset can be opened by URL
 from the sidebar at any time, without restarting. See **Custom visualization**
@@ -115,11 +117,13 @@ dataset and carries a transparency slider. With no frame selected it says so
 and shows nothing else — a slider with nothing to act on invites a drag that
 changes nothing.
 
-Its menu is **Edit layout**: the frames that are open, whatever is loaded but
-not on screen, and every dataset the app knows the address of. That last list is
-what fills the grid without pasting a URL; a dataset opened from it arrives by
-the same path a typed URL does, and its row stands down once it is open, since
-fetching it again would end with the same dataset twice.
+Its menu is **Edit layout**: the frames that are open, and under **Open a
+dataset** every dataset the app knows the address of. That second list is what
+fills the grid without pasting a URL. One that has not been opened yet is
+fetched; one that has — including one whose frames have all been closed — gets
+a frame onto the source it already is, rather than being downloaded again to
+arrive at the same dataset twice. A catalogue served over HTTP will fill that
+list later.
 
 Point clouds draw each point as a screen-space quad rather than with point
 topology, because the hardware fixes point primitives at one pixel and offers
@@ -155,11 +159,10 @@ Each accordion can carry a menu button on the right that opens a popup. A menu
 is capped at the bottom of the window and scrolls once its contents no longer
 fit. View
 configuration's is an **Edit layout** menu listing every frame with its dataset
-name, provenance and headline figure, and buttons to clone or close it, plus a
-row per loaded dataset to open a new frame onto it. Both that menu and a
-frame's own corner buttons raise the same `PanelRequest`, so the rules about
-what may be opened or closed live in one place and the two routes cannot drift
-apart.
+name, provenance and headline figure, and buttons to clone or close it, over the
+list of datasets to open. Both that menu and a frame's own corner buttons raise
+the same `PanelRequest`, so the rules about what may be opened or closed live in
+one place and the two routes cannot drift apart.
 
 At the bottom of that menu is **Custom visualization**: a text field for the
 URL of a dataset that was not named on the command line. Nothing asks which
@@ -379,28 +382,9 @@ arrive first, and are drawn underneath, so moving into new territory shows a
 blurry version immediately that sharpens as finer tiles land.
 
 A volumetric image — a specimen cut into sections — is paged through rather
-than shown at once. The source advertises a stack of slices, and both the frame
-keys (`PageUp`/`PageDown`, or `[` and `]`) and the slider in **View
-configuration** move it; paging acts on the selected frame, so two specimens
-open side by side are paged one at a time. Nothing in the sidebar knows an image
-is what it is paging: the stack is a component on the source, the way a point
-size is, and any format that has one can offer it.
-
-Each level holds a cache of decoded chunks, which is what makes paging feel like
-paging. The reference stack chunks forty slices together, so a 512px tile decodes
-63 MB to show one slice of it — and the thirty-nine slices either side come out
-of memory. Measured on that store: 600ms for the first slice of a tile, 47ms for
-the next one.
-
-Addresses are taken as they were copied. Neuroglancer writes the format in front
-and names buckets its own way — `zarr2://s3://bucket/key` — so the prefix is
-dropped, since the bytes decide what a source is anyway, and the bucket becomes
-the URL it is served from.
-
-A volumetric image — a specimen cut into sections — is paged through rather
 than shown all at once. The source advertises a stack of slices, and both the
-frame keys (`PageUp`/`PageDown`, or `[` and `]`) and the slider in **View
-configuration** move it; paging acts on the selected frame, so two specimens
+frame keys — the arrows, `[` and `]`, or `PageUp`/`PageDown`, the same ones
+the sectioned panel uses — and the slider in **View configuration** move it; paging acts on the selected frame, so two specimens
 open side by side are paged one at a time. Nothing in the sidebar knows an image
 is what it is paging: the stack is a component on the source, the way a point
 size is, and any format that has one can offer it. A stack opens on its middle

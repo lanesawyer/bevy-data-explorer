@@ -94,10 +94,10 @@ pub struct CustomLoad {
     /// and not one the user is still typing in elsewhere. Absent for a load
     /// that came from a button rather than a field.
     field: Option<Entity>,
-    /// URLs that have been opened, so a listed dataset can say it already is.
-    /// Opening one twice fetches it twice and registers a second source, which
-    /// for a four million point cloud is a minute nobody asked for.
-    opened: std::collections::HashSet<String>,
+    /// What each URL opened as, so a dataset listed a second time opens a frame
+    /// onto the source it already has rather than fetching it again — which for
+    /// a four million point cloud is a minute nobody asked for.
+    opened: std::collections::HashMap<String, Entity>,
     /// The URL being read, kept so it can join `opened` when it lands.
     loading: String,
     pub status: LoadStatus,
@@ -108,9 +108,9 @@ impl CustomLoad {
         self.task.is_some()
     }
 
-    /// Whether this URL has already been opened in this session.
-    pub fn has_opened(&self, url: &str) -> bool {
-        self.opened.contains(url.trim())
+    /// The source this URL opened as, if it has been opened in this session.
+    pub fn opened_as(&self, url: &str) -> Option<Entity> {
+        self.opened.get(url.trim()).copied()
     }
 
     /// Start reading `url`, unless something is already being read.
@@ -288,11 +288,16 @@ pub fn poll_custom_load(
         Ok(discovered) => {
             load.status = LoadStatus::Loaded(discovered.name().to_string());
             let url = std::mem::take(&mut load.loading);
-            load.opened.insert(url);
             let settings = *settings;
             commands.queue(move |world: &mut World| {
                 let source = spawn_discovered(world, discovered, settings);
                 world.write_message(PanelRequest::Open(source));
+                // Recorded from inside the command, which is where the source
+                // entity first exists: what a URL opened as is the difference
+                // between offering it again and fetching it again.
+                if let Some(mut load) = world.get_resource_mut::<CustomLoad>() {
+                    load.opened.insert(url, source);
+                }
             });
             // The URL has been opened, so leave the field ready for the next
             // one rather than holding a value that would load a duplicate.

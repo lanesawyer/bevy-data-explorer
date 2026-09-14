@@ -40,8 +40,10 @@ pub fn track_text_focus(
 /// specimens open side by side are paged one at a time, and the outline says
 /// which one the keys are talking to.
 ///
-/// The keys are the ones the sectioned panel already uses, since paging a
-/// volume and stepping a specimen's sections are the same gesture.
+/// The keys are the ones the sectioned panel already uses — arrows, brackets
+/// and page keys — since paging a volume and stepping a specimen's sections are
+/// the same gesture, and a viewer where the same thing is done two ways is a
+/// viewer with two things to learn.
 pub fn page_slice_stack(
     keys: Res<ButtonInput<KeyCode>>,
     typing: Res<TextEntryFocused>,
@@ -54,6 +56,8 @@ pub fn page_slice_stack(
     }
     let mut delta = 0i64;
     for (key, step) in [
+        (KeyCode::ArrowRight, 1),
+        (KeyCode::ArrowLeft, -1),
         (KeyCode::PageDown, 1),
         (KeyCode::PageUp, -1),
         (KeyCode::BracketRight, 1),

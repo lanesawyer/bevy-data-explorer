@@ -91,7 +91,7 @@ pub fn spawn_welcome(mut commands: Commands) {
         .id();
 
     let mut children = vec![title, blurb, heading];
-    for (index, example) in EXAMPLES.iter().enumerate().filter(|(_, it)| it.featured) {
+    for (index, example) in EXAMPLES.iter().enumerate() {
         children.push(example_row(
             &mut commands,
             index,
@@ -149,13 +149,17 @@ fn example_row(commands: &mut Commands, index: usize, name: &str, kind: &str) ->
 
 /// Open the example whose button was pressed.
 ///
-/// It goes through the same load the URL field uses, so an example is opened by
-/// exactly the path a typed URL is — including the status line under the field
-/// saying how it went.
+/// One that has been opened already gets a frame onto the source it opened as,
+/// rather than being fetched a second time to arrive at the same dataset twice.
+/// Anything else goes through the same load the URL field uses, so an example
+/// is opened by exactly the path a typed URL is — including the status line
+/// under the field saying how it went.
 pub fn on_example_pressed(
     activate: On<Activate>,
     buttons: Query<&ExampleButton>,
+    sources: Query<(), With<crate::source::DataSource>>,
     mut load: ResMut<CustomLoad>,
+    mut requests: MessageWriter<crate::view::PanelRequest>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
         return;
@@ -163,7 +167,18 @@ pub fn on_example_pressed(
     let Some(example) = EXAMPLES.get(button.example) else {
         return;
     };
-    load.start(example.url.to_string());
+    // A source registered earlier in this session, and still registered: a
+    // dataset whose frames have all been closed is still loaded, and this is
+    // what brings it back without the download.
+    match load
+        .opened_as(example.url)
+        .filter(|source| sources.get(*source).is_ok())
+    {
+        Some(source) => {
+            requests.write(crate::view::PanelRequest::Open(source));
+        }
+        None => load.start(example.url.to_string()),
+    }
 }
 
 /// Cover the frame area while there are no frames, and stand down once there
@@ -208,39 +223,34 @@ mod tests {
 
     #[test]
     fn every_kind_the_viewer_draws_is_offered() {
-        // One image, one point cloud, one sectioned dataset: an empty window
-        // should not leave a panel kind undiscoverable.
-        let kinds: Vec<&str> = EXAMPLES
-            .iter()
-            .filter(|example| example.featured)
-            .map(|example| example.kind)
-            .collect();
-        assert_eq!(kinds.len(), 3, "one of each kind, not one of everything");
+        // An empty window should leave nothing the viewer can draw without a
+        // way to open one.
+        let kinds: Vec<&str> = EXAMPLES.iter().map(|example| example.kind).collect();
         assert!(kinds.iter().any(|kind| kind.contains("image")));
         assert!(kinds.iter().any(|kind| kind.contains("point cloud")));
         assert!(kinds.iter().any(|kind| kind.contains("sections")));
+        assert!(kinds.iter().any(|kind| kind.contains("stack")));
     }
 
     #[test]
-    fn every_kind_that_is_offered_anywhere_is_offered_here() {
-        // The layout menu lists every example; the empty window lists one of
-        // each kind. Every kind the menu can offer has to be reachable from an
-        // empty window too, or a kind would exist with no way to open one.
-        for example in &EXAMPLES {
-            assert!(
-                EXAMPLES
-                    .iter()
-                    .any(|featured| featured.featured && featured.kind == example.kind),
-                "{} is a kind the empty window cannot open",
-                example.kind
-            );
-        }
+    fn every_dataset_the_app_knows_is_offered_here() {
+        // Not one of each kind. Two images can differ in the version of the
+        // store they are written in or in whether they are a stack, and picking
+        // one to stand for the other hides what makes them worth opening.
+        let mut urls: Vec<&str> = EXAMPLES.iter().map(|example| example.url).collect();
+        urls.sort_unstable();
+        urls.dedup();
+        assert_eq!(urls.len(), EXAMPLES.len(), "two examples share a URL");
     }
 
     #[test]
-    fn every_example_names_a_url_and_is_named_itself() {
+    fn every_example_names_an_address_that_can_be_fetched() {
+        // Written the way they were copied — one of them straight out of a
+        // neuroglancer config — so what matters is that each one comes out of
+        // the translation as something fetchable.
         for example in &EXAMPLES {
-            assert!(example.url.starts_with("https://"), "{}", example.name);
+            let url = crate::formats::plain_url(example.url);
+            assert!(url.starts_with("https://"), "{}: {url}", example.name);
             assert!(!example.name.is_empty());
             assert!(!example.kind.is_empty());
         }

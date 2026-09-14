@@ -433,7 +433,6 @@ pub struct ViewConfigPlugin;
 impl Plugin for ViewConfigPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_layout_button)
-            .add_observer(on_add_visualization)
             .add_systems(Update, rebuild_layout_menu.in_set(Stage::ControlsBuild))
             .add_systems(
                 Update,
@@ -553,20 +552,6 @@ impl Default for LayoutButton {
     }
 }
 
-/// A row offering to open a frame onto a dataset.
-#[derive(Component, Clone)]
-pub struct AddVisualization {
-    pub source: Entity,
-}
-
-impl Default for AddVisualization {
-    fn default() -> Self {
-        AddVisualization {
-            source: Entity::PLACEHOLDER,
-        }
-    }
-}
-
 /// Rebuild the menu when the set of frames changes.
 ///
 /// Rebuilding wholesale rather than reconciling row by row is fine at this
@@ -578,9 +563,7 @@ pub fn rebuild_layout_menu(
     panels: Query<(Entity, &crate::view::Panel, &ShowsSource)>,
     sources: Query<(Entity, &DataSource)>,
     content: Query<Entity, With<LayoutContent>>,
-    load: Res<crate::ui::addsource::CustomLoad>,
     mut previous: Local<Option<Vec<(Entity, Entity)>>>,
-    mut listed: Local<usize>,
 ) {
     let Ok(menu) = menus.single() else { return };
 
@@ -594,18 +577,10 @@ pub fn rebuild_layout_menu(
         .map(|(_, panel, source)| (*panel, *source))
         .collect();
 
-    // The datasets the app knows an address for are offered too, and one of
-    // them being opened changes what its row says, so that count is part of
-    // what the menu is built from.
-    let opened = EXAMPLES
-        .iter()
-        .filter(|example| load.has_opened(example.url))
-        .count();
-    if previous.as_ref() == Some(&current) && *listed == opened {
+    if previous.as_ref() == Some(&current) {
         return;
     }
     *previous = Some(current.clone());
-    *listed = opened;
 
     for entity in &content {
         commands.entity(entity).despawn();
@@ -620,23 +595,15 @@ pub fn rebuild_layout_menu(
         children.push(frame_row(&mut commands, *panel, data));
     }
 
-    children.push(heading(&mut commands, "Add visualization", 12.0, 8.0));
-    let full = current.len() >= crate::view::MAX_PANELS;
-    for (source, data) in &sources {
-        children.push(add_row(&mut commands, source, data, full));
-    }
-
-    // Everything else the app knows the address of, so the grid can be filled
-    // with the lot without anyone having to paste a URL. A dataset opened this
-    // way becomes a source like any other and moves up into the list above.
+    // One list rather than two. The datasets already registered used to have a
+    // section of their own, but a row here opens the source it already has
+    // rather than fetching it twice, so that section was the same list with a
+    // different reason — and this one is what a catalogue served over HTTP will
+    // fill later.
     children.push(heading(&mut commands, "Open a dataset", 12.0, 8.0));
+    let full = current.len() >= crate::view::MAX_PANELS;
     for (index, example) in EXAMPLES.iter().enumerate() {
-        children.push(example_row(
-            &mut commands,
-            index,
-            example,
-            full || load.has_opened(example.url),
-        ));
+        children.push(example_row(&mut commands, index, example, full));
     }
 
     commands.entity(menu).add_children(&children);
@@ -710,7 +677,7 @@ fn example_row(
     commands: &mut Commands,
     index: usize,
     example: &crate::formats::Example,
-    taken: bool,
+    full: bool,
 ) -> Entity {
     let row = commands
         .spawn_scene(bsn! {
@@ -733,9 +700,10 @@ fn example_row(
             crate::ui::welcome::ExampleButton { example: { index } }
         })
         .id();
-    if taken {
-        // Already open, or the grid is full: fetching it again would cost the
-        // whole download to end up with the same dataset twice.
+    if full {
+        // The grid is full, so there is nowhere for another frame to go. Being
+        // open already is not a reason to refuse: pressing it again opens a
+        // second frame onto the source it opened as the first time.
         commands.entity(button).insert(InteractionDisabled);
     }
 
@@ -761,38 +729,6 @@ fn example_row(
         })
         .id();
 
-    commands.entity(row).add_children(&[button, details]);
-    row
-}
-
-fn add_row(commands: &mut Commands, source: Entity, data: &DataSource, full: bool) -> Entity {
-    let row = commands
-        .spawn_scene(bsn! {
-            LayoutContent
-            Node {
-                width: { Val::Percent(100.0) },
-                align_items: { AlignItems::Center },
-                column_gap: { Val::Px(6.0) },
-                padding: { UiRect::vertical(Val::Px(4.0)) },
-            }
-        })
-        .id();
-
-    let button = commands
-        .spawn_scene(bsn! {
-            @FeathersToolButton {
-                @caption: { bsn_list![button_text("+")] }
-            }
-            crate::view::BlocksFrameInput
-            AddVisualization { source: { source } }
-        })
-        .id();
-    if full {
-        // The grid is full, so there is nowhere for another frame to go.
-        commands.entity(button).insert(InteractionDisabled);
-    }
-
-    let details = summary(commands, data);
     commands.entity(row).add_children(&[button, details]);
     row
 }
@@ -835,18 +771,6 @@ pub fn on_layout_button(
         LayoutAction::Clone => crate::view::PanelRequest::Duplicate(button.panel),
         LayoutAction::Remove => crate::view::PanelRequest::Close(button.panel),
     });
-}
-
-/// Open a new frame onto a dataset.
-pub fn on_add_visualization(
-    activate: On<Activate>,
-    rows: Query<&AddVisualization>,
-    mut requests: MessageWriter<crate::view::PanelRequest>,
-) {
-    let Ok(add) = rows.get(activate.entity) else {
-        return;
-    };
-    requests.write(crate::view::PanelRequest::Open(add.source));
 }
 
 /// Point the size slider at the selected source, and write its value back.
