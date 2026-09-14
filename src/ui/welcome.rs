@@ -91,7 +91,7 @@ pub fn spawn_welcome(mut commands: Commands) {
         .id();
 
     let mut children = vec![title, blurb, heading];
-    for (index, example) in EXAMPLES.iter().enumerate() {
+    for (index, example) in EXAMPLES.iter().enumerate().filter(|(_, it)| it.featured) {
         children.push(example_row(
             &mut commands,
             index,
@@ -210,11 +210,31 @@ mod tests {
     fn every_kind_the_viewer_draws_is_offered() {
         // One image, one point cloud, one sectioned dataset: an empty window
         // should not leave a panel kind undiscoverable.
-        let kinds: Vec<&str> = EXAMPLES.iter().map(|example| example.kind).collect();
-        assert_eq!(kinds.len(), 3);
+        let kinds: Vec<&str> = EXAMPLES
+            .iter()
+            .filter(|example| example.featured)
+            .map(|example| example.kind)
+            .collect();
+        assert_eq!(kinds.len(), 3, "one of each kind, not one of everything");
         assert!(kinds.iter().any(|kind| kind.contains("image")));
         assert!(kinds.iter().any(|kind| kind.contains("point cloud")));
         assert!(kinds.iter().any(|kind| kind.contains("sections")));
+    }
+
+    #[test]
+    fn every_kind_that_is_offered_anywhere_is_offered_here() {
+        // The layout menu lists every example; the empty window lists one of
+        // each kind. Every kind the menu can offer has to be reachable from an
+        // empty window too, or a kind would exist with no way to open one.
+        for example in &EXAMPLES {
+            assert!(
+                EXAMPLES
+                    .iter()
+                    .any(|featured| featured.featured && featured.kind == example.kind),
+                "{} is a kind the empty window cannot open",
+                example.kind
+            );
+        }
     }
 
     #[test]

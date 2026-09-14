@@ -30,33 +30,55 @@ impl Plugin for FormatsPlugin {
     }
 }
 
-/// A dataset offered as a starting point, one per kind the viewer can draw.
+/// A dataset the app knows the address of.
 ///
 /// Listed here rather than in the command line or in the UI because it is the
 /// formats that know what there is to open. Nothing loads on its own any more,
-/// so this is what an empty window has to offer.
+/// so this is what an empty window has to offer — and what the layout menu
+/// offers once something is already open.
 pub struct Example {
     pub name: &'static str,
     /// What kind of dataset it is, in the words shown beside it.
     pub kind: &'static str,
     pub url: &'static str,
+    /// Whether the empty window offers it.
+    ///
+    /// That screen offers one of each kind, because its job is to show what the
+    /// viewer can draw rather than everything it knows an address for. The
+    /// layout menu offers all of them.
+    pub featured: bool,
 }
 
-pub const EXAMPLES: [Example; 3] = [
+pub const EXAMPLES: [Example; 5] = [
     Example {
         name: "Epifluorescence whole slide",
         kind: "OME-Zarr image",
         url: "https://h301-scanning-802451596237-us-west-2.s3.us-west-2.amazonaws.com/2402091625/ome_zarr_conversion/1458501514.zarr/",
+        featured: true,
     },
     Example {
         name: "Whole mouse brain cells",
         kind: "Scatterbrain point cloud",
         url: "https://d2o7sc91n904vd.cloudfront.net/wmb_tenx_01172024_stage-20240128193624/G4I4GFJXJB9ATZ3PTX1/ScatterBrain.json",
+        featured: true,
     },
     Example {
         name: "Imputed genes, 53 sections",
         kind: "Scatterbrain sections",
         url: "https://d2o7sc91n904vd.cloudfront.net/bkppg-sfs-stage-wmb-imputed-genes-20240918212918/VFOFYPFQGRKUDQUZ3FF/ScatterBrain.json",
+        featured: true,
+    },
+    Example {
+        name: "SEA-AD mapped cells",
+        kind: "Scatterbrain point cloud",
+        url: "https://d2o7sc91n904vd.cloudfront.net/bkppg-sfs-stage-mjff-updates-03262025-20250403032833/839TIB6YQVFHZSGX401/ScatterBrain.json",
+        featured: false,
+    },
+    Example {
+        name: "Epifluorescence, Zarr v2",
+        kind: "OME-Zarr image",
+        url: "https://allen-genetic-tools.s3.us-west-2.amazonaws.com/epifluorescence/1401210938/ome_zarr_conversion/1401210938.zarr/",
+        featured: false,
     },
 ];
 

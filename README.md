@@ -111,7 +111,15 @@ flag, and whatever children a caller hangs off the body — because which
 sections appear will vary with the dataset. The first is **View
 configuration**, which acts on the *selected* frame: the one outlined in blue,
 which follows whichever frame you last clicked or dragged in. It names the
-dataset and carries a transparency slider.
+dataset and carries a transparency slider. With no frame selected it says so
+and shows nothing else — a slider with nothing to act on invites a drag that
+changes nothing.
+
+Its menu is **Edit layout**: the frames that are open, whatever is loaded but
+not on screen, and every dataset the app knows the address of. That last list is
+what fills the grid without pasting a URL; a dataset opened from it arrives by
+the same path a typed URL does, and its row stands down once it is open, since
+fetching it again would end with the same dataset twice.
 
 Point clouds draw each point as a screen-space quad rather than with point
 topology, because the hardware fixes point primitives at one pixel and offers

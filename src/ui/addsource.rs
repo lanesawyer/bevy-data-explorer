@@ -94,12 +94,23 @@ pub struct CustomLoad {
     /// and not one the user is still typing in elsewhere. Absent for a load
     /// that came from a button rather than a field.
     field: Option<Entity>,
+    /// URLs that have been opened, so a listed dataset can say it already is.
+    /// Opening one twice fetches it twice and registers a second source, which
+    /// for a four million point cloud is a minute nobody asked for.
+    opened: std::collections::HashSet<String>,
+    /// The URL being read, kept so it can join `opened` when it lands.
+    loading: String,
     pub status: LoadStatus,
 }
 
 impl CustomLoad {
     pub fn is_loading(&self) -> bool {
         self.task.is_some()
+    }
+
+    /// Whether this URL has already been opened in this session.
+    pub fn has_opened(&self, url: &str) -> bool {
+        self.opened.contains(url.trim())
     }
 
     /// Start reading `url`, unless something is already being read.
@@ -132,6 +143,7 @@ impl CustomLoad {
             return;
         }
         self.status = LoadStatus::Loading(url.clone());
+        self.loading = url.clone();
         self.task =
             Some(AsyncComputeTaskPool::get().spawn(async move { discover::discover(&url) }));
     }
@@ -153,8 +165,7 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
                     InheritableFont { font_size: { 12.0f32 } }
                 ),
                 (
-                    label_dim("An OME-Zarr store or Scatterbrain metadata URL. Which it is \
-                               is worked out from the data.")
+                    label_dim("An OME-Zarr store or Scatterbrain metadata URL")
                     InheritableFont { font_size: { 11.0f32 } }
                 ),
             ]
@@ -276,6 +287,8 @@ pub fn poll_custom_load(
     match outcome {
         Ok(discovered) => {
             load.status = LoadStatus::Loaded(discovered.name().to_string());
+            let url = std::mem::take(&mut load.loading);
+            load.opened.insert(url);
             let settings = *settings;
             commands.queue(move |world: &mut World| {
                 let source = spawn_discovered(world, discovered, settings);

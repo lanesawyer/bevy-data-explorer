@@ -9,13 +9,14 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::display::label;
+use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::ThemeTextColor;
 use bevy_ui_widgets::Activate;
 use bevy_ui_widgets::SliderValue;
 
 use crate::app::schedule::{Boot, Stage};
+use crate::formats::EXAMPLES;
 use crate::render::points::{
     DEFAULT_POINT_PX, HIGHLIGHT_NONE, MAX_POINT_PX, MIN_POINT_PX, PointMaterial, SourceHighlight,
     SourcePointSize,
@@ -54,6 +55,15 @@ pub struct PointSizeSlider;
 /// The row holding the point size control, hidden for sources without one.
 #[derive(Component, Clone, Default)]
 pub struct PointSizeRow;
+
+/// A control that acts on the selected frame, and so has nothing to act on
+/// while none is selected.
+///
+/// The point size row carries its own rule — a source may have no point size to
+/// set even when it is selected — and that rule already covers there being no
+/// selection at all, so it is not marked with this.
+#[derive(Component, Clone, Default)]
+pub struct FrameControl;
 
 /// Above the per-dataset sections: it acts on the selected frame whatever
 /// that frame is showing.
@@ -99,6 +109,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
 
     let transparency = commands
         .spawn_scene(bsn! {
+            FrameControl
             label("Transparency")
             InheritableFont { font_size: { 12.0f32 } }
         })
@@ -107,7 +118,9 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     // Percent rather than a fraction, so the slider's own readout is a whole
     // number that means something without a separate caption beside it.
     let slider = spawn_slider(&mut commands, 100.0, (0.0, PERCENT), 0);
-    commands.entity(slider).insert(OpacitySlider);
+    commands
+        .entity(slider)
+        .insert((OpacitySlider, FrameControl));
 
     let size_label = commands
         .spawn_scene(bsn! {
@@ -143,12 +156,27 @@ pub fn sync_opacity_slider(
     mut sources: Query<(&DataSource, Option<&mut SourceOpacity>)>,
     slider: Query<(Entity, &SliderValue), With<OpacitySlider>>,
     mut names: Query<&mut Text, With<SelectedName>>,
+    mut controls: Query<&mut Node, With<FrameControl>>,
     mut shown: Local<Option<Entity>>,
 ) {
     let source = selected
         .0
         .and_then(|panel| panels.get(panel).ok())
         .map(|shows| shows.0);
+
+    // A control with nothing to act on is worse than no control: it invites a
+    // drag that changes nothing. With no frame selected the section says so and
+    // shows nothing else.
+    let wanted = if source.is_some() {
+        Display::Flex
+    } else {
+        Display::None
+    };
+    for mut node in &mut controls {
+        if node.display != wanted {
+            node.display = wanted;
+        }
+    }
 
     let Ok((slider_entity, value)) = slider.single() else {
         return;
@@ -423,7 +451,9 @@ pub fn rebuild_layout_menu(
     panels: Query<(Entity, &crate::view::Panel, &ShowsSource)>,
     sources: Query<(Entity, &DataSource)>,
     content: Query<Entity, With<LayoutContent>>,
+    load: Res<crate::ui::addsource::CustomLoad>,
     mut previous: Local<Option<Vec<(Entity, Entity)>>>,
+    mut listed: Local<usize>,
 ) {
     let Ok(menu) = menus.single() else { return };
 
@@ -437,10 +467,18 @@ pub fn rebuild_layout_menu(
         .map(|(_, panel, source)| (*panel, *source))
         .collect();
 
-    if previous.as_ref() == Some(&current) {
+    // The datasets the app knows an address for are offered too, and one of
+    // them being opened changes what its row says, so that count is part of
+    // what the menu is built from.
+    let opened = EXAMPLES
+        .iter()
+        .filter(|example| load.has_opened(example.url))
+        .count();
+    if previous.as_ref() == Some(&current) && *listed == opened {
         return;
     }
     *previous = Some(current.clone());
+    *listed = opened;
 
     for entity in &content {
         commands.entity(entity).despawn();
@@ -459,6 +497,19 @@ pub fn rebuild_layout_menu(
     let full = current.len() >= crate::view::MAX_PANELS;
     for (source, data) in &sources {
         children.push(add_row(&mut commands, source, data, full));
+    }
+
+    // Everything else the app knows the address of, so the grid can be filled
+    // with the lot without anyone having to paste a URL. A dataset opened this
+    // way becomes a source like any other and moves up into the list above.
+    children.push(heading(&mut commands, "Open a dataset", 12.0, 8.0));
+    for (index, example) in EXAMPLES.iter().enumerate() {
+        children.push(example_row(
+            &mut commands,
+            index,
+            example,
+            full || load.has_opened(example.url),
+        ));
     }
 
     commands.entity(menu).add_children(&children);
@@ -519,6 +570,71 @@ fn frame_row(commands: &mut Commands, panel: Entity, data: &DataSource) -> Entit
     // behind offers the examples again.
     let remove = action_button(commands, panel, LayoutAction::Remove, "Close");
     commands.entity(row).add_children(&[details, clone, remove]);
+    row
+}
+
+/// A dataset the app knows the address of but has not opened: its name, what
+/// kind it is, and a button that fetches it.
+///
+/// The button carries the same component the empty window's examples do, so
+/// both go through one observer and one load — a dataset opened from either
+/// place arrives by exactly the same path.
+fn example_row(
+    commands: &mut Commands,
+    index: usize,
+    example: &crate::formats::Example,
+    taken: bool,
+) -> Entity {
+    let row = commands
+        .spawn_scene(bsn! {
+            LayoutContent
+            Node {
+                width: { Val::Percent(100.0) },
+                align_items: { AlignItems::Center },
+                column_gap: { Val::Px(6.0) },
+                padding: { UiRect::vertical(Val::Px(4.0)) },
+            }
+        })
+        .id();
+
+    let button = commands
+        .spawn_scene(bsn! {
+            @FeathersToolButton {
+                @caption: { bsn_list![button_text("+")] }
+            }
+            crate::view::BlocksFrameInput
+            crate::ui::welcome::ExampleButton { example: { index } }
+        })
+        .id();
+    if taken {
+        // Already open, or the grid is full: fetching it again would cost the
+        // whole download to end up with the same dataset twice.
+        commands.entity(button).insert(InteractionDisabled);
+    }
+
+    let name = example.name.to_string();
+    let kind = example.kind.to_string();
+    let details = commands
+        .spawn_scene(bsn! {
+            Node {
+                flex_direction: { FlexDirection::Column },
+                flex_grow: { 1.0_f32 },
+                row_gap: { Val::Px(1.0) },
+            }
+            Children [
+                (
+                    label(name)
+                    InheritableFont { font_size: { 13.0f32 } }
+                ),
+                (
+                    label_dim(kind)
+                    InheritableFont { font_size: { 11.0f32 } }
+                ),
+            ]
+        })
+        .id();
+
+    commands.entity(row).add_children(&[button, details]);
     row
 }
 
