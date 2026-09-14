@@ -95,8 +95,6 @@ pub(super) mod tests {
             .collect()
     }
 
-    use super::*;
-
     #[test]
     fn the_grid_stays_one_row_until_it_has_to_split() {
         assert_eq!(grid_for(1), (1, 1));

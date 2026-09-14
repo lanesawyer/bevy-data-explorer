@@ -1,0 +1,21 @@
+version: 2
+
+updates:
+  # The crates. Grouped so a week of patch releases is one pull request rather
+  # than nine: the interesting ones are the majors, which arrive on their own
+  # and are meant to be read.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      patch-and-minor:
+        update-types: [minor, patch]
+
+  # The actions in the workflow above, which otherwise go stale silently —
+  # pinned to major tags, so this is what moves them when a new major lands.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

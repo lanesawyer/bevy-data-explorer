@@ -1,0 +1,55 @@
+name: CI
+
+# Pull requests are the point of this: the checks that a change has to pass
+# before it lands. Pushes to main run it too, so a merge that went in without a
+# PR is not a gap.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A second push supersedes the first: what matters is whether the tip passes,
+# and a queue of runs on abandoned commits costs minutes for an answer nobody
+# reads.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # The repo's own rule is that a clean build is the bar: a warning here fails
+  # the run rather than scrolling past in a log.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    name: fmt, build, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Bevy links against the windowing and input libraries even for a build
+      # that never opens a window, so they have to be here. Audio is not in the
+      # feature list, so ALSA is not needed.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libudev-dev libwayland-dev libxkbcommon-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      # Keyed on the lockfile and the compiler, and shared by the steps below.
+      # A cold build of this dependency tree is most of the run.
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: Build
+        run: cargo build --all-targets --locked
+
+      - name: Test
+        run: cargo test --locked

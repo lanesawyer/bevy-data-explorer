@@ -513,3 +513,26 @@ measuring against it, and are worth knowing before changing them:
 - Only the first multiscale image in a store is shown, at a single z slice.
 - Point colouring is fixed to the first categorical column; the others are
   parsed but not yet selectable.
+
+## Continuous integration
+
+Every pull request runs formatting, a build of all targets and the test suite,
+with `RUSTFLAGS=-D warnings` so the rule this repo already had — a clean build
+is the bar — is enforced rather than remembered. Bevy links against the
+windowing and input libraries even for a build that never opens a window, so
+the workflow installs those; audio is not in the feature list, so ALSA is not
+among them.
+
+The windowed smoke run is not in CI. It needs a GPU and a display to prove
+anything, and a run that cannot fail for the reasons that matter is a run that
+teaches you to ignore it. It stays a local step, as `CLAUDE.md` describes.
+
+Clippy is not in CI either, for now: the tree has around forty-five warnings,
+mostly argument counts on systems and complex query types, and turning it on
+would mean either failing every pull request or ignoring the job. Clearing them
+is worth its own change, and the job can go in with it.
+
+Dependabot opens weekly pull requests for the crates and for the actions in the
+workflow. Patch and minor crate updates are grouped into one, so a quiet week is
+one pull request rather than nine; majors arrive on their own, since those are
+the ones worth reading.
