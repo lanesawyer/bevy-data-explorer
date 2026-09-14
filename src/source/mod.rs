@@ -12,6 +12,7 @@
 
 pub mod hover;
 pub mod properties;
+pub mod stack;
 
 use bevy::prelude::*;
 

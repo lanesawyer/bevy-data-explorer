@@ -30,6 +30,38 @@ impl Plugin for FormatsPlugin {
     }
 }
 
+/// The URL a store is actually fetched from.
+///
+/// Addresses arrive as they were copied from wherever the user found them, and
+/// the viewers around these datasets write them their own way. Neuroglancer
+/// puts the format in front — `zarr2://`, `zarr://`, `n5://` — and names
+/// buckets as `s3://bucket/key`, neither of which is something to fetch. The
+/// format prefix is dropped because the bytes decide what a source is anyway,
+/// and the bucket becomes the virtual-hosted URL it is served from.
+///
+/// The region is the one these datasets live in. A bucket elsewhere would
+/// answer with a redirect naming its own, which is a better error than
+/// refusing to try.
+pub fn plain_url(source: &str) -> String {
+    const REGION: &str = "us-west-2";
+
+    let mut rest = source;
+    for prefix in ["zarr2://", "zarr3://", "zarr://", "n5://", "precomputed://"] {
+        if let Some(stripped) = rest.strip_prefix(prefix) {
+            rest = stripped;
+            break;
+        }
+    }
+
+    let Some(bucket_and_key) = rest.strip_prefix("s3://") else {
+        return rest.to_string();
+    };
+    match bucket_and_key.split_once('/') {
+        Some((bucket, key)) => format!("https://{bucket}.s3.{REGION}.amazonaws.com/{key}"),
+        None => format!("https://{bucket_and_key}.s3.{REGION}.amazonaws.com/"),
+    }
+}
+
 /// A dataset the app knows the address of.
 ///
 /// Listed here rather than in the command line or in the UI because it is the
@@ -86,7 +118,9 @@ pub const EXAMPLES: [Example; 5] = [
 /// given the same allowances as one named on the command line.
 #[derive(Resource, Clone, Copy)]
 pub struct LoadSettings {
-    pub z_slice: u64,
+    /// The slice a volumetric image opens on, when one was named. Left alone,
+    /// a stack opens in its middle.
+    pub z_slice: Option<u64>,
     pub cache_bytes: usize,
     pub point_budget: usize,
     pub slice_budget: usize,
@@ -95,7 +129,7 @@ pub struct LoadSettings {
 impl Default for LoadSettings {
     fn default() -> Self {
         LoadSettings {
-            z_slice: 0,
+            z_slice: None,
             cache_bytes: image::DEFAULT_CACHE_BUDGET_MB * 1024 * 1024,
             point_budget: pointcloud::DEFAULT_POINT_BUDGET,
             slice_budget: slices::DEFAULT_SLICE_BUDGET,
@@ -128,6 +162,53 @@ pub fn spawn_discovered(
         ),
         Discovered::Slices(cloud) => {
             slices::spawn_source(world, std::sync::Arc::new(cloud), settings.slice_budget)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_neuroglancer_address_becomes_one_that_can_be_fetched() {
+        // Copied straight out of a neuroglancer config, which is where these
+        // datasets are usually found.
+        assert_eq!(
+            plain_url(
+                "zarr2://s3://allen-genetic-tools/tissuecyte/1219090168/ome_zarr_conversion/1219090168.zarr/"
+            ),
+            "https://allen-genetic-tools.s3.us-west-2.amazonaws.com/tissuecyte/1219090168/ome_zarr_conversion/1219090168.zarr/"
+        );
+    }
+
+    #[test]
+    fn the_format_in_front_is_dropped_whatever_it_claims() {
+        // What a source is gets decided by reading it, so a prefix saying what
+        // it is cannot be worth refusing over — or believing.
+        for prefix in ["zarr://", "zarr2://", "zarr3://", "n5://", "precomputed://"] {
+            let url = plain_url(&format!("{prefix}https://example.com/a.zarr/"));
+            assert_eq!(url, "https://example.com/a.zarr/");
+        }
+    }
+
+    #[test]
+    fn a_bucket_on_its_own_still_names_a_host() {
+        assert_eq!(
+            plain_url("s3://allen-genetic-tools"),
+            "https://allen-genetic-tools.s3.us-west-2.amazonaws.com/"
+        );
+    }
+
+    #[test]
+    fn an_ordinary_url_is_left_exactly_as_it_was() {
+        for url in [
+            "https://example.com/a.zarr/",
+            "http://example.com/ScatterBrain.json",
+            "/data/local.zarr",
+            "metadata.json",
+        ] {
+            assert_eq!(plain_url(url), url);
         }
     }
 }

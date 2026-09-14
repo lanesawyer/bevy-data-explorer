@@ -34,6 +34,59 @@ pub fn track_text_focus(
     }
 }
 
+/// Page through the selected frame's stack of slices.
+///
+/// Acts on the selected frame rather than on every source that has a stack: two
+/// specimens open side by side are paged one at a time, and the outline says
+/// which one the keys are talking to.
+///
+/// The keys are the ones the sectioned panel already uses, since paging a
+/// volume and stepping a specimen's sections are the same gesture.
+pub fn page_slice_stack(
+    keys: Res<ButtonInput<KeyCode>>,
+    typing: Res<TextEntryFocused>,
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    mut stacks: Query<&mut crate::source::stack::SliceStack>,
+) {
+    if typing.0 {
+        return;
+    }
+    let mut delta = 0i64;
+    for (key, step) in [
+        (KeyCode::PageDown, 1),
+        (KeyCode::PageUp, -1),
+        (KeyCode::BracketRight, 1),
+        (KeyCode::BracketLeft, -1),
+    ] {
+        if keys.just_pressed(key) {
+            delta += step;
+        }
+    }
+    if delta == 0 {
+        return;
+    }
+
+    let Some(shows) = selected.0.and_then(|panel| panels.get(panel).ok()) else {
+        return;
+    };
+    let Ok(stack) = stacks.get(shows.0) else {
+        return;
+    };
+
+    // Read before writing. Taking the stack mutably marks it changed whether or
+    // not it moved, and a change means every tile is loaded again — so paging
+    // into the end of a specimen would reload it on every keypress.
+    let mut wanted = *stack;
+    wanted.step(delta);
+    if wanted == *stack {
+        return;
+    }
+    if let Ok(mut stack) = stacks.get_mut(shows.0) {
+        *stack = wanted;
+    }
+}
+
 /// Marks interactive chrome that swallows pointer input before a frame sees it.
 ///
 /// Needed because chrome can overlap the grid — the sidebar's drag handle

@@ -32,7 +32,7 @@ use chrome::{
     update_selection_border,
 };
 use grid::clear_color_for;
-use input::{panel_controls, probe_hover, track_text_focus};
+use input::{page_slice_stack, panel_controls, probe_hover, track_text_focus};
 use requests::apply_panel_requests;
 
 // The grid's vocabulary, kept importable from `view` itself so that what a
@@ -196,6 +196,10 @@ impl Plugin for ViewPlugin {
                     .in_set(Stage::Viewports),
             )
             .add_systems(Update, update_selection_border.in_set(Stage::ControlsPlace))
+            // Paging writes through to the source it pages, which is what every
+            // other control does in this stage — and being here is what has the
+            // new slice streaming the same frame it was asked for.
+            .add_systems(Update, page_slice_stack.in_set(Stage::ControlsApply))
             .add_systems(Update, probe_hover.in_set(Stage::HoverProbe))
             .add_systems(
                 Startup,

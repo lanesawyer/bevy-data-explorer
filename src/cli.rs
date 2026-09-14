@@ -29,9 +29,10 @@ pub struct Args {
     #[arg(long)]
     pub points: Option<String>,
 
-    /// Z slice to display for volumetric images.
-    #[arg(long, default_value_t = 0)]
-    pub z: u64,
+    /// Z slice to display for volumetric images. Left out, a stack opens in
+    /// the middle, where the specimen is.
+    #[arg(long)]
+    pub z: Option<u64>,
 
     /// Texture memory budget for cached tiles, in MB. Larger values make
     /// zooming back out and revisiting areas redraw without refetching.

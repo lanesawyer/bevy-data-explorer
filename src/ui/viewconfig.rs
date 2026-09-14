@@ -13,7 +13,7 @@ use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::ThemeTextColor;
 use bevy_ui_widgets::Activate;
-use bevy_ui_widgets::SliderValue;
+use bevy_ui_widgets::{SliderRange, SliderValue};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::formats::EXAMPLES;
@@ -22,6 +22,7 @@ use crate::render::points::{
     SourcePointSize,
 };
 use crate::source::DataSource;
+use crate::source::stack::SliceStack;
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{SelectedPanel, ShowsSource};
 use crate::widgets::{button_text, caption, spawn_accordion, spawn_menu, spawn_slider};
@@ -55,6 +56,22 @@ pub struct PointSizeSlider;
 /// The row holding the point size control, hidden for sources without one.
 #[derive(Component, Clone, Default)]
 pub struct PointSizeRow;
+
+/// Slices are whole numbers, so anything less than half of one is the slider
+/// and the stack saying the same thing.
+const HALF_SLICE: f32 = 0.5;
+
+/// The slider that pages through a stack of slices.
+#[derive(Component, Clone, Default)]
+pub struct SliceSlider;
+
+/// The row holding the paging control, hidden for sources with no stack.
+#[derive(Component, Clone, Default)]
+pub struct SliceRow;
+
+/// The line naming which slice is showing.
+#[derive(Component, Clone, Default)]
+pub struct SliceReadout;
 
 /// A control that acts on the selected frame, and so has nothing to act on
 /// while none is selected.
@@ -139,9 +156,119 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         .entity(size_slider)
         .insert((PointSizeSlider, PointSizeRow));
 
+    // Paging sits with the rest of what a frame shows. The control knows
+    // nothing about images: it reads the stack off the source, which is a
+    // source-layer component any format can advertise.
+    let slice_label = commands
+        .spawn_scene(bsn! {
+            SliceRow
+            SliceReadout
+            Text({ String::new() })
+            TextFont { font_size: { bevy::text::FontSize::Px(12.0) } }
+            ThemeTextColor({ bevy_feathers::tokens::TEXT_MAIN })
+        })
+        .id();
+    // The range is rewritten for whichever source is selected; a stack's depth
+    // is its own.
+    let slice_slider = spawn_slider(&mut commands, 1.0, (1.0, 2.0), 0);
     commands
-        .entity(body)
-        .add_children(&[name, transparency, slider, size_label, size_slider]);
+        .entity(slice_slider)
+        .insert((SliceSlider, SliceRow));
+
+    commands.entity(body).add_children(&[
+        name,
+        transparency,
+        slider,
+        size_label,
+        size_slider,
+        slice_label,
+        slice_slider,
+    ]);
+}
+
+/// Point the paging control at the selected source's stack, and write it back.
+///
+/// The same two-way shape as the other controls here: a change of selection
+/// loads that source's slice into the slider rather than leaving the previous
+/// source's on it, and a drag writes through to the stack — which is the only
+/// thing the format watches.
+pub fn sync_slice_slider(
+    mut commands: Commands,
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    mut stacks: Query<&mut SliceStack>,
+    slider: Query<(Entity, &SliderValue), With<SliceSlider>>,
+    mut rows: Query<&mut Node, With<SliceRow>>,
+    mut readouts: Query<&mut Text, With<SliceReadout>>,
+    mut shown: Local<Option<(Entity, f32)>>,
+) {
+    let source = selected
+        .0
+        .and_then(|panel| panels.get(panel).ok())
+        .map(|shows| shows.0)
+        .filter(|source| stacks.get(*source).is_ok());
+
+    for mut node in &mut rows {
+        let wanted = if source.is_some() {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != wanted {
+            node.display = wanted;
+        }
+    }
+
+    let Ok((slider_entity, value)) = slider.single() else {
+        return;
+    };
+    let Some(source) = source else {
+        *shown = None;
+        return;
+    };
+    let Ok(stack) = stacks.get(source) else {
+        return;
+    };
+    let on_stack = stack.current as f32 + 1.0;
+
+    // Which way the value is travelling has to be decided, because this is not
+    // the only thing that pages: the frame's keys write to the same stack. A
+    // slider that always wrote its own value back undid every keypress the
+    // frame after it landed, which is exactly what it did.
+    match *shown {
+        Some((bound, last)) if bound == source => {
+            if (value.0 - last).abs() > HALF_SLICE {
+                // The slider was dragged, so the stack follows it. Counted from
+                // one on the control, from zero in the stack.
+                let wanted = (value.0.round() as i64 - 1).max(0) as u64;
+                if let Ok(mut stack) = stacks.get_mut(source) {
+                    stack.go_to(wanted);
+                }
+                *shown = Some((source, value.0));
+            } else if (on_stack - value.0).abs() > HALF_SLICE {
+                // Something else paged, so the slider follows the stack.
+                commands.entity(slider_entity).insert(SliderValue(on_stack));
+                *shown = Some((source, on_stack));
+            }
+        }
+        _ => {
+            // Selection moved: this stack's depth and place, not the last one's.
+            commands.entity(slider_entity).insert((
+                SliderRange::new(1.0, stack.count as f32),
+                SliderValue(on_stack),
+            ));
+            *shown = Some((source, on_stack));
+        }
+    }
+
+    if let Ok(stack) = stacks.get(source) {
+        let label = stack.label();
+        for mut text in &mut readouts {
+            if text.0 != label {
+                text.0 = label.clone();
+            }
+        }
+    }
 }
 
 /// Point the slider at the selected source, and write its value back.
@@ -310,7 +437,7 @@ impl Plugin for ViewConfigPlugin {
             .add_systems(Update, rebuild_layout_menu.in_set(Stage::ControlsBuild))
             .add_systems(
                 Update,
-                (sync_opacity_slider, sync_point_size)
+                (sync_opacity_slider, sync_point_size, sync_slice_slider)
                     .chain()
                     .in_set(Stage::ControlsPlace),
             )

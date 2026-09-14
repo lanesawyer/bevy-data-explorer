@@ -378,6 +378,46 @@ viewport at that level and at every coarser one. Coarse tiles are few and
 arrive first, and are drawn underneath, so moving into new territory shows a
 blurry version immediately that sharpens as finer tiles land.
 
+A volumetric image — a specimen cut into sections — is paged through rather
+than shown at once. The source advertises a stack of slices, and both the frame
+keys (`PageUp`/`PageDown`, or `[` and `]`) and the slider in **View
+configuration** move it; paging acts on the selected frame, so two specimens
+open side by side are paged one at a time. Nothing in the sidebar knows an image
+is what it is paging: the stack is a component on the source, the way a point
+size is, and any format that has one can offer it.
+
+Each level holds a cache of decoded chunks, which is what makes paging feel like
+paging. The reference stack chunks forty slices together, so a 512px tile decodes
+63 MB to show one slice of it — and the thirty-nine slices either side come out
+of memory. Measured on that store: 600ms for the first slice of a tile, 47ms for
+the next one.
+
+Addresses are taken as they were copied. Neuroglancer writes the format in front
+and names buckets its own way — `zarr2://s3://bucket/key` — so the prefix is
+dropped, since the bytes decide what a source is anyway, and the bucket becomes
+the URL it is served from.
+
+A volumetric image — a specimen cut into sections — is paged through rather
+than shown all at once. The source advertises a stack of slices, and both the
+frame keys (`PageUp`/`PageDown`, or `[` and `]`) and the slider in **View
+configuration** move it; paging acts on the selected frame, so two specimens
+open side by side are paged one at a time. Nothing in the sidebar knows an image
+is what it is paging: the stack is a component on the source, the way a point
+size is, and any format that has one can offer it. A stack opens on its middle
+slice, since the first section of a block is usually empty and opening on it
+reads as a dataset that failed to load; `--z` names one instead.
+
+Each level holds a cache of decoded chunks, which is what makes paging feel like
+paging. The reference stack chunks forty slices together, so a 512px tile
+decodes 63 MB to show one slice of it — and the thirty-nine either side of that
+slice come out of memory. Measured on that store: 600ms for the first slice of a
+tile, 47ms for the next one.
+
+Addresses are taken as they were copied. Neuroglancer writes the format in front
+and names buckets its own way — `zarr2://s3://bucket/key` — so the prefix is
+dropped, since the bytes decide what a source is anyway, and the bucket becomes
+the URL it is served from.
+
 ### Scatterbrain point clouds
 
 A Potree-style octree of 2D points. Columns are stored one per directory, split

@@ -28,8 +28,21 @@ struct Manifest {
     attrs: Option<serde_json::Value>,
 }
 
-/// Open whatever `source` points at.
+/// Open whatever `source` points at, with the default chunk cache.
 pub fn open(source: &str) -> Result<Dataset, String> {
+    open_with(
+        source,
+        crate::formats::image::dataset::DEFAULT_CHUNK_CACHE_MB * 1024 * 1024,
+    )
+}
+
+/// Open whatever `source` points at, holding `chunk_cache_bytes` of decoded
+/// chunks across its levels.
+pub fn open_with(source: &str, chunk_cache_bytes: usize) -> Result<Dataset, String> {
+    // Addresses arrive as they were copied. The command line reaches here
+    // without going through `discover`, so this is where every path that opens
+    // a store meets the same translation.
+    let source = &crate::formats::plain_url(source);
     let (store_url, fallback_attrs) = if is_manifest(source) {
         let manifest = load_manifest(source)?;
         (manifest.url, manifest.attrs)
@@ -37,7 +50,7 @@ pub fn open(source: &str) -> Result<Dataset, String> {
         (source.to_string(), None)
     };
 
-    let store = open_store(&store_url)?;
+    let store = open_store(&crate::formats::plain_url(&store_url))?;
 
     // The store is authoritative; the manifest is only a fallback for stores
     // whose root attributes cannot be read.
@@ -62,7 +75,7 @@ pub fn open(source: &str) -> Result<Dataset, String> {
         .first()
         .ok_or("the OME metadata lists no multiscale images")?;
 
-    Dataset::open(store, multiscale, omero.as_ref())
+    Dataset::open(store, multiscale, omero.as_ref(), chunk_cache_bytes)
 }
 
 fn is_manifest(source: &str) -> bool {
@@ -351,6 +364,51 @@ mod tests {
             attrs["ome"]["multiscales"][0]["axes"][0]
                 .get("scale")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn parses_the_root_attributes_of_a_stack() {
+        // The tissuecyte reference: a specimen cut into sections, three
+        // channels, ten levels. Saved from the store the neuroglancer config
+        // points at.
+        let attrs: serde_json::Value =
+            serde_json::from_str(include_str!("../../../testdata/root_zarr_v2_stack.json"))
+                .unwrap();
+        let (multiscales, omero) = parse_ome(&attrs).unwrap();
+
+        assert_eq!(multiscales[0].datasets.len(), 10);
+        let axes: Vec<&str> = multiscales[0]
+            .axes
+            .iter()
+            .map(|axis| axis.name.as_str())
+            .collect();
+        assert_eq!(axes, ["c", "z", "y", "x"], "z is an axis to page through");
+
+        let omero = omero.expect("the stack declares omero channels");
+        let labels: Vec<&str> = omero
+            .channels
+            .iter()
+            .map(|channel| channel.other["label"].as_str().unwrap())
+            .collect();
+        assert_eq!(labels, ["red", "green", "blue"]);
+    }
+
+    #[test]
+    fn a_stack_holds_many_slices_in_one_chunk() {
+        // Why the levels carry a chunk cache. A chunk of this store is forty
+        // slices deep, so reading one slice of a tile decodes the thirty-nine
+        // around it — and the next slice paged to is already in memory.
+        let meta: serde_json::Value =
+            serde_json::from_str(include_str!("../../../testdata/array0_zarr_v2_stack.json"))
+                .unwrap();
+        let chunks: Vec<u64> = serde_json::from_value(meta["chunks"].clone()).unwrap();
+        let shape: Vec<u64> = serde_json::from_value(meta["shape"].clone()).unwrap();
+        assert_eq!(chunks, [3, 40, 128, 128]);
+        assert_eq!(shape[1], 142, "142 slices to page through");
+        assert!(
+            chunks[1] > 1,
+            "a chunk covering one slice would make paging a refetch"
         );
     }
 

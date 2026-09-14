@@ -29,6 +29,7 @@ use zarrs_codec::ArrayPartialDecoderTraits;
 use crate::app::schedule::Stage;
 use crate::formats::image::dataset::{Channel, Dataset, TilePixels, TileSource, read_tile};
 use crate::source::hover::{HoverInfo, HoverProbe};
+use crate::source::stack::SliceStack;
 use crate::source::{self, SourceExtent, SourceStatus};
 use crate::view::ShowsSource;
 
@@ -744,7 +745,7 @@ mod tests {
 /// Streams an OME-Zarr image into the frames that display it.
 pub struct ImagePlugin {
     pub dataset: Arc<Dataset>,
-    pub z_slice: u64,
+    pub z_slice: Option<u64>,
     pub budget_bytes: usize,
 }
 
@@ -759,6 +760,7 @@ impl Plugin for ImageSystems {
         app.add_systems(
             Update,
             (
+                follow_slice_stack,
                 select_tiles,
                 spawn_tile_tasks,
                 collect_tile_tasks,
@@ -781,7 +783,7 @@ impl Plugin for ImageSystems {
 pub fn spawn_source(
     world: &mut World,
     dataset: Arc<Dataset>,
-    z_slice: u64,
+    z_slice: Option<u64>,
     budget_bytes: usize,
 ) -> Entity {
     let (x0, y0, x1, y1) = dataset.world;
@@ -810,8 +812,22 @@ pub fn spawn_source(
     // rather than through commands.
     world.entity_mut(source).insert(HoverInfo::default());
 
+    // Advertising the stack is what puts the paging control in the sidebar and
+    // gives the frame's keys something to step; a flat image offers neither.
+    let depth = dataset.depth();
+    let mut stack = SliceStack::new(depth);
+    if let Some(named) = z_slice {
+        stack.go_to(named);
+    }
+    if depth > 1 {
+        world.entity_mut(source).insert(stack);
+    }
+
     let mut streamer = TileStreamer::new(dataset, source);
-    streamer.z_slice = z_slice;
+    // Wherever the stack opened, which is the middle unless something named a
+    // slice. Starting the tiles anywhere else would load a slice nobody asked
+    // for and then load the right one over it.
+    streamer.z_slice = stack.current;
     streamer.budget_bytes = budget_bytes;
     world.entity_mut(source).insert(streamer);
     source
@@ -941,8 +957,37 @@ fn toggle_channels(
     }
 }
 
-fn report_status(streamers: Query<&TileStreamer>, mut sources: Query<&mut SourceStatus>) {
+/// Draw whichever slice the source's stack is on.
+///
+/// The stack is the source's, so the sidebar's control and the frame's keys
+/// both write to it without knowing an image is what they are paging through;
+/// this is the half that turns that into tiles. Tiles hold one slice each, so
+/// moving means loading them again — the chunks behind them usually hold
+/// dozens of slices, and the chunk cache is what makes the next one instant.
+fn follow_slice_stack(
+    mut commands: Commands,
+    mut streamers: Query<(&SliceStack, &mut TileStreamer), Changed<SliceStack>>,
+) {
+    for (stack, mut streamer) in &mut streamers {
+        if streamer.z_slice == stack.current {
+            continue;
+        }
+        streamer.z_slice = stack.current;
+        streamer.reset(&mut commands);
+        info!("image: showing {}", stack.label());
+    }
+}
+
+fn report_status(
+    streamers: Query<&TileStreamer>,
+    stacks: Query<&SliceStack>,
+    mut sources: Query<&mut SourceStatus>,
+) {
     for streamer in &streamers {
+        let stacked = stacks
+            .get(streamer.source)
+            .map(|stack| format!("{}, PgUp/PgDn to page\n", stack.label()))
+            .unwrap_or_default();
         let Ok(mut status) = sources.get_mut(streamer.source) else {
             continue;
         };
@@ -970,7 +1015,8 @@ fn report_status(streamers: Query<&TileStreamer>, mut sources: Query<&mut Source
         }
 
         status.0 = format!(
-            "level {}/{}  ({} x {} px, {:.4} {}/px)\n\
+            "{stacked}\
+         level {}/{}  ({} x {} px, {:.4} {}/px)\n\
          tiles {} cached ({} MB / {} MB), {} loading{}\n\
          channels  {}\n\
          1-9 toggle channel",

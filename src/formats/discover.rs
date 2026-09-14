@@ -41,7 +41,8 @@ impl Discovered {
 /// Blocking from end to end — it is the same reading the command line does —
 /// so callers with a window open run it on a task.
 pub fn discover(source: &str) -> Result<Discovered, String> {
-    let source = source.trim();
+    let source = crate::formats::plain_url(source.trim());
+    let source = source.as_str();
     if source.is_empty() {
         return Err("type the URL of a dataset to load".into());
     }
@@ -97,6 +98,7 @@ fn unrecognised(source: &str, image: &str, points: &str) -> String {
 
 /// Read a source, over HTTP or off disk.
 pub fn fetch_text(source: &str) -> Result<String, String> {
+    let source = &crate::formats::plain_url(source);
     if is_http(source) {
         reqwest::blocking::get(source)
             .and_then(|r| r.error_for_status())

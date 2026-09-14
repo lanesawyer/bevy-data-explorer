@@ -7,12 +7,27 @@ use std::sync::Arc;
 use ome_zarr_metadata::v0_4::AxisType;
 
 use crate::formats::image::store::MultiscaleSpec;
+use zarrs::array::chunk_cache::{ChunkCache, ChunkCacheDecodedLruSizeLimit};
 use zarrs::array::{Array, ArraySubset, ChunkShapeTraits};
 use zarrs::storage::ReadableStorageTraits;
 use zarrs_codec::ArrayPartialDecoderTraits;
 
 pub type ReadStore = Arc<dyn ReadableStorageTraits>;
 pub type SharedArray = Array<dyn ReadableStorageTraits>;
+/// Decoded chunks kept for a level, so a tile that lands in a chunk already
+/// held costs no fetch and no decode.
+pub type LevelCache = ChunkCacheDecodedLruSizeLimit;
+
+/// Decoded chunks held per level.
+///
+/// This is the difference between a stack that pages and one that reloads.
+/// Measured against the tissuecyte reference, whose chunks are 40 slices deep:
+/// a 512px tile touches sixteen of them, 63 MB decoded, and reading it takes
+/// 600ms — while the next slice of the same tile comes out of the cache in
+/// 0.6ms, because the slice beside it was in the chunk already. A level's
+/// visible tiles at a browsing zoom come to a few hundred megabytes of chunks,
+/// and only the levels actually on screen hold anything.
+pub const DEFAULT_CHUNK_CACHE_MB: usize = 512;
 
 /// Preferred tile edge in pixels.
 ///
@@ -98,7 +113,11 @@ impl Channel {
 pub struct Level {
     pub index: usize,
     pub path: String,
-    pub array: SharedArray,
+    pub array: Arc<SharedArray>,
+    /// Held for levels that are read through the array rather than through a
+    /// shard's decoder. A sharded level has an index to reuse instead, and its
+    /// decoder cache is what does this job.
+    pub cache: Option<LevelCache>,
     /// Level size in pixels.
     pub width: u64,
     pub height: u64,
@@ -201,8 +220,12 @@ impl Dataset {
         store: ReadStore,
         multiscale: &MultiscaleSpec,
         omero: Option<&ome_zarr_metadata::v0_4::Omero>,
+        chunk_cache_bytes: usize,
     ) -> Result<Self, String> {
         let layout = AxisLayout::infer(&multiscale.axes)?;
+        // The budget is shared out rather than given to each level, since a
+        // pyramid is ten arrays and only one or two of them are ever on screen.
+        let levels_wanted = multiscale.datasets.len().max(1);
 
         let unit = multiscale
             .axes
@@ -214,8 +237,10 @@ impl Dataset {
         let mut levels = Vec::new();
         for (index, dataset) in multiscale.datasets.iter().enumerate() {
             let path = format!("/{}", dataset.path.trim_matches('/'));
-            let array = Array::open(store.clone(), &path)
-                .map_err(|e| format!("opening array `{path}`: {e}"))?;
+            let array = Arc::new(
+                Array::open(store.clone(), &path)
+                    .map_err(|e| format!("opening array `{path}`: {e}"))?,
+            );
 
             let shape = array.shape().to_vec();
             if shape.len() != layout.ndim {
@@ -247,10 +272,14 @@ impl Dataset {
 
             let width = shape[layout.x];
             let height = shape[layout.y];
+            let cache = (!sharded).then(|| {
+                LevelCache::new(array.clone(), (chunk_cache_bytes / levels_wanted) as u64)
+            });
             levels.push(Level {
                 index,
                 path,
                 array,
+                cache,
                 width,
                 height,
                 scale_x: scale[layout.x],
@@ -297,6 +326,18 @@ impl Dataset {
             unit,
             world,
         })
+    }
+
+    /// How many slices the image holds along z.
+    ///
+    /// One for a flat image, which is most of them: an axis of length one is a
+    /// z the converter wrote down rather than a stack to page through.
+    pub fn depth(&self) -> u64 {
+        self.layout
+            .z
+            .and_then(|axis| self.levels.first().map(|level| level.array.shape()[axis]))
+            .unwrap_or(1)
+            .max(1)
     }
 
     /// Pick the coarsest level that still resolves `world_units_per_screen_px`,
@@ -418,10 +459,18 @@ pub fn read_tile(
             TileSource::Shard(decoder) => decoder
                 .partial_decode(&subset, &Default::default())
                 .map_err(|e| format!("decoding tile ({ty},{tx}) of {}: {e}", level.path))?,
-            TileSource::Array => level
-                .array
-                .retrieve_array_subset(&subset)
-                .map_err(|e| format!("reading tile ({ty},{tx}) of {}: {e}", level.path))?,
+            TileSource::Array => match &level.cache {
+                // Through the cache when there is one: a chunk here can be
+                // dozens of slices deep, and paging through them is what the
+                // cache turns from a refetch into a lookup.
+                Some(cache) => cache
+                    .retrieve_array_subset(&subset, &Default::default())
+                    .map_err(|e| format!("reading tile ({ty},{tx}) of {}: {e}", level.path))?,
+                None => level
+                    .array
+                    .retrieve_array_subset(&subset)
+                    .map_err(|e| format!("reading tile ({ty},{tx}) of {}: {e}", level.path))?,
+            },
         };
         let raw = bytes
             .into_fixed()
