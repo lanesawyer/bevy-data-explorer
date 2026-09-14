@@ -34,6 +34,32 @@ pub fn track_text_focus(
     }
 }
 
+/// Put the selected frame's view back where it started.
+///
+/// A shortcut rather than a gesture, so it follows the selection like every
+/// other key — the pointer decides what a drag or a wheel applies to, and it
+/// used to decide this as well, which made `r` the one key that acted on a
+/// frame nobody had chosen.
+pub fn reset_selected_view(
+    keys: Res<ButtonInput<KeyCode>>,
+    typing: Res<TextEntryFocused>,
+    selected: Res<SelectedPanel>,
+    mut panels: Query<(&mut Transform, &mut Projection, &ViewLimits), With<Panel>>,
+) {
+    if typing.0 || !keys.just_pressed(KeyCode::KeyR) {
+        return;
+    }
+    let Some(panel) = selected.0 else { return };
+    let Ok((mut transform, mut projection, limits)) = panels.get_mut(panel) else {
+        return;
+    };
+    let Projection::Orthographic(ortho) = projection.as_mut() else {
+        return;
+    };
+    transform.translation = limits.centre.extend(transform.translation.z);
+    ortho.scale = limits.fit_scale;
+}
+
 /// Page through the selected frame's stack of slices.
 ///
 /// Acts on the selected frame rather than on every source that has a stack: two
@@ -71,10 +97,10 @@ pub fn page_slice_stack(
         return;
     }
 
-    let Some(shows) = selected.0.and_then(|panel| panels.get(panel).ok()) else {
+    let Some(source) = super::selected_source(&selected, &panels) else {
         return;
     };
-    let Ok(stack) = stacks.get(shows.0) else {
+    let Ok(stack) = stacks.get(source) else {
         return;
     };
 
@@ -86,7 +112,7 @@ pub fn page_slice_stack(
     if wanted == *stack {
         return;
     }
-    if let Ok(mut stack) = stacks.get_mut(shows.0) {
+    if let Ok(mut stack) = stacks.get_mut(source) {
         *stack = wanted;
     }
 }
@@ -215,13 +241,11 @@ pub fn panel_controls(
     windows: Query<&Window>,
     area: Res<FrameArea>,
     buttons: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
     hover: Res<bevy::picking::hover::HoverMap>,
     chrome: Query<(), With<BlocksFrameInput>>,
     parents: Query<&ChildOf>,
     panel_entities: Query<(Entity, &Panel)>,
     mut selected: ResMut<SelectedPanel>,
-    typing: Res<TextEntryFocused>,
     mut drag: Local<Option<Drag>>,
 ) {
     let Ok(window) = windows.single() else { return };
@@ -288,12 +312,6 @@ pub fn panel_controls(
         let Projection::Orthographic(ortho) = projection.as_mut() else {
             continue;
         };
-
-        if !typing.0 && keys.just_pressed(KeyCode::KeyR) {
-            transform.translation = limits.centre.extend(transform.translation.z);
-            ortho.scale = limits.fit_scale;
-            continue;
-        }
 
         if scroll != 0.0 {
             let before = camera.viewport_to_world_2d(global, cursor).ok();

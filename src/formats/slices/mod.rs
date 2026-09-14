@@ -384,13 +384,20 @@ impl SliceStreamer {
 pub fn slice_controls(
     keys: Res<ButtonInput<KeyCode>>,
     typing: Res<crate::view::TextEntryFocused>,
+    selected: Res<crate::view::SelectedPanel>,
+    panels: Query<&crate::view::ShowsSource>,
     mut streamers: Query<&mut SliceStreamer>,
 ) {
     // Arrow keys move a cursor through a URL rather than through the slices.
     if typing.0 {
         return;
     }
-    for mut streamer in &mut streamers {
+    // The selected frame's sections and no other: two sectioned datasets open
+    // at once are stepped one at a time, and the outline says which.
+    let Some(source) = crate::view::selected_source(&selected, &panels) else {
+        return;
+    };
+    if let Ok(mut streamer) = streamers.get_mut(source) {
         if keys.just_pressed(KeyCode::KeyG) {
             streamer.mode = match streamer.mode {
                 SliceMode::Grid => SliceMode::Single,

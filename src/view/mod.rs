@@ -32,7 +32,7 @@ use chrome::{
     update_selection_border,
 };
 use grid::clear_color_for;
-use input::{page_slice_stack, panel_controls, probe_hover, track_text_focus};
+use input::{page_slice_stack, panel_controls, probe_hover, reset_selected_view, track_text_focus};
 use requests::apply_panel_requests;
 
 // The grid's vocabulary, kept importable from `view` itself so that what a
@@ -47,6 +47,20 @@ pub use requests::PanelRequest;
 /// always describe the view just touched.
 #[derive(Resource, Default)]
 pub struct SelectedPanel(pub Option<Entity>);
+
+/// The source the selected frame is showing, if a frame is selected at all.
+///
+/// Every keyboard shortcut goes through this. A key acts on the frame that is
+/// selected — the one outlined in blue — and on nothing else: with two datasets
+/// open, a key that reached both would page or toggle the one nobody was
+/// looking at, and with the pointer somewhere over the sidebar it would be
+/// unclear which frame it had been talking to.
+pub fn selected_source(selected: &SelectedPanel, panels: &Query<&ShowsSource>) -> Option<Entity> {
+    selected
+        .0
+        .and_then(|panel| panels.get(panel).ok())
+        .map(|shows| shows.0)
+}
 
 /// The region of the window the frame grid occupies, in logical pixels.
 ///
@@ -188,6 +202,7 @@ impl Plugin for ViewPlugin {
                 Update,
                 (
                     panel_controls,
+                    reset_selected_view,
                     update_viewports,
                     clear_when_empty,
                     follow_theme,

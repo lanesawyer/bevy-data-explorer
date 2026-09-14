@@ -97,8 +97,18 @@ pub fn update_selection_border(
     let (columns, rows) = grid_for(panels.iter().count());
     let cell = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32);
 
+    // The outline says which of several frames the controls and the keys are
+    // talking to. With one frame there is nothing to say: it is drawn round the
+    // whole grid, where it reads as a border on the window rather than as an
+    // answer to a question nobody asked.
+    let several = panels.iter().count() > 1;
+
     for mut node in &mut border {
-        let Some(panel) = selected.0.and_then(|e| panels.get(e).ok()) else {
+        let Some(panel) = selected
+            .0
+            .and_then(|e| panels.get(e).ok())
+            .filter(|_| several)
+        else {
             node.display = Display::None;
             continue;
         };

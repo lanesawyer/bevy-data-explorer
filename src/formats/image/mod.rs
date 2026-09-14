@@ -919,13 +919,21 @@ fn toggle_channels(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     typing: Res<crate::view::TextEntryFocused>,
+    selected: Res<crate::view::SelectedPanel>,
+    panels: Query<&crate::view::ShowsSource>,
     mut streamers: Query<&mut TileStreamer>,
 ) {
     // A digit typed into a URL is a digit, not a channel.
     if typing.0 {
         return;
     }
-    for mut streamer in &mut streamers {
+    // The selected frame's image and no other. With two images open, a digit
+    // that reached both would toggle a channel on the one nobody was looking
+    // at, and there would be nothing on screen to say it had happened.
+    let Some(source) = crate::view::selected_source(&selected, &panels) else {
+        return;
+    };
+    if let Ok(mut streamer) = streamers.get_mut(source) {
         const DIGITS: [KeyCode; 9] = [
             KeyCode::Digit1,
             KeyCode::Digit2,
@@ -943,7 +951,7 @@ fn toggle_channels(
             .position(|key| keys.just_pressed(*key))
             .filter(|i| *i < streamer.channels.len())
         else {
-            continue;
+            return;
         };
 
         streamer.channels[index].active = !streamer.channels[index].active;

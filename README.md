@@ -117,6 +117,15 @@ dataset and carries a transparency slider. With no frame selected it says so
 and shows nothing else — a slider with nothing to act on invites a drag that
 changes nothing.
 
+Every keyboard shortcut acts on that same frame and no other: paging a stack,
+stepping sections, toggling a channel, resetting a view. A key that reached
+every open dataset would page or toggle the one nobody was looking at, and with
+the pointer parked over the sidebar there would be nothing to say which frame it
+had been talking to. The pointer still decides what a drag or a wheel applies
+to, since those say where they mean. The outline appears only once there is more
+than one frame — drawn round the whole grid it reads as a border on the window
+rather than as an answer to a question nobody asked.
+
 Its menu is **Edit layout**: the frames that are open, and under **Open a
 dataset** every dataset the app knows the address of. That second list is what
 fills the grid without pasting a URL. One that has not been opened yet is
