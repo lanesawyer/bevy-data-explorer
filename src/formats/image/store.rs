@@ -68,7 +68,18 @@ pub async fn open(source: &str) -> Result<Dataset, String> {
         .first()
         .ok_or("the OME metadata lists no multiscale images")?;
 
-    Dataset::open(store, multiscale, omero.as_ref()).await
+    let mut dataset = Dataset::open(store, multiscale, omero.as_ref()).await?;
+    if !names_something(multiscale.name.as_deref()) {
+        dataset.name = crate::formats::discover::label_for(&store_url);
+    }
+    Ok(dataset)
+}
+
+/// Whether a multiscale's own name is worth showing. Some writers put the
+/// group path there, which for an image at the root of its store is `/` — a
+/// name that tells nobody anything, where the store's own is its identifier.
+fn names_something(name: Option<&str>) -> bool {
+    name.is_some_and(|name| !name.trim().trim_matches('/').is_empty())
 }
 
 fn is_manifest(source: &str) -> bool {
@@ -254,6 +265,20 @@ fn canonical_hex(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_group_path_is_not_taken_for_an_images_name() {
+        assert!(!names_something(Some("/")));
+        assert!(!names_something(Some(" ")));
+        assert!(!names_something(None));
+        assert!(names_something(Some("1458501514")));
+        assert_eq!(
+            crate::formats::discover::label_for(&crate::formats::plain_url(
+                "zarr2://s3://allen-genetic-tools/tissuecyte/1219090168/ome_zarr_conversion/1219090168.zarr/"
+            )),
+            "1219090168"
+        );
+    }
 
     #[test]
     fn recognises_manifests_by_extension() {
