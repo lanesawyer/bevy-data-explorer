@@ -12,6 +12,24 @@ pub const MAX_COLUMNS: usize = 4;
 pub const MAX_ROWS: usize = 2;
 pub const MAX_PANELS: usize = MAX_COLUMNS * MAX_ROWS;
 
+/// Sources one frame can stack, counting the one it opened onto.
+pub const MAX_LAYERS: usize = 8;
+
+/// The camera order of layer `depth` in cell `index`, where depth 0 is the
+/// frame's own camera.
+///
+/// Layers are drawn by their order rather than by depth within one camera, so
+/// a source never has to cooperate to be drawn over another. Each cell gets a
+/// band of orders wide enough for every layer it can hold, which keeps a cell's
+/// layers together and every cell after the one before it.
+pub fn camera_order(index: usize, depth: usize) -> isize {
+    (index * MAX_LAYERS + depth.min(MAX_LAYERS - 1)) as isize
+}
+
+/// After every layer of every frame the grid can hold, so the UI is never
+/// cleared or drawn over.
+pub const UI_CAMERA_ORDER: isize = (MAX_PANELS * MAX_LAYERS) as isize;
+
 /// Columns and rows for `count` panels.
 ///
 /// Panels stay in one row until there are more than two, after which the grid
@@ -318,6 +336,18 @@ pub(super) mod tests {
         ] {
             assert_eq!(active_panel(drag, cursor, window, 4), 1);
         }
+    }
+
+    #[test]
+    fn a_cells_layers_draw_after_it_and_before_the_next_cell() {
+        for index in 0..MAX_PANELS {
+            let orders: Vec<isize> = (0..MAX_LAYERS).map(|d| camera_order(index, d)).collect();
+            assert!(orders.windows(2).all(|pair| pair[0] < pair[1]));
+            if index + 1 < MAX_PANELS {
+                assert!(orders[MAX_LAYERS - 1] < camera_order(index + 1, 0));
+            }
+        }
+        assert!(camera_order(MAX_PANELS - 1, MAX_LAYERS - 1) < UI_CAMERA_ORDER);
     }
 
     #[test]

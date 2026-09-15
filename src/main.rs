@@ -23,6 +23,7 @@ use app::ExplorerPlugin;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cli::Args::parse();
     let data = args.open()?;
+    let layers = cli::open_layers(&args.layer)?;
 
     let mut app = App::new();
     app.add_plugins(ExplorerPlugin);
@@ -69,6 +70,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cloud,
             budget: args.slice_budget,
         });
+    }
+
+    // After every frame's dataset, so a layer is never mistaken for the frame
+    // it is meant to be drawn over.
+    for layer in layers {
+        let source = formats::spawn_discovered(app.world_mut(), layer, args.load_settings());
+        app.world_mut()
+            .entity_mut(source)
+            .insert(view::OpensAsLayer);
     }
 
     app.run();

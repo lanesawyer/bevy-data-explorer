@@ -8,6 +8,9 @@
 //! entity and draws that source's render layer, which is what allows a frame to
 //! be repointed at a different dataset later without this module changing.
 //!
+//! A frame can stack further sources over the one it opened onto; see
+//! [`layers`].
+//!
 //! Panels can be duplicated at runtime. A duplicate is another camera on the
 //! same layer, which is why duplicating costs no extra geometry: the two
 //! cameras draw the same entities from different viewpoints.
@@ -17,6 +20,7 @@ pub mod capture;
 pub mod chrome;
 pub mod grid;
 pub mod input;
+pub mod layers;
 pub mod overlay;
 pub mod requests;
 
@@ -39,6 +43,7 @@ use requests::apply_panel_requests;
 // caller needs to know does not depend on how this module is cut up.
 pub use grid::{MAX_PANELS, grid_for};
 pub use input::{BlocksFrameInput, TextEntryFocused};
+pub use layers::{FrameLayers, LayerOf, OpensAsLayer};
 pub use requests::PanelRequest;
 
 /// The frame the sidebar's controls act on.
@@ -156,7 +161,7 @@ pub fn spawn_panel(
             Camera2d
             Camera {
                 clear_color: { clear_color_for(index, background) },
-                order: { index as isize },
+                order: { grid::camera_order(index, 0) },
             }
             // Both keep private state, so they are supplied whole rather than
             // patched field by field.
@@ -200,6 +205,9 @@ impl Plugin for ViewPlugin {
                     panel_controls,
                     reset_selected_view,
                     update_viewports,
+                    // After the viewports, and after the pan and zoom, so a
+                    // layer never lags a frame behind what it is drawn over.
+                    layers::sync_layers,
                     clear_when_empty,
                     follow_theme,
                 )
@@ -223,27 +231,36 @@ impl Plugin for ViewPlugin {
 /// Open one frame per registered source, in registration order.
 ///
 /// Sources are discovered from the world rather than listed here, so adding a
-/// format plugin is enough to get it a frame.
+/// format plugin is enough to get it a frame. One named as a layer is stacked
+/// onto the first frame instead.
 fn open_frames(
     mut commands: Commands,
     windows: Query<&Window>,
     palette: Res<crate::app::theme::Palette>,
-    sources: Query<(Entity, &DataSource, &SourceExtent)>,
+    sources: Query<(Entity, &DataSource, &SourceExtent, Has<OpensAsLayer>)>,
 ) {
     let window = windows.iter().next().map_or(Vec2::new(1280.0, 720.0), |w| {
         Vec2::new(w.width(), w.height())
     });
 
-    let mut sources: Vec<(Entity, &DataSource, &SourceExtent)> = sources.iter().collect();
+    let mut sources: Vec<(Entity, &DataSource, &SourceExtent, bool)> = sources.iter().collect();
     // Layers are handed out in registration order, which is the order the
     // plugins were added.
-    sources.sort_by_key(|(_, source, _)| source.layer);
+    sources.sort_by_key(|(_, source, _, _)| source.layer);
 
-    let (columns, rows) = grid_for(sources.len());
+    // Layers go onto the first frame, so there has to be one: with nothing
+    // else named, they take frames of their own.
+    let any_frame = sources.iter().any(|(.., as_layer)| !as_layer);
+    let (layered, framed): (Vec<_>, Vec<_>) = sources
+        .iter()
+        .partition(|(.., as_layer)| *as_layer && any_frame);
+
+    let (columns, rows) = grid_for(framed.len());
     let viewport = Vec2::new(window.x / columns as f32, window.y / rows as f32);
 
-    for (index, (entity, source, extent)) in sources.into_iter().enumerate() {
-        spawn_panel(
+    let mut first_panel = None;
+    for (index, (entity, source, extent, _)) in framed.into_iter().enumerate() {
+        let panel = spawn_panel(
             &mut commands,
             entity,
             source.layer,
@@ -252,5 +269,11 @@ fn open_frames(
             None,
             palette.frame_bg,
         );
+        first_panel.get_or_insert(panel);
+    }
+    if let Some(panel) = first_panel {
+        for (entity, source, ..) in layered.into_iter().take(grid::MAX_LAYERS - 1) {
+            layers::spawn_layer(&mut commands, panel, entity, source.layer);
+        }
     }
 }

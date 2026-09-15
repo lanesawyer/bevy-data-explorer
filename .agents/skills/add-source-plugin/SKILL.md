@@ -71,9 +71,11 @@ for (camera, transform, projection, _) in panels
     .filter(|(_, _, _, shows)| shows.0 == source)
 ```
 
-Union what every matching panel needs, rather than taking the first. Duplicated
+Union what every matching camera needs, rather than taking the first. Duplicated
 frames are separate cameras on one render layer, and a frame that is not
-consulted will not stream its own detail.
+consulted will not stream its own detail. Do not filter the query `With<Panel>`:
+a source layered over another frame is shown by a layer camera, which carries
+`ShowsSource` but is not a `Panel`, and filtering it out leaves the layer empty.
 
 ## Step 5: Draw on the source's layer
 

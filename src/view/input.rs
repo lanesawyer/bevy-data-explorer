@@ -141,13 +141,13 @@ fn pointer_over_chrome(
     })
 }
 
-/// Tell the source under the pointer where the pointer is.
+/// Tell the sources under the pointer where the pointer is.
 ///
 /// The grid knows the cursor and which frame it falls in; only a format plugin
 /// knows what is there. This writes the one onto the source entity so the
-/// plugin can answer with the other. At most one source carries a probe, so a
-/// plugin resolving hover need not work out whether the pointer is really its
-/// own frame's.
+/// plugin can answer with the other. Only the sources stacked in the frame
+/// under the pointer carry a probe, so a plugin resolving hover need not work
+/// out whether the pointer is really over one of its own frames.
 pub fn probe_hover(
     mut commands: Commands,
     windows: Query<&Window>,
@@ -158,6 +158,8 @@ pub fn probe_hover(
     chrome: Query<(), With<BlocksFrameInput>>,
     parents: Query<&ChildOf>,
     probed: Query<Entity, With<HoverProbe>>,
+    stacks: Query<&super::FrameLayers>,
+    layer_cameras: Query<&ShowsSource, With<super::LayerOf>>,
 ) {
     let target = probe_target(
         &windows,
@@ -169,13 +171,22 @@ pub fn probe_hover(
         &parents,
     );
 
+    let stack = target.map_or_else(Vec::new, |(source, probe)| {
+        super::layers::stacked_sources(
+            &ShowsSource(source),
+            stacks.get(probe.panel).ok(),
+            &layer_cameras,
+        )
+    });
     for entity in &probed {
-        if target.map(|(source, _)| source) != Some(entity) {
+        if !stack.contains(&entity) {
             commands.entity(entity).remove::<HoverProbe>();
         }
     }
-    if let Some((source, probe)) = target {
-        commands.entity(source).insert(probe);
+    if let Some((_, probe)) = target {
+        for source in stack {
+            commands.entity(source).insert(probe);
+        }
     }
 }
 

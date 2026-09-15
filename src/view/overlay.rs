@@ -24,7 +24,8 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::Stage;
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::{DataSource, SourceStatus};
-use crate::view::{BlocksFrameInput, Panel, PanelRequest, ShowsSource};
+use crate::view::layers::stacked_sources;
+use crate::view::{BlocksFrameInput, FrameLayers, LayerOf, Panel, PanelRequest, ShowsSource};
 use crate::widgets::button_text;
 use crate::widgets::spawn_menu;
 
@@ -74,11 +75,22 @@ impl Default for SourceMenu {
     }
 }
 
-/// One dataset offered by a frame's menu.
+/// One dataset offered by a frame's menu, and what choosing it does.
 #[derive(Component, Clone)]
 pub struct SourceChoice {
     panel: Entity,
     source: Entity,
+    action: ChoiceAction,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ChoiceAction {
+    /// Show this dataset instead of what the frame shows now.
+    Show,
+    /// Draw it over what the frame shows.
+    AddLayer,
+    /// Take its layer off the frame.
+    RemoveLayer,
 }
 
 impl Default for SourceChoice {
@@ -86,6 +98,7 @@ impl Default for SourceChoice {
         SourceChoice {
             panel: Entity::PLACEHOLDER,
             source: Entity::PLACEHOLDER,
+            action: ChoiceAction::Show,
         }
     }
 }
@@ -292,33 +305,39 @@ pub fn position_tooltips(
     }
 }
 
-/// Show what the frame's source found under the pointer.
+/// Show what the frame's sources found under the pointer.
 ///
 /// Driven by the probe rather than by the answer alone, so a source that has
 /// not cleared a stale `HoverInfo` still shows nothing once the pointer has
-/// moved to another frame.
+/// moved to another frame. A frame stacking several sources lists what each
+/// found, topmost first, since the top is what the pointer is visibly on.
 pub fn update_tooltips(
-    panels: Query<&ShowsSource>,
+    panels: Query<(&ShowsSource, Option<&FrameLayers>)>,
+    layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     sources: Query<(&HoverInfo, &HoverProbe)>,
     mut tooltips: Query<(&PanelTooltip, &mut Text, &mut Node)>,
 ) {
     for (tooltip, mut text, mut node) in &mut tooltips {
-        let lines = panels
+        let found: Vec<String> = panels
             .get(tooltip.panel)
-            .ok()
-            .and_then(|shows| sources.get(shows.0).ok())
+            .map(|(shows, layers)| stacked_sources(shows, layers, &layer_cameras))
+            .unwrap_or_default()
+            .into_iter()
+            .rev()
+            .filter_map(|source| sources.get(source).ok())
             .filter(|(info, probe)| probe.panel == tooltip.panel && !info.is_empty())
-            .map(|(info, _)| info.lines());
+            .map(|(info, _)| info.lines())
+            .collect();
 
-        let display = if lines.is_some() {
-            Display::Flex
-        } else {
+        let display = if found.is_empty() {
             Display::None
+        } else {
+            Display::Flex
         };
         if node.display != display {
             node.display = display;
         }
-        let lines = lines.unwrap_or_default();
+        let lines = found.join("\n\n");
         if text.0 != lines {
             text.0 = lines;
         }
@@ -395,34 +414,38 @@ pub fn on_source_chosen(
     mut requests: MessageWriter<PanelRequest>,
 ) {
     if let Ok(choice) = choices.get(activate.entity) {
-        requests.write(PanelRequest::Show {
-            panel: choice.panel,
-            source: choice.source,
+        let (panel, source) = (choice.panel, choice.source);
+        requests.write(match choice.action {
+            ChoiceAction::Show => PanelRequest::Show { panel, source },
+            ChoiceAction::AddLayer => PanelRequest::AddLayer { panel, source },
+            ChoiceAction::RemoveLayer => PanelRequest::RemoveLayer { panel, source },
         });
     }
 }
 
-/// Fill each frame's menu with the datasets it could show.
+/// Fill each frame's menu with the datasets it could show, and those it could
+/// draw over what it shows.
 ///
-/// Rebuilt when the set of sources changes, or when a frame is pointed
-/// somewhere else, so the current one stays marked.
+/// Rebuilt when the set of sources changes, or when what a frame stacks
+/// changes, so the current one stays marked.
 pub fn rebuild_source_menus(
     mut commands: Commands,
     menus: Query<(Entity, &SourceMenu)>,
-    panels: Query<&ShowsSource>,
+    panels: Query<(&ShowsSource, Option<&FrameLayers>), With<Panel>>,
+    layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     sources: Query<(Entity, &DataSource)>,
     existing: Query<Entity, With<SourceChoice>>,
-    mut shown: Local<Option<(Vec<(Entity, Entity)>, usize)>>,
+    mut shown: Local<Option<(Vec<(Entity, Vec<Entity>)>, usize)>>,
 ) {
-    // What each frame is showing, plus how many datasets there are to offer.
+    // What each frame is stacking, plus how many datasets there are to offer.
     // Either changing is what the rows have to reflect.
-    let mut current: Vec<(Entity, Entity)> = menus
+    let mut current: Vec<(Entity, Vec<Entity>)> = menus
         .iter()
         .filter_map(|(_, menu)| {
             panels
                 .get(menu.panel)
                 .ok()
-                .map(|shows| (menu.panel, shows.0))
+                .map(|(shows, layers)| (menu.panel, stacked_sources(shows, layers, &layer_cameras)))
         })
         .collect();
     current.sort_unstable();
@@ -431,7 +454,6 @@ pub fn rebuild_source_menus(
     if shown.as_ref() == Some(&fingerprint) {
         return;
     }
-    *shown = Some(fingerprint);
 
     for entity in &existing {
         commands.entity(entity).despawn();
@@ -440,31 +462,76 @@ pub fn rebuild_source_menus(
     let mut listed: Vec<(Entity, &DataSource)> = sources.iter().collect();
     // Registration order, which is the order the frames were opened in.
     listed.sort_by_key(|(_, source)| source.layer);
+    let lookup = |entity: Entity| sources.get(entity).ok().map(|(_, data)| data);
+
+    let choice = |commands: &mut Commands,
+                  panel: Entity,
+                  source: Entity,
+                  action: ChoiceAction,
+                  caption: String| {
+        commands
+            .spawn_scene(bsn! {
+                @FeathersToolButton {
+                    @caption: { bsn_list![button_text(caption)] }
+                }
+                BlocksFrameInput
+                SourceChoice { panel: { panel }, source: { source }, action: { action } }
+                Node { width: { Val::Percent(100.0) } }
+            })
+            .id()
+    };
 
     for (menu_entity, menu) in &menus {
-        let showing = panels.get(menu.panel).map(|shows| shows.0).ok();
-        let rows: Vec<Entity> = listed
-            .iter()
-            .map(|(entity, source)| {
-                let current = showing == Some(*entity);
-                // A leading mark rather than a separate control, so the row
-                // stays one target however long the name is.
-                let caption = format!("{} {}", if current { "*" } else { " " }, source.name);
-                commands
-                    .spawn_scene(bsn! {
-                        @FeathersToolButton {
-                            @caption: { bsn_list![button_text(caption)] }
-                        }
-                        BlocksFrameInput
-                        SourceChoice { panel: { menu.panel }, source: { *entity } }
-                        Node { width: { Val::Percent(100.0) } }
-                    })
-                    .id()
-            })
-            .collect();
+        let Some((_, stack)) = fingerprint.0.iter().find(|(panel, _)| *panel == menu.panel) else {
+            continue;
+        };
+        let mut rows = Vec::new();
+        for (entity, source) in &listed {
+            // A leading mark rather than a separate control, so the row stays
+            // one target however long the name is.
+            let mark = if stack.first() == Some(entity) {
+                "*"
+            } else {
+                " "
+            };
+            rows.push(choice(
+                &mut commands,
+                menu.panel,
+                *entity,
+                ChoiceAction::Show,
+                format!("{mark} {}", source.name),
+            ));
+        }
+        for (entity, source) in &listed {
+            if stack[1..].contains(entity) {
+                rows.push(choice(
+                    &mut commands,
+                    menu.panel,
+                    *entity,
+                    ChoiceAction::RemoveLayer,
+                    format!("- layer {}", source.name),
+                ));
+            } else if super::layers::can_add_layer(stack, *entity) {
+                let note = stack
+                    .first()
+                    .and_then(|base| lookup(*base))
+                    .and_then(|base| super::layers::unit_mismatch(base, source))
+                    .map(|mismatch| format!("  ({mismatch})"))
+                    .unwrap_or_default();
+                rows.push(choice(
+                    &mut commands,
+                    menu.panel,
+                    *entity,
+                    ChoiceAction::AddLayer,
+                    format!("+ layer {}{note}", source.name),
+                ));
+            }
+        }
         commands.entity(menu_entity).add_children(&rows);
     }
+    *shown = Some(fingerprint);
 }
+
 /// The overlay drawn over each frame: its title, status lines and tooltip.
 pub struct OverlayPlugin;
 

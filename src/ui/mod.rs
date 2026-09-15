@@ -6,6 +6,7 @@ use bevy::prelude::*;
 pub mod addsource;
 pub mod cellpanel;
 pub mod inspector;
+pub mod layers;
 pub mod logpanel;
 pub mod sidebar;
 pub mod viewconfig;
@@ -23,6 +24,7 @@ impl Plugin for UiPlugin {
             sidebar::SidebarPlugin,
             inspector::InspectorPlugin,
             viewconfig::ViewConfigPlugin,
+            layers::LayersPlugin,
             addsource::AddSourcePlugin,
             cellpanel::CellPanelPlugin,
             welcome::WelcomePlugin,

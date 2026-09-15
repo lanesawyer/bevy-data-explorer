@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy::ui::IsDefaultUiCamera;
 
 use super::chrome::{Axis, BUTTON_GAP, BUTTON_PX, DIVIDER_PX, PanelButton, PanelDivider};
-use super::grid::{MAX_PANELS, assign_cells, clear_color_for, grid_for};
+use super::grid::{UI_CAMERA_ORDER, assign_cells, camera_order, clear_color_for, grid_for};
 use super::{FrameArea, Panel};
 use crate::app::theme::Palette;
 
@@ -28,7 +28,7 @@ pub(super) fn spawn_ui_camera(mut commands: Commands) {
         Camera {
             // After every panel the grid can hold, so it never clears their
             // output no matter how many are added later.
-            order: { MAX_PANELS as isize },
+            order: { UI_CAMERA_ORDER },
             clear_color: { ClearColorConfig::None },
         }
         // Draws no world geometry, only UI. RenderLayers keeps its field
@@ -184,7 +184,7 @@ pub fn normalize_panels(
         let Ok((_, mut panel, mut camera)) = panels.get_mut(entity) else {
             continue;
         };
-        let wanted_order = position as isize;
+        let wanted_order = camera_order(position, 0);
         if panel.index == position && camera.order == wanted_order {
             continue;
         }

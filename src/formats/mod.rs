@@ -12,6 +12,7 @@ pub mod image;
 pub mod pointcloud;
 pub mod scatterbrain;
 pub mod slices;
+pub mod svg;
 
 use bevy::prelude::*;
 
@@ -28,6 +29,7 @@ impl Plugin for FormatsPlugin {
             dzi::DziSystems,
             pointcloud::PointCloudSystems,
             slices::SlicesSystems,
+            svg::SvgSystems,
         ));
     }
 }
@@ -82,7 +84,7 @@ pub struct Example {
     pub url: &'static str,
 }
 
-pub const EXAMPLES: [Example; 7] = [
+pub const EXAMPLES: [Example; 8] = [
     Example {
         name: "Epifluorescence whole slide",
         kind: "OME-Zarr image",
@@ -117,6 +119,11 @@ pub const EXAMPLES: [Example; 7] = [
         name: "SEA-AD pathology slide",
         kind: "Deep Zoom image",
         url: "https://idk-etl-prod-download-bucket.s3.amazonaws.com/idf-23-10-pathology-images/pat_images_JGCXWER774NLNWX2NNR/H20.33.040-A12-I6-primary/H20.33.040-A12-I6-primary.dzi",
+    },
+    Example {
+        name: "SEA-AD pathology annotations",
+        kind: "SVG annotations",
+        url: "https://idk-etl-prod-download-bucket.s3.amazonaws.com/idf-23-10-pathology-images/pat_images_JGCXWER774NLNWX2NNR/H20.33.040-A12-I6-primary/annotation.svg",
     },
 ];
 
@@ -172,6 +179,7 @@ pub fn spawn_discovered(
         Discovered::Slices(cloud) => {
             slices::spawn_source(world, std::sync::Arc::new(cloud), settings.slice_budget)
         }
+        Discovered::Annotations(svg) => svg::spawn_source(world, std::sync::Arc::new(svg)),
     }
 }
 

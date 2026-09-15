@@ -50,6 +50,12 @@ pub struct Args {
     #[arg(long)]
     pub cells: Option<String>,
 
+    /// A dataset to draw over the first frame, such as an SVG of annotations
+    /// over a slide. Repeat for more than one. One measured differently from
+    /// that frame opens in a frame of its own instead.
+    #[arg(long)]
+    pub layer: Vec<String>,
+
     /// Maximum points held on the GPU for the point cloud.
     #[arg(long, default_value_t = crate::formats::pointcloud::DEFAULT_POINT_BUDGET)]
     pub point_budget: usize,
@@ -138,6 +144,19 @@ impl Args {
         );
         Ok(Some(Arc::new(dzi)))
     }
+}
+
+/// Open every dataset named as a layer, whatever format each turns out to be.
+pub fn open_layers(sources: &[String]) -> Result<Vec<discover::Discovered>, String> {
+    sources
+        .iter()
+        .map(|source| {
+            println!("opening {:<6} {source}", "layer");
+            let found = crate::app::net::block_on(discover::discover(source))?;
+            println!("  {}", found.name());
+            Ok(found)
+        })
+        .collect()
 }
 
 /// Open a point cloud, if one was named.

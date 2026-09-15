@@ -14,6 +14,7 @@
 use crate::formats::dzi::pyramid::DeepZoom;
 use crate::formats::image::dataset::Dataset;
 use crate::formats::scatterbrain::Scatterbrain;
+use crate::formats::svg::parse::Svg;
 
 /// What a source turned out to be.
 pub enum Discovered {
@@ -26,6 +27,8 @@ pub enum Discovered {
     },
     /// A specimen cut into slices, which gets the sectioned panel instead.
     Slices(Scatterbrain),
+    /// Outlines drawn over an image, meant to be layered onto it.
+    Annotations(Svg),
 }
 
 impl Discovered {
@@ -36,6 +39,7 @@ impl Discovered {
             Discovered::DeepZoom(dzi) => &dzi.name,
             Discovered::Points { name, .. } => name,
             Discovered::Slices(_) => "Sections",
+            Discovered::Annotations(svg) => &svg.name,
         }
     }
 }
@@ -56,6 +60,13 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
     if is_dzi(source) {
         let text = fetch_text(source).await?;
         return DeepZoom::parse(source, &text).map(Discovered::DeepZoom);
+    }
+
+    // Likewise an SVG, which is the one format here that is read whole.
+    if is_svg(source) {
+        let text = fetch_text(source).await?;
+        return crate::formats::svg::parse::parse(&crate::formats::svg::label_for(source), &text)
+            .map(Discovered::Annotations);
     }
 
     // A Zarr root is a directory, so only a `.json` can be Scatterbrain
@@ -131,6 +142,10 @@ pub fn is_dzi(source: &str) -> bool {
     has_extension(source.split(['?', '#']).next().unwrap_or(source), ".dzi")
 }
 
+pub fn is_svg(source: &str) -> bool {
+    has_extension(source.split(['?', '#']).next().unwrap_or(source), ".svg")
+}
+
 fn has_extension(source: &str, extension: &str) -> bool {
     source
         .trim_end_matches('/')
@@ -188,6 +203,13 @@ mod tests {
         assert!(is_dzi("/data/slide.DZI?signature=abc"));
         assert!(!is_dzi("https://example.com/slide_files/14/0_0.jpeg"));
         assert!(!is_dzi("https://example.com/image.zarr/"));
+    }
+
+    #[test]
+    fn annotations_are_known_by_their_extension() {
+        assert!(is_svg("https://bucket/slide/annotation.svg"));
+        assert!(is_svg("/data/Regions.SVG?v=2"));
+        assert!(!is_svg("https://bucket/slide/slide.dzi"));
     }
 
     #[test]

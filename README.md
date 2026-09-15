@@ -3,7 +3,7 @@
 A streaming explorer for large scientific datasets, built on
 [Bevy](https://bevyengine.org). Datasets are shown side by side in independent
 panels, each streaming only what its own view needs and pulling in finer detail
-as you zoom. Three formats are supported so far:
+as you zoom. Four formats are supported so far:
 
 - **OME-Zarr** multiscale images, read through
   [`zarrs`](https://crates.io/crates/zarrs), in both Zarr v3 and v2. The
@@ -16,8 +16,12 @@ as you zoom. Three formats are supported so far:
   single cloud (the reference one holds 4,042,976 points in an octree) and a
   *sectioned* dataset of many slices (53 slices, 3,739,961 points), which gets
   its own panel with grid and single-slice layouts.
+- **SVG annotations**: outlines drawn over a slide in its own pixels, with the
+  labels the annotation tool wrote on them. The reference document outlines 16
+  structures in 46 polygons over the reference Deep Zoom slide.
 
-None is ever loaded in its entirety.
+None of the streamed formats is ever loaded in its entirety. An annotation
+document is small enough to be read whole.
 
 ## Running
 
@@ -31,6 +35,7 @@ cargo run --release -- --slices <url|file>   # a sectioned Scatterbrain JSON
 cargo run --release -- --z 3 <source>        # pick a z slice
 cargo run --release -- --cache-mb 1024       # a larger tile cache
 cargo run --release -- --point-budget 8000000
+cargo run --release -- slide.dzi --layer annotation.svg   # draw one over the other
 ```
 
 Use `--release`. Tile decoding is real work and a debug build makes it obvious.
@@ -294,6 +299,47 @@ a few bytes per resident node, so it keeps up with the pointer over millions of
 points. With no property selected there are no groups to pick out, and the
 tooltip still names the cell.
 
+## Layers
+
+A frame can draw several datasets, one over another: annotations over the slide
+they were drawn on, a point cloud over the image it was measured from. The
+dataset a frame opened onto is the bottom of its stack, and anything open can
+be put on top — from the frame's own `...` menu (`+ layer`, `- layer`), from the
+**Layers** section of the sidebar, or with `--layer` on the command line, which
+stacks onto the first frame and can be repeated.
+
+Nothing refuses a layer for what it is. Whether two datasets mean anything drawn
+together is the judgement of whoever is looking, and a viewer that refuses is a
+viewer people take screenshots from to overlay by hand. What a layer is *not* is
+rescaled: it is drawn in its own coordinates, so two datasets line up when they
+were measured alike. One whose unit differs from the frame's is still layered,
+and marked — `um over px, not rescaled` — so a coincidental alignment is not
+mistaken for a real one.
+
+The Layers section lists the selected frame's stack top first, each with its
+own transparency and a button to take it off, over the list of everything else
+that could go on top. Transparency is the source's own, the same value View
+configuration sets, so a dataset fades the same way whether it is a layer or a
+frame. Outlines lower their alpha rather than dimming, since they barely
+overdraw and should let a pale slide show through.
+
+Each layer is a camera of its own, sharing its frame's viewport, view and
+projection, drawing its source's render layer and ordered straight after the
+one beneath it. Stacking by camera order rather than by depth is what lets any
+source sit on any other without its plugin knowing; one source can be the base
+of one frame and a layer of another at once. A layer camera carries the same
+`ShowsSource` a frame does, which is all a streamer asks of a view, so a layered
+dataset streams exactly as it would in a frame of its own. Closing a frame
+despawns its layers, duplicating one copies them, and pointing a frame at a
+dataset already in its stack drops that layer rather than drawing it twice.
+
+Hovering asks every source in the stack what is under the pointer, and the
+tooltip lists the answers topmost first — over a slide with annotations, the
+structure and region first, then the pixel.
+
+A stack holds at most eight datasets, which is the band of camera orders each
+cell is given.
+
 ## Releases
 
 Pushing a `v*` tag builds Linux, Windows and a universal macOS binary and
@@ -464,6 +510,34 @@ anatomy aligned from one row to the next rather than drifting. The offset lives
 in each node's transform, so switching between grid and single-slice layouts
 only rewrites transforms and visibility — nothing is refetched.
 
+### SVG annotations
+
+Not an SVG renderer. Annotation tools export regions as polygons in the pixel
+space of the slide they were drawn on, with labels in attributes of their own
+(`structure-label`, `region-label`), and that is what is read: `polygon`,
+`polyline`, `line`, `rect` and straight-segment `path`s, their stroke colour,
+width and dash, and every `*-label` attribute. Fills, filters and text are not
+drawn; an outline with a fill and no stroke is outlined in its fill, since it
+would otherwise be an annotation nobody can see. A `viewBox` is scaled into the
+declared size.
+
+Anything that would put an outline somewhere other than where its points say —
+a `transform`, or a curve in a path — is skipped and counted in the frame's
+status rather than drawn in the wrong place.
+
+Outlines are one mesh, a quad per segment, widened in the shader to the wider of
+the stroke as written and two screen pixels. A ten-pixel stroke over a
+sixteen-thousand-pixel slide is a hundredth of a pixel at the overview, so
+without the floor the annotations vanish exactly when they are most useful for
+finding your way; zoomed in, they are drawn at their true width. Dashes are cut
+from distance along the outline the same way, so the dashed black outline the
+reference document draws over each excluded region stays dashed at any zoom.
+None of it is rebuilt as the view moves, and two frames at different zooms draw
+the same mesh correctly.
+
+Hovering names the outline whose stroke is under the pointer, or else the
+innermost region the pointer is inside.
+
 ### Things that were measured rather than assumed
 
 The reference store shards a 4096 × 4096 region into a 32 × 32 grid of 128 px
@@ -514,8 +588,11 @@ measuring against it, and are worth knowing before changing them:
 - Panels can be duplicated and closed but not reordered or resized, and cells
   are a uniform split. A partly filled grid — three panels in a 2x2 — leaves an
   empty cell rather than redistributing the space.
-- A frame cannot yet be repointed at a different source from the UI. The
-  indirection that would allow it is in place, but nothing drives it.
+- A layer is drawn in its own coordinates. There is no registration between
+  two datasets yet, so an overlay measured differently from its frame is
+  marked but not moved into place.
+- An annotation example can only be layered once it has been opened; nothing
+  can say which frame a document belongs over until it has been read.
 - A custom dataset is opened into a frame but cannot be closed again as a
   *source*: closing its frame leaves the source registered, still holding
   whatever it has streamed, and its render layer is not handed back.

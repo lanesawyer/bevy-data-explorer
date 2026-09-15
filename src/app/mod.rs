@@ -49,6 +49,7 @@ impl Plugin for ExplorerPlugin {
         app.add_plugins(bevy_feathers::FeathersPlugins)
             .add_plugins(theme::ThemePlugin)
             .add_plugins(crate::render::points::PointRenderPlugin)
+            .add_plugins(crate::render::lines::LineRenderPlugin)
             .add_plugins(crate::view::ViewPlugin)
             .add_plugins(crate::widgets::WidgetsPlugin)
             .add_plugins(crate::ui::UiPlugin)

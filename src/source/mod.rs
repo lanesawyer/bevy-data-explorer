@@ -57,6 +57,20 @@ pub struct DataSource {
     pub layer: usize,
 }
 
+impl DataSource {
+    /// Whether `other` is measured the way this source is, so that drawing one
+    /// over the other lines them up.
+    ///
+    /// Layers are drawn in their own coordinates without being transformed,
+    /// so this decides nothing on its own — any source can be layered over any
+    /// other — but it is what a frame warns about. Matching units is the whole
+    /// test for now: an annotation drawn in a slide's pixels sits on that
+    /// slide, and a point cloud in microns sits on an image in microns.
+    pub fn shares_space_with(&self, other: &DataSource) -> bool {
+        !self.unit.is_empty() && self.unit == other.unit
+    }
+}
+
 /// What a plugin declares about its dataset when registering.
 pub struct SourceInfo {
     pub name: String,
@@ -238,6 +252,23 @@ mod tests {
         let source = register_in(app.world_mut(), info("Thing", "mm"), extent());
         assert!(app.world().get::<SourceStatus>(source).is_some());
         assert!(app.world().get::<SourceExtent>(source).is_some());
+    }
+
+    #[test]
+    fn sources_are_measured_alike_only_when_their_units_match() {
+        let mut app = App::new();
+        let slide = register_in(app.world_mut(), info("Slide", "px"), extent());
+        let outlines = register_in(app.world_mut(), info("Outlines", "px"), extent());
+        let cells = register_in(app.world_mut(), info("Cells", "um"), extent());
+        let unmeasured = register_in(app.world_mut(), info("Unknown", ""), extent());
+
+        let world = app.world();
+        let get = |entity| world.get::<DataSource>(entity).unwrap();
+        assert!(get(slide).shares_space_with(get(outlines)));
+        assert!(!get(slide).shares_space_with(get(cells)));
+        // No unit says nothing about where it lies, so it matches nothing,
+        // itself included.
+        assert!(!get(unmeasured).shares_space_with(get(unmeasured)));
     }
 
     #[test]

@@ -17,6 +17,7 @@ use bevy_ui_widgets::{SliderRange, SliderValue};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::formats::EXAMPLES;
+use crate::render::lines::LineMaterial;
 use crate::render::points::{
     DEFAULT_POINT_PX, HIGHLIGHT_NONE, MAX_POINT_PX, MIN_POINT_PX, PointMaterial, SourceHighlight,
     SourcePointSize,
@@ -427,6 +428,30 @@ pub fn apply_opacity_to_new(
     }
 }
 
+/// Push a source's opacity into the outlines drawing it.
+///
+/// Lowers alpha rather than dimming, unlike every other kind of geometry: an
+/// outline barely overdraws itself, so the reason dimming exists does not
+/// apply, and an outline layered over a pale slide should let the slide show
+/// through rather than turn darker.
+pub fn apply_line_opacity(
+    sources: Query<(&DataSource, Ref<SourceOpacity>)>,
+    meshes: Query<(&RenderLayers, Ref<MeshMaterial2d<LineMaterial>>)>,
+    mut materials: ResMut<Assets<LineMaterial>>,
+) {
+    for (source, opacity) in &sources {
+        let layer = RenderLayers::layer(source.layer);
+        for (layers, material) in &meshes {
+            if *layers != layer || !(opacity.is_changed() || material.is_added()) {
+                continue;
+            }
+            if let Some(material) = materials.get_mut(&material.0).as_mut() {
+                material.settings.tint = Vec4::new(1.0, 1.0, 1.0, opacity.0.clamp(0.0, 1.0));
+            }
+        }
+    }
+}
+
 /// The sidebar section that acts on the selected frame.
 pub struct ViewConfigPlugin;
 
@@ -447,6 +472,7 @@ impl Plugin for ViewConfigPlugin {
                     apply_opacity_to_new,
                     apply_point_settings,
                     apply_point_settings_to_new,
+                    apply_line_opacity,
                 )
                     .chain()
                     .in_set(Stage::ControlsApply),
