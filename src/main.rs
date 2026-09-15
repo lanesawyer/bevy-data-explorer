@@ -1,10 +1,10 @@
 //! A streaming explorer for large scientific datasets.
 //!
-//! Two formats are supported so far, shown side by side in independent panels:
-//! OME-Zarr images, read through `zarrs`, and the Allen Institute's
-//! Scatterbrain point clouds. Both are far too large to load whole, so each
-//! panel streams only what its own view needs and pulls in more detail as you
-//! zoom.
+//! Three formats are supported so far, shown side by side in independent
+//! panels: OME-Zarr images, read through `zarrs`, Deep Zoom images, and the
+//! Allen Institute's Scatterbrain point clouds. All are far too large to load
+//! whole, so each panel streams only what its own view needs and pulls in more
+//! detail as you zoom.
 
 mod app;
 mod cli;
@@ -41,6 +41,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app.add_plugins(formats::image::ImagePlugin {
             dataset,
             z_slice: args.z,
+            budget_bytes: args.cache_mb * 1024 * 1024,
+        });
+    }
+    if let Some(dzi) = data.deep_zoom {
+        app.add_plugins(formats::dzi::DziPlugin {
+            dzi,
             budget_bytes: args.cache_mb * 1024 * 1024,
         });
     }

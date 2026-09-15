@@ -6,16 +6,19 @@
 //! first, and a source that matches nothing reports what was tried rather than
 //! failing silently.
 //!
-//! Recognition is deliberately cheap. Both formats are described by a small
-//! document at the root — Scatterbrain metadata, or an OME-Zarr group's
-//! attributes — so nothing beyond that document is fetched to decide.
+//! Recognition is deliberately cheap. Every format is described by a small
+//! document at the root — Scatterbrain metadata, a Deep Zoom descriptor, or an
+//! OME-Zarr group's attributes — so nothing beyond that document is fetched to
+//! decide.
 
+use crate::formats::dzi::pyramid::DeepZoom;
 use crate::formats::image::dataset::Dataset;
 use crate::formats::scatterbrain::Scatterbrain;
 
 /// What a source turned out to be.
 pub enum Discovered {
     Image(Box<Dataset>),
+    DeepZoom(DeepZoom),
     /// A single octree.
     Points {
         name: String,
@@ -30,6 +33,7 @@ impl Discovered {
     pub fn name(&self) -> &str {
         match self {
             Discovered::Image(dataset) => &dataset.name,
+            Discovered::DeepZoom(dzi) => &dzi.name,
             Discovered::Points { name, .. } => name,
             Discovered::Slices(_) => "Sections",
         }
@@ -45,6 +49,13 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
     let source = source.as_str();
     if source.is_empty() {
         return Err("type the URL of a dataset to load".into());
+    }
+
+    // A Deep Zoom image is named by its descriptor, and nothing else ends in
+    // `.dzi`, so there is nothing to try it against.
+    if is_dzi(source) {
+        let text = fetch_text(source).await?;
+        return DeepZoom::parse(source, &text).map(Discovered::DeepZoom);
     }
 
     // A Zarr root is a directory, so only a `.json` can be Scatterbrain
@@ -113,11 +124,19 @@ fn is_http(source: &str) -> bool {
 }
 
 fn is_json(source: &str) -> bool {
+    has_extension(source, ".json")
+}
+
+pub fn is_dzi(source: &str) -> bool {
+    has_extension(source.split(['?', '#']).next().unwrap_or(source), ".dzi")
+}
+
+fn has_extension(source: &str, extension: &str) -> bool {
     source
         .trim_end_matches('/')
         .rsplit('/')
         .next()
-        .is_some_and(|name| name.to_ascii_lowercase().ends_with(".json"))
+        .is_some_and(|name| name.to_ascii_lowercase().ends_with(extension))
 }
 
 /// Metadata file names that name the format rather than the dataset.
@@ -159,6 +178,16 @@ mod tests {
         assert!(!is_json("/data/image.zarr"));
         // A directory named after a manifest must not be mistaken for one.
         assert!(!is_json("https://example.com/metadata.json/tiles"));
+    }
+
+    #[test]
+    fn a_deep_zoom_image_is_known_by_its_descriptor() {
+        assert!(is_dzi(
+            "https://example.com/slides/H20.33.040-A12-I6-primary.dzi"
+        ));
+        assert!(is_dzi("/data/slide.DZI?signature=abc"));
+        assert!(!is_dzi("https://example.com/slide_files/14/0_0.jpeg"));
+        assert!(!is_dzi("https://example.com/image.zarr/"));
     }
 
     #[test]

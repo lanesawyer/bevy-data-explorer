@@ -9,8 +9,9 @@ bevy_feathers = "0.19"
 bevy_ui_widgets = "0.19"
 clap = { version = "4", features = ["derive"] }
 # Already in the tree through `bevy_image`, declared here for the PNG encoder a
-# saved frame is written with. Bevy's own feature only covers loading.
-image = { version = "0.25", default-features = false, features = ["png"] }
+# saved frame is written with, and for decoding Deep Zoom tiles, which are JPEG
+# or PNG. Bevy's own features only cover loading assets.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 ome_zarr_metadata = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 # The runtime the reads are driven by. Reqwest's futures register with tokio's
@@ -33,6 +34,9 @@ zarrs_plugin = "0.4"
 # directly, so there is one copy of it in the graph.
 zarrs_object_store = { version = "0.7", features = ["http", "fs"] }
 url = "2.5.8"
+# The Deep Zoom descriptor is a few lines of XML. Already in the lockfile
+# through the Wayland bindings.
+quick-xml = { version = "0.41", features = ["serialize"] }
 
 [lints.rust]
 unsafe_code = "forbid"

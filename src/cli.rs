@@ -12,6 +12,9 @@ use std::sync::Arc;
 
 use clap::Parser;
 
+use crate::formats::discover;
+
+use crate::formats::dzi::pyramid::DeepZoom;
 use crate::formats::image::dataset::Dataset;
 use crate::formats::scatterbrain::Scatterbrain;
 
@@ -21,8 +24,8 @@ use crate::formats::scatterbrain::Scatterbrain;
     about = "Stream and explore large scientific datasets"
 )]
 pub struct Args {
-    /// OME-Zarr store (http(s) URL or local directory), or a manifest .json
-    /// describing one. Left out, the window starts empty.
+    /// OME-Zarr store (http(s) URL or local directory), a manifest .json
+    /// describing one, or a Deep Zoom .dzi. Left out, the window starts empty.
     pub source: Option<String>,
 
     /// Scatterbrain metadata JSON (http(s) URL or local file).
@@ -72,6 +75,7 @@ impl Args {
 /// Everything the command line named, opened and ready to be handed to plugins.
 pub struct Datasets {
     pub image: Option<Arc<Dataset>>,
+    pub deep_zoom: Option<Arc<DeepZoom>>,
     pub points: Option<Arc<Scatterbrain>>,
     pub cells: Option<Arc<Scatterbrain>>,
     pub sections: Option<Arc<Scatterbrain>>,
@@ -80,8 +84,14 @@ pub struct Datasets {
 impl Args {
     /// Open every source named, reporting each as it lands.
     pub fn open(&self) -> Result<Datasets, String> {
+        let deep_zoom = self.source.as_deref().is_some_and(discover::is_dzi);
         Ok(Datasets {
-            image: self.open_image()?,
+            image: if deep_zoom { None } else { self.open_image()? },
+            deep_zoom: if deep_zoom {
+                self.open_deep_zoom()?
+            } else {
+                None
+            },
             points: open_cloud("points", self.points.as_deref())?,
             cells: open_cloud("cells", self.cells.as_deref())?,
             sections: open_cloud("slices", self.slices.as_deref())?,
@@ -108,6 +118,26 @@ impl Args {
         );
         Ok(Some(image))
     }
+
+    fn open_deep_zoom(&self) -> Result<Option<Arc<DeepZoom>>, String> {
+        let Some(source) = self.source.as_deref() else {
+            return Ok(None);
+        };
+        println!("opening {:<6} {source}", "dzi");
+        let source = crate::formats::plain_url(source);
+        let text = crate::app::net::block_on(discover::fetch_text(&source))?;
+        let dzi = DeepZoom::parse(&source, &text)?;
+        println!(
+            "  {}: {} levels, {} x {} px, {} tiles of {} px",
+            dzi.name,
+            dzi.max_level() + 1,
+            dzi.width,
+            dzi.height,
+            dzi.format,
+            dzi.tile_size
+        );
+        Ok(Some(Arc::new(dzi)))
+    }
 }
 
 /// Open a point cloud, if one was named.
@@ -122,7 +152,7 @@ fn open_cloud(label: &str, source: Option<&str>) -> Result<Option<Arc<Scatterbra
 }
 
 fn load_points(source: &str) -> Result<Scatterbrain, String> {
-    let text = crate::app::net::block_on(crate::formats::discover::fetch_text(source))?;
+    let text = crate::app::net::block_on(discover::fetch_text(source))?;
     Scatterbrain::parse(&text)
 }
 

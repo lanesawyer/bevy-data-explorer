@@ -1,10 +1,13 @@
 //! Tile streaming.
 //!
 //! Each frame the viewer works out which level of the pyramid matches the
-//! current zoom, then requests the tiles covering the viewport at that level
-//! *and* at every coarser level. Coarse tiles are few, arrive first, and are
-//! drawn underneath, so panning into new territory shows a blurry version
-//! immediately that sharpens as finer tiles land.
+//! current zoom, and requests the tiles covering the viewport at that level,
+//! behind the overview tile at the coarsest level. Nothing off screen is asked
+//! for until every visible tile has landed; only then does it fetch a margin
+//! around the view and the levels either side, and those are abandoned the
+//! moment the view moves. Coarser tiles already resident are drawn underneath,
+//! so a zoom shows a blurry version immediately that sharpens as finer tiles
+//! land.
 //!
 //! Tiles that scroll out of view are not dropped straight away. They are kept
 //! in a least-recently-wanted cache under a memory budget, so zooming in and
@@ -161,8 +164,11 @@ pub struct TileStreamer {
     /// when the view moves before they start.
     wanted_shared: Arc<RwLock<HashSet<TileKey>>>,
     slots: HashMap<TileKey, Slot>,
-    /// Tiles that should exist right now, coarsest first.
+    /// Tiles to request, in order: visible ones, then prefetch once idle.
     wanted: Vec<TileKey>,
+    /// Tiles worth keeping resident whether or not they are being requested:
+    /// the visible set and the prefetch set.
+    retained: HashSet<TileKey>,
     pub z_slice: u64,
     pub active_level: usize,
     pub in_flight: usize,
@@ -186,6 +192,7 @@ impl TileStreamer {
             wanted_shared: Arc::new(RwLock::new(HashSet::new())),
             slots: HashMap::new(),
             wanted: Vec::new(),
+            retained: HashSet::new(),
             z_slice: 0,
             active_level: 0,
             in_flight: 0,
@@ -232,23 +239,26 @@ impl TileStreamer {
     }
 }
 
-/// Work out the visible world rectangle and queue the tiles that cover it.
+/// Work out what each frame shows and queue the tiles that cover it.
+///
+/// Visible tiles first, and nothing else until they have all landed: see
+/// [`request_order`].
 pub fn select_tiles(
     mut streamers: Query<&mut TileStreamer>,
     panels: Query<(&Camera, &GlobalTransform, &Projection, &ShowsSource)>,
 ) {
     for mut streamer in &mut streamers {
         let dataset = streamer.dataset.clone();
-        let mut wanted = Vec::new();
-        let mut seen = HashSet::new();
+        let coarsest = dataset.levels.len().saturating_sub(1);
         // The finest level any panel is asking for. Visibility is driven from this
         // so that a tile one panel needs is never hidden on behalf of another.
-        let mut active = dataset.levels.len().saturating_sub(1);
+        let mut active = coarsest;
 
         // Every panel of this kind draws the same entities, so the resident set is
         // the union of what each of them needs. A duplicated panel zoomed somewhere
         // else therefore pulls in its own tiles.
         let source = streamer.source;
+        let mut views = Vec::new();
         for (camera, transform, projection, _) in
             panels.iter().filter(|(_, _, _, shows)| shows.0 == source)
         {
@@ -258,77 +268,49 @@ pub fn select_tiles(
             let Some(viewport) = camera.logical_viewport_size() else {
                 continue;
             };
+            let view = View::new(transform, ortho);
+            let level = dataset.level_for(ortho.area.width() / viewport.x.max(1.0));
+            active = active.min(level);
+            views.push((view, level));
+        }
 
-            let centre = transform.translation().truncate();
-            let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
-            // A margin keeps tiles just off screen ready before they are panned into.
-            let margin = half * 0.15;
-            let min = centre - half - margin;
-            let max = centre + half + margin;
-
-            let units_per_px = ortho.area.width() / viewport.x.max(1.0);
-            let panel_active = dataset.level_for(units_per_px);
-            active = active.min(panel_active);
-
-            // Coarsest first so the cheap, fast tiles are requested ahead of fine ones.
-            for level_index in (panel_active..dataset.levels.len()).rev() {
-                let level = &dataset.levels[level_index];
-                let scale_x = level.scale_x as f32;
-                let scale_y = level.scale_y as f32;
-                if scale_x <= 0.0 || scale_y <= 0.0 {
-                    continue;
-                }
-
-                // World rect -> level pixels -> tile indices. World y runs downward in
-                // image space but upward in Bevy, hence the negation.
-                let px_x0 = (min.x - level.origin_x as f32) / scale_x;
-                let px_x1 = (max.x - level.origin_x as f32) / scale_x;
-                let px_y0 = (-max.y - level.origin_y as f32) / scale_y;
-                let px_y1 = (-min.y - level.origin_y as f32) / scale_y;
-
-                let tx0 = (px_x0 / level.tile_px as f32).floor().max(0.0) as u64;
-                let ty0 = (px_y0 / level.tile_px as f32).floor().max(0.0) as u64;
-                let tx1 = (px_x1 / level.tile_px as f32).ceil().max(0.0) as u64;
-                let ty1 = (px_y1 / level.tile_px as f32).ceil().max(0.0) as u64;
-
-                // Within a level, ask for the tiles nearest the middle of the view
-                // first: on a fast pan or zoom those are what the eye lands on, and
-                // the outer ones are the likeliest to be abandoned.
-                let mut level_tiles: Vec<(u64, TileKey)> = Vec::new();
-                for ty in ty0..ty1.min(level.tiles_y) {
-                    for tx in tx0..tx1.min(level.tiles_x) {
-                        let key = TileKey {
-                            level: level_index,
-                            ty,
-                            tx,
-                        };
-                        let Some((wx0, wy0, wx1, wy1)) = level.tile_world_rect(ty, tx) else {
-                            continue;
-                        };
-                        let mid = Vec2::new(f32::midpoint(wx0, wx1), -(wy0 + wy1) * 0.5);
-                        level_tiles.push((mid.distance_squared(centre) as u64, key));
-                    }
-                }
-                level_tiles.sort_unstable_by_key(|(distance, _)| *distance);
-                wanted.extend(
-                    level_tiles
-                        .into_iter()
-                        .map(|(_, key)| key)
-                        .filter(|key| seen.insert(*key)),
-                );
+        let mut visible = Tiers::default();
+        // The one overview a frame can show at once while its own level loads.
+        for (view, _) in &views {
+            visible.extend(tiles_over(&dataset, coarsest, view, view.half));
+        }
+        for (view, level) in &views {
+            visible.extend(tiles_over(&dataset, *level, view, view.half));
+        }
+        let mut prefetch = visible.followed_by();
+        for (view, level) in &views {
+            prefetch.extend(tiles_over(&dataset, *level, view, view.half + view.margin));
+            if *level < coarsest {
+                prefetch.extend(tiles_over(&dataset, level + 1, view, view.half));
+            }
+            if *level > 0 {
+                prefetch.extend(tiles_over(&dataset, level - 1, view, view.half));
             }
         }
 
         streamer.active_level = active;
 
-        // Touch everything wanted so eviction can tell live tiles from stale ones.
+        // Touch everything worth keeping, prefetch included, so eviction can
+        // tell live tiles from stale ones whether or not they are being asked for.
         streamer.frame = streamer.frame.wrapping_add(1);
         let frame = streamer.frame;
-        for key in &wanted {
+        for key in &prefetch.seen {
             if let Some(slot) = streamer.slots.get_mut(key) {
                 slot.last_wanted = frame;
             }
         }
+
+        let wanted = request_order(&visible.order, &prefetch.order, |key| {
+            streamer
+                .slots
+                .get(key)
+                .is_some_and(|slot| !matches!(slot.state, SlotState::Loading(_)))
+        });
 
         // Publish for the workers, so queued tasks can check whether they still
         // matter before doing any network work.
@@ -337,8 +319,125 @@ pub fn select_tiles(
             shared.extend(wanted.iter().copied());
         }
 
+        streamer.retained = prefetch.seen;
         streamer.wanted = wanted;
     }
+}
+
+/// What one frame is looking at, in display coordinates.
+pub(crate) struct View {
+    pub centre: Vec2,
+    pub half: Vec2,
+    /// How far past the edges a pan is likely to go next.
+    pub margin: Vec2,
+}
+
+impl View {
+    pub fn new(transform: &GlobalTransform, ortho: &OrthographicProjection) -> Self {
+        let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
+        View {
+            centre: transform.translation().truncate(),
+            half,
+            margin: half * 0.15,
+        }
+    }
+}
+
+/// Tiles in the order they were first named, each named once.
+pub(crate) struct Tiers<K> {
+    pub order: Vec<K>,
+    pub seen: HashSet<K>,
+}
+
+impl<K> Default for Tiers<K> {
+    fn default() -> Self {
+        Tiers {
+            order: Vec::new(),
+            seen: HashSet::new(),
+        }
+    }
+}
+
+impl<K: Copy + Eq + std::hash::Hash> Tiers<K> {
+    /// A tier to follow this one, skipping anything already named in it. Its
+    /// `seen` ends up holding both.
+    pub fn followed_by(&self) -> Self {
+        Tiers {
+            order: Vec::new(),
+            seen: self.seen.clone(),
+        }
+    }
+
+    pub fn extend(&mut self, keys: impl IntoIterator<Item = K>) {
+        for key in keys {
+            if self.seen.insert(key) {
+                self.order.push(key);
+            }
+        }
+    }
+}
+
+/// The tiles of one level within `half` of a view's centre, nearest the middle
+/// first: on a fast pan or zoom those are what the eye lands on, and the outer
+/// ones are the likeliest to be abandoned.
+fn tiles_over(dataset: &Dataset, level_index: usize, view: &View, half: Vec2) -> Vec<TileKey> {
+    let level = &dataset.levels[level_index];
+    let scale_x = level.scale_x as f32;
+    let scale_y = level.scale_y as f32;
+    if scale_x <= 0.0 || scale_y <= 0.0 {
+        return Vec::new();
+    }
+    let (min, max) = (view.centre - half, view.centre + half);
+
+    // World rect -> level pixels -> tile indices. World y runs downward in
+    // image space but upward in Bevy, hence the negation.
+    let px_x0 = (min.x - level.origin_x as f32) / scale_x;
+    let px_x1 = (max.x - level.origin_x as f32) / scale_x;
+    let px_y0 = (-max.y - level.origin_y as f32) / scale_y;
+    let px_y1 = (-min.y - level.origin_y as f32) / scale_y;
+
+    let tx0 = (px_x0 / level.tile_px as f32).floor().max(0.0) as u64;
+    let ty0 = (px_y0 / level.tile_px as f32).floor().max(0.0) as u64;
+    let tx1 = (px_x1 / level.tile_px as f32).ceil().max(0.0) as u64;
+    let ty1 = (px_y1 / level.tile_px as f32).ceil().max(0.0) as u64;
+
+    let mut tiles: Vec<(u64, TileKey)> = Vec::new();
+    for ty in ty0..ty1.min(level.tiles_y) {
+        for tx in tx0..tx1.min(level.tiles_x) {
+            let Some((wx0, wy0, wx1, wy1)) = level.tile_world_rect(ty, tx) else {
+                continue;
+            };
+            let mid = Vec2::new(f32::midpoint(wx0, wx1), -f32::midpoint(wy0, wy1));
+            let key = TileKey {
+                level: level_index,
+                ty,
+                tx,
+            };
+            tiles.push((mid.distance_squared(view.centre) as u64, key));
+        }
+    }
+    tiles.sort_unstable_by_key(|(distance, _)| *distance);
+    tiles.into_iter().map(|(_, key)| key).collect()
+}
+
+/// The tiles to ask for this frame: what the frames show, and — only once all
+/// of that has landed — what they might show next.
+///
+/// A tile off screen shares the connection with the ones on it. Even the last
+/// request to be cut off has been taking bandwidth from a visible tile until
+/// then, so the margin and the levels either side are not started while
+/// anything visible is still loading. Leaving them out of the wanted set is
+/// also what abandons one already under way the moment the view moves.
+pub(crate) fn request_order<K: Copy>(
+    visible: &[K],
+    prefetch: &[K],
+    resolved: impl Fn(&K) -> bool,
+) -> Vec<K> {
+    let mut wanted = visible.to_vec();
+    if visible.iter().all(resolved) {
+        wanted.extend_from_slice(prefetch);
+    }
+    wanted
 }
 
 /// Start tasks for wanted tiles that are not loaded yet.
@@ -471,29 +570,7 @@ pub fn collect_tile_tasks(
                         continue;
                     };
                     let bytes = pixels.rgba.len();
-
-                    let mut image = Image::new(
-                        Extent3d {
-                            width: pixels.width,
-                            height: pixels.height,
-                            depth_or_array_layers: 1,
-                        },
-                        TextureDimension::D2,
-                        pixels.rgba,
-                        TextureFormat::Rgba8UnormSrgb,
-                        RenderAssetUsages::RENDER_WORLD,
-                    );
-                    // Nearest magnification keeps individual pixels crisp past 1:1;
-                    // linear minification avoids shimmer when zoomed out. Clamping
-                    // stops neighbouring tiles bleeding across their seams.
-                    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-                        mag_filter: ImageFilterMode::Nearest,
-                        min_filter: ImageFilterMode::Linear,
-                        mipmap_filter: ImageFilterMode::Linear,
-                        address_mode_u: ImageAddressMode::ClampToEdge,
-                        address_mode_v: ImageAddressMode::ClampToEdge,
-                        ..default()
-                    });
+                    let image = tile_texture(pixels);
 
                     // Finer levels sit on top of coarser ones.
                     let z = (level_count - key.level) as f32;
@@ -571,7 +648,7 @@ pub fn evict_tiles(mut commands: Commands, mut streamers: Query<&mut TileStreame
         let candidates: Vec<Candidate> = streamer
             .slots
             .iter()
-            .filter(|(key, _)| !wanted.contains(*key))
+            .filter(|(key, _)| !streamer.retained.contains(*key))
             .filter_map(|(key, slot)| match slot.state {
                 SlotState::Ready { bytes, .. } => Some(Candidate {
                     key: *key,
@@ -600,9 +677,12 @@ pub fn evict_tiles(mut commands: Commands, mut streamers: Query<&mut TileStreame
             .count();
         if empty_slots > MAX_EMPTY_SLOTS {
             let cutoff = streamer.frame.saturating_sub(600);
-            streamer.slots.retain(|key, slot| {
+            let TileStreamer {
+                slots, retained, ..
+            } = &mut *streamer;
+            slots.retain(|key, slot| {
                 slot.state.holds_texture()
-                    || wanted.contains(key)
+                    || retained.contains(key)
                     || slot.last_wanted > cutoff
                     || matches!(slot.state, SlotState::Loading(_))
             });
@@ -624,16 +704,47 @@ pub fn evict_tiles(mut commands: Commands, mut streamers: Query<&mut TileStreame
     }
 }
 
+/// A tile's pixels as a texture, sampled the way every tile pyramid is drawn.
+pub(crate) fn tile_texture(pixels: TilePixels) -> Image {
+    let mut image = Image::new(
+        Extent3d {
+            width: pixels.width,
+            height: pixels.height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        pixels.rgba,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    // Nearest magnification keeps individual pixels crisp past 1:1; linear
+    // minification avoids shimmer when zoomed out. Clamping stops neighbouring
+    // tiles bleeding across their seams.
+    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        mag_filter: ImageFilterMode::Nearest,
+        min_filter: ImageFilterMode::Linear,
+        mipmap_filter: ImageFilterMode::Linear,
+        address_mode_u: ImageAddressMode::ClampToEdge,
+        address_mode_v: ImageAddressMode::ClampToEdge,
+        ..default()
+    });
+    image
+}
+
 /// A resident tile considered for eviction.
-struct Candidate {
-    key: TileKey,
-    last_wanted: u64,
-    bytes: usize,
+pub(crate) struct Candidate<K = TileKey> {
+    pub key: K,
+    pub last_wanted: u64,
+    pub bytes: usize,
 }
 
 /// Choose which tiles to drop so that `resident` falls within `budget`,
 /// least recently wanted first. Returns nothing while the cache fits.
-fn plan_eviction(mut candidates: Vec<Candidate>, resident: usize, budget: usize) -> Vec<TileKey> {
+pub(crate) fn plan_eviction<K>(
+    mut candidates: Vec<Candidate<K>>,
+    resident: usize,
+    budget: usize,
+) -> Vec<K> {
     if resident <= budget {
         return Vec::new();
     }
@@ -1038,7 +1149,7 @@ mod tests {
     #[test]
     fn an_empty_candidate_list_cannot_loop_forever() {
         // Every resident tile is in use, so nothing can be freed.
-        assert!(plan_eviction(Vec::new(), 500, 100).is_empty());
+        assert!(plan_eviction::<TileKey>(Vec::new(), 500, 100).is_empty());
     }
 
     #[test]
@@ -1052,6 +1163,38 @@ mod tests {
             );
         };
         assert_eq!(MAX_IN_FLIGHT, TILE_FETCH_THREADS);
+    }
+
+    #[test]
+    fn nothing_off_screen_is_requested_while_a_visible_tile_is_loading() {
+        // One visible tile outstanding is enough to hold back every prefetch:
+        // even the last to be cut off would have shared its bandwidth.
+        let visible = [key(3, 0), key(0, 0), key(0, 1)];
+        let prefetch = [key(0, 2), key(1, 0)];
+        let wanted = request_order(&visible, &prefetch, |k| *k != key(0, 1));
+        assert_eq!(wanted, visible);
+    }
+
+    #[test]
+    fn prefetch_follows_once_every_visible_tile_has_landed() {
+        let visible = [key(3, 0), key(0, 0)];
+        let prefetch = [key(0, 2), key(1, 0)];
+        let wanted = request_order(&visible, &prefetch, |_| true);
+        assert_eq!(wanted, [key(3, 0), key(0, 0), key(0, 2), key(1, 0)]);
+    }
+
+    #[test]
+    fn a_tile_named_twice_is_requested_once_where_first_named() {
+        let mut tiers = Tiers::default();
+        tiers.extend([key(3, 0), key(0, 0)]);
+        tiers.extend([key(0, 0), key(0, 1)]);
+        assert_eq!(tiers.order, [key(3, 0), key(0, 0), key(0, 1)]);
+
+        // Nor is a visible tile named again as a prefetch.
+        let mut prefetch = tiers.followed_by();
+        prefetch.extend([key(0, 1), key(1, 0)]);
+        assert_eq!(prefetch.order, [key(1, 0)]);
+        assert_eq!(prefetch.seen.len(), 4);
     }
 
     #[test]

@@ -7,6 +7,7 @@
 //! machinery — including a format that was switched off at startup.
 
 pub mod discover;
+pub mod dzi;
 pub mod image;
 pub mod pointcloud;
 pub mod scatterbrain;
@@ -24,6 +25,7 @@ impl Plugin for FormatsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LoadSettings>().add_plugins((
             image::ImageSystems,
+            dzi::DziSystems,
             pointcloud::PointCloudSystems,
             slices::SlicesSystems,
         ));
@@ -80,7 +82,7 @@ pub struct Example {
     pub url: &'static str,
 }
 
-pub const EXAMPLES: [Example; 6] = [
+pub const EXAMPLES: [Example; 7] = [
     Example {
         name: "Epifluorescence whole slide",
         kind: "OME-Zarr image",
@@ -110,6 +112,11 @@ pub const EXAMPLES: [Example; 6] = [
         name: "Tissuecyte, 142 sections",
         kind: "OME-Zarr image stack",
         url: "zarr2://s3://allen-genetic-tools/tissuecyte/1219090168/ome_zarr_conversion/1219090168.zarr/",
+    },
+    Example {
+        name: "SEA-AD pathology slide",
+        kind: "Deep Zoom image",
+        url: "https://idk-etl-prod-download-bucket.s3.amazonaws.com/idf-23-10-pathology-images/pat_images_JGCXWER774NLNWX2NNR/H20.33.040-A12-I6-primary/H20.33.040-A12-I6-primary.dzi",
     },
 ];
 
@@ -153,6 +160,9 @@ pub fn spawn_discovered(
             settings.z_slice,
             settings.cache_bytes,
         ),
+        Discovered::DeepZoom(dzi) => {
+            dzi::spawn_source(world, std::sync::Arc::new(dzi), settings.cache_bytes)
+        }
         Discovered::Points { name, cloud } => pointcloud::spawn_source(
             world,
             name,

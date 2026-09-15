@@ -3,18 +3,21 @@
 A streaming explorer for large scientific datasets, built on
 [Bevy](https://bevyengine.org). Datasets are shown side by side in independent
 panels, each streaming only what its own view needs and pulling in finer detail
-as you zoom. Two formats are supported so far:
+as you zoom. Three formats are supported so far:
 
 - **OME-Zarr** multiscale images, read through
   [`zarrs`](https://crates.io/crates/zarrs), in both Zarr v3 and v2. The
   reference image is 75803 × 56233 px at full resolution; the reference v2
   image is 53718 × 26669 px.
+- **Deep Zoom** (`.dzi`) images, the tile pyramids OpenSeadragon reads and
+  pathology slides are often published as. Tiles are JPEG or PNG; the
+  reference slide is 15936 × 11526 px across 15 levels.
 - **Scatterbrain**, the Allen Institute's point-cloud format, in two shapes: a
   single cloud (the reference one holds 4,042,976 points in an octree) and a
   *sectioned* dataset of many slices (53 slices, 3,739,961 points), which gets
   its own panel with grid and single-slice layouts.
 
-Neither is ever loaded in its entirety.
+None is ever loaded in its entirety.
 
 ## Running
 
@@ -22,6 +25,7 @@ Neither is ever loaded in its entirety.
 cargo run --release                          # an empty window, and the examples
 cargo run --release -- <url-or-dir>          # any OME-Zarr root
 cargo run --release -- metadata.json         # a manifest describing one
+cargo run --release -- slide.dzi             # a Deep Zoom image, URL or file
 cargo run --release -- --points <url|file>   # a Scatterbrain metadata JSON
 cargo run --release -- --slices <url|file>   # a sectioned Scatterbrain JSON
 cargo run --release -- --z 3 <source>        # pick a z slice
@@ -385,10 +389,14 @@ them together: against the reference v2 image a 512px tile read that way took
 159ms, where the same region as sixteen per-chunk reads took 1.1s.
 
 Reading is driven by what is on screen. Each frame the viewer picks the level
-whose pixels are closest to screen pixels, then requests the tiles covering the
-viewport at that level and at every coarser one. Coarse tiles are few and
-arrive first, and are drawn underneath, so moving into new territory shows a
-blurry version immediately that sharpens as finer tiles land.
+whose pixels are closest to screen pixels, then requests the single overview
+tile at the coarsest level and the tiles covering the viewport at the chosen
+one — and nothing else. A tile off screen shares the connection with the ones
+on it, so a margin around the view and the levels either side of the chosen
+one are fetched only once every visible tile has landed, and are abandoned the
+moment the view moves. Coarser tiles already resident stay drawn underneath,
+so a zoom shows a blurry version immediately that sharpens as finer tiles land.
+The same holds for Deep Zoom images.
 
 A volumetric image — a specimen cut into sections — is paged through rather
 than shown all at once. The source advertises a stack of slices, and both the

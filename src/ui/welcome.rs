@@ -230,6 +230,7 @@ mod tests {
         assert!(kinds.iter().any(|kind| kind.contains("point cloud")));
         assert!(kinds.iter().any(|kind| kind.contains("sections")));
         assert!(kinds.iter().any(|kind| kind.contains("stack")));
+        assert!(kinds.iter().any(|kind| kind.contains("Deep Zoom")));
     }
 
     #[test]
