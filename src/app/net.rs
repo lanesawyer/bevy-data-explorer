@@ -78,6 +78,14 @@ pub fn fetching<T: Send + 'static>(work: impl Future<Output = T> + Send + 'stati
     }
 }
 
+/// Run `work` to completion here and now.
+///
+/// For the command line, which opens what it was told to before there is a
+/// window to draw into, and has nothing else to be getting on with.
+pub fn block_on<T>(work: impl Future<Output = T>) -> T {
+    runtime().block_on(work)
+}
+
 /// Fetch a whole file.
 pub async fn fetch(url: &str) -> Result<Vec<u8>, String> {
     let response = client()
@@ -90,6 +98,20 @@ pub async fn fetch(url: &str) -> Result<Vec<u8>, String> {
         .bytes()
         .await
         .map(|bytes| bytes.to_vec())
+        .map_err(|e| format!("reading {url}: {e}"))
+}
+
+/// Fetch a whole file as text.
+pub async fn fetch_text(url: &str) -> Result<String, String> {
+    let response = client()
+        .get(url)
+        .send()
+        .await
+        .and_then(|response| response.error_for_status())
+        .map_err(|e| format!("fetching {url}: {e}"))?;
+    response
+        .text()
+        .await
         .map_err(|e| format!("reading {url}: {e}"))
 }
 

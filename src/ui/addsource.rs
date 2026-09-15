@@ -17,10 +17,10 @@
 //! The read is blocking — an HTTP fetch and a parse — so it runs on a task and
 //! the window keeps drawing while it is in flight.
 
+use crate::app::net::{Fetching, fetching};
 use bevy::input::keyboard::KeyboardInput;
 use bevy::input_focus::FocusedInput;
 use bevy::prelude::*;
-use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::text::EditableText;
 use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::{FeathersButton, FeathersTextInput, FeathersTextInputContainer};
@@ -89,7 +89,7 @@ impl LoadStatus {
 /// The load in flight, if any, and what to say about it.
 #[derive(Resource, Default)]
 pub struct CustomLoad {
-    task: Option<Task<Result<Discovered, String>>>,
+    task: Option<Fetching<Result<Discovered, String>>>,
     /// The field the URL was typed into, so that opening it clears that field
     /// and not one the user is still typing in elsewhere. Absent for a load
     /// that came from a button rather than a field.
@@ -144,8 +144,7 @@ impl CustomLoad {
         }
         self.status = LoadStatus::Loading(url.clone());
         self.loading = url.clone();
-        self.task =
-            Some(AsyncComputeTaskPool::get().spawn(async move { discover::discover(&url) }));
+        self.task = Some(fetching(async move { discover::discover(&url).await }));
     }
 }
 
@@ -279,7 +278,7 @@ pub fn poll_custom_load(
     let Some(task) = load.task.as_mut() else {
         return;
     };
-    let Some(outcome) = block_on(poll_once(task)) else {
+    let Some(outcome) = task.take() else {
         return;
     };
     load.task = None;

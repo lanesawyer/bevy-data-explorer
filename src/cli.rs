@@ -93,7 +93,11 @@ impl Args {
             return Ok(None);
         };
         println!("opening {:<6} {source}", "image");
-        let image = Arc::new(crate::formats::image::store::open(source)?);
+        // Nothing else is happening yet: the window is not up, and a bad URL
+        // should fail here rather than behind a blank panel.
+        let image = Arc::new(crate::app::net::block_on(
+            crate::formats::image::store::open(source),
+        )?);
         println!(
             "  {}: {} levels, {} channels, {} x {} px",
             image.name,
@@ -118,7 +122,8 @@ fn open_cloud(label: &str, source: Option<&str>) -> Result<Option<Arc<Scatterbra
 }
 
 fn load_points(source: &str) -> Result<Scatterbrain, String> {
-    Scatterbrain::parse(&crate::formats::discover::fetch_text(source)?)
+    let text = crate::app::net::block_on(crate::formats::discover::fetch_text(source))?;
+    Scatterbrain::parse(&text)
 }
 
 fn describe(label: &str, cloud: &Scatterbrain) {

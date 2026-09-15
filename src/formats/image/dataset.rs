@@ -7,27 +7,12 @@ use std::sync::Arc;
 use ome_zarr_metadata::v0_4::AxisType;
 
 use crate::formats::image::store::MultiscaleSpec;
-use zarrs::array::chunk_cache::{ChunkCache, ChunkCacheDecodedLruSizeLimit};
 use zarrs::array::{Array, ArraySubset, ChunkShapeTraits};
-use zarrs::storage::ReadableStorageTraits;
-use zarrs_codec::ArrayPartialDecoderTraits;
+use zarrs::storage::AsyncReadableStorageTraits;
+use zarrs_codec::AsyncArrayPartialDecoderTraits;
 
-pub type ReadStore = Arc<dyn ReadableStorageTraits>;
-pub type SharedArray = Array<dyn ReadableStorageTraits>;
-/// Decoded chunks kept for a level, so a tile that lands in a chunk already
-/// held costs no fetch and no decode.
-pub type LevelCache = ChunkCacheDecodedLruSizeLimit;
-
-/// Decoded chunks held per level.
-///
-/// This is the difference between a stack that pages and one that reloads.
-/// Measured against the tissuecyte reference, whose chunks are 40 slices deep:
-/// a 512px tile touches sixteen of them, 63 MB decoded, and reading it takes
-/// 600ms — while the next slice of the same tile comes out of the cache in
-/// 0.6ms, because the slice beside it was in the chunk already. A level's
-/// visible tiles at a browsing zoom come to a few hundred megabytes of chunks,
-/// and only the levels actually on screen hold anything.
-pub const DEFAULT_CHUNK_CACHE_MB: usize = 512;
+pub type ReadStore = Arc<dyn AsyncReadableStorageTraits>;
+pub type SharedArray = Array<dyn AsyncReadableStorageTraits>;
 
 /// Preferred tile edge in pixels.
 ///
@@ -114,10 +99,6 @@ pub struct Level {
     pub index: usize,
     pub path: String,
     pub array: Arc<SharedArray>,
-    /// Held for levels that are read through the array rather than through a
-    /// shard's decoder. A sharded level has an index to reuse instead, and its
-    /// decoder cache is what does this job.
-    pub cache: Option<LevelCache>,
     /// Level size in pixels.
     pub width: u64,
     pub height: u64,
@@ -216,16 +197,12 @@ pub struct Dataset {
 }
 
 impl Dataset {
-    pub fn open(
+    pub async fn open(
         store: ReadStore,
         multiscale: &MultiscaleSpec,
         omero: Option<&ome_zarr_metadata::v0_4::Omero>,
-        chunk_cache_bytes: usize,
     ) -> Result<Self, String> {
         let layout = AxisLayout::infer(&multiscale.axes)?;
-        // The budget is shared out rather than given to each level, since a
-        // pyramid is ten arrays and only one or two of them are ever on screen.
-        let levels_wanted = multiscale.datasets.len().max(1);
 
         let unit = multiscale
             .axes
@@ -238,7 +215,8 @@ impl Dataset {
         for (index, dataset) in multiscale.datasets.iter().enumerate() {
             let path = format!("/{}", dataset.path.trim_matches('/'));
             let array = Arc::new(
-                Array::open(store.clone(), &path)
+                Array::async_open(store.clone(), &path)
+                    .await
                     .map_err(|e| format!("opening array `{path}`: {e}"))?,
             );
 
@@ -272,14 +250,10 @@ impl Dataset {
 
             let width = shape[layout.x];
             let height = shape[layout.y];
-            let cache = (!sharded).then(|| {
-                LevelCache::new(array.clone(), (chunk_cache_bytes / levels_wanted) as u64)
-            });
             levels.push(Level {
                 index,
                 path,
                 array,
-                cache,
                 width,
                 height,
                 scale_x: scale[layout.x],
@@ -358,7 +332,7 @@ pub enum TileSource<'a> {
     /// A decoder already positioned on the shard holding the tile. Subsets are
     /// relative to that shard, and the decoder holds its index so successive
     /// tiles from the same shard cost no further round trips.
-    Shard(&'a dyn ArrayPartialDecoderTraits),
+    Shard(&'a dyn AsyncArrayPartialDecoderTraits),
     /// The array itself, addressed absolutely. For a store with no shards this
     /// is what lets one tile span several chunks and have them fetched
     /// together: measured against the v2 reference image, a 512px tile read
@@ -368,7 +342,7 @@ pub enum TileSource<'a> {
 }
 
 /// Read one tile, compositing the active channels into RGBA.
-pub fn read_tile(
+pub async fn read_tile(
     dataset: &Dataset,
     level: &Level,
     channels: &[Channel],
@@ -458,19 +432,17 @@ pub fn read_tile(
         let bytes = match source {
             TileSource::Shard(decoder) => decoder
                 .partial_decode(&subset, &Default::default())
+                .await
                 .map_err(|e| format!("decoding tile ({ty},{tx}) of {}: {e}", level.path))?,
-            TileSource::Array => match &level.cache {
-                // Through the cache when there is one: a chunk here can be
-                // dozens of slices deep, and paging through them is what the
-                // cache turns from a refetch into a lookup.
-                Some(cache) => cache
-                    .retrieve_array_subset(&subset, &Default::default())
-                    .map_err(|e| format!("reading tile ({ty},{tx}) of {}: {e}", level.path))?,
-                None => level
-                    .array
-                    .retrieve_array_subset(&subset)
-                    .map_err(|e| format!("reading tile ({ty},{tx}) of {}: {e}", level.path))?,
-            },
+            // No cache in front of this. zarrs' decoded-chunk cache is
+            // synchronous — `// TODO: AsyncChunkCache` upstream — so a stack
+            // pages by reading its chunks again rather than by looking up the
+            // slice beside the last one. See the note in the README.
+            TileSource::Array => level
+                .array
+                .async_retrieve_array_subset(&subset)
+                .await
+                .map_err(|e| format!("reading tile ({ty},{tx}) of {}: {e}", level.path))?,
         };
         let raw = bytes
             .into_fixed()

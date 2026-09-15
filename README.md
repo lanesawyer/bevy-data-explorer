@@ -400,11 +400,20 @@ size is, and any format that has one can offer it. A stack opens on its middle
 slice, since the first section of a block is usually empty and opening on it
 reads as a dataset that failed to load; `--z` names one instead.
 
-Each level holds a cache of decoded chunks, which is what makes paging feel like
-paging. The reference stack chunks forty slices together, so a 512px tile
-decodes 63 MB to show one slice of it — and the thirty-nine either side of that
-slice come out of memory. Measured on that store: 600ms for the first slice of a
-tile, 47ms for the next one.
+Reads are asynchronous, which is what lets one be given up on. A tile the view
+has moved off has its slot dropped, and dropping the slot aborts the read behind
+it: panning across the reference stack for six seconds abandoned 93 tile reads,
+each of them up to 37 MB of chunk fetched and decoded for a view nobody was
+looking at any more. The same applies to a view that leaves the image
+altogether, which wants nothing and should therefore be reading nothing.
+
+What that cost is the chunk cache. zarrs' decoded-chunk cache is synchronous —
+`// TODO: AsyncChunkCache` upstream — so paging a stack now reads its chunks
+again rather than finding the slice beside the last one already decoded, which
+measured 600ms against 47ms before. The fix that fits this viewer is to keep the
+whole z-block a tile decodes rather than one slice of it: the chunks contain
+forty slices whatever we ask for, so reading the block costs what reading one
+slice already costs, and paging within it costs nothing.
 
 Addresses are taken as they were copied. Neuroglancer writes the format in front
 and names buckets its own way — `zarr2://s3://bucket/key` — so the prefix is

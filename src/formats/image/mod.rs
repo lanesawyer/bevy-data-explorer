@@ -15,7 +15,7 @@ pub mod dataset;
 pub mod store;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
@@ -23,9 +23,9 @@ use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerD
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::sprite::Anchor;
-use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
-use zarrs_codec::ArrayPartialDecoderTraits;
+use zarrs_codec::AsyncArrayPartialDecoderTraits;
 
+use crate::app::net::{Fetching, fetching};
 use crate::app::schedule::Stage;
 use crate::formats::image::dataset::{Channel, Dataset, TilePixels, TileSource, read_tile};
 use crate::source::hover::{HoverInfo, HoverProbe};
@@ -82,7 +82,7 @@ struct Slot {
 }
 
 enum SlotState {
-    Loading(Task<TileOutcome>),
+    Loading(Fetching<TileOutcome>),
     Ready {
         entity: Entity,
         /// Texture footprint, used to keep the cache inside its budget.
@@ -108,7 +108,10 @@ enum TileOutcome {
 }
 
 type ShardKey = (usize, Vec<u64>);
-type DecoderCell = Arc<OnceLock<Result<Arc<dyn ArrayPartialDecoderTraits>, String>>>;
+type Decoder = Arc<dyn AsyncArrayPartialDecoderTraits>;
+/// An async cell rather than a `OnceLock`: building a decoder fetches the
+/// shard's index, which is now a read to await rather than a call to block on.
+type DecoderCell = Arc<tokio::sync::OnceCell<Result<Decoder, String>>>;
 
 #[derive(Default)]
 struct DecoderCache {
@@ -119,22 +122,20 @@ impl DecoderCache {
     /// Get or build the decoder for a shard. Construction happens outside the
     /// map lock so that a slow index fetch never blocks other shards, while
     /// `OnceLock` still collapses a race on the *same* shard into one fetch.
-    fn get(
-        &self,
-        dataset: &Dataset,
-        key: ShardKey,
-    ) -> Result<Arc<dyn ArrayPartialDecoderTraits>, String> {
+    async fn get(&self, dataset: &Dataset, key: ShardKey) -> Result<Decoder, String> {
         let cell = {
             let mut entries = self.entries.lock().unwrap();
             entries.entry(key.clone()).or_default().clone()
         };
-        cell.get_or_init(|| {
+        cell.get_or_init(|| async {
             dataset.levels[key.0]
                 .array
-                .partial_decoder(&key.1)
-                .map(|d| d as Arc<dyn ArrayPartialDecoderTraits>)
+                .async_partial_decoder(&key.1)
+                .await
+                .map(|decoder| decoder as Decoder)
                 .map_err(|e| e.to_string())
         })
+        .await
         .clone()
     }
 
@@ -343,7 +344,6 @@ pub fn select_tiles(
 /// Start tasks for wanted tiles that are not loaded yet.
 pub fn spawn_tile_tasks(mut streamers: Query<&mut TileStreamer>) {
     for mut streamer in &mut streamers {
-        let pool = AsyncComputeTaskPool::get();
         let dataset = streamer.dataset.clone();
         let decoders = streamer.decoders.clone();
         let z = streamer.z_slice;
@@ -364,11 +364,11 @@ pub fn spawn_tile_tasks(mut streamers: Query<&mut TileStreamer>) {
             let channels = channels.clone();
             let shared = shared.clone();
             let key = *key;
-            let task = pool.spawn(async move {
-                // A blocking read cannot be interrupted once it is under way, so
-                // the useful moment to give up is before starting. Tasks queued
-                // behind a busy pool reach here long after being spawned, by which
-                // point a pan or zoom may have made them irrelevant.
+            let task = fetching(async move {
+                // A read is abandoned when its slot is dropped, but a task
+                // queued behind a busy runtime can reach here long after being
+                // spawned — after a pan has already made it irrelevant — so it
+                // costs nothing to check before opening a connection.
                 let still_wanted = |shared: &RwLock<HashSet<TileKey>>| {
                     shared.read().map(|w| w.contains(&key)).unwrap_or(true)
                 };
@@ -382,7 +382,7 @@ pub fn spawn_tile_tasks(mut streamers: Query<&mut TileStreamer>) {
                 // chunks are fetched together.
                 let decoder = if level.sharded {
                     let shard = level.shard_of(&dataset.layout, key.ty, key.tx, z);
-                    match decoders.get(&dataset, (key.level, shard)) {
+                    match decoders.get(&dataset, (key.level, shard)).await {
                         Ok(d) => Some(d),
                         Err(e) => return TileOutcome::Failed(e),
                     }
@@ -399,7 +399,7 @@ pub fn spawn_tile_tasks(mut streamers: Query<&mut TileStreamer>) {
                     Some(decoder) => TileSource::Shard(decoder.as_ref()),
                     None => TileSource::Array,
                 };
-                match read_tile(&dataset, level, &channels, source, key.ty, key.tx, z) {
+                match read_tile(&dataset, level, &channels, source, key.ty, key.tx, z).await {
                     Ok(Some(pixels)) => TileOutcome::Ready(pixels),
                     Ok(None) => TileOutcome::Blank,
                     Err(e) => TileOutcome::Failed(e),
@@ -439,7 +439,7 @@ pub fn collect_tile_tasks(
             let SlotState::Loading(task) = &mut slot.state else {
                 continue;
             };
-            if let Some(outcome) = block_on(poll_once(task)) {
+            if let Some(outcome) = task.take() {
                 finished.push((*key, outcome));
             }
         }
@@ -543,6 +543,27 @@ pub fn collect_tile_tasks(
 pub fn evict_tiles(mut commands: Commands, mut streamers: Query<&mut TileStreamer>) {
     for mut streamer in &mut streamers {
         let wanted: HashSet<TileKey> = streamer.wanted.iter().copied().collect();
+
+        // Give up on tiles the view has moved off. A read used to be kept
+        // whatever happened, because a blocking one could not be stopped and
+        // throwing away the slot would only have lost the answer while still
+        // paying for it. Now dropping the slot aborts the read, which for a
+        // tile is megabytes of chunk fetched and decoded for a view nobody is
+        // looking at any more.
+        let mut cancelled = 0usize;
+        streamer.slots.retain(|key, slot| {
+            if matches!(slot.state, SlotState::Loading(_)) && !wanted.contains(key) {
+                cancelled += 1;
+                return false;
+            }
+            true
+        });
+        streamer.in_flight = streamer.in_flight.saturating_sub(cancelled);
+        streamer.cancelled += cancelled;
+
+        // Nothing wanted means the view has left the image. Its reads are
+        // abandoned above, but what is already drawn is kept: panning back
+        // should not have to fetch it again.
         if wanted.is_empty() {
             continue;
         }

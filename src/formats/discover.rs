@@ -40,7 +40,7 @@ impl Discovered {
 ///
 /// Blocking from end to end — it is the same reading the command line does —
 /// so callers with a window open run it on a task.
-pub fn discover(source: &str) -> Result<Discovered, String> {
+pub async fn discover(source: &str) -> Result<Discovered, String> {
     let source = crate::formats::plain_url(source.trim());
     let source = source.as_str();
     if source.is_empty() {
@@ -50,7 +50,7 @@ pub fn discover(source: &str) -> Result<Discovered, String> {
     // A Zarr root is a directory, so only a `.json` can be Scatterbrain
     // metadata. Trying it first costs one fetch and settles the common case.
     if is_json(source) {
-        let text = fetch_text(source)?;
+        let text = fetch_text(source).await?;
         let points = match Scatterbrain::parse(&text) {
             Ok(cloud) => return Ok(classify(source, cloud)),
             Err(e) => e,
@@ -58,11 +58,13 @@ pub fn discover(source: &str) -> Result<Discovered, String> {
         // Not Scatterbrain, so the other thing a `.json` can be is an image
         // manifest naming the store that holds the pyramid.
         return crate::formats::image::store::open(source)
+            .await
             .map(|dataset| Discovered::Image(Box::new(dataset)))
             .map_err(|image| unrecognised(source, &image, &points));
     }
 
     crate::formats::image::store::open(source)
+        .await
         .map(|dataset| Discovered::Image(Box::new(dataset)))
         .map_err(|image| {
             format!(
@@ -97,13 +99,10 @@ fn unrecognised(source: &str, image: &str, points: &str) -> String {
 }
 
 /// Read a source, over HTTP or off disk.
-pub fn fetch_text(source: &str) -> Result<String, String> {
+pub async fn fetch_text(source: &str) -> Result<String, String> {
     let source = &crate::formats::plain_url(source);
     if is_http(source) {
-        reqwest::blocking::get(source)
-            .and_then(|r| r.error_for_status())
-            .and_then(|r| r.text())
-            .map_err(|e| format!("fetching {source}: {e}"))
+        crate::app::net::fetch_text(source).await
     } else {
         std::fs::read_to_string(source).map_err(|e| format!("reading {source}: {e}"))
     }
@@ -209,7 +208,9 @@ mod tests {
 
     #[test]
     fn nothing_at_all_is_rejected_before_anything_is_fetched() {
-        assert!(discover("   ").is_err());
+        // Run to completion here: it refuses before it reaches the network, so
+        // there is nothing to wait for.
+        assert!(crate::app::net::block_on(discover("   ")).is_err());
     }
 
     #[test]

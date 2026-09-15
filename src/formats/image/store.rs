@@ -9,6 +9,8 @@ use std::sync::Arc;
 use ome_zarr_metadata::v0_4::{Axis, MultiscaleImageDataset, Omero};
 use serde::Deserialize;
 
+use zarrs_object_store::AsyncObjectStore;
+
 use crate::formats::image::dataset::{Dataset, ReadStore};
 
 /// A multiscale image normalised across OME-Zarr versions. The 0.4 and 0.5
@@ -28,23 +30,14 @@ struct Manifest {
     attrs: Option<serde_json::Value>,
 }
 
-/// Open whatever `source` points at, with the default chunk cache.
-pub fn open(source: &str) -> Result<Dataset, String> {
-    open_with(
-        source,
-        crate::formats::image::dataset::DEFAULT_CHUNK_CACHE_MB * 1024 * 1024,
-    )
-}
-
-/// Open whatever `source` points at, holding `chunk_cache_bytes` of decoded
-/// chunks across its levels.
-pub fn open_with(source: &str, chunk_cache_bytes: usize) -> Result<Dataset, String> {
+/// Open whatever `source` points at.
+pub async fn open(source: &str) -> Result<Dataset, String> {
     // Addresses arrive as they were copied. The command line reaches here
     // without going through `discover`, so this is where every path that opens
     // a store meets the same translation.
     let source = &crate::formats::plain_url(source);
     let (store_url, fallback_attrs) = if is_manifest(source) {
-        let manifest = load_manifest(source)?;
+        let manifest = load_manifest(source).await?;
         (manifest.url, manifest.attrs)
     } else {
         (source.to_string(), None)
@@ -54,7 +47,7 @@ pub fn open_with(source: &str, chunk_cache_bytes: usize) -> Result<Dataset, Stri
 
     // The store is authoritative; the manifest is only a fallback for stores
     // whose root attributes cannot be read.
-    let attrs = match read_root_attributes(&store) {
+    let attrs = match read_root_attributes(&store).await {
         Ok(Some(attrs)) => Some(attrs),
         Ok(None) => fallback_attrs.clone(),
         Err(e) => {
@@ -75,22 +68,15 @@ pub fn open_with(source: &str, chunk_cache_bytes: usize) -> Result<Dataset, Stri
         .first()
         .ok_or("the OME metadata lists no multiscale images")?;
 
-    Dataset::open(store, multiscale, omero.as_ref(), chunk_cache_bytes)
+    Dataset::open(store, multiscale, omero.as_ref()).await
 }
 
 fn is_manifest(source: &str) -> bool {
     source.trim_end_matches('/').ends_with(".json")
 }
 
-fn load_manifest(source: &str) -> Result<Manifest, String> {
-    let text = if is_http(source) {
-        reqwest::blocking::get(source)
-            .and_then(|r| r.error_for_status())
-            .and_then(|r| r.text())
-            .map_err(|e| format!("fetching manifest {source}: {e}"))?
-    } else {
-        std::fs::read_to_string(source).map_err(|e| format!("reading manifest {source}: {e}"))?
-    };
+async fn load_manifest(source: &str) -> Result<Manifest, String> {
+    let text = crate::formats::discover::fetch_text(source).await?;
     serde_json::from_str(&text).map_err(|e| format!("parsing manifest {source}: {e}"))
 }
 
@@ -110,22 +96,32 @@ fn is_http(source: &str) -> bool {
 }
 
 fn open_store(url: &str) -> Result<ReadStore, String> {
+    // Both backends come from `object_store`, which is the one zarrs can drive
+    // asynchronously. A read here is a future that can be dropped, which is
+    // what lets a tile nobody is waiting for any more be given up on.
     if is_http(url) {
         let base = http_base(url);
-        let store = zarrs_http::HTTPStore::new(&base)
+        let parsed = url::Url::parse(&base).map_err(|e| format!("reading {base}: {e}"))?;
+        let store = zarrs_object_store::object_store::http::HttpBuilder::new()
+            .with_url(parsed.as_str())
+            .build()
             .map_err(|e| format!("opening HTTP store {base}: {e}"))?;
-        Ok(Arc::new(store))
+        Ok(Arc::new(AsyncObjectStore::new(store)))
     } else {
-        let store = zarrs::filesystem::FilesystemStore::new(url)
+        let path = std::path::Path::new(url)
+            .canonicalize()
             .map_err(|e| format!("opening {url}: {e}"))?;
-        Ok(Arc::new(store))
+        let store =
+            zarrs_object_store::object_store::local::LocalFileSystem::new_with_prefix(&path)
+                .map_err(|e| format!("opening {url}: {e}"))?;
+        Ok(Arc::new(AsyncObjectStore::new(store)))
     }
 }
 
 /// Read the root group's attributes, returning `None` when there is no root
 /// group rather than treating that as a hard error.
-fn read_root_attributes(store: &ReadStore) -> Result<Option<serde_json::Value>, String> {
-    match zarrs::group::Group::open(store.clone(), "/") {
+async fn read_root_attributes(store: &ReadStore) -> Result<Option<serde_json::Value>, String> {
+    match zarrs::group::Group::async_open(store.clone(), "/").await {
         Ok(group) => Ok(Some(serde_json::Value::Object(group.attributes().clone()))),
         Err(e) => Err(format!("reading root group: {e}")),
     }

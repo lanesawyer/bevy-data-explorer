@@ -12,17 +12,24 @@ clap = { version = "4", features = ["derive"] }
 # saved frame is written with. Bevy's own feature only covers loading.
 image = { version = "0.25", default-features = false, features = ["png"] }
 ome_zarr_metadata = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 # The runtime the reads are driven by. Reqwest's futures register with tokio's
 # reactor, so something has to be driving one; this is also what makes a read
 # abortable, which is the whole point of doing them asynchronously.
-tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # `zlib` is not one of zarrs' default codecs, and is what numcodecs names the
 # compressor a good share of older Zarr v2 stores were written with. It costs
 # nothing: flate2 is already in the build for gzip.
-zarrs = { version = "0.23", features = ["zlib"] }
+zarrs = { version = "0.23", features = ["zlib", "async"] }
 zarrs_codec = "0.2"
-zarrs_http = "0.3"
 zarrs_plugin = "0.4"
+# The async side of zarrs needs a store that speaks it, and object_store's HTTP
+# and filesystem backends are that. `zarrs_http` is synchronous only, which is
+# what the image path used to be built on.
+# `http` and `fs` are the backends the viewer opens: a store over HTTP, and a
+# directory on disk. The object_store crate comes through here rather than
+# directly, so there is one copy of it in the graph.
+zarrs_object_store = { version = "0.7", features = ["http", "fs"] }
+url = "2.5.8"
