@@ -44,7 +44,7 @@ use requests::apply_panel_requests;
 pub use grid::{MAX_PANELS, grid_for};
 pub use input::{BlocksFrameInput, TextEntryFocused};
 pub use layers::{FrameLayers, LayerOf, OpensAsLayer};
-pub use requests::PanelRequest;
+pub use requests::{DatasetRequest, PanelRequest};
 
 /// The frame the sidebar's controls act on.
 ///
@@ -186,6 +186,7 @@ impl Plugin for ViewPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((overlay::OverlayPlugin, capture::CapturePlugin))
             .add_message::<PanelRequest>()
+            .add_message::<DatasetRequest>()
             .init_resource::<FrameArea>()
             .init_resource::<SelectedPanel>()
             .init_resource::<TextEntryFocused>()

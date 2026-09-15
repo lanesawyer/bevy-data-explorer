@@ -96,6 +96,14 @@ impl SourceExtent {
     }
 }
 
+/// Where a source was read from, as it was asked for.
+///
+/// What lets a known dataset be recognised as already open, so choosing it
+/// again reaches the source it opened as rather than fetching it a second time.
+/// Absent on a source that did not come from an address.
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub struct SourceUrl(pub String);
+
 /// Status text for the overlay, rewritten each frame by the owning plugin.
 ///
 /// Deliberately excludes anything view-dependent: one source may be shown in

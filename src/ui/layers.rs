@@ -14,12 +14,16 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, SliderValue};
 
 use crate::app::schedule::{Boot, Stage};
-use crate::source::DataSource;
+use crate::formats::{EXAMPLES, Example, unopened_examples};
+use crate::source::{DataSource, SourceUrl};
+use crate::ui::addsource::CustomLoad;
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::ui::viewconfig::SourceOpacity;
+use crate::view::grid::MAX_LAYERS;
 use crate::view::layers::{can_add_layer, stacked_sources, unit_mismatch};
 use crate::view::{
-    BlocksFrameInput, FrameLayers, LayerOf, Panel, PanelRequest, SelectedPanel, ShowsSource,
+    BlocksFrameInput, DatasetRequest, FrameLayers, LayerOf, Panel, PanelRequest, SelectedPanel,
+    ShowsSource,
 };
 use crate::widgets::{button_text, caption, spawn_accordion, spawn_slider};
 
@@ -42,16 +46,23 @@ pub struct LayersContent;
 #[derive(Component, Clone)]
 pub struct LayerButton {
     pub panel: Entity,
-    pub source: Entity,
-    pub add: bool,
+    pub action: LayerAction,
+}
+
+#[derive(Clone, Copy)]
+pub enum LayerAction {
+    Add(Entity),
+    Remove(Entity),
+    /// Read a known dataset, by its place in [`EXAMPLES`], and layer it once
+    /// it lands.
+    AddExample(usize),
 }
 
 impl Default for LayerButton {
     fn default() -> Self {
         LayerButton {
             panel: Entity::PLACEHOLDER,
-            source: Entity::PLACEHOLDER,
-            add: true,
+            action: LayerAction::Add(Entity::PLACEHOLDER),
         }
     }
 }
@@ -83,9 +94,11 @@ pub fn rebuild_layers(
     panels: Query<(&ShowsSource, Option<&FrameLayers>), With<Panel>>,
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     sources: Query<(Entity, &DataSource, Option<&SourceOpacity>)>,
+    urls: Query<&SourceUrl>,
+    load: Res<CustomLoad>,
     body: Query<Entity, With<LayersBody>>,
     existing: Query<Entity, With<LayersContent>>,
-    mut shown: Local<Option<(Option<Entity>, Vec<Entity>, usize)>>,
+    mut shown: Local<Option<(Option<Entity>, Vec<Entity>, usize, Option<Entity>)>>,
 ) {
     let Ok(body) = body.single() else { return };
 
@@ -99,6 +112,7 @@ pub fn rebuild_layers(
         frame.map(|(panel, _)| panel),
         stack.clone(),
         sources.iter().count(),
+        load.loading_onto(),
     );
     if shown.as_ref() == Some(&fingerprint) {
         return;
@@ -156,6 +170,8 @@ pub fn rebuild_layers(
         .map(|(entity, data, _)| (entity, data))
         .collect();
     candidates.sort_by_key(|(_, data)| data.layer);
+    let opened: Vec<&str> = urls.iter().map(|url| url.0.as_str()).collect();
+    let room = stack.len() < MAX_LAYERS;
 
     let heading = commands
         .spawn_scene(bsn! {
@@ -166,19 +182,36 @@ pub fn rebuild_layers(
         })
         .id();
     rows.push(heading);
-    if candidates.is_empty() {
+    if load.loading_onto() == Some(panel) {
         rows.push(content_caption(
             &mut commands,
-            "Open another dataset to draw it over this one.",
+            "Reading a dataset to draw over this one\u{2026}",
+        ));
+    }
+    if !room {
+        rows.push(content_caption(
+            &mut commands,
+            "This frame holds all it can.",
         ));
     }
     for (source, data) in candidates {
+        let details = details(&mut commands, data, unit_mismatch(base, data));
         rows.push(candidate_row(
             &mut commands,
             panel,
-            source,
-            data,
-            unit_mismatch(base, data),
+            LayerAction::Add(source),
+            details,
+        ));
+    }
+    // Known datasets not read yet: choosing one reads it and layers it once it
+    // lands, so nothing has to be opened somewhere else first.
+    for (index, example) in unopened_examples(&opened).filter(|_| room) {
+        let details = example_details(&mut commands, example);
+        rows.push(candidate_row(
+            &mut commands,
+            panel,
+            LayerAction::AddExample(index),
+            details,
         ));
     }
 
@@ -260,8 +293,7 @@ fn layer_row(
         "Remove",
         LayerButton {
             panel,
-            source,
-            add: false,
+            action: LayerAction::Remove(source),
         },
     );
     commands.entity(row).add_children(&[details, remove]);
@@ -271,23 +303,36 @@ fn layer_row(
 fn candidate_row(
     commands: &mut Commands,
     panel: Entity,
-    source: Entity,
-    data: &DataSource,
-    mismatch: Option<String>,
+    action: LayerAction,
+    details: Entity,
 ) -> Entity {
     let row = row(commands);
-    let add = button(
-        commands,
-        "+",
-        LayerButton {
-            panel,
-            source,
-            add: true,
-        },
-    );
-    let details = details(commands, data, mismatch);
+    let add = button(commands, "+", LayerButton { panel, action });
     commands.entity(row).add_children(&[add, details]);
     row
+}
+
+/// A known dataset's name and kind. What it is measured in is not known until
+/// it has been read, so there is no mismatch to warn about yet.
+fn example_details(commands: &mut Commands, example: &Example) -> Entity {
+    let name = example.name.to_string();
+    let column = commands
+        .spawn_scene(bsn! {
+            Node {
+                flex_direction: { FlexDirection::Column },
+                flex_grow: { 1.0_f32 },
+                flex_shrink: { 1.0_f32 },
+                row_gap: { Val::Px(1.0) },
+            }
+            Children [(
+                label(name)
+                InheritableFont { font_size: { 13.0f32 } }
+            )]
+        })
+        .id();
+    let kind = caption(commands, format!("{}, not loaded yet", example.kind));
+    commands.entity(column).add_child(kind);
+    column
 }
 
 /// Feathers buttons trigger [`Activate`] rather than carrying an
@@ -296,16 +341,28 @@ pub fn on_layer_button(
     activate: On<Activate>,
     buttons: Query<&LayerButton>,
     mut requests: MessageWriter<PanelRequest>,
+    mut datasets: MessageWriter<DatasetRequest>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
         return;
     };
-    let (panel, source) = (button.panel, button.source);
-    requests.write(if button.add {
-        PanelRequest::AddLayer { panel, source }
-    } else {
-        PanelRequest::RemoveLayer { panel, source }
-    });
+    let panel = button.panel;
+    match button.action {
+        LayerAction::Add(source) => {
+            requests.write(PanelRequest::AddLayer { panel, source });
+        }
+        LayerAction::Remove(source) => {
+            requests.write(PanelRequest::RemoveLayer { panel, source });
+        }
+        LayerAction::AddExample(index) => {
+            if let Some(example) = EXAMPLES.get(index) {
+                datasets.write(DatasetRequest {
+                    url: example.url.to_string(),
+                    onto: Some(panel),
+                });
+            }
+        }
+    }
 }
 
 /// Write a dragged slider through to its layer's opacity.

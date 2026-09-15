@@ -44,12 +44,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             z_slice: args.z,
             budget_bytes: args.cache_mb * 1024 * 1024,
         });
+        record_url(&mut app, args.source.as_deref());
     }
     if let Some(dzi) = data.deep_zoom {
         app.add_plugins(formats::dzi::DziPlugin {
             dzi,
             budget_bytes: args.cache_mb * 1024 * 1024,
         });
+        record_url(&mut app, args.source.as_deref());
     }
     if let Some(cloud) = data.points {
         app.add_plugins(formats::pointcloud::PointCloudPlugin {
@@ -57,6 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cloud,
             budget: args.point_budget,
         });
+        record_url(&mut app, args.points.as_deref());
     }
     if let Some(cloud) = data.cells {
         app.add_plugins(formats::pointcloud::PointCloudPlugin {
@@ -64,23 +67,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cloud,
             budget: args.point_budget,
         });
+        record_url(&mut app, args.cells.as_deref());
     }
     if let Some(cloud) = data.sections {
         app.add_plugins(formats::slices::SlicesPlugin {
             cloud,
             budget: args.slice_budget,
         });
+        record_url(&mut app, args.slices.as_deref());
     }
 
     // After every frame's dataset, so a layer is never mistaken for the frame
     // it is meant to be drawn over.
-    for layer in layers {
+    for (url, layer) in args.layer.iter().zip(layers) {
         let source = formats::spawn_discovered(app.world_mut(), layer, args.load_settings());
-        app.world_mut()
-            .entity_mut(source)
-            .insert(view::OpensAsLayer);
+        app.world_mut().entity_mut(source).insert((
+            view::OpensAsLayer,
+            source::SourceUrl(url.trim().to_string()),
+        ));
     }
 
     app.run();
     Ok(())
+}
+
+/// Record the address the source a plugin just registered was read from, so a
+/// dataset named here is not offered again in the menus as one to download.
+///
+/// Plugins register as they are added, and every one hands out the next render
+/// layer, so the newest source is the one with the highest.
+fn record_url(app: &mut App, url: Option<&str>) {
+    let Some(url) = url else { return };
+    let world = app.world_mut();
+    let newest = world
+        .query::<(Entity, &source::DataSource)>()
+        .iter(world)
+        .max_by_key(|(_, source)| source.layer)
+        .map(|(entity, _)| entity);
+    if let Some(entity) = newest {
+        world
+            .entity_mut(entity)
+            .insert(source::SourceUrl(url.trim().to_string()));
+    }
 }

@@ -127,6 +127,20 @@ pub const EXAMPLES: [Example; 8] = [
     },
 ];
 
+/// The known datasets not open yet, with their place in [`EXAMPLES`].
+///
+/// `opened` is every address a source was read from. A dataset already open is
+/// offered as the source it is instead, so listing it here too would offer it
+/// twice under the same name.
+pub fn unopened_examples<'a>(
+    opened: &'a [&'a str],
+) -> impl Iterator<Item = (usize, &'static Example)> + 'a {
+    EXAMPLES
+        .iter()
+        .enumerate()
+        .filter(|(_, example)| !opened.contains(&example.url))
+}
+
 /// The budgets a dataset is opened with, kept so that one opened at runtime is
 /// given the same allowances as one named on the command line.
 #[derive(Resource, Clone, Copy)]
@@ -207,6 +221,16 @@ mod tests {
             let url = plain_url(&format!("{prefix}https://example.com/a.zarr/"));
             assert_eq!(url, "https://example.com/a.zarr/");
         }
+    }
+
+    #[test]
+    fn an_open_example_is_not_offered_again_as_a_download() {
+        let all = unopened_examples(&[]).count();
+        assert_eq!(all, EXAMPLES.len());
+        let open = [EXAMPLES[0].url];
+        let left: Vec<usize> = unopened_examples(&open).map(|(index, _)| index).collect();
+        assert_eq!(left.len(), EXAMPLES.len() - 1);
+        assert!(!left.contains(&0));
     }
 
     #[test]

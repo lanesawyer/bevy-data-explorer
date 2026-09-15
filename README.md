@@ -303,10 +303,19 @@ tooltip still names the cell.
 
 A frame can draw several datasets, one over another: annotations over the slide
 they were drawn on, a point cloud over the image it was measured from. The
-dataset a frame opened onto is the bottom of its stack, and anything open can
-be put on top — from the frame's own `...` menu (`+ layer`, `- layer`), from the
-**Layers** section of the sidebar, or with `--layer` on the command line, which
-stacks onto the first frame and can be repeated.
+dataset a frame opened onto is the bottom of its stack, and anything open — or
+any dataset the app knows the address of — can be put on top: from the frame's
+own `...` menu (`+ layer`, `- layer`), from the **Layers** section of the
+sidebar, or with `--layer` on the command line, which stacks onto the first
+frame and can be repeated.
+
+A known dataset that is not open yet is read when it is chosen and layered once
+it lands, so nothing has to be opened in a frame of its own first. Choices made
+while one is still being read wait their turn rather than being dropped, since
+the menu they were made from is far from any status line that could say so. A
+dataset is recognised as open by the address it was read from, which every
+source records — including one named on the command line — so choosing it
+again reaches the source it already is rather than fetching it twice.
 
 Nothing refuses a layer for what it is. Whether two datasets mean anything drawn
 together is the judgement of whoever is looking, and a viewer that refuses is a
@@ -591,8 +600,8 @@ measuring against it, and are worth knowing before changing them:
 - A layer is drawn in its own coordinates. There is no registration between
   two datasets yet, so an overlay measured differently from its frame is
   marked but not moved into place.
-- An annotation example can only be layered once it has been opened; nothing
-  can say which frame a document belongs over until it has been read.
+- A known dataset's unit is not known until it has been read, so the menus can
+  only warn that a layer is measured differently once it is open.
 - A custom dataset is opened into a frame but cannot be closed again as a
   *source*: closing its frame leaves the source registered, still holding
   whatever it has streamed, and its render layer is not handed back.

@@ -415,7 +415,7 @@ pub struct AccordionTitle {
 const GLYPH_WIDTH: f32 = 0.58;
 
 /// Fit `text` into `width`, ending with an ellipsis if it has to be cut.
-fn truncate_to_width(text: &str, width: f32, font_size: f32) -> String {
+pub fn truncate_to_width(text: &str, width: f32, font_size: f32) -> String {
     let glyph = (font_size * GLYPH_WIDTH).max(1.0);
     let fits = (width / glyph).floor().max(0.0) as usize;
     if text.chars().count() <= fits {

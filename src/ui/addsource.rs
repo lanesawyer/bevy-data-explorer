@@ -32,7 +32,8 @@ use crate::app::schedule::Stage;
 use crate::app::theme::Palette;
 use crate::formats::discover::{self, Discovered};
 use crate::formats::{LoadSettings, spawn_discovered};
-use crate::view::{BlocksFrameInput, PanelRequest};
+use crate::source::SourceUrl;
+use crate::view::{BlocksFrameInput, DatasetRequest, PanelRequest};
 use crate::widgets::button_text;
 
 /// The field a URL is typed into. On the inner text entity, which is the one
@@ -94,11 +95,15 @@ pub struct CustomLoad {
     /// and not one the user is still typing in elsewhere. Absent for a load
     /// that came from a button rather than a field.
     field: Option<Entity>,
-    /// What each URL opened as, so a dataset listed a second time opens a frame
-    /// onto the source it already has rather than fetching it again — which for
-    /// a four million point cloud is a minute nobody asked for.
-    opened: std::collections::HashMap<String, Entity>,
-    /// The URL being read, kept so it can join `opened` when it lands.
+    /// The frame the dataset being read is to be layered onto, if it is not to
+    /// get a frame of its own.
+    onto: Option<Entity>,
+    /// Known datasets asked for while another was being read, in order.
+    ///
+    /// Queued rather than refused: a layer is chosen from a frame's menu, far
+    /// from the status line that would say a second choice had been dropped.
+    queued: std::collections::VecDeque<(String, Option<Entity>)>,
+    /// The URL being read, recorded on the source it becomes.
     loading: String,
     pub status: LoadStatus,
 }
@@ -108,28 +113,56 @@ impl CustomLoad {
         self.task.is_some()
     }
 
-    /// The source this URL opened as, if it has been opened in this session.
-    pub fn opened_as(&self, url: &str) -> Option<Entity> {
-        self.opened.get(url.trim()).copied()
+    /// Read `url`, now or once what is being read has landed, and open it
+    /// onto `onto` or into a frame of its own.
+    ///
+    /// One read at a time, so two datasets never race for the same cell.
+    pub fn request(&mut self, url: String, onto: Option<Entity>) {
+        let url = url.trim().to_string();
+        if self.already_asked(&url, onto) {
+            return;
+        }
+        self.queued.push_back((url, onto));
+        self.start_queued();
     }
 
-    /// Start reading `url`, unless something is already being read.
-    ///
-    /// One at a time: two sources arriving together would each want a frame,
-    /// and a second press while the first is still fetching reads as the first
-    /// press not having worked.
-    pub fn start(&mut self, url: String) {
-        self.field = None;
-        self.begin(url);
+    /// The frame the dataset being read will be layered onto, if any.
+    pub fn loading_onto(&self) -> Option<Entity> {
+        self.onto.filter(|_| self.is_loading())
+    }
+
+    /// Whether `url` is already being read, or waiting to be, for `onto`.
+    fn already_asked(&self, url: &str, onto: Option<Entity>) -> bool {
+        (self.is_loading() && self.loading == url && self.onto == onto)
+            || self
+                .queued
+                .iter()
+                .any(|(queued, target)| queued == url && *target == onto)
+    }
+
+    fn start_queued(&mut self) {
+        if self.is_loading() {
+            return;
+        }
+        if let Some((url, onto)) = self.queued.pop_front() {
+            self.field = None;
+            self.onto = onto;
+            self.begin(url);
+        }
     }
 
     /// Start reading what was typed into `field`, which is emptied once the
     /// dataset is open.
+    ///
+    /// Refused rather than queued while something is being read: the status
+    /// line under the field says so, and a URL still in the field can simply
+    /// be loaded again.
     pub fn start_from(&mut self, field: Entity, url: String) {
         if self.is_loading() {
             return;
         }
         self.field = Some(field);
+        self.onto = None;
         self.begin(url);
     }
 
@@ -263,7 +296,38 @@ pub fn on_url_submitted(
     }
 }
 
-/// Register whatever the task came back with, and open a frame onto it.
+/// Answer requests for known datasets: one already open goes straight to the
+/// frame it was asked for, and anything else is read.
+///
+/// Recognised by the address it was read from rather than by a record kept
+/// here, so a dataset named on the command line counts as open too.
+pub fn answer_dataset_requests(
+    mut requests: MessageReader<DatasetRequest>,
+    sources: Query<(Entity, &SourceUrl)>,
+    mut load: ResMut<CustomLoad>,
+    mut panels: MessageWriter<PanelRequest>,
+) {
+    for request in requests.read() {
+        let url = request.url.trim();
+        match sources.iter().find(|(_, opened)| opened.0 == url) {
+            Some((source, _)) => {
+                panels.write(opened_request(source, request.onto));
+            }
+            None => load.request(url.to_string(), request.onto),
+        }
+    }
+    load.start_queued();
+}
+
+fn opened_request(source: Entity, onto: Option<Entity>) -> PanelRequest {
+    match onto {
+        Some(panel) => PanelRequest::AddLayer { panel, source },
+        None => PanelRequest::Open(source),
+    }
+}
+
+/// Register whatever the task came back with, and open a frame onto it — or
+/// layer it onto the frame it was asked for.
 ///
 /// Registration wants the world rather than a query, so it is queued as a
 /// command; the request to open a frame goes with it, from inside the same
@@ -287,16 +351,15 @@ pub fn poll_custom_load(
         Ok(discovered) => {
             load.status = LoadStatus::Loaded(discovered.name().to_string());
             let url = std::mem::take(&mut load.loading);
+            let onto = load.onto.take();
             let settings = *settings;
             commands.queue(move |world: &mut World| {
                 let source = spawn_discovered(world, discovered, settings);
-                world.write_message(PanelRequest::Open(source));
-                // Recorded from inside the command, which is where the source
-                // entity first exists: what a URL opened as is the difference
-                // between offering it again and fetching it again.
-                if let Some(mut load) = world.get_resource_mut::<CustomLoad>() {
-                    load.opened.insert(url, source);
-                }
+                // Recorded where the source entity first exists: what a URL
+                // opened as is the difference between offering it again and
+                // fetching it again.
+                world.entity_mut(source).insert(SourceUrl(url));
+                world.write_message(opened_request(source, onto));
             });
             // The URL has been opened, so leave the field ready for the next
             // one rather than holding a value that would load a duplicate.
@@ -307,8 +370,10 @@ pub fn poll_custom_load(
         Err(message) => {
             bevy::log::warn!("{message}");
             load.status = LoadStatus::Failed(message);
+            load.onto = None;
         }
     }
+    load.start_queued();
 }
 
 /// Show how the last attempt went, and hold the button while one is in flight.
@@ -366,7 +431,11 @@ impl Plugin for AddSourcePlugin {
             // opened this frame starts streaming this frame.
             .add_systems(
                 Update,
-                (poll_custom_load, sync_custom_status)
+                (
+                    answer_dataset_requests,
+                    poll_custom_load,
+                    sync_custom_status,
+                )
                     .chain()
                     .in_set(Stage::ControlsApply),
             );
@@ -409,8 +478,20 @@ mod tests {
     #[test]
     fn an_empty_field_is_refused_rather_than_fetched() {
         let mut load = CustomLoad::default();
-        load.start("   ".into());
+        load.start_from(Entity::PLACEHOLDER, "   ".into());
         assert!(!load.is_loading());
         assert!(matches!(load.status, LoadStatus::Failed(_)));
+    }
+
+    #[test]
+    fn asking_again_for_what_is_already_queued_is_recognised() {
+        let panel = Entity::from_raw_u32(7).unwrap();
+        let mut load = CustomLoad::default();
+        load.queued
+            .push_back(("https://store/a.svg".into(), Some(panel)));
+        assert!(load.already_asked("https://store/a.svg", Some(panel)));
+        // The same dataset for somewhere else is a different request.
+        assert!(!load.already_asked("https://store/a.svg", None));
+        assert!(!load.already_asked("https://store/b.svg", Some(panel)));
     }
 }

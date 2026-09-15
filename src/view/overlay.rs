@@ -13,8 +13,9 @@
 //! that is bright in places and black in others.
 
 use bevy::prelude::*;
+use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::display::label;
+use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 
@@ -23,9 +24,11 @@ use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::Stage;
 use crate::source::hover::{HoverInfo, HoverProbe};
-use crate::source::{DataSource, SourceStatus};
+use crate::source::{DataSource, SourceStatus, SourceUrl};
 use crate::view::layers::stacked_sources;
-use crate::view::{BlocksFrameInput, FrameLayers, LayerOf, Panel, PanelRequest, ShowsSource};
+use crate::view::{
+    BlocksFrameInput, DatasetRequest, FrameLayers, LayerOf, Panel, PanelRequest, ShowsSource,
+};
 use crate::widgets::button_text;
 use crate::widgets::spawn_menu;
 
@@ -91,6 +94,9 @@ pub enum ChoiceAction {
     AddLayer,
     /// Take its layer off the frame.
     RemoveLayer,
+    /// Read a known dataset that is not open yet, and draw it over the frame
+    /// once it lands. Carries its place in [`crate::formats::EXAMPLES`].
+    LayerExample(usize),
 }
 
 impl Default for SourceChoice {
@@ -412,29 +418,41 @@ pub fn on_source_chosen(
     activate: On<Activate>,
     choices: Query<&SourceChoice>,
     mut requests: MessageWriter<PanelRequest>,
+    mut datasets: MessageWriter<DatasetRequest>,
 ) {
-    if let Ok(choice) = choices.get(activate.entity) {
-        let (panel, source) = (choice.panel, choice.source);
-        requests.write(match choice.action {
-            ChoiceAction::Show => PanelRequest::Show { panel, source },
-            ChoiceAction::AddLayer => PanelRequest::AddLayer { panel, source },
-            ChoiceAction::RemoveLayer => PanelRequest::RemoveLayer { panel, source },
-        });
-    }
+    let Ok(choice) = choices.get(activate.entity) else {
+        return;
+    };
+    let (panel, source) = (choice.panel, choice.source);
+    requests.write(match choice.action {
+        ChoiceAction::Show => PanelRequest::Show { panel, source },
+        ChoiceAction::AddLayer => PanelRequest::AddLayer { panel, source },
+        ChoiceAction::RemoveLayer => PanelRequest::RemoveLayer { panel, source },
+        ChoiceAction::LayerExample(index) => {
+            if let Some(example) = crate::formats::EXAMPLES.get(index) {
+                datasets.write(DatasetRequest {
+                    url: example.url.to_string(),
+                    onto: Some(panel),
+                });
+            }
+            return;
+        }
+    });
 }
 
-/// Fill each frame's menu with the datasets it could show, and those it could
-/// draw over what it shows.
+/// Fill each frame's menu: what it could show, what it draws on top, and what
+/// else could go on top.
 ///
 /// Rebuilt when the set of sources changes, or when what a frame stacks
-/// changes, so the current one stays marked.
+/// changes, so the current state stays marked.
 pub fn rebuild_source_menus(
     mut commands: Commands,
     menus: Query<(Entity, &SourceMenu)>,
     panels: Query<(&ShowsSource, Option<&FrameLayers>), With<Panel>>,
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     sources: Query<(Entity, &DataSource)>,
-    existing: Query<Entity, With<SourceChoice>>,
+    urls: Query<&SourceUrl>,
+    existing: Query<Entity, With<SourceMenuContent>>,
     mut shown: Local<Option<(Vec<(Entity, Vec<Entity>)>, usize)>>,
 ) {
     // What each frame is stacking, plus how many datasets there are to offer.
@@ -463,73 +481,190 @@ pub fn rebuild_source_menus(
     // Registration order, which is the order the frames were opened in.
     listed.sort_by_key(|(_, source)| source.layer);
     let lookup = |entity: Entity| sources.get(entity).ok().map(|(_, data)| data);
-
-    let choice = |commands: &mut Commands,
-                  panel: Entity,
-                  source: Entity,
-                  action: ChoiceAction,
-                  caption: String| {
-        commands
-            .spawn_scene(bsn! {
-                @FeathersToolButton {
-                    @caption: { bsn_list![button_text(caption)] }
-                }
-                BlocksFrameInput
-                SourceChoice { panel: { panel }, source: { source }, action: { action } }
-                Node { width: { Val::Percent(100.0) } }
-            })
-            .id()
-    };
+    let opened: Vec<&str> = urls.iter().map(|url| url.0.as_str()).collect();
 
     for (menu_entity, menu) in &menus {
         let Some((_, stack)) = fingerprint.0.iter().find(|(panel, _)| *panel == menu.panel) else {
             continue;
         };
-        let mut rows = Vec::new();
+        let panel = menu.panel;
+        let base = stack.first().and_then(|base| lookup(*base));
+        let mut rows = vec![menu_heading(&mut commands, "Show in this frame", 0.0)];
+
         for (entity, source) in &listed {
-            // A leading mark rather than a separate control, so the row stays
-            // one target however long the name is.
-            let mark = if stack.first() == Some(entity) {
-                "*"
-            } else {
-                " "
-            };
-            rows.push(choice(
+            let showing = stack.first() == Some(entity);
+            rows.push(menu_row(
                 &mut commands,
-                menu.panel,
-                *entity,
-                ChoiceAction::Show,
-                format!("{mark} {}", source.name),
+                &source.name,
+                &source.detail,
+                SourceChoice {
+                    panel,
+                    source: *entity,
+                    action: ChoiceAction::Show,
+                },
+                if showing { "Shown" } else { "Show" },
+                !showing,
             ));
         }
-        for (entity, source) in &listed {
-            if stack[1..].contains(entity) {
-                rows.push(choice(
+
+        if stack.len() > 1 {
+            rows.push(menu_heading(&mut commands, "Layers, top first", 10.0));
+            for entity in stack[1..].iter().rev() {
+                let Some(source) = lookup(*entity) else {
+                    continue;
+                };
+                rows.push(menu_row(
                     &mut commands,
-                    menu.panel,
-                    *entity,
-                    ChoiceAction::RemoveLayer,
-                    format!("- layer {}", source.name),
-                ));
-            } else if super::layers::can_add_layer(stack, *entity) {
-                let note = stack
-                    .first()
-                    .and_then(|base| lookup(*base))
-                    .and_then(|base| super::layers::unit_mismatch(base, source))
-                    .map(|mismatch| format!("  ({mismatch})"))
-                    .unwrap_or_default();
-                rows.push(choice(
-                    &mut commands,
-                    menu.panel,
-                    *entity,
-                    ChoiceAction::AddLayer,
-                    format!("+ layer {}{note}", source.name),
+                    &source.name,
+                    &layer_note(base, source),
+                    SourceChoice {
+                        panel,
+                        source: *entity,
+                        action: ChoiceAction::RemoveLayer,
+                    },
+                    "Remove",
+                    true,
                 ));
             }
+        }
+
+        let room = stack.len() < super::grid::MAX_LAYERS;
+        rows.push(menu_heading(&mut commands, "Add a layer", 10.0));
+        for (entity, source) in &listed {
+            if !super::layers::can_add_layer(stack, *entity) {
+                continue;
+            }
+            rows.push(menu_row(
+                &mut commands,
+                &source.name,
+                &layer_note(base, source),
+                SourceChoice {
+                    panel,
+                    source: *entity,
+                    action: ChoiceAction::AddLayer,
+                },
+                "Add",
+                true,
+            ));
+        }
+        // Known datasets not read yet, so choosing a layer never means opening
+        // it somewhere first. What they are measured in is not known until
+        // they are read, so there is no mismatch to note.
+        for (index, example) in crate::formats::unopened_examples(&opened) {
+            rows.push(menu_row(
+                &mut commands,
+                example.name,
+                &format!("{}, not loaded yet", example.kind),
+                SourceChoice {
+                    panel,
+                    source: Entity::PLACEHOLDER,
+                    action: ChoiceAction::LayerExample(index),
+                },
+                "Add",
+                room,
+            ));
         }
         commands.entity(menu_entity).add_children(&rows);
     }
     *shown = Some(fingerprint);
+}
+
+/// Everything a frame's menu is rebuilt from, despawned wholesale.
+#[derive(Component, Clone, Default)]
+pub struct SourceMenuContent;
+
+/// Room the name and caption get beside a row's button, in logical pixels.
+///
+/// Fixed because the menu is: a menu's width never changes, so text can be
+/// cut to it once when the rows are built rather than measured every frame.
+const MENU_TEXT_PX: f32 = crate::widgets::MENU_WIDTH - 20.0 - 6.0 - 64.0;
+
+/// What a layer is, and whether it is measured the way the frame under it is.
+fn layer_note(base: Option<&DataSource>, source: &DataSource) -> String {
+    match base.and_then(|base| super::layers::unit_mismatch(base, source)) {
+        Some(mismatch) => format!("{mismatch}, not rescaled"),
+        None => source.detail.clone(),
+    }
+}
+
+fn menu_heading(commands: &mut Commands, text: &str, gap: f32) -> Entity {
+    let text = text.to_string();
+    commands
+        .spawn_scene(bsn! {
+            SourceMenuContent
+            label(text)
+            InheritableFont { font_size: { 12.0f32 } }
+            Node { margin: { UiRect::new(Val::Px(2.0), Val::Px(0.0), Val::Px(gap), Val::Px(2.0)) } }
+        })
+        .id()
+}
+
+/// A dataset on one line, what it is on a dimmer one under it, and the one
+/// thing this row does.
+///
+/// Both lines are cut to fit rather than wrapped. A wrapped name breaks the
+/// row's height and runs into its neighbour, and the full name is already in
+/// the frame's header once it is shown.
+fn menu_row(
+    commands: &mut Commands,
+    name: &str,
+    note: &str,
+    choice: SourceChoice,
+    action: &str,
+    enabled: bool,
+) -> Entity {
+    let name = crate::widgets::truncate_to_width(name, MENU_TEXT_PX, 13.0);
+    let note = crate::widgets::truncate_to_width(note, MENU_TEXT_PX, 11.0);
+    let action = action.to_string();
+    let row = commands
+        .spawn_scene(bsn! {
+            SourceMenuContent
+            Node {
+                width: { Val::Percent(100.0) },
+                align_items: { AlignItems::Center },
+                column_gap: { Val::Px(6.0) },
+                padding: { UiRect::vertical(Val::Px(3.0)) },
+            }
+            Children [
+                (
+                    Node {
+                        flex_direction: { FlexDirection::Column },
+                        flex_grow: { 1.0_f32 },
+                        flex_shrink: { 1.0_f32 },
+                        min_width: { Val::Px(0.0) },
+                        overflow: { Overflow::clip() },
+                    }
+                    Children [
+                        (
+                            label(name)
+                            InheritableFont { font_size: { 13.0f32 } }
+                            TextLayout { linebreak: { LineBreak::NoWrap } }
+                        ),
+                        (
+                            label_dim(note)
+                            InheritableFont { font_size: { 11.0f32 } }
+                            TextLayout { linebreak: { LineBreak::NoWrap } }
+                        ),
+                    ]
+                ),
+            ]
+        })
+        .id();
+    let button = commands
+        .spawn_scene(bsn! {
+            @FeathersToolButton {
+                @caption: { bsn_list![button_text(action)] }
+            }
+            BlocksFrameInput
+            template_value(choice)
+            Node { flex_shrink: { 0.0_f32 } }
+        })
+        .id();
+    if !enabled {
+        commands.entity(button).insert(InteractionDisabled);
+    }
+    commands.entity(row).add_child(button);
+    row
 }
 
 /// The overlay drawn over each frame: its title, status lines and tooltip.

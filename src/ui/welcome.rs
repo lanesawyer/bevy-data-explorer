@@ -19,7 +19,7 @@ use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
 use crate::formats::EXAMPLES;
-use crate::ui::addsource::{CustomLoad, spawn_custom_section};
+use crate::ui::addsource::spawn_custom_section;
 use crate::view::{BlocksFrameInput, FrameArea, Panel};
 use crate::widgets::button_text;
 
@@ -149,17 +149,13 @@ fn example_row(commands: &mut Commands, index: usize, name: &str, kind: &str) ->
 
 /// Open the example whose button was pressed.
 ///
-/// One that has been opened already gets a frame onto the source it opened as,
-/// rather than being fetched a second time to arrive at the same dataset twice.
-/// Anything else goes through the same load the URL field uses, so an example
-/// is opened by exactly the path a typed URL is — including the status line
-/// under the field saying how it went.
+/// Asked for by address, the way a layer chosen from a frame's menu is: one
+/// open already gets a frame onto the source it opened as, and anything else
+/// is read by exactly the path a typed URL is.
 pub fn on_example_pressed(
     activate: On<Activate>,
     buttons: Query<&ExampleButton>,
-    sources: Query<(), With<crate::source::DataSource>>,
-    mut load: ResMut<CustomLoad>,
-    mut requests: MessageWriter<crate::view::PanelRequest>,
+    mut requests: MessageWriter<crate::view::DatasetRequest>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
         return;
@@ -167,18 +163,10 @@ pub fn on_example_pressed(
     let Some(example) = EXAMPLES.get(button.example) else {
         return;
     };
-    // A source registered earlier in this session, and still registered: a
-    // dataset whose frames have all been closed is still loaded, and this is
-    // what brings it back without the download.
-    match load
-        .opened_as(example.url)
-        .filter(|source| sources.get(*source).is_ok())
-    {
-        Some(source) => {
-            requests.write(crate::view::PanelRequest::Open(source));
-        }
-        None => load.start(example.url.to_string()),
-    }
+    requests.write(crate::view::DatasetRequest {
+        url: example.url.to_string(),
+        onto: None,
+    });
 }
 
 /// Cover the frame area while there are no frames, and stand down once there

@@ -41,6 +41,19 @@ pub enum PanelRequest {
     },
 }
 
+/// Show a dataset by its address, fetching it first if it is not open yet.
+///
+/// Raised by anything that offers a known dataset, and answered by whatever
+/// can read one — which lives above the grid, so the grid asks rather than
+/// reads. A dataset already open is not fetched again: the answer is the
+/// [`PanelRequest`] it would have ended in.
+#[derive(Message, Clone, Debug)]
+pub struct DatasetRequest {
+    pub url: String,
+    /// The frame to layer it onto, or `None` for a frame of its own.
+    pub onto: Option<Entity>,
+}
+
 /// Apply requested changes to the set of frames.
 pub fn apply_panel_requests(
     mut commands: Commands,
