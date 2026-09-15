@@ -43,7 +43,7 @@ use requests::apply_panel_requests;
 // caller needs to know does not depend on how this module is cut up.
 pub use grid::{MAX_PANELS, grid_for};
 pub use input::{BlocksFrameInput, TextEntryFocused};
-pub use layers::{FrameLayers, LayerOf, OpensAsLayer};
+pub use layers::{FrameLayers, LayerOf, LayerOpacity, OpensAsLayer};
 pub use requests::{DatasetRequest, PanelRequest};
 
 /// The frame the sidebar's controls act on.
@@ -274,7 +274,13 @@ fn open_frames(
     }
     if let Some(panel) = first_panel {
         for (entity, source, ..) in layered.into_iter().take(grid::MAX_LAYERS - 1) {
-            layers::spawn_layer(&mut commands, panel, entity, source.layer);
+            layers::spawn_layer(
+                &mut commands,
+                panel,
+                entity,
+                source.layer,
+                LayerOpacity::default(),
+            );
         }
     }
 }

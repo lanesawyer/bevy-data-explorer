@@ -81,8 +81,9 @@ re-measuring will regress something:
   silently never fires.
 - **Only cell 0 clears the window.** The rest draw over it deliberately. Any
   code that reorders or removes frames must keep exactly one clearing camera,
-  or renders accumulate. Layer cameras (`view/layers.rs`) never clear, and take
-  their order from `grid::camera_order` — never set a camera's order by hand.
+  or renders accumulate. Layer cameras (`view/layers.rs`) render into images of
+  their own, not the window, and are laid over their frame as UI images; they
+  clear those images, never the window.
 - **A camera with `ShowsSource` is not necessarily a frame.** Layer cameras
   carry it too, which is what makes a layered source stream. Anything that
   *iterates* frames — counting them, laying them out, drawing chrome — filters

@@ -3,9 +3,8 @@
 //!
 //! Every change is a [`PanelRequest`], the same ones a frame's own menu raises,
 //! so the two routes cannot disagree about what may be layered. The transparency
-//! of a layer is its source's [`SourceOpacity`], the same value View
-//! configuration sets for the dataset at the bottom, so a layer fades exactly
-//! as it would in a frame of its own.
+//! of a layer is the layer's own [`LayerOpacity`] rather than its dataset's, so
+//! the same dataset can be faint over one frame and fully shown in another.
 
 use bevy::prelude::*;
 use bevy_feathers::controls::FeathersToolButton;
@@ -18,12 +17,11 @@ use crate::formats::{EXAMPLES, Example, unopened_examples};
 use crate::source::{DataSource, SourceUrl};
 use crate::ui::addsource::CustomLoad;
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
-use crate::ui::viewconfig::SourceOpacity;
 use crate::view::grid::MAX_LAYERS;
 use crate::view::layers::{can_add_layer, stacked_sources, unit_mismatch};
 use crate::view::{
-    BlocksFrameInput, DatasetRequest, FrameLayers, LayerOf, Panel, PanelRequest, SelectedPanel,
-    ShowsSource,
+    BlocksFrameInput, DatasetRequest, FrameLayers, LayerOf, LayerOpacity, Panel, PanelRequest,
+    SelectedPanel, ShowsSource,
 };
 use crate::widgets::{button_text, caption, spawn_accordion, spawn_slider};
 
@@ -70,7 +68,8 @@ impl Default for LayerButton {
 /// Sets one layer's transparency.
 #[derive(Component, Clone)]
 pub struct LayerOpacitySlider {
-    pub source: Entity,
+    /// The layer camera, which is what carries the opacity.
+    pub layer: Entity,
 }
 
 pub fn spawn_layers_section(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
@@ -93,12 +92,21 @@ pub fn rebuild_layers(
     selected: Res<SelectedPanel>,
     panels: Query<(&ShowsSource, Option<&FrameLayers>), With<Panel>>,
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
-    sources: Query<(Entity, &DataSource, Option<&SourceOpacity>)>,
+    opacities: Query<(&ShowsSource, &LayerOpacity), With<LayerOf>>,
+    sources: Query<(Entity, &DataSource)>,
     urls: Query<&SourceUrl>,
     load: Res<CustomLoad>,
     body: Query<Entity, With<LayersBody>>,
     existing: Query<Entity, With<LayersContent>>,
-    mut shown: Local<Option<(Option<Entity>, Vec<Entity>, usize, Option<Entity>)>>,
+    mut shown: Local<
+        Option<(
+            Option<Entity>,
+            Vec<Entity>,
+            Vec<Entity>,
+            usize,
+            Option<Entity>,
+        )>,
+    >,
 ) {
     let Ok(body) = body.single() else { return };
 
@@ -108,9 +116,17 @@ pub fn rebuild_layers(
     let stack = frame.map_or_else(Vec::new, |(_, (shows, layers))| {
         stacked_sources(shows, layers, &layer_cameras)
     });
+    // The cameras as well as the sources: a layer taken off and put back is the
+    // same source on a new camera, and a slider left bound to the old one would
+    // move nothing.
+    let cameras: Vec<Entity> = frame
+        .and_then(|(_, (_, layers))| layers)
+        .map(|layers| layers.cameras().to_vec())
+        .unwrap_or_default();
     let fingerprint = (
         frame.map(|(panel, _)| panel),
         stack.clone(),
+        cameras.clone(),
         sources.iter().count(),
         load.loading_onto(),
     );
@@ -123,7 +139,7 @@ pub fn rebuild_layers(
         commands.entity(entity).despawn();
     }
 
-    let lookup = |entity: Entity| sources.get(entity).ok().map(|(_, data, _)| data);
+    let lookup = |entity: Entity| sources.get(entity).ok().map(|(_, data)| data);
     let mut rows = Vec::new();
 
     let Some((panel, _)) = frame else {
@@ -137,26 +153,24 @@ pub fn rebuild_layers(
 
     // Topmost first, the way layers are listed wherever layers are listed: the
     // first row is what is drawn over everything else.
-    for source in stack[1..].iter().rev() {
-        let Ok((_, data, opacity)) = sources.get(*source) else {
+    for camera in cameras.iter().rev() {
+        let Ok((shows, opacity)) = opacities.get(*camera) else {
+            continue;
+        };
+        let Some(data) = lookup(shows.0) else {
             continue;
         };
         rows.push(layer_row(
             &mut commands,
             panel,
-            *source,
+            shows.0,
             data,
             unit_mismatch(base, data),
         ));
-        let slider = spawn_slider(
-            &mut commands,
-            opacity.map_or(1.0, |o| o.0) * PERCENT,
-            (0.0, PERCENT),
-            0,
-        );
+        let slider = spawn_slider(&mut commands, opacity.0 * PERCENT, (0.0, PERCENT), 0);
         commands
             .entity(slider)
-            .insert((LayersContent, LayerOpacitySlider { source: *source }));
+            .insert((LayersContent, LayerOpacitySlider { layer: *camera }));
         rows.push(slider);
     }
     rows.push(content_caption(
@@ -166,8 +180,7 @@ pub fn rebuild_layers(
 
     let mut candidates: Vec<(Entity, &DataSource)> = sources
         .iter()
-        .filter(|(entity, ..)| can_add_layer(&stack, *entity))
-        .map(|(entity, data, _)| (entity, data))
+        .filter(|(entity, _)| can_add_layer(&stack, *entity))
         .collect();
     candidates.sort_by_key(|(_, data)| data.layer);
     let opened: Vec<&str> = urls.iter().map(|url| url.0.as_str()).collect();
@@ -367,25 +380,17 @@ pub fn on_layer_button(
 
 /// Write a dragged slider through to its layer's opacity.
 ///
-/// One way only, unlike View configuration's slider: the rows are rebuilt
-/// with each source's own value whenever the stack or selection changes, so
-/// there is no selection moving underneath a slider to load a value across.
+/// One way only, unlike View configuration's slider: each slider is bound to
+/// one layer and built with its value, and the rows are rebuilt whenever the
+/// stack or the selection changes, so no selection moves underneath it.
 pub fn apply_layer_opacity(
-    mut commands: Commands,
     sliders: Query<(&LayerOpacitySlider, &SliderValue), Changed<SliderValue>>,
-    mut opacities: Query<&mut SourceOpacity>,
+    mut opacities: Query<&mut LayerOpacity>,
 ) {
     for (slider, value) in &sliders {
-        let wanted = (value.0 / PERCENT).clamp(0.0, 1.0);
-        match opacities.get_mut(slider.source) {
-            Ok(mut opacity) => {
-                if (opacity.0 - wanted).abs() > f32::EPSILON {
-                    opacity.0 = wanted;
-                }
-            }
-            Err(_) => {
-                commands.entity(slider.source).insert(SourceOpacity(wanted));
-            }
+        let wanted = LayerOpacity((value.0 / PERCENT).clamp(0.0, 1.0));
+        if let Ok(mut opacity) = opacities.get_mut(slider.layer) {
+            opacity.set_if_neq(wanted);
         }
     }
 }

@@ -327,20 +327,37 @@ mistaken for a real one.
 
 The Layers section lists the selected frame's stack top first, each with its
 own transparency and a button to take it off, over the list of everything else
-that could go on top. Transparency is the source's own, the same value View
-configuration sets, so a dataset fades the same way whether it is a layer or a
-frame. Outlines lower their alpha rather than dimming, since they barely
-overdraw and should let a pale slide show through.
+that could go on top.
 
-Each layer is a camera of its own, sharing its frame's viewport, view and
-projection, drawing its source's render layer and ordered straight after the
-one beneath it. Stacking by camera order rather than by depth is what lets any
-source sit on any other without its plugin knowing; one source can be the base
-of one frame and a layer of another at once. A layer camera carries the same
-`ShowsSource` a frame does, which is all a streamer asks of a view, so a layered
-dataset streams exactly as it would in a frame of its own. Closing a frame
-despawns its layers, duplicating one copies them, and pointing a frame at a
-dataset already in its stack drops that layer rather than drawing it twice.
+A layer's transparency is true see-through, unlike fading a dataset from View
+configuration, which dims it. Everything a source draws overdraws itself — an
+image keeps coarser tiles under the finer ones, a point cloud stacks dozens of
+points on a pixel — so fading its geometry directly compounds wherever it
+overlaps, which is why fading a frame dims instead. A layer does not have that
+problem because it is never faded where it is drawn: each layer camera renders
+into an image the size of its frame, cleared to nothing, and that image is laid
+over the frame at the layer's opacity. Its overlaps are settled before any
+transparency is applied, so the dataset beneath shows through evenly, whatever
+format either is. The opacity belongs to the layer rather than to its dataset,
+so one dataset can be faint over one frame and fully shown in another.
+
+The cost is an image per layer the size of its frame — four bytes a pixel, so
+about 8 MB for a 2000 × 1000 cell — resized with the frame, and nothing drawn at
+all for a layer at zero. The image holds colour already multiplied by its
+coverage and is laid over as if it did not, so a soft edge on a layer comes out
+slightly darker than it would drawn straight onto the frame; tiles are opaque
+and do not show it.
+
+Each layer is a camera of its own, sharing its frame's view and projection,
+drawing its source's render layer into that image; the images are UI images
+below every piece of frame chrome, in stack order. Nothing a format spawns has
+to know it is in a layer, and one source can be the base of one frame and a
+layer of another at once. A layer camera carries the same `ShowsSource` a frame
+does, which is all a streamer asks of a view, so a layered dataset streams
+exactly as it would in a frame of its own. Closing a frame despawns its layers
+and their images, duplicating one copies them at the same opacities, and
+pointing a frame at a dataset already in its stack drops that layer rather than
+drawing it twice.
 
 Hovering asks every source in the stack what is under the pointer, and the
 tooltip lists the answers topmost first — over a slide with annotations, the

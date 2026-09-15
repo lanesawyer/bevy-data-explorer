@@ -7,7 +7,9 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 
 use super::grid::{MAX_PANELS, grid_for};
-use super::layers::{FrameLayers, LayerOf, can_add_layer, spawn_layer, stacked_sources};
+use super::layers::{
+    FrameLayers, LayerOf, LayerOpacity, can_add_layer, spawn_layer, stacked_sources,
+};
 use super::{FrameArea, Panel, SelectedPanel, ShowsSource, View, spawn_panel};
 use crate::source::{DataSource, ViewLimits};
 
@@ -70,6 +72,7 @@ pub fn apply_panel_requests(
         Option<&FrameLayers>,
     )>,
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
+    layer_opacities: Query<(&ShowsSource, &LayerOpacity), With<LayerOf>>,
     sources: Query<(&DataSource, &crate::source::SourceExtent)>,
     palette: Res<crate::app::theme::Palette>,
 ) {
@@ -122,13 +125,14 @@ pub fn apply_panel_requests(
                     }),
                     palette.frame_bg,
                 );
-                // The same stack, so a duplicate is the same picture.
-                for layer in stacked_sources(shows, layers, &layer_cameras)
-                    .into_iter()
-                    .skip(1)
-                {
-                    if let Some(data) = lookup(layer) {
-                        spawn_layer(&mut commands, copy, layer, data.layer);
+                // The same stack at the same opacities, so a duplicate is the
+                // same picture.
+                for camera in layers.map(FrameLayers::cameras).unwrap_or_default() {
+                    let Ok((layer, opacity)) = layer_opacities.get(*camera) else {
+                        continue;
+                    };
+                    if let Some(data) = lookup(layer.0) {
+                        spawn_layer(&mut commands, copy, layer.0, data.layer, *opacity);
                     }
                 }
                 info!("duplicated the frame showing {}", source.name);
@@ -226,7 +230,13 @@ pub fn apply_panel_requests(
                 if !can_add_layer(&stack, source) {
                     continue;
                 }
-                spawn_layer(&mut commands, panel, source, data.layer);
+                spawn_layer(
+                    &mut commands,
+                    panel,
+                    source,
+                    data.layer,
+                    LayerOpacity::default(),
+                );
                 added.push((panel, source));
                 selected.0 = Some(panel);
                 match stack.first().and_then(|base| lookup(*base)) {
@@ -461,6 +471,36 @@ mod tests {
             .find(|entity| *entity != panel)
             .expect("no duplicate");
         assert_eq!(layers_of(&app, copy), vec![outlines]);
+    }
+
+    #[test]
+    fn a_duplicate_keeps_each_layers_opacity() {
+        let mut app = app();
+        let slide = source(&mut app, "Slide", "px");
+        let outlines = source(&mut app, "Outlines", "px");
+        request(&mut app, PanelRequest::Open(slide));
+        let panel = only_panel(&mut app);
+        request(
+            &mut app,
+            PanelRequest::AddLayer {
+                panel,
+                source: outlines,
+            },
+        );
+        let layer = app.world().get::<FrameLayers>(panel).unwrap().cameras()[0];
+        app.world_mut().entity_mut(layer).insert(LayerOpacity(0.3));
+
+        request(&mut app, PanelRequest::Duplicate(panel));
+        let mut panels = app.world_mut().query_filtered::<Entity, With<Panel>>();
+        let copy = panels
+            .iter(app.world())
+            .find(|entity| *entity != panel)
+            .expect("no duplicate");
+        let copied = app.world().get::<FrameLayers>(copy).unwrap().cameras()[0];
+        assert_eq!(
+            app.world().get::<LayerOpacity>(copied),
+            Some(&LayerOpacity(0.3))
+        );
     }
 
     #[test]

@@ -1,12 +1,20 @@
 //! Several sources drawn in one frame, one over another.
 //!
 //! A frame's own camera draws the source it was opened onto. Every further
-//! layer is a camera of its own, sharing the frame's viewport, view and
-//! projection, drawing its source's render layer and ordered straight after
-//! the one beneath it. Stacking by camera order rather than by depth is what
-//! lets any source sit on any other: nothing a format spawns has to know which
-//! layer it ended up in, and one source can be the base of one frame and a
-//! layer of another at the same time.
+//! layer is a camera of its own, sharing the frame's view and projection and
+//! drawing its source's render layer — but into an image the size of the
+//! frame rather than into the window. That image is then laid over the frame
+//! as a UI image, in stack order, at the layer's opacity. Nothing a format
+//! spawns has to know which layer it ended up in, and one source can be the
+//! base of one frame and a layer of another at the same time.
+//!
+//! The image is what makes a layer see-through. Everything a source draws
+//! overdraws itself — an image keeps coarser tiles under finer ones, a point
+//! cloud stacks dozens of points on a pixel — so fading its geometry directly
+//! compounds wherever it overlaps, and why fading a source everywhere else
+//! dims it instead. Drawn whole into its own image first, a layer's overlaps
+//! are settled before any transparency is applied, and the frame beneath shows
+//! through evenly.
 //!
 //! A layer camera also carries [`ShowsSource`], which is the whole of what a
 //! streamer asks of a view. So a source streams for a frame it is layered into
@@ -16,11 +24,13 @@
 //! sources line up when they were measured alike. Any source may still be
 //! layered over any other; one measured differently is flagged, not refused.
 
-use bevy::camera::ClearColorConfig;
 use bevy::camera::visibility::RenderLayers;
+use bevy::camera::{ClearColorConfig, ImageRenderTarget, RenderTarget};
+use bevy::picking::Pickable;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureFormat};
 
-use super::grid::camera_order;
+use super::grid::{MAX_LAYERS, camera_order};
 use super::{Panel, ShowsSource};
 use crate::source::DataSource;
 
@@ -44,6 +54,44 @@ impl FrameLayers {
     }
 }
 
+/// How opaque a layer is laid over what is beneath it.
+///
+/// On the layer rather than on its source: how strongly a dataset is overlaid
+/// is a property of the stack it is in, and the same dataset may be a faint
+/// layer in one frame and fully shown in another.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct LayerOpacity(pub f32);
+
+impl Default for LayerOpacity {
+    fn default() -> Self {
+        LayerOpacity(1.0)
+    }
+}
+
+/// The image a layer camera draws into, once it has a frame to be sized to.
+#[derive(Component, Clone, Debug)]
+pub struct LayerImage {
+    pub handle: Handle<Image>,
+    /// The window scale factor the target was made for, so a move to a
+    /// display with another one retargets it.
+    scale_factor: f32,
+}
+
+/// The UI image laying a layer over its frame.
+#[derive(Component, Clone, Copy, Debug)]
+#[relationship(relationship_target = LayerComposite)]
+pub struct CompositeOf(pub Entity);
+
+/// The UI image laying this layer over its frame. Despawned with the layer.
+#[derive(Component, Debug, Default)]
+#[relationship_target(relationship = CompositeOf, linked_spawn)]
+pub struct LayerComposite(Vec<Entity>);
+
+/// Where layer images sit among the UI roots: below everything, since every
+/// other root is chrome drawn over the frames. Each layer adds its depth, so
+/// higher layers draw over lower ones.
+const COMPOSITE_Z: i32 = -(MAX_LAYERS as i32) - 1;
+
 /// Marks a source named on the command line as a layer rather than a frame.
 ///
 /// It is stacked onto the first frame when the frames open, provided the two
@@ -53,17 +101,25 @@ pub struct OpensAsLayer;
 
 /// Spawn a camera drawing `source` over `panel`.
 ///
-/// Its view, viewport and order are left to [`sync_layers`], which writes
-/// them every frame from the frame it belongs to.
-pub fn spawn_layer(commands: &mut Commands, panel: Entity, source: Entity, layer: usize) -> Entity {
+/// Its image, view and order are left to [`sync_layers`], which writes them
+/// every frame from the frame it belongs to.
+pub fn spawn_layer(
+    commands: &mut Commands,
+    panel: Entity,
+    source: Entity,
+    layer: usize,
+    opacity: LayerOpacity,
+) -> Entity {
     commands
         .spawn((
             Camera2d,
             Camera {
-                // Only cell 0 clears. A layer that did would wipe the frame it
-                // was meant to be drawn over, and every frame before it.
-                clear_color: ClearColorConfig::None,
-                // Inactive until it has a viewport, or it would draw once over
+                // Clears its own image, to nothing, so that where the layer
+                // draws nothing the frame beneath shows through. It never
+                // draws into the window, so cell 0 is still the only camera
+                // that clears that.
+                clear_color: ClearColorConfig::Custom(Color::NONE),
+                // Inactive until it has an image, or it would draw once over
                 // the whole window.
                 is_active: false,
                 ..default()
@@ -71,6 +127,7 @@ pub fn spawn_layer(commands: &mut Commands, panel: Entity, source: Entity, layer
             RenderLayers::layer(layer),
             ShowsSource(source),
             LayerOf(panel),
+            opacity,
         ))
         .id()
 }
@@ -103,7 +160,7 @@ pub fn stacked_sources(
 /// What is refused is only what cannot be drawn: a source already in the stack,
 /// and more layers than a cell has camera orders for.
 pub fn can_add_layer(stack: &[Entity], source: Entity) -> bool {
-    !stack.is_empty() && stack.len() < super::grid::MAX_LAYERS && !stack.contains(&source)
+    !stack.is_empty() && stack.len() < MAX_LAYERS && !stack.contains(&source)
 }
 
 /// A warning for a layer measured differently from the frame it is drawn
@@ -122,59 +179,181 @@ pub fn unit_mismatch(base: &DataSource, layer: &DataSource) -> Option<String> {
     })
 }
 
-/// Keep every layer looking through its frame's camera.
+/// Keep every layer looking through its frame's camera, drawing into an
+/// image the size of that frame, and laid over it.
 ///
-/// Copied rather than parented, because the projection and the viewport are
-/// not inherited, and a layer that took its transform from a parent would
-/// still need the other two written here.
+/// Copied rather than parented, because neither the projection nor the size
+/// of the frame is inherited.
 pub fn sync_layers(
+    mut commands: Commands,
+    windows: Query<&Window>,
+    mut images: ResMut<Assets<Image>>,
     frames: Query<(&Panel, &Camera, &Transform, &Projection, &FrameLayers)>,
     mut layers: Query<
-        (&mut Camera, &mut Transform, &mut Projection),
+        (
+            &mut Camera,
+            &mut Transform,
+            &mut Projection,
+            &LayerOpacity,
+            Option<&LayerImage>,
+            Option<&LayerComposite>,
+        ),
         (With<LayerOf>, Without<Panel>),
     >,
+    mut composites: Query<(&mut Node, &mut ImageNode, &mut GlobalZIndex), Without<Camera>>,
 ) {
+    let scale_factor = windows.single().map_or(1.0, Window::scale_factor);
+
     for (panel, frame_camera, frame_transform, frame_projection, stack) in &frames {
+        let viewport = frame_camera
+            .viewport
+            .as_ref()
+            .filter(|viewport| viewport.physical_size.min_element() > 0);
+
         for (depth, entity) in stack.cameras().iter().enumerate() {
-            let Ok((mut camera, mut transform, mut projection)) = layers.get_mut(*entity) else {
+            let Ok((mut camera, mut transform, mut projection, opacity, image, composite)) =
+                layers.get_mut(*entity)
+            else {
                 continue;
             };
-            let order = camera_order(panel.index, depth + 1);
+            let depth = depth + 1;
+            let order = camera_order(panel.index, depth);
             if camera.order != order {
                 camera.order = order;
             }
-            if !same_viewport(camera.viewport.as_ref(), frame_camera.viewport.as_ref()) {
-                camera.viewport.clone_from(&frame_camera.viewport);
-            }
-            let active = frame_camera.is_active && frame_camera.viewport.is_some();
+
+            let Some(viewport) = viewport else {
+                if camera.is_active {
+                    camera.is_active = false;
+                }
+                continue;
+            };
+            let size = viewport.physical_size;
+
+            // The image, made on first sight of a frame to size it to and
+            // resized with the frame after that.
+            let handle = match image {
+                Some(image) => {
+                    if images
+                        .get(&image.handle)
+                        .is_some_and(|existing| existing.size() != size)
+                        && let Some(mut existing) = images.get_mut(&image.handle)
+                    {
+                        existing.resize(Extent3d {
+                            width: size.x,
+                            height: size.y,
+                            depth_or_array_layers: 1,
+                        });
+                    }
+                    if image.scale_factor != scale_factor {
+                        commands.entity(*entity).insert((
+                            target(&image.handle, scale_factor),
+                            LayerImage {
+                                handle: image.handle.clone(),
+                                scale_factor,
+                            },
+                        ));
+                    }
+                    image.handle.clone()
+                }
+                None => {
+                    let handle = images.add(layer_image(size));
+                    commands.entity(*entity).insert((
+                        target(&handle, scale_factor),
+                        LayerImage {
+                            handle: handle.clone(),
+                            scale_factor,
+                        },
+                    ));
+                    handle
+                }
+            };
+
+            // Nothing to draw at no opacity, so nothing is drawn.
+            let active = frame_camera.is_active && image.is_some() && opacity.0 > 0.0;
             if camera.is_active != active {
                 camera.is_active = active;
             }
             transform.set_if_neq(*frame_transform);
             // Read before writing: taking the projection mutably marks it
             // changed, and the camera is recomputed for every change.
-            let wanted = match frame_projection {
-                Projection::Orthographic(theirs) => theirs.scale,
-                _ => continue,
-            };
-            if matches!(&*projection, Projection::Orthographic(mine) if mine.scale != wanted)
+            if let Projection::Orthographic(theirs) = frame_projection
+                && matches!(&*projection, Projection::Orthographic(mine) if mine.scale != theirs.scale)
                 && let Projection::Orthographic(mine) = projection.as_mut()
             {
-                mine.scale = wanted;
+                mine.scale = theirs.scale;
+            }
+
+            // Laid over the frame in logical pixels, which is what UI layout
+            // measures in; the viewport is physical.
+            let at = viewport.physical_position.as_vec2() / scale_factor;
+            let extent = size.as_vec2() / scale_factor;
+            let tint = Color::srgba(1.0, 1.0, 1.0, opacity.0.clamp(0.0, 1.0));
+            let z = GlobalZIndex(COMPOSITE_Z + depth as i32);
+            let existing = composite
+                .and_then(|composite| composite.iter().next())
+                .and_then(|node| composites.get_mut(node).ok());
+            match existing {
+                Some((mut node, mut image_node, mut global_z)) => {
+                    let wanted = composite_node(at, extent, active);
+                    if *node != wanted {
+                        *node = wanted;
+                    }
+                    if image_node.image != handle {
+                        image_node.image = handle;
+                    }
+                    if image_node.color != tint {
+                        image_node.color = tint;
+                    }
+                    global_z.set_if_neq(z);
+                }
+                None => {
+                    commands.spawn((
+                        composite_node(at, extent, active),
+                        ImageNode {
+                            image: handle,
+                            color: tint,
+                            ..default()
+                        },
+                        z,
+                        // Only a picture of the frame, so the pointer passes
+                        // through it to the frame it lies over.
+                        Pickable::IGNORE,
+                        CompositeOf(*entity),
+                    ));
+                }
             }
         }
     }
 }
 
-fn same_viewport(a: Option<&bevy::camera::Viewport>, b: Option<&bevy::camera::Viewport>) -> bool {
-    match (a, b) {
-        (None, None) => true,
-        (Some(a), Some(b)) => {
-            a.physical_position == b.physical_position
-                && a.physical_size == b.physical_size
-                && a.depth == b.depth
-        }
-        _ => false,
+fn target(handle: &Handle<Image>, scale_factor: f32) -> RenderTarget {
+    RenderTarget::Image(ImageRenderTarget {
+        handle: handle.clone(),
+        // The window's, so the layer's logical size is the frame's and its
+        // projection can be copied from the frame's unchanged.
+        scale_factor,
+    })
+}
+
+/// An empty image to render a layer into.
+fn layer_image(size: UVec2) -> Image {
+    let mut image = Image::new_target_texture(size.x, size.y, TextureFormat::Rgba8UnormSrgb, None);
+    // Only ever drawn into on the GPU, so keeping a CPU copy of every pixel
+    // would be megabytes held for nothing.
+    image.data = None;
+    image
+}
+
+fn composite_node(at: Vec2, extent: Vec2, shown: bool) -> Node {
+    Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(at.x),
+        top: Val::Px(at.y),
+        width: Val::Px(extent.x),
+        height: Val::Px(extent.y),
+        display: if shown { Display::Flex } else { Display::None },
+        ..default()
     }
 }
 
@@ -217,7 +396,7 @@ mod tests {
 
     #[test]
     fn a_stack_stops_where_the_camera_orders_run_out() {
-        let stack = entities(crate::view::grid::MAX_LAYERS as u32);
+        let stack = entities(MAX_LAYERS as u32);
         let extra = Entity::from_raw_u32(1000).unwrap();
         assert!(!can_add_layer(&stack, extra));
         assert!(can_add_layer(&stack[1..], extra));
