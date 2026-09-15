@@ -389,7 +389,7 @@ pub fn slice_controls(
     keys: Res<ButtonInput<KeyCode>>,
     typing: Res<crate::view::TextEntryFocused>,
     selected: Res<crate::view::SelectedPanel>,
-    panels: Query<&crate::view::ShowsSource>,
+    panels: Query<&ShowsSource>,
     mut streamers: Query<&mut SliceStreamer>,
 ) {
     // Arrow keys move a cursor through a URL rather than through the slices.
@@ -584,7 +584,7 @@ pub fn spawn_slice_tasks(mut streamers: Query<&mut SliceStreamer>) {
 pub fn collect_slice_tasks(
     mut commands: Commands,
     mut streamers: Query<&mut SliceStreamer>,
-    sources: Query<&source::DataSource>,
+    sources: Query<&DataSource>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<PointMaterial>>,
 ) {
@@ -593,7 +593,7 @@ pub fn collect_slice_tasks(
             continue;
         };
         let mut finished = Vec::new();
-        for (key, slot) in streamer.slots.iter_mut() {
+        for (key, slot) in &mut streamer.slots {
             let Slot::Loading(task) = slot else { continue };
             if let Some(outcome) = task.take() {
                 finished.push((*key, outcome));
@@ -780,7 +780,7 @@ pub fn evict_slice_nodes(mut commands: Commands, mut streamers: Query<&mut Slice
             })
             .collect();
         // Deepest first: shallow nodes are cheap and needed at every zoom level.
-        candidates.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+        candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
 
         for (_, points, key) in candidates {
             if streamer.resident_points <= streamer.budget {
@@ -791,6 +791,246 @@ pub fn evict_slice_nodes(mut commands: Commands, mut streamers: Query<&mut Slice
                 streamer.resident_points = streamer.resident_points.saturating_sub(points);
             }
         }
+    }
+}
+
+/// Rebuild when this source's colouring or filters change.
+///
+/// Colouring and filtering both decide what the vertices are, and the raw
+/// columns are not kept after a node is built, so a change means loading those
+/// nodes again. The same trade the image panel makes for its channels.
+///
+/// The properties and the streamer are both components of the source entity, so
+/// this is one query and nothing outside this module needs to know the streamer
+/// exists.
+fn apply_selection(
+    mut commands: Commands,
+    mut streamers: Query<(&CellProperties, &mut SliceStreamer), Changed<CellProperties>>,
+) {
+    for (properties, mut streamer) in &mut streamers {
+        let selection = properties.selection();
+        if streamer.selection != selection {
+            streamer.selection = selection;
+            streamer.retire(&mut commands);
+        }
+    }
+}
+
+/// Streams a sectioned Scatterbrain dataset.
+pub struct SlicesPlugin {
+    pub cloud: Arc<Scatterbrain>,
+    pub budget: usize,
+}
+
+/// The systems every sectioned dataset shares, registered once however many
+/// are open.
+pub struct SlicesSystems;
+
+impl Plugin for SlicesSystems {
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+            Update,
+            (
+                apply_selection,
+                slice_controls,
+                select_slice_nodes,
+                spawn_slice_tasks,
+                collect_slice_tasks,
+                swap_slice_generations,
+                evict_slice_nodes,
+                apply_slice_layout,
+                refit_slice_camera,
+                publish_extent,
+                report_status,
+            )
+                .chain()
+                .in_set(Stage::Sources),
+        )
+        // Resolving the pointer reads the nodes that are resident now, and
+        // which slide is where; the schedule already puts `HoverProbing`
+        // after the layout has settled.
+        .add_systems(Update, resolve_hover.in_set(source::hover::HoverProbing));
+    }
+}
+
+impl Plugin for SlicesPlugin {
+    /// Each sectioned dataset is its own instance of this plugin, so Bevy must
+    /// not treat a second one as a duplicate.
+    fn is_unique(&self) -> bool {
+        false
+    }
+
+    fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<SlicesSystems>() {
+            app.add_plugins(SlicesSystems);
+        }
+        spawn_source(app.world_mut(), self.cloud.clone(), self.budget);
+    }
+}
+
+/// Register a parsed sectioned dataset as a source, and bind a streamer to it.
+pub fn spawn_source(world: &mut World, cloud: Arc<Scatterbrain>, budget: usize) -> Entity {
+    let (w, h) = cloud.max_slide_extent();
+    let source = source::register_in(
+        world,
+        source::SourceInfo {
+            name: "Sections".into(),
+            unit: cloud.unit.clone(),
+            detail: format!("Scatterbrain, {} sections", cloud.slides.len()),
+            stat: format!("{} CELLS", source::compact_count(cloud.total_points())),
+        },
+        // Replaced on the first update by `publish_extent`, once the grid
+        // layout is known.
+        SourceExtent {
+            centre: Vec2::ZERO,
+            size: Vec2::new(w, h),
+            finest: w / 100_000.0,
+        },
+    );
+
+    world.entity_mut(source).insert((
+        crate::render::points::SourcePointSize::default(),
+        // Both start empty, and are carried from registration so the hover
+        // systems can write through a query rather than through commands.
+        SourceHighlight::default(),
+        HoverInfo::default(),
+        // Placeholder until a lookup service supplies the real value
+        // labels; the column names and ids are the dataset's own.
+        crate::formats::scatterbrain::placeholder_properties(
+            &cloud.category_columns(),
+            &cloud.numeric_columns(),
+        ),
+    ));
+
+    let mut streamer = SliceStreamer::new(cloud, source);
+    streamer.budget = budget;
+    world.entity_mut(source).insert(streamer);
+    source
+}
+
+/// Answer the pointer: which cell is under it, and which cells share its value.
+pub fn resolve_hover(
+    streamers: Query<&SliceStreamer>,
+    probes: Query<&HoverProbe>,
+    sources: Query<(&DataSource, &CellProperties)>,
+    mut answers: Query<(&mut HoverInfo, &mut SourceHighlight)>,
+) {
+    for streamer in &streamers {
+        let Ok((mut info, mut highlight)) = answers.get_mut(streamer.source) else {
+            continue;
+        };
+        let Ok((source, properties)) = sources.get(streamer.source) else {
+            continue;
+        };
+
+        let hit = probes
+            .get(streamer.source)
+            .ok()
+            .and_then(|probe| streamer.pick(probe));
+
+        let category = hit.as_ref().and_then(|hit| hit.category);
+        if highlight.0 != category {
+            highlight.0 = category;
+        }
+
+        // Both are left alone when unchanged: the highlight drives a uniform upload
+        // per resident node, and the tooltip a text layout.
+        let next = hit
+            .map(|hit| describe(&hit, streamer, source, properties))
+            .unwrap_or_default();
+        if *info != next {
+            *info = next;
+        }
+    }
+}
+
+/// Name a hit. A sectioned dataset addresses a point by slice as well as by
+/// node, since every slide shares one reference id.
+fn describe(
+    hit: &SliceHit,
+    streamer: &SliceStreamer,
+    source: &DataSource,
+    properties: &CellProperties,
+) -> HoverInfo {
+    let node = &streamer.cloud.slides[hit.key.slide].nodes[hit.key.node];
+    let mut info = HoverInfo::titled(format!("{}#{}", node.name, hit.index));
+
+    info = info.row(
+        "slice",
+        format!(
+            "{} of {}",
+            streamer.cloud.slides[hit.key.slide].index,
+            streamer.cloud.slides.len()
+        ),
+    );
+    if let Some(code) = hit.category {
+        let (property, label) = properties.colour_label(code);
+        info = info.row(property, label);
+    }
+
+    info.row(
+        "at",
+        format!(
+            "{:.1}, {:.1} {}",
+            hit.position.x, hit.position.y, source.unit
+        ),
+    )
+}
+
+fn report_status(streamers: Query<&SliceStreamer>, mut sources: Query<&mut SourceStatus>) {
+    for streamer in &streamers {
+        let Ok(mut status) = sources.get_mut(streamer.source) else {
+            continue;
+        };
+        let cloud = streamer.cloud();
+        let colour = streamer
+            .selection
+            .colour_by
+            .as_ref()
+            .and_then(|name| {
+                cloud
+                    .attributes
+                    .iter()
+                    .find(|a| &a.name == name)
+                    .map(|a| a.description.clone())
+            })
+            .unwrap_or_else(|| "none".into());
+
+        let showing = match streamer.mode {
+            SliceMode::Grid => format!(
+                "grid of {} across {} columns",
+                cloud.slides.len(),
+                streamer.columns()
+            ),
+            SliceMode::Single => {
+                let slide = &cloud.slides[streamer.current];
+                format!(
+                    "slice {} of {}  [{}]  {} points",
+                    slide.index + 1,
+                    cloud.slides.len(),
+                    slide.id,
+                    slide.total_points,
+                )
+            }
+        };
+
+        status.0 = format!(
+            "{} points in {} slices\n\
+         {}\n\
+         {} nodes loaded, {} loading\n\
+         {} / {} points resident ({} MB)\n\
+         colour by  {}\n\
+         G grid/single · arrows or [ ] step slices",
+            cloud.total_points(),
+            cloud.slides.len(),
+            showing,
+            streamer.loaded_nodes(),
+            streamer.in_flight,
+            streamer.resident_points,
+            streamer.budget,
+            crate::render::points::budget_megabytes(streamer.resident_points),
+            colour,
+        );
     }
 }
 
@@ -1016,248 +1256,5 @@ mod tests {
 
         // Showing 53 slices at once has to be a wider view than showing one.
         assert!(grid.fit_scale > one.fit_scale);
-    }
-}
-
-/// Rebuild when this source's colouring or filters change.
-///
-/// Colouring and filtering both decide what the vertices are, and the raw
-/// columns are not kept after a node is built, so a change means loading those
-/// nodes again. The same trade the image panel makes for its channels.
-///
-/// The properties and the streamer are both components of the source entity, so
-/// this is one query and nothing outside this module needs to know the streamer
-/// exists.
-fn apply_selection(
-    mut commands: Commands,
-    mut streamers: Query<(&CellProperties, &mut SliceStreamer), Changed<CellProperties>>,
-) {
-    for (properties, mut streamer) in &mut streamers {
-        let selection = properties.selection();
-        if streamer.selection != selection {
-            streamer.selection = selection;
-            streamer.retire(&mut commands);
-        }
-    }
-}
-
-/// Streams a sectioned Scatterbrain dataset.
-pub struct SlicesPlugin {
-    pub cloud: Arc<Scatterbrain>,
-    pub budget: usize,
-}
-
-/// The systems every sectioned dataset shares, registered once however many
-/// are open.
-pub struct SlicesSystems;
-
-impl Plugin for SlicesSystems {
-    fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            (
-                apply_selection,
-                slice_controls,
-                select_slice_nodes,
-                spawn_slice_tasks,
-                collect_slice_tasks,
-                swap_slice_generations,
-                evict_slice_nodes,
-                apply_slice_layout,
-                refit_slice_camera,
-                publish_extent,
-                report_status,
-            )
-                .chain()
-                .in_set(Stage::Sources),
-        )
-        // Resolving the pointer reads the nodes that are resident now, and
-        // which slide is where; the schedule already puts `HoverProbing`
-        // after the layout has settled.
-        .add_systems(
-            Update,
-            resolve_hover.in_set(crate::source::hover::HoverProbing),
-        );
-    }
-}
-
-impl Plugin for SlicesPlugin {
-    /// Each sectioned dataset is its own instance of this plugin, so Bevy must
-    /// not treat a second one as a duplicate.
-    fn is_unique(&self) -> bool {
-        false
-    }
-
-    fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<SlicesSystems>() {
-            app.add_plugins(SlicesSystems);
-        }
-        spawn_source(app.world_mut(), self.cloud.clone(), self.budget);
-    }
-}
-
-/// Register a parsed sectioned dataset as a source, and bind a streamer to it.
-pub fn spawn_source(world: &mut World, cloud: Arc<Scatterbrain>, budget: usize) -> Entity {
-    let (w, h) = cloud.max_slide_extent();
-    let source = source::register_in(
-        world,
-        source::SourceInfo {
-            name: "Sections".into(),
-            unit: cloud.unit.clone(),
-            detail: format!("Scatterbrain, {} sections", cloud.slides.len()),
-            stat: format!("{} CELLS", source::compact_count(cloud.total_points())),
-        },
-        // Replaced on the first update by `publish_extent`, once the grid
-        // layout is known.
-        SourceExtent {
-            centre: Vec2::ZERO,
-            size: Vec2::new(w, h),
-            finest: w / 100_000.0,
-        },
-    );
-
-    world.entity_mut(source).insert((
-        crate::render::points::SourcePointSize::default(),
-        // Both start empty, and are carried from registration so the hover
-        // systems can write through a query rather than through commands.
-        SourceHighlight::default(),
-        HoverInfo::default(),
-        // Placeholder until a lookup service supplies the real value
-        // labels; the column names and ids are the dataset's own.
-        crate::formats::scatterbrain::placeholder_properties(
-            &cloud.category_columns(),
-            &cloud.numeric_columns(),
-        ),
-    ));
-
-    let mut streamer = SliceStreamer::new(cloud, source);
-    streamer.budget = budget;
-    world.entity_mut(source).insert(streamer);
-    source
-}
-
-/// Answer the pointer: which cell is under it, and which cells share its value.
-pub fn resolve_hover(
-    streamers: Query<&SliceStreamer>,
-    probes: Query<&HoverProbe>,
-    sources: Query<(&DataSource, &CellProperties)>,
-    mut answers: Query<(&mut HoverInfo, &mut SourceHighlight)>,
-) {
-    for streamer in &streamers {
-        let Ok((mut info, mut highlight)) = answers.get_mut(streamer.source) else {
-            continue;
-        };
-        let Ok((source, properties)) = sources.get(streamer.source) else {
-            continue;
-        };
-
-        let hit = probes
-            .get(streamer.source)
-            .ok()
-            .and_then(|probe| streamer.pick(probe));
-
-        let category = hit.as_ref().and_then(|hit| hit.category);
-        if highlight.0 != category {
-            highlight.0 = category;
-        }
-
-        // Both are left alone when unchanged: the highlight drives a uniform upload
-        // per resident node, and the tooltip a text layout.
-        let next = hit
-            .map(|hit| describe(&hit, &streamer, source, properties))
-            .unwrap_or_default();
-        if *info != next {
-            *info = next;
-        }
-    }
-}
-
-/// Name a hit. A sectioned dataset addresses a point by slice as well as by
-/// node, since every slide shares one reference id.
-fn describe(
-    hit: &SliceHit,
-    streamer: &SliceStreamer,
-    source: &DataSource,
-    properties: &CellProperties,
-) -> HoverInfo {
-    let node = &streamer.cloud.slides[hit.key.slide].nodes[hit.key.node];
-    let mut info = HoverInfo::titled(format!("{}#{}", node.name, hit.index));
-
-    info = info.row(
-        "slice",
-        format!(
-            "{} of {}",
-            streamer.cloud.slides[hit.key.slide].index,
-            streamer.cloud.slides.len()
-        ),
-    );
-    if let Some(code) = hit.category {
-        let (property, label) = properties.colour_label(code);
-        info = info.row(property, label);
-    }
-
-    info.row(
-        "at",
-        format!(
-            "{:.1}, {:.1} {}",
-            hit.position.x, hit.position.y, source.unit
-        ),
-    )
-}
-
-fn report_status(streamers: Query<&SliceStreamer>, mut sources: Query<&mut SourceStatus>) {
-    for streamer in &streamers {
-        let Ok(mut status) = sources.get_mut(streamer.source) else {
-            continue;
-        };
-        let cloud = streamer.cloud();
-        let colour = streamer
-            .selection
-            .colour_by
-            .as_ref()
-            .and_then(|name| {
-                cloud
-                    .attributes
-                    .iter()
-                    .find(|a| &a.name == name)
-                    .map(|a| a.description.clone())
-            })
-            .unwrap_or_else(|| "none".into());
-
-        let showing = match streamer.mode {
-            SliceMode::Grid => format!(
-                "grid of {} across {} columns",
-                cloud.slides.len(),
-                streamer.columns()
-            ),
-            SliceMode::Single => {
-                let slide = &cloud.slides[streamer.current];
-                format!(
-                    "slice {} of {}  [{}]  {} points",
-                    slide.index + 1,
-                    cloud.slides.len(),
-                    slide.id,
-                    slide.total_points,
-                )
-            }
-        };
-
-        status.0 = format!(
-            "{} points in {} slices\n\
-         {}\n\
-         {} nodes loaded, {} loading\n\
-         {} / {} points resident ({} MB)\n\
-         colour by  {}\n\
-         G grid/single · arrows or [ ] step slices",
-            cloud.total_points(),
-            cloud.slides.len(),
-            showing,
-            streamer.loaded_nodes(),
-            streamer.in_flight,
-            streamer.resident_points,
-            streamer.budget,
-            crate::render::points::budget_megabytes(streamer.resident_points),
-            colour,
-        );
     }
 }

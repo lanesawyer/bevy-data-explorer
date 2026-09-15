@@ -92,7 +92,7 @@ pub async fn fetch(url: &str) -> Result<Vec<u8>, String> {
         .get(url)
         .send()
         .await
-        .and_then(|response| response.error_for_status())
+        .and_then(reqwest::Response::error_for_status)
         .map_err(|e| format!("fetching {url}: {e}"))?;
     response
         .bytes()
@@ -107,7 +107,7 @@ pub async fn fetch_text(url: &str) -> Result<String, String> {
         .get(url)
         .send()
         .await
-        .and_then(|response| response.error_for_status())
+        .and_then(reqwest::Response::error_for_status)
         .map_err(|e| format!("fetching {url}: {e}"))?;
     response
         .text()

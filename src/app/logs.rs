@@ -71,7 +71,7 @@ impl LogTail {
 
     /// How many records have ever been written.
     pub fn written(&self) -> u64 {
-        self.0.lock().map(|tail| tail.written).unwrap_or(0)
+        self.0.lock().map_or(0, |tail| tail.written)
     }
 
     /// The last `count` records, oldest first.
@@ -288,7 +288,7 @@ mod tests {
                 log.file = "/home/x/.cargo/registry/src/sctk/buttons.rs",
                 log.line = 172,
                 "Ignoring unknown button type"
-            )
+            );
         });
         assert_eq!(records[0].message, "Ignoring unknown button type");
         assert_eq!(records[0].target, "sctk_adwaita::buttons");

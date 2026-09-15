@@ -172,7 +172,7 @@ fn spawn_sidebar(mut commands: Commands) {
             (
                 SidebarTitle
                 Text({ FULL_TITLE.to_string() })
-                TextFont { font_size: { bevy::text::FontSize::Px(15.0) } }
+                TextFont { font_size: { FontSize::Px(15.0) } }
                 ThemeTextColor({ tokens::TEXT_MAIN })
             ),
             (
@@ -235,7 +235,7 @@ fn spawn_sidebar(mut commands: Commands) {
                     (
                         SidebarVersion
                         Text({ VERSION.to_string() })
-                        TextFont { font_size: { bevy::text::FontSize::Px(13.0) } }
+                        TextFont { font_size: { FontSize::Px(13.0) } }
                         ThemeTextColor({ tokens::TEXT_DIM })
                     ),
                 ]
@@ -480,9 +480,11 @@ mod tests {
 
     #[test]
     fn collapsing_keeps_the_expanded_width_for_reopening() {
-        let mut sidebar = Sidebar::default();
-        sidebar.width = 320.0;
-        sidebar.collapsed = true;
+        let mut sidebar = Sidebar {
+            width: 320.0,
+            collapsed: true,
+            ..Default::default()
+        };
         assert_eq!(sidebar.current_width(), RIBBON_PX);
         sidebar.collapsed = false;
         assert_eq!(sidebar.current_width(), 320.0);
@@ -501,7 +503,7 @@ mod tests {
         // Between the two the drag snaps out to the minimum. If the threshold
         // ever passed it, the sidebar would collapse the moment it was dragged
         // narrower rather than resisting at its minimum.
-        assert!(COLLAPSE_BELOW_PX < MIN_PX);
+        const { assert!(COLLAPSE_BELOW_PX < MIN_PX) };
     }
 
     #[test]

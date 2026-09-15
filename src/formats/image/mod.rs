@@ -305,7 +305,7 @@ pub fn select_tiles(
                         let Some((wx0, wy0, wx1, wy1)) = level.tile_world_rect(ty, tx) else {
                             continue;
                         };
-                        let mid = Vec2::new((wx0 + wx1) * 0.5, -(wy0 + wy1) * 0.5);
+                        let mid = Vec2::new(f32::midpoint(wx0, wx1), -(wy0 + wy1) * 0.5);
                         level_tiles.push((mid.distance_squared(centre) as u64, key));
                     }
                 }
@@ -370,7 +370,7 @@ pub fn spawn_tile_tasks(mut streamers: Query<&mut TileStreamer>) {
                 // spawned — after a pan has already made it irrelevant — so it
                 // costs nothing to check before opening a connection.
                 let still_wanted = |shared: &RwLock<HashSet<TileKey>>| {
-                    shared.read().map(|w| w.contains(&key)).unwrap_or(true)
+                    shared.read().map_or(true, |w| w.contains(&key))
                 };
                 if !still_wanted(&shared) {
                     return TileOutcome::Cancelled;
@@ -435,7 +435,7 @@ pub fn collect_tile_tasks(
         let level_count = dataset.levels.len();
         let mut finished = Vec::new();
 
-        for (key, slot) in streamer.slots.iter_mut() {
+        for (key, slot) in &mut streamer.slots {
             let SlotState::Loading(task) = &mut slot.state else {
                 continue;
             };
@@ -583,11 +583,11 @@ pub fn evict_tiles(mut commands: Commands, mut streamers: Query<&mut TileStreame
             .collect();
 
         for key in plan_eviction(candidates, streamer.resident_bytes, streamer.budget_bytes) {
-            if let Some(slot) = streamer.slots.remove(&key) {
-                if let SlotState::Ready { entity, bytes } = slot.state {
-                    commands.entity(entity).despawn();
-                    streamer.resident_bytes = streamer.resident_bytes.saturating_sub(bytes);
-                }
+            if let Some(slot) = streamer.slots.remove(&key)
+                && let SlotState::Ready { entity, bytes } = slot.state
+            {
+                commands.entity(entity).despawn();
+                streamer.resident_bytes = streamer.resident_bytes.saturating_sub(bytes);
             }
         }
 
@@ -689,80 +689,6 @@ pub fn update_tile_visibility(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn key(level: usize, ty: u64) -> TileKey {
-        TileKey { level, ty, tx: 0 }
-    }
-
-    fn candidate(level: usize, ty: u64, last_wanted: u64, bytes: usize) -> Candidate {
-        Candidate {
-            key: key(level, ty),
-            last_wanted,
-            bytes,
-        }
-    }
-
-    #[test]
-    fn nothing_is_evicted_while_the_cache_fits() {
-        // This is what keeps a zoom out instant: tiles left the viewport but
-        // stay resident because there is still room for them.
-        let candidates = vec![candidate(0, 0, 1, 100), candidate(0, 1, 2, 100)];
-        assert!(plan_eviction(candidates, 200, 1000).is_empty());
-    }
-
-    #[test]
-    fn the_least_recently_wanted_tile_goes_first() {
-        let candidates = vec![
-            candidate(0, 0, 30, 100),
-            candidate(0, 1, 10, 100),
-            candidate(0, 2, 20, 100),
-        ];
-        assert_eq!(plan_eviction(candidates, 300, 250), vec![key(0, 1)]);
-    }
-
-    #[test]
-    fn eviction_stops_as_soon_as_the_budget_is_met() {
-        let candidates = vec![
-            candidate(0, 0, 1, 100),
-            candidate(0, 1, 2, 100),
-            candidate(0, 2, 3, 100),
-            candidate(0, 3, 4, 100),
-        ];
-        // Needs to free 150, so two tiles suffice and the rest stay cached.
-        let evicted = plan_eviction(candidates, 400, 250);
-        assert_eq!(evicted, vec![key(0, 0), key(0, 1)]);
-    }
-
-    #[test]
-    fn an_empty_candidate_list_cannot_loop_forever() {
-        // Every resident tile is in use, so nothing can be freed.
-        assert!(plan_eviction(Vec::new(), 500, 100).is_empty());
-    }
-
-    #[test]
-    fn the_fetch_pool_is_large_enough_to_matter() {
-        // Bevy's default async-compute pool caps at 4 threads, and one blocking
-        // tile read occupies a thread for its whole duration.
-        assert!(
-            TILE_FETCH_THREADS > 4,
-            "a pool this small would serialise tile loading"
-        );
-        assert_eq!(MAX_IN_FLIGHT, TILE_FETCH_THREADS);
-    }
-
-    #[test]
-    fn tiles_finer_than_the_active_level_are_hidden() {
-        // Zoomed out to level 3: the coarse tiles paint, and level 0 tiles
-        // retained from an earlier zoom stay resident but invisible.
-        assert!(tile_visible(3, 3));
-        assert!(tile_visible(5, 3));
-        assert!(!tile_visible(0, 3));
-    }
-}
-
 /// Streams an OME-Zarr image into the frames that display it.
 pub struct ImagePlugin {
     pub dataset: Arc<Dataset>,
@@ -793,10 +719,7 @@ impl Plugin for ImageSystems {
                 .chain()
                 .in_set(Stage::Sources),
         )
-        .add_systems(
-            Update,
-            resolve_hover.in_set(crate::source::hover::HoverProbing),
-        );
+        .add_systems(Update, resolve_hover.in_set(source::hover::HoverProbing));
     }
 }
 
@@ -823,7 +746,7 @@ pub fn spawn_source(
         },
         SourceExtent {
             // World y is negated so the image reads top-down.
-            centre: Vec2::new((x0 + x1) * 0.5, -(y0 + y1) * 0.5),
+            centre: Vec2::new(f32::midpoint(x0, x1), -(y0 + y1) * 0.5),
             size: Vec2::new((x1 - x0).abs(), (y1 - y0).abs()),
             finest: dataset.levels[0].scale_x as f32 / 8.0,
         },
@@ -921,12 +844,12 @@ fn describe(streamer: &TileStreamer, probe: &HoverProbe) -> Option<HoverInfo> {
 
 /// A display-space point as pixel coordinates in a level, or `None` when it
 /// falls outside the image.
-fn pixel_in(level: &crate::formats::image::dataset::Level, world: Vec2) -> Option<(u64, u64)> {
+fn pixel_in(level: &dataset::Level, world: Vec2) -> Option<(u64, u64)> {
     if level.scale_x <= 0.0 || level.scale_y <= 0.0 {
         return None;
     }
-    let x = (world.x as f64 - level.origin_x) / level.scale_x;
-    let y = (-world.y as f64 - level.origin_y) / level.scale_y;
+    let x = (f64::from(world.x) - level.origin_x) / level.scale_x;
+    let y = (f64::from(-world.y) - level.origin_y) / level.scale_y;
     if x < 0.0 || y < 0.0 || x >= level.width as f64 || y >= level.height as f64 {
         return None;
     }
@@ -941,7 +864,7 @@ fn toggle_channels(
     keys: Res<ButtonInput<KeyCode>>,
     typing: Res<crate::view::TextEntryFocused>,
     selected: Res<crate::view::SelectedPanel>,
-    panels: Query<&crate::view::ShowsSource>,
+    panels: Query<&ShowsSource>,
     mut streamers: Query<&mut TileStreamer>,
 ) {
     // A digit typed into a URL is a digit, not a channel.
@@ -1062,5 +985,81 @@ fn report_status(
             notes,
             channels,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(level: usize, ty: u64) -> TileKey {
+        TileKey { level, ty, tx: 0 }
+    }
+
+    fn candidate(level: usize, ty: u64, last_wanted: u64, bytes: usize) -> Candidate {
+        Candidate {
+            key: key(level, ty),
+            last_wanted,
+            bytes,
+        }
+    }
+
+    #[test]
+    fn nothing_is_evicted_while_the_cache_fits() {
+        // This is what keeps a zoom out instant: tiles left the viewport but
+        // stay resident because there is still room for them.
+        let candidates = vec![candidate(0, 0, 1, 100), candidate(0, 1, 2, 100)];
+        assert!(plan_eviction(candidates, 200, 1000).is_empty());
+    }
+
+    #[test]
+    fn the_least_recently_wanted_tile_goes_first() {
+        let candidates = vec![
+            candidate(0, 0, 30, 100),
+            candidate(0, 1, 10, 100),
+            candidate(0, 2, 20, 100),
+        ];
+        assert_eq!(plan_eviction(candidates, 300, 250), vec![key(0, 1)]);
+    }
+
+    #[test]
+    fn eviction_stops_as_soon_as_the_budget_is_met() {
+        let candidates = vec![
+            candidate(0, 0, 1, 100),
+            candidate(0, 1, 2, 100),
+            candidate(0, 2, 3, 100),
+            candidate(0, 3, 4, 100),
+        ];
+        // Needs to free 150, so two tiles suffice and the rest stay cached.
+        let evicted = plan_eviction(candidates, 400, 250);
+        assert_eq!(evicted, vec![key(0, 0), key(0, 1)]);
+    }
+
+    #[test]
+    fn an_empty_candidate_list_cannot_loop_forever() {
+        // Every resident tile is in use, so nothing can be freed.
+        assert!(plan_eviction(Vec::new(), 500, 100).is_empty());
+    }
+
+    #[test]
+    fn the_fetch_pool_is_large_enough_to_matter() {
+        // Bevy's default async-compute pool caps at 4 threads, and one blocking
+        // tile read occupies a thread for its whole duration.
+        const {
+            assert!(
+                TILE_FETCH_THREADS > 4,
+                "a pool this small would serialise tile loading"
+            );
+        };
+        assert_eq!(MAX_IN_FLIGHT, TILE_FETCH_THREADS);
+    }
+
+    #[test]
+    fn tiles_finer_than_the_active_level_are_hidden() {
+        // Zoomed out to level 3: the coarse tiles paint, and level 0 tiles
+        // retained from an earlier zoom stay resident but invisible.
+        assert!(tile_visible(3, 3));
+        assert!(tile_visible(5, 3));
+        assert!(!tile_visible(0, 3));
     }
 }

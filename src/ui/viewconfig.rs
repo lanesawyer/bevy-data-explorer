@@ -119,7 +119,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         .spawn_scene(bsn! {
             SelectedName
             Text({ String::new() })
-            TextFont { font_size: { bevy::text::FontSize::Px(12.0) } }
+            TextFont { font_size: { FontSize::Px(12.0) } }
             ThemeTextColor({ bevy_feathers::tokens::TEXT_DIM })
         })
         .id();
@@ -164,7 +164,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
             SliceRow
             SliceReadout
             Text({ String::new() })
-            TextFont { font_size: { bevy::text::FontSize::Px(12.0) } }
+            TextFont { font_size: { FontSize::Px(12.0) } }
             ThemeTextColor({ bevy_feathers::tokens::TEXT_MAIN })
         })
         .id();
@@ -615,7 +615,7 @@ fn heading(commands: &mut Commands, text: &str, size: f32, gap: f32) -> Entity {
         .spawn_scene(bsn! {
             LayoutContent
             label(text)
-            InheritableFont { font_size: { size as f32 } }
+            InheritableFont { font_size: { size } }
             Node { margin: { UiRect::top(Val::Px(gap)) } }
         })
         .id()
@@ -827,10 +827,6 @@ pub fn sync_point_size(
 }
 
 /// Push a source's point size, fade and highlight into the materials drawing it.
-#[expect(
-    clippy::type_complexity,
-    reason = "one query over four source settings"
-)]
 pub fn apply_point_settings(
     sources: Query<
         (
@@ -867,10 +863,6 @@ pub fn apply_point_settings(
 }
 
 /// Apply the settings to point geometry that arrives after they were last set.
-#[expect(
-    clippy::type_complexity,
-    reason = "one query over four source settings"
-)]
 pub fn apply_point_settings_to_new(
     sources: Query<(
         &DataSource,

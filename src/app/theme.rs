@@ -56,7 +56,7 @@ pub fn dark() -> ThemeProps {
 /// This is a starting point to look at and adjust, not a designed palette.
 pub fn light() -> ThemeProps {
     let mut theme = dark();
-    for (name, colour) in theme.color.iter_mut() {
+    for (name, colour) in &mut theme.color {
         if !STAYS_PUT.contains(name) {
             *colour = flip(*colour);
         }

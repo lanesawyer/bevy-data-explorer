@@ -179,7 +179,6 @@ pub fn probe_hover(
     }
 }
 
-#[expect(clippy::type_complexity, reason = "split out of one system's queries")]
 fn probe_target(
     windows: &Query<&Window>,
     area: &FrameArea,

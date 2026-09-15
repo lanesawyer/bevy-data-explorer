@@ -166,7 +166,7 @@ pub fn on_copy_pressed(
     activate: On<Activate>,
     buttons: Query<(), With<CopyLogButton>>,
     tail: Res<LogTail>,
-    mut clipboard: ResMut<bevy::clipboard::Clipboard>,
+    mut clipboard: ResMut<Clipboard>,
 ) {
     if buttons.get(activate.entity).is_err() {
         return;
@@ -256,7 +256,7 @@ pub fn rebuild_log_lines(
                 .spawn_scene(bsn! {
                     LogLine
                     Text({ line })
-                    TextFont { font_size: { bevy::text::FontSize::Px(11.0) } }
+                    TextFont { font_size: { FontSize::Px(11.0) } }
                     TextColor({ colour })
                 })
                 .id()

@@ -33,3 +33,27 @@ zarrs_plugin = "0.4"
 # directly, so there is one copy of it in the graph.
 zarrs_object_store = { version = "0.7", features = ["http", "fs"] }
 url = "2.5.8"
+
+[lints.rust]
+unsafe_code = "forbid"
+unused_qualifications = "warn"
+
+[lints.clippy]
+# A Bevy system's parameters are its queries and resources, so these fire on
+# ordinary systems and say nothing about the code.
+too_many_arguments = "allow"
+type_complexity = "allow"
+# Exceptions are `#[expect]` with a reason, so a stale one is reported.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+dbg_macro = "warn"
+todo = "warn"
+cast_lossless = "warn"
+cloned_instead_of_copied = "warn"
+explicit_iter_loop = "warn"
+implicit_clone = "warn"
+manual_midpoint = "warn"
+map_unwrap_or = "warn"
+redundant_clone = "warn"
+redundant_closure_for_method_calls = "warn"
+semicolon_if_nothing_returned = "warn"

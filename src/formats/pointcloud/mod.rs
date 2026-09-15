@@ -369,7 +369,7 @@ fn spawn_for(streamer: &mut PointStreamer) {
 pub fn collect_node_tasks(
     mut commands: Commands,
     mut streamers: Query<&mut PointStreamer>,
-    sources: Query<&source::DataSource>,
+    sources: Query<&DataSource>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<PointMaterial>>,
 ) {
@@ -387,7 +387,7 @@ pub fn collect_node_tasks(
 fn collect_for(
     commands: &mut Commands,
     streamer: &mut PointStreamer,
-    sources: &Query<&source::DataSource>,
+    sources: &Query<&DataSource>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<PointMaterial>,
 ) {
@@ -395,7 +395,7 @@ fn collect_for(
         return;
     };
     let mut finished = Vec::new();
-    for (index, slot) in streamer.slots.iter_mut() {
+    for (index, slot) in &mut streamer.slots {
         let Slot::Loading(task) = slot else { continue };
         if let Some(outcome) = task.take() {
             finished.push((*index, outcome));
@@ -495,7 +495,7 @@ fn evict_for(commands: &mut Commands, streamer: &mut PointStreamer) {
             _ => None,
         })
         .collect();
-    candidates.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
 
     for (_, points, index) in candidates {
         if streamer.resident_points <= streamer.budget {
@@ -506,6 +506,242 @@ fn evict_for(commands: &mut Commands, streamer: &mut PointStreamer) {
             streamer.resident_points = streamer.resident_points.saturating_sub(points);
         }
     }
+}
+
+/// Rebuild when this source's colouring or filters change.
+///
+/// Colouring and filtering both decide what the vertices are, and the raw
+/// columns are not kept after a node is built, so a change means loading those
+/// nodes again. The same trade the image panel makes for its channels.
+///
+/// The properties and the streamer are both components of the source entity, so
+/// this is one query and nothing outside this module needs to know the streamer
+/// exists.
+fn apply_selection(
+    mut commands: Commands,
+    mut streamers: Query<(&CellProperties, &mut PointStreamer), Changed<CellProperties>>,
+) {
+    for (properties, mut streamer) in &mut streamers {
+        let selection = properties.selection();
+        if streamer.selection != selection {
+            streamer.selection = selection;
+            streamer.retire(&mut commands);
+        }
+    }
+}
+
+/// Streams a single Scatterbrain point cloud.
+pub struct PointCloudPlugin {
+    /// Shown in the overlay and in listings. Passed in because a dataset's own
+    /// metadata does not name itself, and two clouds are open at once.
+    pub name: String,
+    pub cloud: Arc<Scatterbrain>,
+    pub budget: usize,
+}
+
+/// The systems every point cloud shares, registered once however many clouds
+/// are open.
+pub struct PointCloudSystems;
+
+impl Plugin for PointCloudSystems {
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+            Update,
+            (
+                apply_selection,
+                select_nodes,
+                spawn_node_tasks,
+                collect_node_tasks,
+                swap_generations,
+                evict_nodes,
+                report_status,
+            )
+                .chain()
+                .in_set(Stage::Sources),
+        )
+        // Resolving the pointer reads the nodes that are resident now; the
+        // schedule already puts `HoverProbing` after this frame's arrivals and
+        // evictions.
+        .add_systems(Update, resolve_hover.in_set(source::hover::HoverProbing));
+    }
+}
+
+impl Plugin for PointCloudPlugin {
+    /// Each cloud is its own instance of this plugin, so Bevy must not treat a
+    /// second one as a duplicate.
+    fn is_unique(&self) -> bool {
+        false
+    }
+
+    fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<PointCloudSystems>() {
+            app.add_plugins(PointCloudSystems);
+        }
+        spawn_source(
+            app.world_mut(),
+            self.name.clone(),
+            self.cloud.clone(),
+            self.budget,
+        );
+    }
+}
+
+/// Register a parsed cloud as a source, and bind a streamer to it.
+pub fn spawn_source(
+    world: &mut World,
+    name: String,
+    cloud: Arc<Scatterbrain>,
+    budget: usize,
+) -> Entity {
+    let bounds = cloud.slides[0].tight_bounds;
+    let (cx, cy) = bounds.centre();
+    let source = source::register_in(
+        world,
+        source::SourceInfo {
+            name,
+            unit: cloud.unit.clone(),
+            detail: format!("Scatterbrain octree, depth {}", cloud.max_depth()),
+            stat: format!("{} CELLS", source::compact_count(cloud.total_points())),
+        },
+        SourceExtent {
+            // World y is negated for display, matching the image panel.
+            centre: Vec2::new(cx, -cy),
+            size: Vec2::new(bounds.width(), bounds.height()),
+            finest: bounds.width() / 100_000.0,
+        },
+    );
+
+    // Advertising a point size is what puts the size control in the
+    // sidebar; sources without one simply do not offer it.
+    world.entity_mut(source).insert((
+        crate::render::points::SourcePointSize::default(),
+        // Both start empty. Carrying them from registration means the hover
+        // systems can write through a query rather than through commands,
+        // and so can leave them untouched when nothing has changed.
+        SourceHighlight::default(),
+        HoverInfo::default(),
+        // Placeholder until a lookup service supplies the real value
+        // labels; the column names and ids are the dataset's own.
+        crate::formats::scatterbrain::placeholder_properties(
+            &cloud.category_columns(),
+            &cloud.numeric_columns(),
+        ),
+    ));
+
+    let mut streamer = PointStreamer::new(cloud, source);
+    streamer.budget = budget;
+    world.entity_mut(source).insert(streamer);
+    source
+}
+
+/// Answer the pointer: what is under it, and which cells share its value.
+///
+/// Both outputs are left alone when they have not changed, because the
+/// highlight drives a uniform upload per resident node and the tooltip drives a
+/// text layout — and the pointer sits still for most of the frames it is over a
+/// cloud.
+pub fn resolve_hover(
+    mut sources: Query<(
+        &PointStreamer,
+        &DataSource,
+        &CellProperties,
+        Option<&HoverProbe>,
+        &mut HoverInfo,
+        &mut SourceHighlight,
+    )>,
+) {
+    for (streamer, source, properties, probe, mut info, mut highlight) in &mut sources {
+        let hit = probe.and_then(|probe| streamer.pick(probe));
+        let found = hit
+            .as_ref()
+            .map(|hit| describe(hit, streamer, source, properties));
+
+        let category = hit.as_ref().and_then(|hit| hit.category);
+        if highlight.0 != category {
+            highlight.0 = category;
+        }
+
+        let next = found.unwrap_or_default();
+        if *info != next {
+            *info = next;
+        }
+    }
+}
+
+/// Name a hit the way the dataset names it.
+///
+/// Scatterbrain gives a point no identifier of its own: it is the nth row of
+/// the columns of one octree node, so the node and that offset is the whole
+/// address.
+fn describe(
+    hit: &Hit,
+    streamer: &PointStreamer,
+    source: &DataSource,
+    properties: &CellProperties,
+) -> HoverInfo {
+    let node = &streamer.slide().nodes[hit.node];
+    let mut info = HoverInfo::titled(format!("{}#{}", node.name, hit.index));
+
+    if let Some(code) = hit.category {
+        let (property, label) = properties.colour_label(code);
+        info = info.row(property, label);
+    }
+
+    info.row(
+        "at",
+        format!(
+            "{:.1}, {:.1} {}",
+            hit.position.x, hit.position.y, source.unit
+        ),
+    )
+}
+
+fn report_status(streamers: Query<&PointStreamer>, mut sources: Query<&mut SourceStatus>) {
+    for streamer in &streamers {
+        report_for(streamer, &mut sources);
+    }
+}
+
+fn report_for(streamer: &PointStreamer, sources: &mut Query<&mut SourceStatus>) {
+    let Ok(mut status) = sources.get_mut(streamer.source) else {
+        return;
+    };
+    let cloud = streamer.cloud();
+    let colour = streamer
+        .selection
+        .colour_by
+        .as_ref()
+        .and_then(|name| {
+            cloud
+                .attributes
+                .iter()
+                .find(|a| &a.name == name)
+                .map(|a| a.description.clone())
+        })
+        .unwrap_or_else(|| "none".into());
+
+    let given_up = if streamer.cancelled > 0 {
+        format!(", {} cancelled", streamer.cancelled)
+    } else {
+        String::new()
+    };
+
+    status.0 = format!(
+        "{} points in {} octree nodes, depth {}\n\
+         showing depth {}, {} nodes loaded, {} loading{given_up}\n\
+         {} / {} points resident ({} MB)\n\
+         colour by  {}",
+        cloud.total_points(),
+        cloud.node_count(),
+        cloud.max_depth(),
+        streamer.deepest,
+        streamer.loaded_nodes(),
+        streamer.in_flight,
+        streamer.resident_points,
+        streamer.budget,
+        crate::render::points::budget_megabytes(streamer.resident_points),
+        colour,
+    );
 }
 
 #[cfg(test)]
@@ -847,243 +1083,4 @@ mod tests {
         };
         assert_eq!(values[0], [2.0, -3.0, 0.0]);
     }
-}
-
-/// Rebuild when this source's colouring or filters change.
-///
-/// Colouring and filtering both decide what the vertices are, and the raw
-/// columns are not kept after a node is built, so a change means loading those
-/// nodes again. The same trade the image panel makes for its channels.
-///
-/// The properties and the streamer are both components of the source entity, so
-/// this is one query and nothing outside this module needs to know the streamer
-/// exists.
-fn apply_selection(
-    mut commands: Commands,
-    mut streamers: Query<(&CellProperties, &mut PointStreamer), Changed<CellProperties>>,
-) {
-    for (properties, mut streamer) in &mut streamers {
-        let selection = properties.selection();
-        if streamer.selection != selection {
-            streamer.selection = selection;
-            streamer.retire(&mut commands);
-        }
-    }
-}
-
-/// Streams a single Scatterbrain point cloud.
-pub struct PointCloudPlugin {
-    /// Shown in the overlay and in listings. Passed in because a dataset's own
-    /// metadata does not name itself, and two clouds are open at once.
-    pub name: String,
-    pub cloud: Arc<Scatterbrain>,
-    pub budget: usize,
-}
-
-/// The systems every point cloud shares, registered once however many clouds
-/// are open.
-pub struct PointCloudSystems;
-
-impl Plugin for PointCloudSystems {
-    fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            (
-                apply_selection,
-                select_nodes,
-                spawn_node_tasks,
-                collect_node_tasks,
-                swap_generations,
-                evict_nodes,
-                report_status,
-            )
-                .chain()
-                .in_set(Stage::Sources),
-        )
-        // Resolving the pointer reads the nodes that are resident now; the
-        // schedule already puts `HoverProbing` after this frame's arrivals and
-        // evictions.
-        .add_systems(
-            Update,
-            resolve_hover.in_set(crate::source::hover::HoverProbing),
-        );
-    }
-}
-
-impl Plugin for PointCloudPlugin {
-    /// Each cloud is its own instance of this plugin, so Bevy must not treat a
-    /// second one as a duplicate.
-    fn is_unique(&self) -> bool {
-        false
-    }
-
-    fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<PointCloudSystems>() {
-            app.add_plugins(PointCloudSystems);
-        }
-        spawn_source(
-            app.world_mut(),
-            self.name.clone(),
-            self.cloud.clone(),
-            self.budget,
-        );
-    }
-}
-
-/// Register a parsed cloud as a source, and bind a streamer to it.
-pub fn spawn_source(
-    world: &mut World,
-    name: String,
-    cloud: Arc<Scatterbrain>,
-    budget: usize,
-) -> Entity {
-    let bounds = cloud.slides[0].tight_bounds;
-    let (cx, cy) = bounds.centre();
-    let source = source::register_in(
-        world,
-        source::SourceInfo {
-            name,
-            unit: cloud.unit.clone(),
-            detail: format!("Scatterbrain octree, depth {}", cloud.max_depth()),
-            stat: format!("{} CELLS", source::compact_count(cloud.total_points())),
-        },
-        SourceExtent {
-            // World y is negated for display, matching the image panel.
-            centre: Vec2::new(cx, -cy),
-            size: Vec2::new(bounds.width(), bounds.height()),
-            finest: bounds.width() / 100_000.0,
-        },
-    );
-
-    // Advertising a point size is what puts the size control in the
-    // sidebar; sources without one simply do not offer it.
-    world.entity_mut(source).insert((
-        crate::render::points::SourcePointSize::default(),
-        // Both start empty. Carrying them from registration means the hover
-        // systems can write through a query rather than through commands,
-        // and so can leave them untouched when nothing has changed.
-        SourceHighlight::default(),
-        HoverInfo::default(),
-        // Placeholder until a lookup service supplies the real value
-        // labels; the column names and ids are the dataset's own.
-        crate::formats::scatterbrain::placeholder_properties(
-            &cloud.category_columns(),
-            &cloud.numeric_columns(),
-        ),
-    ));
-
-    let mut streamer = PointStreamer::new(cloud, source);
-    streamer.budget = budget;
-    world.entity_mut(source).insert(streamer);
-    source
-}
-
-/// Answer the pointer: what is under it, and which cells share its value.
-///
-/// Both outputs are left alone when they have not changed, because the
-/// highlight drives a uniform upload per resident node and the tooltip drives a
-/// text layout — and the pointer sits still for most of the frames it is over a
-/// cloud.
-pub fn resolve_hover(
-    mut sources: Query<(
-        &PointStreamer,
-        &DataSource,
-        &CellProperties,
-        Option<&HoverProbe>,
-        &mut HoverInfo,
-        &mut SourceHighlight,
-    )>,
-) {
-    for (streamer, source, properties, probe, mut info, mut highlight) in &mut sources {
-        let hit = probe.and_then(|probe| streamer.pick(probe));
-        let found = hit
-            .as_ref()
-            .map(|hit| describe(hit, streamer, source, properties));
-
-        let category = hit.as_ref().and_then(|hit| hit.category);
-        if highlight.0 != category {
-            highlight.0 = category;
-        }
-
-        let next = found.unwrap_or_default();
-        if *info != next {
-            *info = next;
-        }
-    }
-}
-
-/// Name a hit the way the dataset names it.
-///
-/// Scatterbrain gives a point no identifier of its own: it is the nth row of
-/// the columns of one octree node, so the node and that offset is the whole
-/// address.
-fn describe(
-    hit: &Hit,
-    streamer: &PointStreamer,
-    source: &DataSource,
-    properties: &CellProperties,
-) -> HoverInfo {
-    let node = &streamer.slide().nodes[hit.node];
-    let mut info = HoverInfo::titled(format!("{}#{}", node.name, hit.index));
-
-    if let Some(code) = hit.category {
-        let (property, label) = properties.colour_label(code);
-        info = info.row(property, label);
-    }
-
-    info.row(
-        "at",
-        format!(
-            "{:.1}, {:.1} {}",
-            hit.position.x, hit.position.y, source.unit
-        ),
-    )
-}
-
-fn report_status(streamers: Query<&PointStreamer>, mut sources: Query<&mut SourceStatus>) {
-    for streamer in &streamers {
-        report_for(streamer, &mut sources);
-    }
-}
-
-fn report_for(streamer: &PointStreamer, sources: &mut Query<&mut SourceStatus>) {
-    let Ok(mut status) = sources.get_mut(streamer.source) else {
-        return;
-    };
-    let cloud = streamer.cloud();
-    let colour = streamer
-        .selection
-        .colour_by
-        .as_ref()
-        .and_then(|name| {
-            cloud
-                .attributes
-                .iter()
-                .find(|a| &a.name == name)
-                .map(|a| a.description.clone())
-        })
-        .unwrap_or_else(|| "none".into());
-
-    let given_up = if streamer.cancelled > 0 {
-        format!(", {} cancelled", streamer.cancelled)
-    } else {
-        String::new()
-    };
-
-    status.0 = format!(
-        "{} points in {} octree nodes, depth {}\n\
-         showing depth {}, {} nodes loaded, {} loading{given_up}\n\
-         {} / {} points resident ({} MB)\n\
-         colour by  {}",
-        cloud.total_points(),
-        cloud.node_count(),
-        cloud.max_depth(),
-        streamer.deepest,
-        streamer.loaded_nodes(),
-        streamer.in_flight,
-        streamer.resident_points,
-        streamer.budget,
-        crate::render::points::budget_megabytes(streamer.resident_points),
-        colour,
-    );
 }

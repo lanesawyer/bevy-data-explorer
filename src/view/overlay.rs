@@ -160,7 +160,7 @@ fn spawn_tooltip(commands: &mut Commands, panel: Entity) {
     commands.spawn_scene(bsn! {
         PanelTooltip { panel: { panel } }
         Text
-        TextFont { font_size: { bevy::text::FontSize::Px(12.0) } }
+        TextFont { font_size: { FontSize::Px(12.0) } }
         ThemeTextColor({ token::OVERLAY_TEXT })
         Node {
             position_type: { PositionType::Absolute },
@@ -172,7 +172,7 @@ fn spawn_tooltip(commands: &mut Commands, panel: Entity) {
         // Deliberately not `BlocksFrameInput`: a tooltip that swallowed the
         // pointer would suppress the very probe that produced it, and the
         // tooltip would flicker on and off as it appeared under the cursor.
-        template_value(bevy::picking::Pickable::IGNORE)
+        template_value(Pickable::IGNORE)
     });
 }
 
@@ -235,7 +235,7 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
         .spawn_scene(bsn! {
             PanelText { panel: { panel } }
             Text
-            TextFont { font_size: { bevy::text::FontSize::Px(12.0) } }
+            TextFont { font_size: { FontSize::Px(12.0) } }
             ThemeTextColor({ token::OVERLAY_DIM })
         })
         .id();

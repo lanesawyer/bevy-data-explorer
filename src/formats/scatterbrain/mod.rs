@@ -45,8 +45,8 @@ impl Rect {
 
     pub fn centre(&self) -> (f32, f32) {
         (
-            (self.min_x + self.max_x) * 0.5,
-            (self.min_y + self.max_y) * 0.5,
+            f32::midpoint(self.min_x, self.max_x),
+            f32::midpoint(self.min_y, self.max_y),
         )
     }
 
@@ -252,7 +252,7 @@ impl Scatterbrain {
             slides.push(Slide {
                 index,
                 id: id.unwrap_or_else(|| format!("slide {index}")),
-                tight_bounds: tree.tight_bounding_box.map(Rect::from).unwrap_or(bounds),
+                tight_bounds: tree.tight_bounding_box.map_or(bounds, Rect::from),
                 bounds,
                 total_points: tree.points,
                 nodes,
@@ -354,7 +354,7 @@ fn flatten(
 
     let index = out.len();
     out.push(Node {
-        name: name.clone(),
+        name,
         file: raw.file.clone(),
         count: raw.num_specimens,
         depth,
@@ -409,7 +409,7 @@ pub fn child_bounds(bounds: Rect, index: u8) -> Rect {
 
 /// Decode a coordinates file: little-endian `f32` pairs, no header.
 pub fn decode_positions(bytes: &[u8], expected: u64) -> Result<Vec<[f32; 2]>, String> {
-    if bytes.len() % 8 != 0 {
+    if !bytes.len().is_multiple_of(8) {
         return Err(format!(
             "coordinate file is {} bytes, not a whole number of xy pairs",
             bytes.len()
@@ -422,7 +422,9 @@ pub fn decode_positions(bytes: &[u8], expected: u64) -> Result<Vec<[f32; 2]>, St
         ));
     }
     Ok(bytes
-        .chunks_exact(8)
+        .as_chunks::<8>()
+        .0
+        .iter()
         .map(|c| {
             [
                 f32::from_le_bytes([c[0], c[1], c[2], c[3]]),
@@ -435,27 +437,31 @@ pub fn decode_positions(bytes: &[u8], expected: u64) -> Result<Vec<[f32; 2]>, St
 /// Decode a categorical column: little-endian `u16`, one per point.
 /// Decode a column of one `f32` per point.
 pub fn decode_floats(bytes: &[u8], expected: u64) -> Result<Vec<f32>, String> {
-    if bytes.len() % 4 != 0 || (bytes.len() / 4) as u64 != expected {
+    if !bytes.len().is_multiple_of(4) || (bytes.len() / 4) as u64 != expected {
         return Err(format!(
             "numeric file holds {} values, but the tree declares {expected}",
             bytes.len() / 4
         ));
     }
     Ok(bytes
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
         .collect())
 }
 
 pub fn decode_categories(bytes: &[u8], expected: u64) -> Result<Vec<u16>, String> {
-    if bytes.len() % 2 != 0 || (bytes.len() / 2) as u64 != expected {
+    if !bytes.len().is_multiple_of(2) || (bytes.len() / 2) as u64 != expected {
         return Err(format!(
             "category file holds {} values, but the tree declares {expected}",
             bytes.len() / 2
         ));
     }
     Ok(bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect())
 }
@@ -632,8 +638,8 @@ mod tests {
         // Slices differ in size, which is why the layout needs a uniform cell
         // rather than packing each slide's own extent.
         let widths: Vec<f32> = sb.slides.iter().map(|s| s.tight_bounds.width()).collect();
-        let smallest = widths.iter().cloned().fold(f32::MAX, f32::min);
-        let largest = widths.iter().cloned().fold(0.0, f32::max);
+        let smallest = widths.iter().copied().fold(f32::MAX, f32::min);
+        let largest = widths.iter().copied().fold(0.0, f32::max);
         assert!(largest > smallest * 2.0);
 
         let (w, h) = sb.max_slide_extent();

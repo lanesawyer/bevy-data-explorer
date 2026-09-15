@@ -549,7 +549,7 @@ pub fn spawn_slider(
 /// one the window's text colour is dark, and every button wore dark text over a
 /// background that had stayed dark. Naming the button token on the caption is
 /// what puts it back — and what the theme repaints when it changes.
-pub fn button_text(text: impl Into<String>) -> impl bevy::scene::Scene {
+pub fn button_text(text: impl Into<String>) -> impl Scene {
     let text = text.into();
     bsn! {
         label(text)
@@ -663,6 +663,6 @@ mod tests {
     fn menus_draw_above_the_frames_and_the_dock() {
         // A menu overhangs the sidebar it opens from, so it has to outrank
         // both the sidebar's chrome and the frame outline beneath it.
-        assert!(MENU_Z > 1);
+        const { assert!(MENU_Z > 1) };
     }
 }

@@ -214,7 +214,7 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
         .spawn_scene(bsn! {
             CustomStatus
             Text({ String::new() })
-            TextFont { font_size: { bevy::text::FontSize::Px(11.0) } }
+            TextFont { font_size: { FontSize::Px(11.0) } }
             Node { display: { Display::None } }
         })
         .id();

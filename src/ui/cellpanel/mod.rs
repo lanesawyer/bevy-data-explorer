@@ -407,8 +407,7 @@ pub fn update_clear_buttons(
     for (button, mut node) in &mut per_property {
         let applied = properties
             .and_then(|properties| properties.properties.get(button.property))
-            .map(CellProperty::applied)
-            .unwrap_or(0);
+            .map_or(0, CellProperty::applied);
         let wanted = if applied > 0 {
             Display::Flex
         } else {
@@ -419,7 +418,7 @@ pub fn update_clear_buttons(
         }
     }
 
-    let total = properties.map(CellProperties::applied).unwrap_or(0);
+    let total = properties.map_or(0, CellProperties::applied);
     for (entity, mut node) in &mut clear_all {
         let wanted = if total > 0 {
             Display::Flex

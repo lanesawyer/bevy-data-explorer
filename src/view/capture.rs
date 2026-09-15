@@ -148,7 +148,7 @@ pub(super) fn spawn_capture_notice(commands: &mut Commands, box_: Entity, panel:
         .spawn_scene(bsn! {
             CaptureNotice { panel: { panel } }
             Text
-            TextFont { font_size: { bevy::text::FontSize::Px(11.0) } }
+            TextFont { font_size: { FontSize::Px(11.0) } }
             ThemeTextColor({ crate::app::theme::token::OVERLAY_DIM })
             Node { display: { Display::None } }
         })
@@ -174,10 +174,6 @@ pub fn on_capture_pressed(
 }
 
 /// Drive a capture: hide the chrome, take the shot, and put the chrome back.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "one system owns the whole sequence so the chrome cannot be left hidden"
-)]
 pub fn drive_capture(
     mut commands: Commands,
     mut capture: ResMut<FrameCapture>,
@@ -238,8 +234,7 @@ pub fn drive_capture(
             };
             let name = sources
                 .get(shows.0)
-                .map(|source| source.name.clone())
-                .unwrap_or_else(|_| "frame".into());
+                .map_or_else(|_| "frame".into(), |source| source.name.clone());
             let rect = (viewport.physical_position, viewport.physical_size);
             let path = picture_path(&name);
             // Read now rather than in the task: what is keyed out has to be the
@@ -354,8 +349,7 @@ pub fn show_capture_notice(
 fn picture_path(name: &str) -> PathBuf {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |since| since.as_secs());
     PathBuf::from(FOLDER).join(format!("{}-{stamp}.png", file_stem(name)))
 }
 

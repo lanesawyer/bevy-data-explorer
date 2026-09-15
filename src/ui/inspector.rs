@@ -120,7 +120,7 @@ fn spawn_inspector(mut commands: Commands) {
             (
                 InspectorBody
                 Text({ String::new() })
-                TextFont { font_size: { bevy::text::FontSize::Px(12.0) } }
+                TextFont { font_size: { FontSize::Px(12.0) } }
                 ThemeTextColor({ tokens::TEXT_MAIN })
             ),
         ]

@@ -163,7 +163,7 @@ pub fn build_mesh(positions: &[[f32; 2]], categories: &[u16]) -> Mesh {
 /// inherent order, so hues are spread by a golden-ratio step to keep
 /// neighbouring indices visually distinct.
 pub fn category_colour(category: u16) -> [f32; 4] {
-    let hue = (category as f32 * 137.507_76) % 360.0;
+    let hue = (f32::from(category) * 137.507_76) % 360.0;
     let colour = Color::hsl(hue, 0.72, 0.62).to_linear();
     [colour.red, colour.green, colour.blue, 1.0]
 }

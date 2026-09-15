@@ -208,8 +208,7 @@ impl Dataset {
             .axes
             .get(layout.x)
             .and_then(|a| a.unit.as_ref())
-            .map(unit_symbol)
-            .unwrap_or_else(|| "px".to_string());
+            .map_or_else(|| "px".to_string(), unit_symbol);
 
         let mut levels = Vec::new();
         for (index, dataset) in multiscale.datasets.iter().enumerate() {
@@ -273,7 +272,7 @@ impl Dataset {
             return Err("multiscale image lists no datasets".into());
         }
         // The spec orders datasets finest first, but do not rely on it.
-        levels.sort_by(|a, b| b.width.cmp(&a.width));
+        levels.sort_by_key(|level| std::cmp::Reverse(level.width));
         for (i, level) in levels.iter_mut().enumerate() {
             level.index = i;
         }
@@ -286,10 +285,7 @@ impl Dataset {
             (finest.origin_y + finest.height as f64 * finest.scale_y) as f32,
         );
 
-        let channel_count = layout
-            .c
-            .map(|c| finest.array.shape()[c] as usize)
-            .unwrap_or(1);
+        let channel_count = layout.c.map_or(1, |c| finest.array.shape()[c] as usize);
         let channels = build_channels(omero, channel_count, &finest.array);
 
         Ok(Dataset {
@@ -377,14 +373,12 @@ pub async fn read_tile(
     let mut accum = vec![0f32; w * h * 3];
     let channel_chunk = layout
         .c
-        .map(|c| {
+        .map_or(1, |c| {
             level
                 .array
                 .chunk_shape(&vec![0; layout.ndim])
-                .map(|s| s.to_array_shape()[c])
-                .unwrap_or(1)
+                .map_or(1, |s| s.to_array_shape()[c])
         })
-        .unwrap_or(1)
         .max(1);
 
     // Channels sharing a chunk are fetched together; the reference store keeps
@@ -419,8 +413,7 @@ pub async fn read_tile(
             let chunk_z = level
                 .array
                 .chunk_shape(&vec![0; layout.ndim])
-                .map(|s| s.to_array_shape()[zi])
-                .unwrap_or(1)
+                .map_or(1, |s| s.to_array_shape()[zi])
                 .max(1);
             ranges[zi] = match source {
                 TileSource::Shard(_) => z % chunk_z..z % chunk_z + 1,
@@ -464,7 +457,12 @@ pub async fn read_tile(
     }
 
     let mut rgba = vec![0u8; w * h * 4];
-    for (pixel, out) in accum.chunks_exact(3).zip(rgba.chunks_exact_mut(4)) {
+    for (pixel, out) in accum
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(rgba.as_chunks_mut::<4>().0.iter_mut())
+    {
         out[0] = (pixel[0].min(1.0) * 255.0) as u8;
         out[1] = (pixel[1].min(1.0) * 255.0) as u8;
         out[2] = (pixel[2].min(1.0) * 255.0) as u8;
@@ -479,6 +477,10 @@ pub async fn read_tile(
 }
 
 /// Add one channel's contribution to the running RGB accumulation.
+#[expect(
+    clippy::cast_lossless,
+    reason = "one macro reads every sample type, and only the narrow ones widen losslessly"
+)]
 fn composite(
     raw: &[u8],
     accum: &mut [f32],
@@ -562,9 +564,9 @@ fn build_channels(
             let color = meta
                 .map(|c| {
                     [
-                        c.color.r as f32 / 255.0,
-                        c.color.g as f32 / 255.0,
-                        c.color.b as f32 / 255.0,
+                        f32::from(c.color.r) / 255.0,
+                        f32::from(c.color.g) / 255.0,
+                        f32::from(c.color.b) / 255.0,
                     ]
                 })
                 .filter(|c| c.iter().any(|v| *v > 0.0))
@@ -582,12 +584,11 @@ fn build_channels(
             let label = meta
                 .and_then(|c| c.other.get("label"))
                 .and_then(|v| v.as_str())
-                .map(str::to_string)
-                .unwrap_or_else(|| format!("channel {i}"));
+                .map_or_else(|| format!("channel {i}"), str::to_string);
 
             let active = meta
                 .and_then(|c| c.other.get("active"))
-                .and_then(|v| v.as_bool())
+                .and_then(serde_json::Value::as_bool)
                 .unwrap_or(true);
 
             Channel {
@@ -616,14 +617,14 @@ fn transforms(
         match transform {
             T::Scale(S::List { scale: values }) => {
                 for (i, v) in values.iter().take(ndim).enumerate() {
-                    scale[i] = *v as f64;
+                    scale[i] = f64::from(*v);
                 }
             }
             T::Translation(Tr::List {
                 translation: values,
             }) => {
                 for (i, v) in values.iter().take(ndim).enumerate() {
-                    translation[i] = *v as f64;
+                    translation[i] = f64::from(*v);
                 }
             }
             // Transforms stored out-of-band are not read; the identity default
@@ -675,7 +676,7 @@ fn choose_tile_px(inner: u64, shard: u64, target: u64) -> u64 {
 
     let aligned = (1..=target / inner)
         .map(|k| k * inner)
-        .filter(|size| shard % size == 0)
+        .filter(|size| shard.is_multiple_of(*size))
         .max();
     if let Some(size) = aligned {
         return size;
@@ -684,7 +685,7 @@ fn choose_tile_px(inner: u64, shard: u64, target: u64) -> u64 {
     // Fall back to the largest divisor of the shard within the target.
     (1..=target)
         .rev()
-        .find(|size| shard % size == 0)
+        .find(|size| shard.is_multiple_of(*size))
         .unwrap_or(shard)
 }
 
@@ -704,7 +705,7 @@ mod tests {
     use super::*;
 
     /// The reference image's root attributes, parsed the way the viewer does.
-    fn reference_multiscale() -> Vec<crate::formats::image::store::MultiscaleSpec> {
+    fn reference_multiscale() -> Vec<MultiscaleSpec> {
         let root: serde_json::Value =
             serde_json::from_str(include_str!("../../../testdata/root_zarr_v3.json")).unwrap();
         crate::formats::image::store::parse_ome(&root["attributes"])

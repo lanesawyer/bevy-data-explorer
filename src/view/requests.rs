@@ -119,8 +119,7 @@ pub fn apply_panel_requests(
                 {
                     let name = sources
                         .get(shows.0)
-                        .map(|(source, _)| source.name.as_str())
-                        .unwrap_or("a dataset");
+                        .map_or("a dataset", |(source, _)| source.name.as_str());
                     info!("closed the frame showing {name}");
                     closing.push(panel);
                 }

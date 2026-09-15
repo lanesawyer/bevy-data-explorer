@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn the_outline_draws_above_the_rules() {
         // Rules carry no explicit index, so they sit at zero.
-        assert!(SELECTION_Z > 0);
+        const { assert!(SELECTION_Z > 0) };
     }
 
     #[test]

@@ -306,7 +306,7 @@ mod tests {
     fn points_are_placed_with_y_running_downward() {
         // Display space negates y, as the image and section views do.
         let mesh = build_point_mesh(&[Vec2::new(3.0, 5.0)], &[[1.0; 4]], &[]);
-        let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+        let Some(VertexAttributeValues::Float32x3(positions)) =
             mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
             panic!("expected float positions");
@@ -316,20 +316,20 @@ mod tests {
 
     #[test]
     fn the_default_size_sits_inside_the_range_offered() {
-        assert!(MIN_POINT_PX <= DEFAULT_POINT_PX && DEFAULT_POINT_PX <= MAX_POINT_PX);
+        const { assert!(MIN_POINT_PX <= DEFAULT_POINT_PX && DEFAULT_POINT_PX <= MAX_POINT_PX) };
     }
 
     #[test]
     fn the_smallest_setting_is_thinner_than_a_pixel() {
         // Zoomed out over a dense cloud, a whole pixel a point is already a
         // solid mass, so the range has to reach below one.
-        assert!(MIN_POINT_PX < 1.0);
+        const { assert!(MIN_POINT_PX < 1.0) };
     }
 
     #[test]
     fn a_highlighted_point_is_clearly_larger_but_not_overwhelming() {
-        assert!(HIGHLIGHT_SCALE > 1.5);
-        assert!(DEFAULT_POINT_PX * HIGHLIGHT_SCALE <= MAX_POINT_PX);
+        const { assert!(HIGHLIGHT_SCALE > 1.5) };
+        const { assert!(DEFAULT_POINT_PX * HIGHLIGHT_SCALE <= MAX_POINT_PX) };
     }
 
     #[test]
@@ -342,7 +342,7 @@ mod tests {
         assert_eq!(BYTES_PER_POINT % 4, 0);
         // Floats throughout cost 144 bytes a point, which put a budget large
         // enough to show every slice at once out of reach.
-        assert!(BYTES_PER_POINT < 4 * (12 + 16 + 8));
+        const { assert!(BYTES_PER_POINT < 4 * (12 + 16 + 8)) };
         assert!(budget_megabytes(4_000_000) < 350);
     }
 

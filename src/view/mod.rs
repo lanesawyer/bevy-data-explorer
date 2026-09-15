@@ -138,10 +138,6 @@ pub struct View {
 }
 
 /// Spawn a panel camera in cell `index`, showing `source`.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "a frame is a camera, a cell, a source, a view and the colour it clears to"
-)]
 pub fn spawn_panel(
     commands: &mut Commands,
     source: Entity,
@@ -234,11 +230,9 @@ fn open_frames(
     palette: Res<crate::app::theme::Palette>,
     sources: Query<(Entity, &DataSource, &SourceExtent)>,
 ) {
-    let window = windows
-        .iter()
-        .next()
-        .map(|w| Vec2::new(w.width(), w.height()))
-        .unwrap_or(Vec2::new(1280.0, 720.0));
+    let window = windows.iter().next().map_or(Vec2::new(1280.0, 720.0), |w| {
+        Vec2::new(w.width(), w.height())
+    });
 
     let mut sources: Vec<(Entity, &DataSource, &SourceExtent)> = sources.iter().collect();
     // Layers are handed out in registration order, which is the order the

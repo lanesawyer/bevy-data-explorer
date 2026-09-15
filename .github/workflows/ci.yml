@@ -23,7 +23,7 @@ env:
 
 jobs:
   check:
-    name: fmt, build, test
+    name: fmt, build, clippy, test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -39,7 +39,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: rustfmt, clippy
 
       # Keyed on the lockfile and the compiler, and shared by the steps below.
       # A cold build of this dependency tree is most of the run.
@@ -50,6 +50,11 @@ jobs:
 
       - name: Build
         run: cargo build --all-targets --locked
+
+      # The lint levels are in Cargo.toml; `-D warnings` above makes any of
+      # them fail the run.
+      - name: Clippy
+        run: cargo clippy --all-targets --locked
 
       - name: Test
         run: cargo test --locked

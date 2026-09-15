@@ -40,7 +40,7 @@ pub async fn open(source: &str) -> Result<Dataset, String> {
         let manifest = load_manifest(source).await?;
         (manifest.url, manifest.attrs)
     } else {
-        (source.to_string(), None)
+        (source.clone(), None)
     };
 
     let store = open_store(&crate::formats::plain_url(&store_url))?;
