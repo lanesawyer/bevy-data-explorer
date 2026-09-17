@@ -342,6 +342,11 @@ fn layer_image(size: UVec2) -> Image {
     // Only ever drawn into on the GPU, so keeping a CPU copy of every pixel
     // would be megabytes held for nothing.
     image.data = None;
+    // Bevy's target textures copy their old contents into a resized texture,
+    // but lack the `COPY_SRC` usage that copy needs, so the first resize fails
+    // validation and quits. A layer is redrawn every frame, so there is
+    // nothing worth copying anyway.
+    image.copy_on_resize = false;
     image
 }
 
