@@ -11,7 +11,7 @@ use super::layers::{
     FrameLayers, LayerOf, LayerOpacity, can_add_layer, spawn_layer, stacked_sources,
 };
 use super::{FrameArea, Panel, SelectedPanel, ShowsSource, View, spawn_panel};
-use crate::source::{DataSource, SourceExtent, ViewLimits};
+use crate::source::{DataSource, SourceExtent, SourceUrl, ViewLimits};
 
 /// A change to the set of frames.
 ///
@@ -52,8 +52,40 @@ pub enum PanelRequest {
 #[derive(Message, Clone, Debug)]
 pub struct DatasetRequest {
     pub url: String,
-    /// The frame to layer it onto, or `None` for a frame of its own.
-    pub onto: Option<Entity>,
+    pub target: DatasetTarget,
+}
+
+/// Where a dataset asked for by address ends up once it is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DatasetTarget {
+    /// A frame of its own.
+    #[default]
+    NewFrame,
+    /// In place of what this frame shows now.
+    Show(Entity),
+    /// Drawn over what this frame shows.
+    Layer(Entity),
+}
+
+impl DatasetTarget {
+    /// The request that puts an open source where it was asked for.
+    pub fn request_for(self, source: Entity) -> PanelRequest {
+        match self {
+            DatasetTarget::NewFrame => PanelRequest::Open(source),
+            DatasetTarget::Show(panel) => PanelRequest::Show { panel, source },
+            DatasetTarget::Layer(panel) => PanelRequest::AddLayer { panel, source },
+        }
+    }
+}
+
+/// A frame waiting on a dataset still being read, to show in place of its own.
+///
+/// Carries the address and a name to report, so the frame can say what it is
+/// about to become. Taken off once that dataset is shown, or its read fails.
+#[derive(Component, Clone, Debug)]
+pub struct PendingShow {
+    pub url: String,
+    pub name: String,
 }
 
 /// Apply requested changes to the set of frames.
@@ -74,6 +106,8 @@ pub fn apply_panel_requests(
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     layer_opacities: Query<(&ShowsSource, &LayerOpacity), With<LayerOf>>,
     sources: Query<(&DataSource, &SourceExtent)>,
+    pending: Query<&PendingShow>,
+    urls: Query<&SourceUrl>,
     palette: Res<crate::app::theme::Palette>,
 ) {
     let requests: Vec<PanelRequest> = requests.read().copied().collect();
@@ -179,6 +213,13 @@ pub fn apply_panel_requests(
                 let Ok((_, _, shows, _, _, _, layers)) = panels.get(panel) else {
                     continue;
                 };
+                // Only the dataset the frame is waiting on settles the wait: a
+                // later choice may already have replaced it.
+                if let (Ok(waiting), Ok(url)) = (pending.get(panel), urls.get(source))
+                    && waiting.url == url.0
+                {
+                    commands.entity(panel).remove::<PendingShow>();
+                }
                 if shows.0 == source {
                     continue;
                 }
@@ -533,5 +574,35 @@ mod tests {
             },
         );
         assert_eq!(layers_of(&app, panel), vec![cells]);
+    }
+
+    #[test]
+    fn a_frame_stops_waiting_only_for_the_dataset_it_asked_for() {
+        let mut app = app();
+        let slide = source(&mut app, "Slide", "px");
+        let first = source(&mut app, "First", "px");
+        let second = source(&mut app, "Second", "px");
+        app.world_mut()
+            .entity_mut(first)
+            .insert(SourceUrl("https://store/first".into()));
+        app.world_mut()
+            .entity_mut(second)
+            .insert(SourceUrl("https://store/second".into()));
+        request(&mut app, PanelRequest::Open(slide));
+        let panel = only_panel(&mut app);
+        app.world_mut().entity_mut(panel).insert(PendingShow {
+            url: "https://store/second".into(),
+            name: "Second".into(),
+        });
+
+        // An earlier choice landing late is shown, but the frame is still
+        // waiting on the one chosen after it.
+        request(&mut app, DatasetTarget::Show(panel).request_for(first));
+        assert_eq!(app.world().get::<ShowsSource>(panel).unwrap().0, first);
+        assert!(app.world().get::<PendingShow>(panel).is_some());
+
+        request(&mut app, DatasetTarget::Show(panel).request_for(second));
+        assert_eq!(app.world().get::<ShowsSource>(panel).unwrap().0, second);
+        assert!(app.world().get::<PendingShow>(panel).is_none());
     }
 }

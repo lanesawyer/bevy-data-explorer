@@ -166,7 +166,7 @@ pub fn on_example_pressed(
     };
     requests.write(crate::view::DatasetRequest {
         url: example.url.to_string(),
-        onto: None,
+        target: crate::view::DatasetTarget::NewFrame,
     });
 }
 

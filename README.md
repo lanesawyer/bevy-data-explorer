@@ -261,23 +261,30 @@ whatever the original happened to load.
 | `+` button | duplicate that panel |
 | `x` button | close that panel |
 | `i` button | open the inspector on that frame |
-| frame menu | show a different dataset in that frame |
+| dataset name | show a different dataset in that frame |
+| `...` button | add or remove that frame's layers |
 | drag sidebar edge | resize the sidebar, or collapse it — the pointer becomes a resize cursor over the handle |
 | `<` / `>` button | collapse or expand the sidebar |
 | `1`–`9` | toggle an image channel |
 | `G` | sections panel: grid ↔ single slice |
 | `←` `→`, `[` `]` | step through slices |
 
-Each frame carries a header in its top corner — the dataset's name, a button
-that opens the inspector on it, and a menu for pointing that frame at a
-different dataset. Frames are drawn over imagery that is bright in places and
+Each frame carries a header in its top corner — the dataset's name, which opens
+a menu for pointing that frame at a different dataset, a button that opens the
+inspector on it, and a menu of what is layered over it. Frames are drawn over imagery that is bright in places and
 black in others, so the header and the status beneath it sit on a translucent
 panel. The frame's own controls, duplicate and close, stay in the opposite
 corner: what manages the frame is kept apart from what describes the data.
 
 Pointing a frame at another dataset is what the source indirection was for. The
 camera moves onto that source's render layer and is reframed to its extent;
-nothing about the format is involved.
+nothing about the format is involved. The name's menu offers every open dataset
+and every known one not read yet; choosing one of those reads it, says so on
+the frame's status line while it does, and swaps it in once it lands. The menu
+opens with the keyboard in a search field: typing narrows the list to datasets
+whose name, kind or address contain every word typed, Enter takes the first
+match, the arrow keys move through the rest, and Escape closes it. The
+frame's layers stay where they are, over the new dataset.
 
 Each panel carries its own overlay: the image reports the pyramid level, scale
 and tile cache; the point cloud reports octree depth, nodes loaded and points

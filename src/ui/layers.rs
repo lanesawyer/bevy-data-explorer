@@ -20,8 +20,8 @@ use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::grid::MAX_LAYERS;
 use crate::view::layers::{can_add_layer, stacked_sources, unit_mismatch};
 use crate::view::{
-    BlocksFrameInput, DatasetRequest, FrameLayers, LayerOf, LayerOpacity, Panel, PanelRequest,
-    SelectedPanel, ShowsSource,
+    BlocksFrameInput, DatasetRequest, DatasetTarget, FrameLayers, LayerOf, LayerOpacity, Panel,
+    PanelRequest, SelectedPanel, ShowsSource,
 };
 use crate::widgets::{button_text, caption, spawn_accordion, spawn_slider};
 
@@ -366,7 +366,7 @@ pub fn on_layer_button(
             if let Some(example) = EXAMPLES.get(index) {
                 datasets.write(DatasetRequest {
                     url: example.url.to_string(),
-                    onto: Some(panel),
+                    target: DatasetTarget::Layer(panel),
                 });
             }
         }

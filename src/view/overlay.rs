@@ -1,8 +1,9 @@
 //! Per-frame overlays.
 //!
-//! Each frame carries a header in its top corner: the dataset's name, a button
-//! that opens the inspector on it, and a menu for pointing the frame at a
-//! different dataset. The status its plugin reports sits underneath.
+//! Each frame carries a header in its top corner: the dataset's name, which
+//! opens a menu for pointing the frame at a different dataset, a button that
+//! opens the inspector on it, and a menu of what is layered over it. The status
+//! its plugin reports sits underneath.
 //!
 //! The overlay knows nothing about any particular format. It reads the name and
 //! status off whichever source entity a panel points at, and adds the lines
@@ -27,10 +28,10 @@ use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::{DataSource, SourceStatus, SourceUrl};
 use crate::view::layers::stacked_sources;
 use crate::view::{
-    BlocksFrameInput, DatasetRequest, FrameLayers, LayerOf, Panel, PanelRequest, ShowsSource,
+    BlocksFrameInput, DatasetRequest, DatasetTarget, FrameLayers, LayerOf, Panel, PanelRequest,
+    PendingShow, ShowsSource,
 };
-use crate::widgets::button_text;
-use crate::widgets::spawn_menu;
+use crate::widgets::{button_text, spawn_menu};
 
 /// The translucent panel a frame's header and status sit on.
 #[derive(Component, Clone)]
@@ -64,7 +65,8 @@ impl Default for PanelInfoButton {
     }
 }
 
-/// The menu that points a frame at a different dataset.
+/// The `...` menu of what is layered over a frame. What the frame shows is
+/// chosen from its title instead; see [`super::dataset_menu`].
 #[derive(Component, Clone)]
 pub struct SourceMenu {
     panel: Entity,
@@ -78,18 +80,22 @@ impl Default for SourceMenu {
     }
 }
 
-/// One dataset offered by a frame's menu, and what choosing it does.
+/// One dataset offered by a frame's menus, and what choosing it does.
 #[derive(Component, Clone)]
 pub struct SourceChoice {
-    panel: Entity,
-    source: Entity,
-    action: ChoiceAction,
+    pub(super) panel: Entity,
+    pub(super) source: Entity,
+    pub(super) action: ChoiceAction,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ChoiceAction {
     /// Show this dataset instead of what the frame shows now.
     Show,
+    /// Read a known dataset that is not open yet, and show it instead of what
+    /// the frame shows once it lands. Carries its place in
+    /// [`crate::formats::EXAMPLES`].
+    ShowExample(usize),
     /// Draw it over what the frame shows.
     AddLayer,
     /// Take its layer off the frame.
@@ -224,14 +230,9 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
         })
         .id();
 
-    let title = commands
-        .spawn_scene(bsn! {
-            PanelTitle
-            label("")
-            InheritableFont { font_size: { 14.0f32 } }
-            Node { margin: { UiRect::right(Val::Px(2.0)) } }
-        })
-        .id();
+    // The name is the handle for changing it: switching datasets is about the
+    // one named, so the control sits where the name already is.
+    let title = super::dataset_menu::spawn_dataset_menu(commands, panel);
 
     let info = commands
         .spawn_scene(bsn! {
@@ -346,7 +347,7 @@ pub fn update_tooltips(
 }
 
 pub fn update_hud(
-    panels: Query<(&Camera, &Projection, &ShowsSource)>,
+    panels: Query<(&Camera, &Projection, &ShowsSource, Option<&PendingShow>)>,
     sources: Query<(&DataSource, &SourceStatus)>,
     mut texts: Query<(&mut Text, &PanelText)>,
     titles: Query<(Entity, &ChildOf), With<PanelTitle>>,
@@ -355,7 +356,7 @@ pub fn update_hud(
     mut title_texts: Query<&mut Text, Without<PanelText>>,
 ) {
     for (mut text, panel_text) in &mut texts {
-        let Ok((camera, projection, shows)) = panels.get(panel_text.panel) else {
+        let Ok((camera, projection, shows, pending)) = panels.get(panel_text.panel) else {
             continue;
         };
         let Ok((source, status)) = sources.get(shows.0) else {
@@ -368,9 +369,13 @@ pub fn update_hud(
         let units_per_px = ortho.area.width() / viewport.x.max(1.0);
 
         // The name has moved up into the header, so it is no longer repeated
-        // here.
+        // here. A dataset on its way in is said first: the choice was made in
+        // a menu that has since closed, and nothing else would show it landed.
+        let waiting = pending.map_or_else(String::new, |pending| {
+            format!("reading {}\u{2026}\n", pending.name)
+        });
         text.0 = format!(
-            "{}\nzoom {:.5} {}/screen px",
+            "{waiting}{}\nzoom {:.5} {}/screen px",
             status.0, units_per_px, source.unit,
         );
     }
@@ -383,7 +388,7 @@ pub fn update_hud(
         else {
             continue;
         };
-        let Ok((_, _, shows)) = panels.get(panel) else {
+        let Ok((_, _, shows, _)) = panels.get(panel) else {
             continue;
         };
         let Ok((source, _)) = sources.get(shows.0) else {
@@ -411,6 +416,7 @@ pub fn on_info_pressed(
 /// Point a frame at the dataset chosen from its menu.
 pub fn on_source_chosen(
     activate: On<Activate>,
+    mut commands: Commands,
     choices: Query<&SourceChoice>,
     mut requests: MessageWriter<PanelRequest>,
     mut datasets: MessageWriter<DatasetRequest>,
@@ -423,11 +429,24 @@ pub fn on_source_chosen(
         ChoiceAction::Show => PanelRequest::Show { panel, source },
         ChoiceAction::AddLayer => PanelRequest::AddLayer { panel, source },
         ChoiceAction::RemoveLayer => PanelRequest::RemoveLayer { panel, source },
+        ChoiceAction::ShowExample(index) => {
+            if let Some(example) = crate::formats::EXAMPLES.get(index) {
+                commands.entity(panel).insert(PendingShow {
+                    url: example.url.to_string(),
+                    name: example.name.to_string(),
+                });
+                datasets.write(DatasetRequest {
+                    url: example.url.to_string(),
+                    target: DatasetTarget::Show(panel),
+                });
+            }
+            return;
+        }
         ChoiceAction::LayerExample(index) => {
             if let Some(example) = crate::formats::EXAMPLES.get(index) {
                 datasets.write(DatasetRequest {
                     url: example.url.to_string(),
-                    onto: Some(panel),
+                    target: DatasetTarget::Layer(panel),
                 });
             }
             return;
@@ -435,8 +454,8 @@ pub fn on_source_chosen(
     });
 }
 
-/// Fill each frame's menu: what it could show, what it draws on top, and what
-/// else could go on top.
+/// Fill each frame's `...` menu: what it draws on top, and what else could go
+/// on top.
 ///
 /// Rebuilt when the set of sources changes, or when what a frame stacks
 /// changes, so the current state stays marked.
@@ -483,85 +502,83 @@ pub fn rebuild_source_menus(
             continue;
         };
         let panel = menu.panel;
-        let base = stack.first().and_then(|base| lookup(*base));
-        let mut rows = vec![menu_heading(&mut commands, "Show in this frame", 0.0)];
+        let rows = layer_rows(&mut commands, panel, stack, &listed, &opened, lookup);
+        commands.entity(menu_entity).add_children(&rows);
+    }
+    *shown = Some(fingerprint);
+}
 
-        for (entity, source) in &listed {
-            let showing = stack.first() == Some(entity);
-            rows.push(menu_row(
-                &mut commands,
-                &source.name,
-                &source.detail,
-                SourceChoice {
-                    panel,
-                    source: *entity,
-                    action: ChoiceAction::Show,
-                },
-                if showing { "Shown" } else { "Show" },
-                !showing,
-            ));
-        }
+/// What a frame draws over its dataset, and what else could go on top.
+fn layer_rows<'a>(
+    commands: &mut Commands,
+    panel: Entity,
+    stack: &[Entity],
+    listed: &[(Entity, &DataSource)],
+    opened: &[&str],
+    lookup: impl Fn(Entity) -> Option<&'a DataSource>,
+) -> Vec<Entity> {
+    let base = stack.first().and_then(|base| lookup(*base));
+    let mut rows = Vec::new();
 
-        if stack.len() > 1 {
-            rows.push(menu_heading(&mut commands, "Layers, top first", 10.0));
-            for entity in stack[1..].iter().rev() {
-                let Some(source) = lookup(*entity) else {
-                    continue;
-                };
-                rows.push(menu_row(
-                    &mut commands,
-                    &source.name,
-                    &layer_note(base, source),
-                    SourceChoice {
-                        panel,
-                        source: *entity,
-                        action: ChoiceAction::RemoveLayer,
-                    },
-                    "Remove",
-                    true,
-                ));
-            }
-        }
-
-        let room = stack.len() < super::grid::MAX_LAYERS;
-        rows.push(menu_heading(&mut commands, "Add a layer", 10.0));
-        for (entity, source) in &listed {
-            if !super::layers::can_add_layer(stack, *entity) {
+    if stack.len() > 1 {
+        rows.push(menu_heading(commands, "Layers, top first", 0.0));
+        for entity in stack[1..].iter().rev() {
+            let Some(source) = lookup(*entity) else {
                 continue;
-            }
+            };
             rows.push(menu_row(
-                &mut commands,
+                commands,
                 &source.name,
                 &layer_note(base, source),
                 SourceChoice {
                     panel,
                     source: *entity,
-                    action: ChoiceAction::AddLayer,
+                    action: ChoiceAction::RemoveLayer,
                 },
-                "Add",
+                "Remove",
                 true,
             ));
         }
-        // Known datasets not read yet, so choosing a layer never means opening
-        // it somewhere first. What they are measured in is not known until
-        // they are read, so there is no mismatch to note.
-        for (index, example) in crate::formats::unopened_examples(&opened) {
-            rows.push(menu_row(
-                &mut commands,
-                example.name,
-                &format!("{}, not loaded yet", example.kind),
-                SourceChoice {
-                    panel,
-                    source: Entity::PLACEHOLDER,
-                    action: ChoiceAction::LayerExample(index),
-                },
-                "Add",
-                room,
-            ));
-        }
-        commands.entity(menu_entity).add_children(&rows);
     }
-    *shown = Some(fingerprint);
+
+    let room = stack.len() < super::grid::MAX_LAYERS;
+    let gap = if rows.is_empty() { 0.0 } else { 10.0 };
+    rows.push(menu_heading(commands, "Add a layer", gap));
+    for (entity, source) in listed {
+        if !super::layers::can_add_layer(stack, *entity) {
+            continue;
+        }
+        rows.push(menu_row(
+            commands,
+            &source.name,
+            &layer_note(base, source),
+            SourceChoice {
+                panel,
+                source: *entity,
+                action: ChoiceAction::AddLayer,
+            },
+            "Add",
+            true,
+        ));
+    }
+    // Known datasets not read yet, so choosing a layer never means opening
+    // it somewhere first. What they are measured in is not known until
+    // they are read, so there is no mismatch to note.
+    for (index, example) in crate::formats::unopened_examples(opened) {
+        rows.push(menu_row(
+            commands,
+            example.name,
+            &format!("{}, not loaded yet", example.kind),
+            SourceChoice {
+                panel,
+                source: Entity::PLACEHOLDER,
+                action: ChoiceAction::LayerExample(index),
+            },
+            "Add",
+            room,
+        ));
+    }
+    rows
 }
 
 /// Everything a frame's menu is rebuilt from, despawned wholesale.
@@ -669,10 +686,17 @@ impl Plugin for OverlayPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_info_pressed)
             .add_observer(on_source_chosen)
+            .add_observer(super::dataset_menu::on_search_key)
             .add_systems(Update, sync_hud.in_set(Stage::FrameChrome))
             .add_systems(
                 Update,
-                (position_hud, rebuild_source_menus)
+                (
+                    position_hud,
+                    rebuild_source_menus,
+                    super::dataset_menu::clear_closed_searches,
+                    super::dataset_menu::rebuild_dataset_lists,
+                    super::dataset_menu::sync_search_hints,
+                )
                     .chain()
                     .in_set(Stage::Chrome),
             )

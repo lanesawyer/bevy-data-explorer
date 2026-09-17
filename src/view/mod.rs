@@ -18,6 +18,7 @@
 pub mod camera;
 pub mod capture;
 pub mod chrome;
+pub mod dataset_menu;
 pub mod grid;
 pub mod input;
 pub mod layers;
@@ -44,7 +45,7 @@ use requests::apply_panel_requests;
 pub use grid::{MAX_PANELS, grid_for};
 pub use input::{BlocksFrameInput, TextEntryFocused};
 pub use layers::{FrameLayers, LayerOf, LayerOpacity, OpensAsLayer};
-pub use requests::{DatasetRequest, PanelRequest};
+pub use requests::{DatasetRequest, DatasetTarget, PanelRequest, PendingShow};
 
 /// The frame the sidebar's controls act on.
 ///
