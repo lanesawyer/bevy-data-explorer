@@ -188,8 +188,9 @@ format it is — the URL is read and the format worked out from what comes back,
 so an OME-Zarr store, a single point cloud and a sectioned dataset are all
 pasted into the same field. A `.json` is tried as Scatterbrain metadata first
 and as an image manifest second; anything else is tried as a Zarr store. A
-sectioned dataset is recognised by its metadata listing more than one slide,
-which is the same distinction `--points` and `--slices` make by hand.
+sectioned dataset is recognised by its metadata listing more than one slide.
+The command line reads what it is given the same way, so `--points` and
+`--slices` say only that a dataset gets a frame of its own, not what it is.
 
 Whatever is recognised is registered as a source like any other and opens into
 a new frame, so it is indistinguishable afterwards from one named on the
@@ -427,8 +428,9 @@ work out whether the pointer is really over its own frame.
 Frames refer to a source by entity rather than by a format tag, which is what
 keeps `panel` and `hud` from knowing anything about OME-Zarr or Scatterbrain —
 the overlay reads a name and a status string off whichever entity its panel
-points at. Adding a format means writing a plugin and adding it; nothing else
-changes, and `main` discovers sources from the world rather than listing them.
+points at. Adding a format means writing its systems plugin, a `spawn_source`,
+and teaching `formats::discover` to recognise it; nothing else changes, and
+frames are opened by querying the world for sources rather than listing them.
 
 Render layers are allocated at registration, one per source, so two sources can
 never draw into each other's frames. Layer 0 is deliberately never handed out:

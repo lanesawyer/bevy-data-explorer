@@ -1,14 +1,15 @@
 ---
 name: add-source-plugin
-description: 'Add a new data format to bevy-data-explorer as a Bevy plugin that registers a source entity. Use when: supporting a new file format, adding a dataset type, or wiring a reader into the viewer.'
+description: 'Add a new data format to bevy-data-explorer: a systems plugin, a source entity per dataset, and recognition in discover. Use when: supporting a new file format, adding a dataset type, or wiring a reader into the viewer.'
 argument-hint: 'The format name, and a metadata URL or file to read'
 ---
 
 # Add Source Plugin
 
-Every format is a plugin that registers a source entity. Done properly, nothing
-outside the new module changes: `main` discovers sources by querying the world,
-and nothing in `view` or `ui` ever names a format.
+Every format is a systems plugin plus a `spawn_source` that registers each
+dataset as a source entity. Done properly, nothing outside `src/formats/`
+changes: frames are opened by querying the world for sources, and nothing in
+`main`, `view` or `ui` ever names a format.
 
 ## Step 1: Probe the format first
 
@@ -21,32 +22,54 @@ Keep parsing and byte decoding free of Bevy types, in its own module, with
 tests against a fixture in `testdata/`. Reuse an existing library where one
 exists — `zarrs` handles Zarr v3 entirely, including sharded partial reads.
 
-## Step 3: Write the plugin
+## Step 3: Write the plugin and the source
 
-Put the module under `src/formats/`, and register against `crate::source`.
+Put the module under `src/formats/`, and register against `crate::source`. A
+format has two halves: systems that serve every dataset of that format, added
+once, and a `spawn_source` that registers one dataset and binds a streamer
+component to its entity.
 
 ```rust
 use crate::app::schedule::Stage;
 use crate::source::{self, SourceExtent};
 
-impl Plugin for MyFormatPlugin {
-    fn build(&self, app: &mut App) {
-        let source = source::register(
-            app,
-            source::SourceInfo {
-                name: ...,
-                unit: ...,    // physical unit, for reporting zoom
-                detail: ...,  // provenance, shown in listings
-                stat: ...,    // headline figure, e.g. "3.74M CELLS"
-            },
-            SourceExtent { centre, size, finest },
-        );
+pub struct MyFormatSystems;
 
-        app.insert_resource(MyStreamer::new(data, source))
-            .add_systems(Update, (...).chain().in_set(Stage::Sources));
+impl Plugin for MyFormatSystems {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, (...).chain().in_set(Stage::Sources));
     }
 }
+
+pub fn spawn_source(world: &mut World, data: Arc<MyData>) -> Entity {
+    let source = source::register_in(
+        world,
+        source::SourceInfo {
+            name: ...,
+            unit: ...,    // physical unit, for reporting zoom
+            detail: ...,  // provenance, shown in listings
+            stat: ...,    // headline figure, e.g. "3.74M CELLS"
+        },
+        SourceExtent { centre, size, finest },
+    );
+    world.entity_mut(source).insert(MyStreamer::new(data, source));
+    source
+}
 ```
+
+Then wire it into `src/formats/`, which is the only place outside the module
+that names it:
+
+- add `MyFormatSystems` to `FormatsPlugin`;
+- add a `Discovered` variant, and recognise it in `discover::discover` from the
+  bytes (or an unambiguous extension) rather than from anything the user says;
+- map that variant to `spawn_source` in `spawn_discovered`;
+- add an entry to `EXAMPLES` if there is a public dataset to offer.
+
+The command line, the URL field and the examples all go through
+`discover` and `spawn_discovered`, so nothing else needs to know the format
+exists. Never make the streamer a `Resource`: it is a component of the source
+entity, so two datasets of one format can be open at once.
 
 Declare a stage, never an ordering against another module's system. The stages
 are defined and ordered in `src/app/schedule.rs`, which is the only place that

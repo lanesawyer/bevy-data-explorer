@@ -800,16 +800,9 @@ pub fn update_tile_visibility(
     }
 }
 
-/// Streams an OME-Zarr image into the frames that display it.
-pub struct ImagePlugin {
-    pub dataset: Arc<Dataset>,
-    pub z_slice: Option<u64>,
-    pub budget_bytes: usize,
-}
-
 /// The systems every image shares, registered once however many are open.
 ///
-/// Separate from [`ImagePlugin`] so that a store opened after the window is up
+/// Separate from any one image so that a store opened after the window is up
 /// streams through the same systems as one named on the command line.
 pub struct ImageSystems;
 
@@ -886,26 +879,6 @@ pub fn spawn_source(
     streamer.budget_bytes = budget_bytes;
     world.entity_mut(source).insert(streamer);
     source
-}
-
-impl Plugin for ImagePlugin {
-    /// Each image is its own instance of this plugin, so Bevy must not treat a
-    /// second one as a duplicate.
-    fn is_unique(&self) -> bool {
-        false
-    }
-
-    fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<ImageSystems>() {
-            app.add_plugins(ImageSystems);
-        }
-        spawn_source(
-            app.world_mut(),
-            self.dataset.clone(),
-            self.z_slice,
-            self.budget_bytes,
-        );
-    }
 }
 
 /// Report where in the image the pointer is.

@@ -816,12 +816,6 @@ fn apply_selection(
     }
 }
 
-/// Streams a sectioned Scatterbrain dataset.
-pub struct SlicesPlugin {
-    pub cloud: Arc<Scatterbrain>,
-    pub budget: usize,
-}
-
 /// The systems every sectioned dataset shares, registered once however many
 /// are open.
 pub struct SlicesSystems;
@@ -850,21 +844,6 @@ impl Plugin for SlicesSystems {
         // which slide is where; the schedule already puts `HoverProbing`
         // after the layout has settled.
         .add_systems(Update, resolve_hover.in_set(source::hover::HoverProbing));
-    }
-}
-
-impl Plugin for SlicesPlugin {
-    /// Each sectioned dataset is its own instance of this plugin, so Bevy must
-    /// not treat a second one as a duplicate.
-    fn is_unique(&self) -> bool {
-        false
-    }
-
-    fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<SlicesSystems>() {
-            app.add_plugins(SlicesSystems);
-        }
-        spawn_source(app.world_mut(), self.cloud.clone(), self.budget);
     }
 }
 

@@ -23,8 +23,8 @@ use app::ExplorerPlugin;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cli::Args::parse();
-    let data = args.open()?;
-    let layers = cli::open_layers(&args.layer)?;
+    let opened = args.open()?;
+    let settings = args.load_settings();
 
     let mut app = App::new();
     app.add_plugins(ExplorerPlugin);
@@ -33,81 +33,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // dataset for it, so a URL typed into the sidebar later opens into the
     // same machinery. The budgets go in beside them, for the same reason.
     app.add_plugins(formats::FormatsPlugin)
-        .insert_resource(args.load_settings());
+        .insert_resource(settings);
 
-    // Each dataset named on the command line is a plugin. Registration order
-    // decides which cell a source's frame opens in, and nothing else here knows
-    // what the formats are. Naming none of them is the ordinary case: the
-    // window opens empty and offers the examples instead.
-    if let Some(dataset) = data.image {
-        app.add_plugins(formats::image::ImagePlugin {
-            dataset,
-            z_slice: args.z,
-            budget_bytes: args.cache_mb * 1024 * 1024,
-        });
-        record_url(&mut app, args.source.as_deref());
-    }
-    if let Some(dzi) = data.deep_zoom {
-        app.add_plugins(formats::dzi::DziPlugin {
-            dzi,
-            budget_bytes: args.cache_mb * 1024 * 1024,
-        });
-        record_url(&mut app, args.source.as_deref());
-    }
-    if let Some(cloud) = data.points {
-        app.add_plugins(formats::pointcloud::PointCloudPlugin {
-            name: "Point cloud".into(),
-            cloud,
-            budget: args.point_budget,
-        });
-        record_url(&mut app, args.points.as_deref());
-    }
-    if let Some(cloud) = data.cells {
-        app.add_plugins(formats::pointcloud::PointCloudPlugin {
-            name: "SEA-AD mapped cells".into(),
-            cloud,
-            budget: args.point_budget,
-        });
-        record_url(&mut app, args.cells.as_deref());
-    }
-    if let Some(cloud) = data.sections {
-        app.add_plugins(formats::slices::SlicesPlugin {
-            cloud,
-            budget: args.slice_budget,
-        });
-        record_url(&mut app, args.slices.as_deref());
-    }
-
-    // After every frame's dataset, so a layer is never mistaken for the frame
-    // it is meant to be drawn over.
-    for (url, layer) in args.layer.iter().zip(layers) {
-        let source = formats::spawn_discovered(app.world_mut(), layer, args.load_settings());
-        app.world_mut().entity_mut(source).insert((
-            view::OpensAsLayer,
-            source::SourceUrl(url.trim().to_string()),
-        ));
+    // Each dataset named is registered exactly as one opened from the sidebar
+    // is. Registration order decides which cell a source's frame opens in, and
+    // nothing here knows what the formats are. Naming none of them is the
+    // ordinary case: the window opens empty and offers the examples instead.
+    for cli::Opened {
+        url,
+        dataset,
+        as_layer,
+    } in opened
+    {
+        let source = formats::spawn_discovered(app.world_mut(), dataset, settings);
+        let mut source = app.world_mut().entity_mut(source);
+        // What a dataset named here is recognised by, so the menus do not offer
+        // it again as one to download.
+        source.insert(source::SourceUrl(url));
+        if as_layer {
+            source.insert(view::OpensAsLayer);
+        }
     }
 
     app.run();
     Ok(())
-}
-
-/// Record the address the source a plugin just registered was read from, so a
-/// dataset named here is not offered again in the menus as one to download.
-///
-/// Plugins register as they are added, and every one hands out the next render
-/// layer, so the newest source is the one with the highest.
-fn record_url(app: &mut App, url: Option<&str>) {
-    let Some(url) = url else { return };
-    let world = app.world_mut();
-    let newest = world
-        .query::<(Entity, &source::DataSource)>()
-        .iter(world)
-        .max_by_key(|(_, source)| source.layer)
-        .map(|(entity, _)| entity);
-    if let Some(entity) = newest {
-        world
-            .entity_mut(entity)
-            .insert(source::SourceUrl(url.trim().to_string()));
-    }
 }

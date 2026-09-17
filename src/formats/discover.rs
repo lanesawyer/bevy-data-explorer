@@ -138,11 +138,11 @@ fn is_json(source: &str) -> bool {
     has_extension(source, ".json")
 }
 
-pub fn is_dzi(source: &str) -> bool {
+fn is_dzi(source: &str) -> bool {
     has_extension(source, ".dzi")
 }
 
-pub fn is_svg(source: &str) -> bool {
+fn is_svg(source: &str) -> bool {
     has_extension(source, ".svg")
 }
 

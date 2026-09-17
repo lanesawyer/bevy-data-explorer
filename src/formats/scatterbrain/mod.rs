@@ -175,6 +175,7 @@ pub struct Slide {
     pub total_points: u64,
 }
 
+#[cfg(test)]
 impl Slide {
     pub fn root(&self) -> &Node {
         &self.nodes[0]

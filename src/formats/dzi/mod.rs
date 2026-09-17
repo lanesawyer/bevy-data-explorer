@@ -438,25 +438,6 @@ impl Plugin for DziSystems {
     }
 }
 
-/// Streams a Deep Zoom image into the frames that display it.
-pub struct DziPlugin {
-    pub dzi: Arc<DeepZoom>,
-    pub budget_bytes: usize,
-}
-
-impl Plugin for DziPlugin {
-    fn is_unique(&self) -> bool {
-        false
-    }
-
-    fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<DziSystems>() {
-            app.add_plugins(DziSystems);
-        }
-        spawn_source(app.world_mut(), self.dzi.clone(), self.budget_bytes);
-    }
-}
-
 /// Register an open Deep Zoom image as a source, and bind a streamer to it.
 pub fn spawn_source(world: &mut World, dzi: Arc<DeepZoom>, budget_bytes: usize) -> Entity {
     let (width, height) = (dzi.width as f32, dzi.height as f32);

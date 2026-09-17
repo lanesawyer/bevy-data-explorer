@@ -8,15 +8,9 @@
 //! minute fetching three reference datasets nobody asked for is a first run
 //! spent waiting.
 
-use std::sync::Arc;
-
 use clap::Parser;
 
 use crate::formats::discover;
-
-use crate::formats::dzi::pyramid::DeepZoom;
-use crate::formats::image::dataset::Dataset;
-use crate::formats::scatterbrain::Scatterbrain;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -24,11 +18,14 @@ use crate::formats::scatterbrain::Scatterbrain;
     about = "Stream and explore large scientific datasets"
 )]
 pub struct Args {
-    /// OME-Zarr store (http(s) URL or local directory), a manifest .json
-    /// describing one, or a Deep Zoom .dzi. Left out, the window starts empty.
+    /// Any dataset, opened in a frame: an OME-Zarr store (http(s) URL or local
+    /// directory) or a manifest .json describing one, a Deep Zoom .dzi,
+    /// Scatterbrain metadata or an .svg. Left out, the window starts empty.
     pub source: Option<String>,
 
-    /// Scatterbrain metadata JSON (http(s) URL or local file).
+    /// Another dataset in a frame of its own, usually Scatterbrain metadata
+    /// JSON (http(s) URL or local file). Recognised by reading it, like any
+    /// other.
     #[arg(long)]
     pub points: Option<String>,
 
@@ -42,11 +39,13 @@ pub struct Args {
     #[arg(long, default_value_t = crate::formats::image::DEFAULT_CACHE_BUDGET_MB)]
     pub cache_mb: usize,
 
-    /// Sectioned Scatterbrain metadata JSON, shown as its own panel.
+    /// Another dataset in a frame of its own, usually sectioned Scatterbrain
+    /// metadata. A cloud listing more than one slide gets the sections panel
+    /// wherever it is named.
     #[arg(long)]
     pub slices: Option<String>,
 
-    /// A second Scatterbrain point cloud, shown as its own panel.
+    /// Another dataset in a frame of its own, usually a second point cloud.
     #[arg(long)]
     pub cells: Option<String>,
 
@@ -78,119 +77,48 @@ impl Args {
     }
 }
 
-/// Everything the command line named, opened and ready to be handed to plugins.
-pub struct Datasets {
-    pub image: Option<Arc<Dataset>>,
-    pub deep_zoom: Option<Arc<DeepZoom>>,
-    pub points: Option<Arc<Scatterbrain>>,
-    pub cells: Option<Arc<Scatterbrain>>,
-    pub sections: Option<Arc<Scatterbrain>>,
+/// A dataset the command line named, read and recognised.
+pub struct Opened {
+    /// The address as it was given, recorded on the source it becomes.
+    pub url: String,
+    pub dataset: discover::Discovered,
+    /// Named with `--layer`, so drawn over the first frame.
+    pub as_layer: bool,
 }
 
 impl Args {
-    /// Open every source named, reporting each as it lands.
-    pub fn open(&self) -> Result<Datasets, String> {
-        let deep_zoom = self.source.as_deref().is_some_and(discover::is_dzi);
-        Ok(Datasets {
-            image: if deep_zoom { None } else { self.open_image()? },
-            deep_zoom: if deep_zoom {
-                self.open_deep_zoom()?
-            } else {
-                None
-            },
-            points: open_cloud("points", self.points.as_deref())?,
-            cells: open_cloud("cells", self.cells.as_deref())?,
-            sections: open_cloud("slices", self.slices.as_deref())?,
-        })
-    }
+    /// Read every dataset named, in the order their frames open, reporting
+    /// each as it lands.
+    ///
+    /// Every one is recognised by reading it, exactly as a URL typed into the
+    /// sidebar is, so the flags say only where a dataset goes and not what it
+    /// is. Frames first, then layers, so a layer is never mistaken for the
+    /// frame it is meant to be drawn over.
+    pub fn open(&self) -> Result<Vec<Opened>, String> {
+        let frames = [
+            ("source", &self.source),
+            ("points", &self.points),
+            ("cells", &self.cells),
+            ("slices", &self.slices),
+        ]
+        .into_iter()
+        .filter_map(|(label, url)| Some((label, url.as_deref()?, false)));
+        let layers = self.layer.iter().map(|url| ("layer", url.as_str(), true));
 
-    fn open_image(&self) -> Result<Option<Arc<Dataset>>, String> {
-        let Some(source) = self.source.as_deref() else {
-            return Ok(None);
-        };
-        println!("opening {:<6} {source}", "image");
-        // Nothing else is happening yet: the window is not up, and a bad URL
-        // should fail here rather than behind a blank panel.
-        let image = Arc::new(crate::app::net::block_on(
-            crate::formats::image::store::open(source),
-        )?);
-        println!(
-            "  {}: {} levels, {} channels, {} x {} px",
-            image.name,
-            image.levels.len(),
-            image.channels.len(),
-            image.levels[0].width,
-            image.levels[0].height
-        );
-        Ok(Some(image))
-    }
-
-    fn open_deep_zoom(&self) -> Result<Option<Arc<DeepZoom>>, String> {
-        let Some(source) = self.source.as_deref() else {
-            return Ok(None);
-        };
-        println!("opening {:<6} {source}", "dzi");
-        let source = crate::formats::plain_url(source);
-        let text = crate::app::net::block_on(discover::fetch_text(&source))?;
-        let dzi = DeepZoom::parse(&source, &text)?;
-        println!(
-            "  {}: {} levels, {} x {} px, {} tiles of {} px",
-            dzi.name,
-            dzi.max_level() + 1,
-            dzi.width,
-            dzi.height,
-            dzi.format,
-            dzi.tile_size
-        );
-        Ok(Some(Arc::new(dzi)))
-    }
-}
-
-/// Open every dataset named as a layer, whatever format each turns out to be.
-pub fn open_layers(sources: &[String]) -> Result<Vec<discover::Discovered>, String> {
-    sources
-        .iter()
-        .map(|source| {
-            println!("opening {:<6} {source}", "layer");
-            let found = crate::app::net::block_on(discover::discover(source))?;
-            println!("  {}", found.name());
-            Ok(found)
-        })
-        .collect()
-}
-
-/// Open a point cloud, if one was named.
-fn open_cloud(label: &str, source: Option<&str>) -> Result<Option<Arc<Scatterbrain>>, String> {
-    let Some(source) = source else {
-        return Ok(None);
-    };
-    println!("opening {label:<6} {source}");
-    let cloud = Arc::new(load_points(source)?);
-    describe(label, &cloud);
-    Ok(Some(cloud))
-}
-
-fn load_points(source: &str) -> Result<Scatterbrain, String> {
-    let text = crate::app::net::block_on(discover::fetch_text(source))?;
-    Scatterbrain::parse(&text)
-}
-
-fn describe(label: &str, cloud: &Scatterbrain) {
-    println!(
-        "  {} points across {} slide(s), {} octree nodes, depth {} [{label}]",
-        cloud.total_points(),
-        cloud.slides.len(),
-        cloud.node_count(),
-        cloud.max_depth(),
-    );
-    if let Some(first) = cloud.slides.first() {
-        // The root is a subsample; children add the rest. Showing both makes
-        // the additive structure visible at a glance.
-        println!(
-            "  slide {} root holds {} of its {} points",
-            first.index,
-            first.root().count,
-            first.total_points,
-        );
+        frames
+            .chain(layers)
+            .map(|(label, url, as_layer)| {
+                println!("opening {label:<6} {url}");
+                // Nothing else is happening yet: the window is not up, and a
+                // bad URL should fail here rather than behind a blank panel.
+                let dataset = crate::app::net::block_on(discover::discover(url))?;
+                println!("  {}", dataset.name());
+                Ok(Opened {
+                    url: url.trim().to_string(),
+                    dataset,
+                    as_layer,
+                })
+            })
+            .collect()
     }
 }

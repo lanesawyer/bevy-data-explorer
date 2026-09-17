@@ -530,15 +530,6 @@ fn apply_selection(
     }
 }
 
-/// Streams a single Scatterbrain point cloud.
-pub struct PointCloudPlugin {
-    /// Shown in the overlay and in listings. Passed in because a dataset's own
-    /// metadata does not name itself, and two clouds are open at once.
-    pub name: String,
-    pub cloud: Arc<Scatterbrain>,
-    pub budget: usize,
-}
-
 /// The systems every point cloud shares, registered once however many clouds
 /// are open.
 pub struct PointCloudSystems;
@@ -563,26 +554,6 @@ impl Plugin for PointCloudSystems {
         // schedule already puts `HoverProbing` after this frame's arrivals and
         // evictions.
         .add_systems(Update, resolve_hover.in_set(source::hover::HoverProbing));
-    }
-}
-
-impl Plugin for PointCloudPlugin {
-    /// Each cloud is its own instance of this plugin, so Bevy must not treat a
-    /// second one as a duplicate.
-    fn is_unique(&self) -> bool {
-        false
-    }
-
-    fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<PointCloudSystems>() {
-            app.add_plugins(PointCloudSystems);
-        }
-        spawn_source(
-            app.world_mut(),
-            self.name.clone(),
-            self.cloud.clone(),
-            self.budget,
-        );
     }
 }
 

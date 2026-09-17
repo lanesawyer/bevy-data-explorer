@@ -6,10 +6,14 @@ easy to get wrong.
 
 ## Extending it
 
-Every format is a Bevy plugin under `src/formats/` that registers a *source
-entity*. Adding one means writing a plugin and adding it — nothing in `view`,
-`ui` or `main` changes, and frames are opened by querying the world for
-sources. See `.agents/skills/add-source-plugin`.
+Every format is a module under `src/formats/` with two halves: a systems
+plugin, added once by `FormatsPlugin` whether or not anything of that format is
+open, and a `spawn_source` that registers one dataset as a *source entity*.
+`formats::discover` recognises a dataset by reading it and `spawn_discovered`
+hands it to its format, and that one path serves the command line, the URL
+field and the examples alike. Adding a format touches `formats` and nothing in
+`view`, `ui` or `main`; frames are opened by querying the world for sources.
+See `.agents/skills/add-source-plugin`.
 
 The tree is layered, and the layers only point one way:
 
@@ -21,7 +25,7 @@ The tree is layered, and the layers only point one way:
     ui/        the docks and the controls inside them
     app/       the shell: window, task pool, theme, schedule
     cli.rs     the command line
-    main.rs    parse arguments, add format plugins, run
+    main.rs    parse arguments, register what they name, run
 
 `src/source` imports nothing from above it. Keep it that way: it is what lets
 a frame point at any dataset without naming a format.
