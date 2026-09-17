@@ -46,8 +46,8 @@ impl Discovered {
 
 /// Recognise whatever `source` points at, or say why it could not be.
 ///
-/// Blocking from end to end — it is the same reading the command line does —
-/// so callers with a window open run it on a task.
+/// The same reading the command line does, which blocks on it before the
+/// window is up; callers with a window open run it on a task instead.
 pub async fn discover(source: &str) -> Result<Discovered, String> {
     let source = crate::formats::plain_url(source.trim());
     let source = source.as_str();
@@ -139,16 +139,18 @@ fn is_json(source: &str) -> bool {
 }
 
 pub fn is_dzi(source: &str) -> bool {
-    has_extension(source.split(['?', '#']).next().unwrap_or(source), ".dzi")
+    has_extension(source, ".dzi")
 }
 
 pub fn is_svg(source: &str) -> bool {
-    has_extension(source.split(['?', '#']).next().unwrap_or(source), ".svg")
+    has_extension(source, ".svg")
 }
 
+/// Whether the file a source names ends in `extension`, ignoring any query
+/// string or fragment after it.
 fn has_extension(source: &str, extension: &str) -> bool {
-    source
-        .trim_end_matches('/')
+    let path = source.split(['?', '#']).next().unwrap_or(source);
+    path.trim_end_matches('/')
         .rsplit('/')
         .next()
         .is_some_and(|name| name.to_ascii_lowercase().ends_with(extension))
@@ -193,6 +195,10 @@ mod tests {
         assert!(!is_json("/data/image.zarr"));
         // A directory named after a manifest must not be mistaken for one.
         assert!(!is_json("https://example.com/metadata.json/tiles"));
+        // A signed URL is still the file it names.
+        assert!(is_json(
+            "https://example.com/a/ScatterBrain.json?X-Amz-Signature=abc"
+        ));
     }
 
     #[test]

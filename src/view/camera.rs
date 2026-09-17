@@ -115,10 +115,10 @@ pub fn update_viewports(
         let Ok(panel) = indices.get(button.panel) else {
             continue;
         };
-        let (col, row) = (panel.index % columns, panel.index / columns);
+        let cell = area.cell(count, panel.index);
         let from_right = (BUTTON_PX + BUTTON_GAP) * button.action.slot() + BUTTON_PX + 8.0;
-        node.left = Val::Px(base.x + cell.x * (col + 1) as f32 - from_right);
-        node.top = Val::Px(base.y + cell.y * row as f32 + 8.0);
+        node.left = Val::Px(cell.max.x - from_right);
+        node.top = Val::Px(cell.min.y + 8.0);
     }
 }
 

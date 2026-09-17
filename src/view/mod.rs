@@ -106,6 +106,15 @@ impl FrameArea {
         let amount = amount.clamp(0.0, self.size.y);
         self.size.y -= amount;
     }
+
+    /// Where cell `index` lies while the grid holds `count` frames.
+    pub fn cell(&self, count: usize, index: usize) -> Rect {
+        let (columns, rows) = grid_for(count);
+        let size = self.size / Vec2::new(columns as f32, rows as f32);
+        let at = Vec2::new((index % columns) as f32, (index / columns) as f32);
+        let min = self.origin + size * at;
+        Rect::from_corners(min, min + size)
+    }
 }
 
 /// Reset the grid to the whole window before anything reserves part of it.
@@ -282,5 +291,25 @@ fn open_frames(
                 LayerOpacity::default(),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cells_tile_the_frame_area_from_its_origin() {
+        let area = FrameArea {
+            origin: Vec2::new(300.0, 0.0),
+            size: Vec2::new(900.0, 600.0),
+        };
+        // Five frames make a three by two grid.
+        let first = area.cell(5, 0);
+        assert_eq!(first.min, Vec2::new(300.0, 0.0));
+        assert_eq!(first.size(), Vec2::new(300.0, 300.0));
+        let last = area.cell(5, 4);
+        assert_eq!(last.min, Vec2::new(600.0, 300.0));
+        assert_eq!(area.cell(5, 5).max, area.origin + area.size);
     }
 }

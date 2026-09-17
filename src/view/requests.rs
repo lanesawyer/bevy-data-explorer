@@ -11,7 +11,7 @@ use super::layers::{
     FrameLayers, LayerOf, LayerOpacity, can_add_layer, spawn_layer, stacked_sources,
 };
 use super::{FrameArea, Panel, SelectedPanel, ShowsSource, View, spawn_panel};
-use crate::source::{DataSource, ViewLimits};
+use crate::source::{DataSource, SourceExtent, ViewLimits};
 
 /// A change to the set of frames.
 ///
@@ -73,7 +73,7 @@ pub fn apply_panel_requests(
     )>,
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     layer_opacities: Query<(&ShowsSource, &LayerOpacity), With<LayerOf>>,
-    sources: Query<(&DataSource, &crate::source::SourceExtent)>,
+    sources: Query<(&DataSource, &SourceExtent)>,
     palette: Res<crate::app::theme::Palette>,
 ) {
     let requests: Vec<PanelRequest> = requests.read().copied().collect();
@@ -203,14 +203,7 @@ pub fn apply_panel_requests(
                 // The layers stay, over whatever is now underneath them —
                 // except one of the source now at the bottom, which would draw
                 // it twice.
-                for camera in layers.map(FrameLayers::cameras).unwrap_or_default() {
-                    if layer_cameras
-                        .get(*camera)
-                        .is_ok_and(|layer| layer.0 == source)
-                    {
-                        commands.entity(*camera).despawn();
-                    }
-                }
+                remove_layers_of(&mut commands, layers, &layer_cameras, source);
                 selected.0 = Some(panel);
             }
             PanelRequest::AddLayer { panel, source } => {
@@ -250,16 +243,8 @@ pub fn apply_panel_requests(
                 }
             }
             PanelRequest::RemoveLayer { panel, source } => {
-                let Ok((.., Some(layers))) = panels.get(panel) else {
-                    continue;
-                };
-                for camera in layers.cameras() {
-                    if layer_cameras
-                        .get(*camera)
-                        .is_ok_and(|shows| shows.0 == source)
-                    {
-                        commands.entity(*camera).despawn();
-                    }
+                if let Ok((.., layers)) = panels.get(panel) {
+                    remove_layers_of(&mut commands, layers, &layer_cameras, source);
                 }
             }
         }
@@ -274,10 +259,24 @@ pub fn apply_panel_requests(
     // `normalize_panels` once the despawns have taken effect.
 }
 
+/// Despawn every layer camera in `layers` drawing `source`.
+fn remove_layers_of(
+    commands: &mut Commands,
+    layers: Option<&FrameLayers>,
+    cameras: &Query<&ShowsSource, With<LayerOf>>,
+    source: Entity,
+) {
+    for camera in layers.map(FrameLayers::cameras).unwrap_or_default() {
+        if cameras.get(*camera).is_ok_and(|shows| shows.0 == source) {
+            commands.entity(*camera).despawn();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::source::{SourceExtent, SourceInfo, register_in};
+    use crate::source::{SourceInfo, register_in};
 
     fn app() -> App {
         let mut app = App::new();

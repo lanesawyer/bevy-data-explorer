@@ -2,7 +2,7 @@
 //!
 //! Nothing is loaded at startup any more, so the frame area would otherwise be
 //! a cleared rectangle with no way into the app. This fills it: what the viewer
-//! is for, one example of each kind of dataset it can draw, and the same URL
+//! is for, every dataset it knows the address of, and the same URL
 //! field the sidebar carries, for anything else.
 //!
 //! It is UI rather than frame chrome, but it is placed against
@@ -42,8 +42,9 @@ const COLUMN_PX: f32 = 520.0;
 const WELCOME_Z: i32 = 5;
 
 const BLURB: &str = "An experimental streaming explorer for large scientific datasets. \
-                     Currently supports OME-Zarr v2 and v3 and the Allen Institute \
-                     Scatterbrain format for point clouds.";
+                     Currently supports OME-Zarr v2 and v3, Deep Zoom images, the \
+                     Allen Institute Scatterbrain format for point clouds, and SVG \
+                     annotations.";
 
 pub fn spawn_welcome(mut commands: Commands) {
     let screen = commands

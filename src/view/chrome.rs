@@ -9,7 +9,7 @@ use crate::app::theme::token;
 use crate::widgets::button_text;
 use bevy_ui_widgets::Activate;
 
-use super::grid::{MAX_COLUMNS, MAX_ROWS, grid_for};
+use super::grid::{MAX_COLUMNS, MAX_ROWS};
 use super::input::BlocksFrameInput;
 use super::{FrameArea, Panel, PanelRequest, SelectedPanel};
 
@@ -94,9 +94,6 @@ pub fn update_selection_border(
             .map(|(entity, _)| entity);
     }
 
-    let (columns, rows) = grid_for(panels.iter().count());
-    let cell = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32);
-
     // The outline says which of several frames the controls and the keys are
     // talking to. With one frame there is nothing to say: it is drawn round the
     // whole grid, where it reads as a border on the window rather than as an
@@ -112,12 +109,12 @@ pub fn update_selection_border(
             node.display = Display::None;
             continue;
         };
-        let (col, row) = (panel.1.index % columns, panel.1.index / columns);
+        let cell = area.cell(panels.iter().count(), panel.1.index);
         node.display = Display::Flex;
-        node.left = Val::Px(area.origin.x + cell.x * col as f32);
-        node.top = Val::Px(area.origin.y + cell.y * row as f32);
-        node.width = Val::Px(cell.x);
-        node.height = Val::Px(cell.y);
+        node.left = Val::Px(cell.min.x);
+        node.top = Val::Px(cell.min.y);
+        node.width = Val::Px(cell.width());
+        node.height = Val::Px(cell.height());
     }
 }
 

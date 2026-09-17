@@ -1,10 +1,11 @@
 //! A streaming explorer for large scientific datasets.
 //!
-//! Three formats are supported so far, shown side by side in independent
-//! panels: OME-Zarr images, read through `zarrs`, Deep Zoom images, and the
-//! Allen Institute's Scatterbrain point clouds. All are far too large to load
-//! whole, so each panel streams only what its own view needs and pulls in more
-//! detail as you zoom.
+//! Four formats are supported so far, shown side by side in independent
+//! panels or stacked as layers in one: OME-Zarr images, read through `zarrs`,
+//! Deep Zoom images, the Allen Institute's Scatterbrain point clouds, and SVG
+//! annotations drawn over a slide. All but the annotations are far too large
+//! to load whole, so each panel streams only what its own view needs and pulls
+//! in more detail as you zoom.
 
 mod app;
 mod cli;

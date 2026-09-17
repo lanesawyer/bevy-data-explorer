@@ -239,7 +239,27 @@ fn content_caption(commands: &mut Commands, text: &str) -> Entity {
 
 /// A dataset's name, with what kind it is and any unit mismatch under it.
 fn details(commands: &mut Commands, data: &DataSource, mismatch: Option<String>) -> Entity {
-    let name = data.name.clone();
+    let mut lines = vec![data.detail.clone()];
+    if let Some(mismatch) = mismatch {
+        // Drawn anyway, since nothing rescales a layer, so say why it may not
+        // line up rather than leave the two to look aligned by coincidence.
+        lines.push(format!("{mismatch}, not rescaled"));
+    }
+    name_column(commands, data.name.clone(), lines)
+}
+
+/// A known dataset's name and kind. What it is measured in is not known until
+/// it has been read, so there is no mismatch to warn about yet.
+fn example_details(commands: &mut Commands, example: &Example) -> Entity {
+    name_column(
+        commands,
+        example.name.to_string(),
+        vec![format!("{}, not loaded yet", example.kind)],
+    )
+}
+
+/// A name with captions under it.
+fn name_column(commands: &mut Commands, name: String, lines: Vec<String>) -> Entity {
     let column = commands
         .spawn_scene(bsn! {
             Node {
@@ -254,13 +274,11 @@ fn details(commands: &mut Commands, data: &DataSource, mismatch: Option<String>)
             )]
         })
         .id();
-    let mut lines = vec![caption(commands, data.detail.clone())];
-    if let Some(mismatch) = mismatch {
-        // Drawn anyway, since nothing rescales a layer, so say why it may not
-        // line up rather than leave the two to look aligned by coincidence.
-        lines.push(caption(commands, format!("{mismatch}, not rescaled")));
-    }
-    commands.entity(column).add_children(&lines);
+    let captions: Vec<Entity> = lines
+        .into_iter()
+        .map(|line| caption(commands, line))
+        .collect();
+    commands.entity(column).add_children(&captions);
     column
 }
 
@@ -323,29 +341,6 @@ fn candidate_row(
     let add = button(commands, "+", LayerButton { panel, action });
     commands.entity(row).add_children(&[add, details]);
     row
-}
-
-/// A known dataset's name and kind. What it is measured in is not known until
-/// it has been read, so there is no mismatch to warn about yet.
-fn example_details(commands: &mut Commands, example: &Example) -> Entity {
-    let name = example.name.to_string();
-    let column = commands
-        .spawn_scene(bsn! {
-            Node {
-                flex_direction: { FlexDirection::Column },
-                flex_grow: { 1.0_f32 },
-                flex_shrink: { 1.0_f32 },
-                row_gap: { Val::Px(1.0) },
-            }
-            Children [(
-                label(name)
-                InheritableFont { font_size: { 13.0f32 } }
-            )]
-        })
-        .id();
-    let kind = caption(commands, format!("{}, not loaded yet", example.kind));
-    commands.entity(column).add_child(kind);
-    column
 }
 
 /// Feathers buttons trigger [`Activate`] rather than carrying an

@@ -51,8 +51,8 @@ pub struct Args {
     pub cells: Option<String>,
 
     /// A dataset to draw over the first frame, such as an SVG of annotations
-    /// over a slide. Repeat for more than one. One measured differently from
-    /// that frame opens in a frame of its own instead.
+    /// over a slide. Repeat for more than one. Anything can be layered; one
+    /// measured differently from that frame is drawn anyway, not rescaled.
     #[arg(long)]
     pub layer: Vec<String>,
 

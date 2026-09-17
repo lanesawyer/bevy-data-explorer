@@ -94,8 +94,8 @@ const COMPOSITE_Z: i32 = -(MAX_LAYERS as i32) - 1;
 
 /// Marks a source named on the command line as a layer rather than a frame.
 ///
-/// It is stacked onto the first frame when the frames open, provided the two
-/// share a space, and gets a frame of its own otherwise.
+/// It is stacked onto the first frame when the frames open, and gets a frame of
+/// its own only when nothing else named one.
 #[derive(Component, Clone, Copy, Default)]
 pub struct OpensAsLayer;
 

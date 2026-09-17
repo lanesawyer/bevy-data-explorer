@@ -269,18 +269,16 @@ pub fn position_hud(
     panels: Query<&Panel>,
     mut texts: Query<(&PanelHeader, &mut Node)>,
 ) {
-    let (columns, rows) = crate::view::grid_for(panels.iter().count());
-    let cell = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32);
-
+    let count = panels.iter().count();
     for (text, mut node) in &mut texts {
         let Ok(panel) = panels.get(text.panel) else {
             continue;
         };
-        let (col, row) = (panel.index % columns, panel.index / columns);
-        node.left = Val::Px(area.origin.x + cell.x * col as f32 + 10.0);
-        node.top = Val::Px(area.origin.y + cell.y * row as f32 + 8.0);
+        let cell = area.cell(count, panel.index);
+        node.left = Val::Px(cell.min.x + 10.0);
+        node.top = Val::Px(cell.min.y + 8.0);
         // Clear of the frame's own buttons in the opposite corner.
-        node.max_width = Val::Px((cell.x - 90.0).max(120.0));
+        node.max_width = Val::Px((cell.width() - 90.0).max(120.0));
     }
 }
 
@@ -295,19 +293,16 @@ pub fn position_tooltips(
     mut tooltips: Query<(&PanelTooltip, &mut Node)>,
 ) {
     let Ok(window) = windows.single() else { return };
-    let (columns, rows) = crate::view::grid_for(panels.iter().count());
-    let cell = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32);
-
+    let count = panels.iter().count();
     for (tooltip, mut node) in &mut tooltips {
         let Ok(panel) = panels.get(tooltip.panel) else {
             continue;
         };
-        let (col, row) = (panel.index % columns, panel.index / columns);
-        let floor = area.origin.y + cell.y * (row + 1) as f32;
-        node.left = Val::Px(area.origin.x + cell.x * col as f32 + 10.0);
+        let cell = area.cell(count, panel.index);
+        node.left = Val::Px(cell.min.x + 10.0);
         // `bottom` is measured from the bottom of the window, not of the cell.
-        node.bottom = Val::Px(window.height() - floor + 10.0);
-        node.max_width = Val::Px((cell.x - 20.0).max(120.0));
+        node.bottom = Val::Px(window.height() - cell.max.y + 10.0);
+        node.max_width = Val::Px((cell.width() - 20.0).max(120.0));
     }
 }
 

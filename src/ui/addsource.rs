@@ -14,8 +14,8 @@
 //! indistinguishable afterwards from one named on the command line. A source
 //! that matches nothing leaves the message it failed with on screen.
 //!
-//! The read is blocking — an HTTP fetch and a parse — so it runs on a task and
-//! the window keeps drawing while it is in flight.
+//! The read — an HTTP fetch and a parse — runs on a task, so the window keeps
+//! drawing while it is in flight.
 
 use crate::app::net::{Fetching, fetching};
 use bevy::input::keyboard::KeyboardInput;
@@ -197,7 +197,7 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
                     InheritableFont { font_size: { 12.0f32 } }
                 ),
                 (
-                    label_dim("An OME-Zarr store or Scatterbrain metadata URL")
+                    label_dim("An OME-Zarr store, Deep Zoom .dzi, Scatterbrain .json or .svg URL")
                     InheritableFont { font_size: { 11.0f32 } }
                 ),
             ]
