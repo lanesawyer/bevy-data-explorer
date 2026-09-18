@@ -1,14 +1,20 @@
-//! The dropdown on a frame's title that picks what the frame shows.
+//! The dataset picker: a search field over every dataset open or on offer.
 //!
-//! Built on Feathers' own menu rather than on [`crate::widgets::spawn_menu`],
-//! for what that brings: arrow keys between items, Escape, and dismissal when
-//! focus leaves the popup. That last one is also what makes a search field work
-//! here — the popup stays open while its field holds the keyboard, and opening
-//! it puts the keyboard there, so typing filters straight away.
+//! It appears in two places. On a frame's title it is the popup of a dropdown
+//! that repoints that frame; in View configuration it sits inline and opens
+//! what is chosen in a frame of its own. One picker in both places, so the two
+//! lists cannot drift apart.
 //!
-//! The list is expected to grow well past the handful of examples it starts
-//! with, from catalogues read over HTTP and from files opened locally, which is
-//! why it searches and scrolls rather than assuming it fits.
+//! The frame's dropdown is built on Feathers' own menu rather than on
+//! [`crate::widgets::spawn_menu`], for what that brings: arrow keys between
+//! items, Escape, and dismissal when focus leaves the popup. That last one is
+//! also what makes a search field work there — the popup stays open while its
+//! field holds the keyboard, and opening it puts the keyboard there, so typing
+//! filters straight away.
+//!
+//! Beyond what is open, it offers every entry of every [`crate::catalog`], one
+//! section each — some read over HTTP, and growing as they land — which is why
+//! it searches and scrolls rather than assuming it fits.
 //!
 //! Choosing an item raises the same [`SourceChoice`] the layers menu does, so
 //! both land in [`super::overlay::on_source_chosen`].
@@ -28,35 +34,48 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, MenuAction, MenuEvent, ScrollArea};
 
 use super::overlay::{ChoiceAction, PanelTitle, SourceChoice};
-use super::{BlocksFrameInput, Panel, ShowsSource};
+use super::{BlocksFrameInput, MAX_PANELS, Panel, ShowsSource};
+use crate::catalog::Catalogs;
 use crate::source::{DataSource, SourceUrl};
 use crate::widgets::{MENU_WIDTH, button_text, truncate_to_width};
 
-/// The list a frame's dropdown is rebuilt into.
+/// Where a picker puts what is chosen from it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PickerTarget {
+    /// In place of what this frame shows.
+    Frame(Entity),
+    /// In a frame of its own.
+    #[default]
+    NewFrame,
+}
+
+/// The list a picker is rebuilt into.
 #[derive(Component, Clone)]
 pub struct DatasetList {
-    panel: Entity,
+    picker: Entity,
+    target: PickerTarget,
 }
 
 impl Default for DatasetList {
     fn default() -> Self {
         DatasetList {
-            panel: Entity::PLACEHOLDER,
+            picker: Entity::PLACEHOLDER,
+            target: PickerTarget::NewFrame,
         }
     }
 }
 
-/// The field that filters a frame's dropdown. On the inner text entity, which
-/// is the one holding the [`EditableText`].
+/// The field that filters a picker's list. On the inner text entity, which is
+/// the one holding the [`EditableText`].
 #[derive(Component, Clone)]
 pub struct DatasetSearch {
-    panel: Entity,
+    picker: Entity,
 }
 
 impl Default for DatasetSearch {
     fn default() -> Self {
         DatasetSearch {
-            panel: Entity::PLACEHOLDER,
+            picker: Entity::PLACEHOLDER,
         }
     }
 }
@@ -122,6 +141,25 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
             Node {
                 width: { Val::Px(MENU_WIDTH) },
                 padding: { UiRect::all(Val::Px(6.0)) },
+            }
+        })
+        .id();
+
+    let picker = spawn_dataset_picker(commands, PickerTarget::Frame(panel));
+    commands.entity(popup).add_child(picker);
+    // The popup has to be the menu's own child: that is where Feathers looks
+    // for it on open, and what it is positioned against.
+    commands.entity(menu).add_children(&[button, popup]);
+    menu
+}
+
+/// A search field over a list of datasets, returning the column holding both.
+pub fn spawn_dataset_picker(commands: &mut Commands, target: PickerTarget) -> Entity {
+    let picker = commands
+        .spawn_scene(bsn! {
+            Node {
+                flex_direction: { FlexDirection::Column },
+                width: { Val::Percent(100.0) },
                 row_gap: { Val::Px(4.0) },
             }
         })
@@ -132,7 +170,7 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
     let field = commands
         .spawn_scene(bsn! {
             @FeathersTextInput
-            DatasetSearch { panel: { panel } }
+            DatasetSearch { picker: { picker } }
         })
         .id();
     let hint = commands
@@ -156,7 +194,7 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
 
     let list = commands
         .spawn_scene(bsn! {
-            DatasetList { panel: { panel } }
+            DatasetList { picker: { picker }, target: { target } }
             ScrollArea
             Node {
                 flex_direction: { FlexDirection::Column },
@@ -166,11 +204,8 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
         })
         .id();
 
-    commands.entity(popup).add_children(&[entry, list]);
-    // The popup has to be the menu's own child: that is where Feathers looks
-    // for it on open, and what it is positioned against.
-    commands.entity(menu).add_children(&[button, popup]);
-    menu
+    commands.entity(picker).add_children(&[entry, list]);
+    picker
 }
 
 /// Whether every word of `query` appears somewhere in `fields`, ignoring case.
@@ -184,8 +219,21 @@ pub fn matches_search(query: &str, fields: &[&str]) -> bool {
         .all(|word| haystack.contains(&word.to_lowercase()))
 }
 
-/// Refill each dropdown when what it lists, what its frame shows, or what has
-/// been typed into it changes.
+/// Everything a list is built from. Rebuilt when any of it changes.
+#[derive(Clone, PartialEq)]
+pub struct ListState {
+    list: Entity,
+    /// What its frame shows; nothing for a picker that opens new frames.
+    showing: Option<Entity>,
+    query: String,
+    sources: usize,
+    catalogued: usize,
+    /// Whether the grid has room for another frame.
+    room: bool,
+}
+
+/// Refill each list when what it lists, what its frame shows, or what has been
+/// typed into it changes.
 ///
 /// Rebuilt rather than filtered in place, so that arrow keys and Tab only ever
 /// move between items that are on screen.
@@ -197,21 +245,33 @@ pub fn rebuild_dataset_lists(
     sources: Query<(Entity, &DataSource)>,
     urls: Query<&SourceUrl>,
     existing: Query<(Entity, &ChildOf), With<DatasetListContent>>,
-    mut shown: Local<Vec<(Entity, Entity, String, usize)>>,
+    catalogs: Res<Catalogs>,
+    mut shown: Local<Vec<ListState>>,
 ) {
-    let count = sources.iter().count();
-    let mut current: Vec<(Entity, Entity, String, usize)> = lists
+    let source_count = sources.iter().count();
+    let room = panels.iter().count() < MAX_PANELS;
+    let mut current: Vec<ListState> = lists
         .iter()
         .filter_map(|(entity, list)| {
-            let shows = panels.get(list.panel).ok()?;
+            let showing = match list.target {
+                PickerTarget::Frame(panel) => Some(panels.get(panel).ok()?.0),
+                PickerTarget::NewFrame => None,
+            };
             let query = fields
                 .iter()
-                .find(|(search, _)| search.panel == list.panel)
+                .find(|(search, _)| search.picker == list.picker)
                 .map_or_else(String::new, |(_, text)| text.value().to_string());
-            Some((entity, shows.0, query, count))
+            Some(ListState {
+                list: entity,
+                showing,
+                query,
+                sources: source_count,
+                catalogued: catalogs.len(),
+                room,
+            })
         })
         .collect();
-    current.sort_unstable_by_key(|(entity, ..)| *entity);
+    current.sort_unstable_by_key(|state| state.list);
     if *shown == current {
         return;
     }
@@ -229,58 +289,88 @@ pub fn rebuild_dataset_lists(
     listed.sort_by_key(|(_, data, _)| data.layer);
     let opened: Vec<&str> = urls.iter().map(|url| url.0.as_str()).collect();
 
-    for (list, showing, query, _) in &current {
-        if shown
-            .iter()
-            .any(|previous| previous == &(*list, *showing, query.clone(), count))
-        {
+    for state in &current {
+        if shown.contains(state) {
             continue;
         }
-        let Ok((_, DatasetList { panel })) = lists.get(*list) else {
+        let Ok((_, list)) = lists.get(state.list) else {
             continue;
         };
         for (entity, parent) in &existing {
-            if parent.parent() == *list {
+            if parent.parent() == state.list {
                 commands.entity(entity).despawn();
             }
         }
 
+        let (panel, show, show_catalog): (_, _, fn(_) -> _) = match list.target {
+            PickerTarget::Frame(panel) => (panel, ChoiceAction::Show, ChoiceAction::ShowCatalog),
+            PickerTarget::NewFrame => (
+                Entity::PLACEHOLDER,
+                ChoiceAction::Open,
+                ChoiceAction::OpenCatalog,
+            ),
+        };
+        // Nowhere for another frame to go. Repointing a frame needs no room.
+        let refuse = list.target == PickerTarget::NewFrame && !state.room;
+
         let mut items = Vec::new();
+        let mut section = None;
         for (entity, data, url) in &listed {
-            if !matches_search(query, &[&data.name, &data.detail, url.unwrap_or("")]) {
+            if !matches_search(&state.query, &[&data.name, &data.detail, url.unwrap_or("")]) {
                 continue;
+            }
+            if section.is_none() {
+                section = Some("Open");
+                items.push(heading(&mut commands, "Open", items.is_empty()));
             }
             let item = item(
                 &mut commands,
                 &data.name,
                 &data.detail,
                 SourceChoice {
-                    panel: *panel,
+                    panel,
                     source: *entity,
-                    action: ChoiceAction::Show,
+                    action: show,
                 },
             );
             // Listed so the frame's own dataset is there to be found, but
             // choosing it would change nothing.
-            if showing == entity {
+            if refuse || state.showing == Some(*entity) {
                 commands.entity(item).insert(InteractionDisabled);
             }
             items.push(item);
         }
-        for (index, example) in crate::formats::unopened_examples(&opened) {
-            if !matches_search(query, &[example.name, example.kind, example.url]) {
+        for (id, catalog, entry) in catalogs.unopened(&opened) {
+            if !matches_search(
+                &state.query,
+                &[
+                    &entry.name,
+                    &entry.kind,
+                    &entry.url,
+                    &entry.keywords,
+                    catalog,
+                ],
+            ) {
                 continue;
             }
-            items.push(item(
+            if section != Some(catalog) {
+                section = Some(catalog);
+                items.push(heading(&mut commands, catalog, items.is_empty()));
+            }
+            let item = item(
                 &mut commands,
-                example.name,
-                &format!("{}, not loaded yet", example.kind),
+                &entry.name,
+                &format!("{}, not loaded yet", entry.kind),
                 SourceChoice {
-                    panel: *panel,
+                    panel,
                     source: Entity::PLACEHOLDER,
-                    action: ChoiceAction::ShowExample(index),
+                    action: show_catalog(id),
                 },
-            ));
+            );
+            if refuse {
+                commands.entity(item).insert(InteractionDisabled);
+            }
+            items.push(item);
         }
         if items.is_empty() {
             let none = commands
@@ -292,9 +382,23 @@ pub fn rebuild_dataset_lists(
                 .id();
             items.push(none);
         }
-        commands.entity(*list).add_children(&items);
+        commands.entity(state.list).add_children(&items);
     }
     *shown = current;
+}
+
+/// The name over one section of a list: what is open, or a catalog.
+fn heading(commands: &mut Commands, text: &str, first: bool) -> Entity {
+    let text = text.to_string();
+    let gap = if first { 2.0 } else { 10.0 };
+    commands
+        .spawn_scene(bsn! {
+            DatasetListContent
+            label_dim(text)
+            InheritableFont { font_size: { 11.0f32 } }
+            Node { margin: { UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(gap), Val::Px(2.0)) } }
+        })
+        .id()
 }
 
 /// One dataset: its name, and what it is on a dimmer line under it.
@@ -353,7 +457,7 @@ pub fn sync_search_hints(
     }
 }
 
-/// Start each dropdown afresh: once closed, whatever was typed into it is
+/// Start each frame's dropdown afresh: once closed, whatever was typed into it is
 /// cleared, so the next time it opens it lists everything.
 pub fn clear_closed_searches(
     popups: Query<(Entity, &Visibility), (With<FeathersMenuPopup>, Changed<Visibility>)>,
@@ -399,7 +503,7 @@ pub fn on_search_key(
     };
     let mut in_list = lists
         .iter()
-        .filter(|(list, _)| list.panel == search.panel)
+        .filter(|(list, _)| list.picker == search.picker)
         .flat_map(|(_, children)| children.iter())
         .filter(|item| items.get(*item).is_ok_and(|disabled| !disabled));
 

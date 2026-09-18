@@ -24,6 +24,7 @@ use crate::app::theme::token;
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::Stage;
+use crate::catalog::{Catalogs, EntryId};
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::{DataSource, SourceStatus, SourceUrl};
 use crate::view::layers::stacked_sources;
@@ -92,10 +93,14 @@ pub struct SourceChoice {
 pub enum ChoiceAction {
     /// Show this dataset instead of what the frame shows now.
     Show,
-    /// Read a known dataset that is not open yet, and show it instead of what
-    /// the frame shows once it lands. Carries its place in
-    /// [`crate::formats::EXAMPLES`].
-    ShowExample(usize),
+    /// Read a dataset from a catalog, and show it instead of what the frame
+    /// shows once it lands.
+    ShowCatalog(EntryId),
+    /// Open this dataset in a frame of its own.
+    Open,
+    /// Read a dataset from a catalog, and open it in a frame of its own once
+    /// it lands.
+    OpenCatalog(EntryId),
     /// Draw it over what the frame shows.
     AddLayer,
     /// Take its layer off the frame.
@@ -423,6 +428,7 @@ pub fn on_source_chosen(
     activate: On<Activate>,
     mut commands: Commands,
     choices: Query<&SourceChoice>,
+    catalogs: Res<Catalogs>,
     mut requests: MessageWriter<PanelRequest>,
     mut datasets: MessageWriter<DatasetRequest>,
 ) {
@@ -432,17 +438,27 @@ pub fn on_source_chosen(
     let (panel, source) = (choice.panel, choice.source);
     requests.write(match choice.action {
         ChoiceAction::Show => PanelRequest::Show { panel, source },
+        ChoiceAction::Open => PanelRequest::Open(source),
         ChoiceAction::AddLayer => PanelRequest::AddLayer { panel, source },
         ChoiceAction::RemoveLayer => PanelRequest::RemoveLayer { panel, source },
-        ChoiceAction::ShowExample(index) => {
-            if let Some(example) = crate::formats::EXAMPLES.get(index) {
+        ChoiceAction::ShowCatalog(id) => {
+            if let Some(entry) = catalogs.get(id) {
                 commands.entity(panel).insert(PendingShow {
-                    url: example.url.to_string(),
-                    name: example.name.to_string(),
+                    url: entry.url.clone(),
+                    name: entry.name.clone(),
                 });
                 datasets.write(DatasetRequest {
-                    url: example.url.to_string(),
+                    url: entry.url.clone(),
                     target: DatasetTarget::Show(panel),
+                });
+            }
+            return;
+        }
+        ChoiceAction::OpenCatalog(id) => {
+            if let Some(entry) = catalogs.get(id) {
+                datasets.write(DatasetRequest {
+                    url: entry.url.clone(),
+                    target: DatasetTarget::NewFrame,
                 });
             }
             return;

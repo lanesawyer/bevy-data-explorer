@@ -22,6 +22,10 @@ pub enum Stage {
     /// those run before any dock or control does — typing a URL would otherwise
     /// reset a view on `r` and toggle channels on every digit.
     Focus,
+    /// Catalogs that have finished listing are taken in. Before anything
+    /// builds a list from them, so a dropdown open when one lands fills in the
+    /// same frame.
+    Catalogs,
     /// Docks read the pointer: dragging an edge, opening, collapsing. Their new
     /// sizes are settled before anything measures against them.
     DockInput,
@@ -107,6 +111,7 @@ pub fn configure(app: &mut App) {
         Update,
         (
             Stage::Focus,
+            Stage::Catalogs,
             Stage::DockInput,
             Stage::FrameArea,
             Stage::DockReserve,

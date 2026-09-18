@@ -15,10 +15,16 @@ field and the examples alike. Adding a format touches `formats` and nothing in
 `view`, `ui` or `main`; frames are opened by querying the world for sources.
 See `.agents/skills/add-source-plugin`.
 
+What the dataset dropdown offers comes from *catalogs* (`src/catalog/`), each
+an implementation of `Catalog` registered in `main` with `add_catalog`. A
+catalog only lists names and URLs, listed asynchronously; opening an entry goes
+through `discover` like any typed URL, so a catalog never names a format.
+
 The tree is layered, and the layers only point one way:
 
     source/    the vocabulary every format and frame is written against
     formats/   the readers, one plugin each
+    catalog/   lists of datasets to offer: the examples, BKP, and so on
     render/    the point pipeline both point-cloud formats draw through
     view/      the frame grid: grid, camera, chrome, requests, input, overlay
     widgets/   generic controls, used by both view and ui

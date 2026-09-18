@@ -8,6 +8,7 @@
 //! in more detail as you zoom.
 
 mod app;
+mod catalog;
 mod cli;
 mod formats;
 mod render;
@@ -20,6 +21,7 @@ use bevy::prelude::*;
 use clap::Parser;
 
 use app::ExplorerPlugin;
+use catalog::AppCatalogs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cli::Args::parse();
@@ -34,6 +36,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // same machinery. The budgets go in beside them, for the same reason.
     app.add_plugins(formats::FormatsPlugin)
         .insert_resource(settings);
+
+    // What the dataset dropdown offers beyond what is already open, in the
+    // order listed here.
+    app.add_plugins(catalog::CatalogPlugin)
+        .add_catalog(catalog::bkp::Bkp::production())
+        .add_catalog(catalog::examples::Examples);
 
     // Each dataset named is registered exactly as one opened from the sidebar
     // is. Registration order decides which cell a source's frame opens in, and

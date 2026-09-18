@@ -7,16 +7,14 @@
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
-use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::display::{label, label_dim};
+use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::ThemeTextColor;
 use bevy_ui_widgets::Activate;
 use bevy_ui_widgets::{SliderRange, SliderValue};
 
 use crate::app::schedule::{Boot, Stage};
-use crate::formats::EXAMPLES;
 use crate::render::channels::ChannelTileMaterial;
 use crate::render::lines::LineMaterial;
 use crate::render::points::{
@@ -121,8 +119,24 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
             }
         })
         .id();
+    // The picker is outside the rows too, for the same reason: it holds its
+    // search. It is the one on every frame's title, opening into a new frame
+    // instead of repointing one.
+    let open = commands
+        .spawn_scene(bsn! {
+            label("Open a dataset")
+            InheritableFont { font_size: { 12.0f32 } }
+            Node { margin: { UiRect::new(Val::Px(0.0), Val::Px(0.0), Val::Px(8.0), Val::Px(2.0)) } }
+        })
+        .id();
+    let picker = crate::view::dataset_menu::spawn_dataset_picker(
+        &mut commands,
+        crate::view::dataset_menu::PickerTarget::NewFrame,
+    );
     let custom = crate::ui::addsource::spawn_custom_section(&mut commands);
-    commands.entity(menu).add_children(&[rows, custom]);
+    commands
+        .entity(menu)
+        .add_children(&[rows, open, picker, custom]);
 
     let body = accordion.body;
 
@@ -678,17 +692,6 @@ pub fn rebuild_layout_menu(
         children.push(frame_row(&mut commands, *panel, data));
     }
 
-    // One list rather than two. The datasets already registered used to have a
-    // section of their own, but a row here opens the source it already has
-    // rather than fetching it twice, so that section was the same list with a
-    // different reason — and this one is what a catalogue served over HTTP will
-    // fill later.
-    children.push(heading(&mut commands, "Open a dataset", 12.0, 8.0));
-    let full = current.len() >= crate::view::MAX_PANELS;
-    for (index, example) in EXAMPLES.iter().enumerate() {
-        children.push(example_row(&mut commands, index, example, full));
-    }
-
     commands.entity(menu).add_children(&children);
 }
 
@@ -747,72 +750,6 @@ fn frame_row(commands: &mut Commands, panel: Entity, data: &DataSource) -> Entit
     // behind offers the examples again.
     let remove = action_button(commands, panel, LayoutAction::Remove, "Close");
     commands.entity(row).add_children(&[details, clone, remove]);
-    row
-}
-
-/// A dataset the app knows the address of but has not opened: its name, what
-/// kind it is, and a button that fetches it.
-///
-/// The button carries the same component the empty window's examples do, so
-/// both go through one observer and one load — a dataset opened from either
-/// place arrives by exactly the same path.
-fn example_row(
-    commands: &mut Commands,
-    index: usize,
-    example: &crate::formats::Example,
-    full: bool,
-) -> Entity {
-    let row = commands
-        .spawn_scene(bsn! {
-            LayoutContent
-            Node {
-                width: { Val::Percent(100.0) },
-                align_items: { AlignItems::Center },
-                column_gap: { Val::Px(6.0) },
-                padding: { UiRect::vertical(Val::Px(4.0)) },
-            }
-        })
-        .id();
-
-    let button = commands
-        .spawn_scene(bsn! {
-            @FeathersToolButton {
-                @caption: { bsn_list![button_text("+")] }
-            }
-            crate::view::BlocksFrameInput
-            crate::ui::welcome::ExampleButton { example: { index } }
-        })
-        .id();
-    if full {
-        // The grid is full, so there is nowhere for another frame to go. Being
-        // open already is not a reason to refuse: pressing it again opens a
-        // second frame onto the source it opened as the first time.
-        commands.entity(button).insert(InteractionDisabled);
-    }
-
-    let name = example.name.to_string();
-    let kind = example.kind.to_string();
-    let details = commands
-        .spawn_scene(bsn! {
-            Node {
-                flex_direction: { FlexDirection::Column },
-                flex_grow: { 1.0_f32 },
-                row_gap: { Val::Px(1.0) },
-            }
-            Children [
-                (
-                    label(name)
-                    InheritableFont { font_size: { 13.0f32 } }
-                ),
-                (
-                    label_dim(kind)
-                    InheritableFont { font_size: { 11.0f32 } }
-                ),
-            ]
-        })
-        .id();
-
-    commands.entity(row).add_children(&[button, details]);
     row
 }
 
