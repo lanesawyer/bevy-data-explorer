@@ -25,6 +25,7 @@ pub mod layers;
 pub mod loading;
 pub mod orbit;
 pub mod overlay;
+pub mod preset;
 pub mod requests;
 
 use bevy::camera::visibility::RenderLayers;
@@ -48,6 +49,7 @@ pub use grid::{MAX_PANELS, grid_for};
 pub use input::{BlocksFrameInput, TextEntryFocused};
 pub use layers::{FrameLayers, LayerOf, LayerOpacity, OpensAsLayer};
 pub use orbit::Orbit;
+pub use preset::{OpenPreset, Preset, PresetDataset};
 pub use requests::{DatasetRequest, DatasetTarget, PanelRequest, PendingShow};
 
 /// The frame the sidebar's controls act on.
@@ -200,6 +202,8 @@ impl Plugin for ViewPlugin {
         app.add_plugins((overlay::OverlayPlugin, capture::CapturePlugin))
             .add_message::<PanelRequest>()
             .add_message::<DatasetRequest>()
+            .add_message::<OpenPreset>()
+            .init_resource::<preset::PendingPresets>()
             .init_resource::<FrameArea>()
             .init_resource::<SelectedPanel>()
             .init_resource::<TextEntryFocused>()
@@ -209,7 +213,16 @@ impl Plugin for ViewPlugin {
             .add_systems(Update, reset_frame_area.in_set(Stage::FrameArea))
             .add_systems(
                 Update,
-                (apply_panel_requests, normalize_panels)
+                (
+                    preset::open_presets,
+                    apply_panel_requests,
+                    normalize_panels,
+                    // Once the frames just asked for exist, so a preset's
+                    // layers go onto the frame opened for it.
+                    preset::layer_presets,
+                    preset::attach_follows,
+                    preset::fit_presets,
+                )
                     .chain()
                     .in_set(Stage::Frames),
             )
@@ -241,6 +254,12 @@ impl Plugin for ViewPlugin {
             // other control does in this stage — and being here is what has the
             // new slice streaming the same frame it was asked for.
             .add_systems(Update, page_slice_stack.in_set(Stage::ControlsApply))
+            // Writes through to the sources that follow another's sections,
+            // which the formats read as they stream.
+            .add_systems(
+                Update,
+                crate::source::sections::follow_sections.in_set(Stage::ControlsApply),
+            )
             .add_systems(Update, probe_hover.in_set(Stage::HoverProbe))
             // After the sources, which is when each says whether it is fetching.
             .add_systems(Update, loading::update_loading_bars.in_set(Stage::Overlay))

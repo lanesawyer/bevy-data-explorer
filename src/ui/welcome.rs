@@ -20,10 +20,10 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::schedule::{Boot, Stage};
-use crate::formats::EXAMPLES;
+use crate::formats::{EXAMPLES, ExampleDataset, LAYERED_EXAMPLES};
 use crate::ui::addsource::spawn_custom_section;
 use crate::ui::help::{AUTHOR, LICENSE, LICENSE_URL, REPOSITORY};
-use crate::view::{BlocksFrameInput, FrameArea, Panel};
+use crate::view::{BlocksFrameInput, FrameArea, OpenPreset, Panel, Preset, PresetDataset};
 use crate::widgets::{Icon, button_text, link_button};
 
 /// The empty-state panel itself.
@@ -33,6 +33,13 @@ pub struct WelcomeScreen;
 /// A button that opens one of [`EXAMPLES`], by its position in that list.
 #[derive(Component, Clone, Default)]
 pub struct ExampleButton {
+    pub example: usize,
+}
+
+/// A button that opens one of [`LAYERED_EXAMPLES`], by its position in that
+/// list.
+#[derive(Component, Clone, Default)]
+pub struct LayeredExampleButton {
     pub example: usize,
 }
 
@@ -110,12 +117,27 @@ pub fn spawn_welcome(mut commands: Commands) {
 
     let mut children = vec![title, blurb, heading];
     for (index, example) in EXAMPLES.iter().enumerate() {
-        children.push(example_row(
-            &mut commands,
-            index,
-            example.name,
-            example.kind,
-        ));
+        let row = example_row(&mut commands, example.name, example.kind);
+        commands
+            .entity(row.button)
+            .insert(ExampleButton { example: index });
+        children.push(row.row);
+    }
+
+    let layered = commands
+        .spawn_scene(bsn! {
+            label("Open a layered example")
+            InheritableFont { font_size: { 13.0f32 } }
+            Node { margin: { UiRect::top(Val::Px(10.0)) } }
+        })
+        .id();
+    children.push(layered);
+    for (index, example) in LAYERED_EXAMPLES.iter().enumerate() {
+        let row = example_row(&mut commands, example.name, example.kind);
+        commands
+            .entity(row.button)
+            .insert(LayeredExampleButton { example: index });
+        children.push(row.row);
     }
 
     // The same field, button and status line the sidebar's Edit layout menu
@@ -154,36 +176,45 @@ pub fn spawn_welcome(mut commands: Commands) {
     commands.entity(screen).add_children(&children);
 }
 
+struct ExampleRow {
+    row: Entity,
+    /// Left for the caller to say which example it opens.
+    button: Entity,
+}
+
 /// One example: a button that opens it, and the kind of dataset it is.
-fn example_row(commands: &mut Commands, index: usize, name: &str, kind: &str) -> Entity {
+fn example_row(commands: &mut Commands, name: &str, kind: &str) -> ExampleRow {
     let name = name.to_string();
     let kind = kind.to_string();
-    commands
+    let button = commands
+        .spawn_scene(bsn! {
+            @FeathersButton {
+                @variant: { ButtonVariant::Normal },
+                @caption: { bsn_list![button_text(name)] }
+            }
+            BlocksFrameInput
+            Node { flex_grow: { 1.0_f32 } }
+        })
+        .id();
+    let kind = commands
+        .spawn_scene(bsn! {
+            label_dim(kind)
+            InheritableFont { font_size: { 12.0f32 } }
+            // The kind holds its width; the button beside it gives way.
+            Node { flex_shrink: { 0.0_f32 } }
+        })
+        .id();
+    let row = commands
         .spawn_scene(bsn! {
             Node {
                 width: { Val::Px(COLUMN_PX) },
                 align_items: { AlignItems::Center },
                 column_gap: { Val::Px(10.0) },
             }
-            Children [
-                (
-                    @FeathersButton {
-                        @variant: { ButtonVariant::Normal },
-                        @caption: { bsn_list![button_text(name)] }
-                    }
-                    BlocksFrameInput
-                    ExampleButton { example: { index } }
-                    Node { flex_grow: { 1.0_f32 } }
-                ),
-                (
-                    label_dim(kind)
-                    InheritableFont { font_size: { 12.0f32 } }
-                    // The kind holds its width; the button beside it gives way.
-                    Node { flex_shrink: { 0.0_f32 } }
-                ),
-            ]
         })
-        .id()
+        .add_children(&[button, kind])
+        .id();
+    ExampleRow { row, button }
 }
 
 /// Open the example whose button was pressed.
@@ -206,6 +237,38 @@ pub fn on_example_pressed(
         url: example.url.to_string(),
         target: crate::view::DatasetTarget::NewFrame,
     });
+}
+
+/// Open the layered example whose button was pressed, base first and its
+/// layers over it.
+pub fn on_layered_example_pressed(
+    activate: On<Activate>,
+    buttons: Query<&LayeredExampleButton>,
+    mut presets: MessageWriter<OpenPreset>,
+) {
+    let Ok(button) = buttons.get(activate.entity) else {
+        return;
+    };
+    let Some(example) = LAYERED_EXAMPLES.get(button.example) else {
+        return;
+    };
+    presets.write(OpenPreset(Preset {
+        base: preset_dataset(&example.base),
+        layers: example.layers.iter().map(preset_dataset).collect(),
+        frame_on: example.frame_on.map(str::to_string),
+    }));
+}
+
+fn preset_dataset(dataset: &ExampleDataset) -> PresetDataset {
+    PresetDataset {
+        url: dataset.url.to_string(),
+        follows: dataset
+            .under
+            .map(|(sections, ids)| crate::source::sections::FollowsSections {
+                sections: sections.to_string(),
+                ids: ids.iter().map(ToString::to_string).collect(),
+            }),
+    }
 }
 
 /// Cover the frame area while there are no frames, and stand down once there
@@ -237,6 +300,7 @@ pub struct WelcomePlugin;
 impl Plugin for WelcomePlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_example_pressed)
+            .add_observer(on_layered_example_pressed)
             // Placed with the rest of the chrome that measures against the
             // frame area, once the docks have taken their share of it.
             .add_systems(Update, place_welcome.in_set(Stage::Chrome))
@@ -281,6 +345,40 @@ mod tests {
             assert!(url.starts_with("https://"), "{}: {url}", example.name);
             assert!(!example.name.is_empty());
             assert!(!example.kind.is_empty());
+        }
+        for example in &LAYERED_EXAMPLES {
+            assert!(!example.layers.is_empty(), "{} has no layers", example.name);
+            let datasets: Vec<&ExampleDataset> = std::iter::once(&example.base)
+                .chain(example.layers)
+                .collect();
+            for dataset in &datasets {
+                let url = crate::formats::plain_url(dataset.url);
+                assert!(url.starts_with("https://"), "{}: {url}", example.name);
+            }
+            // What a dataset is drawn under has to be opened alongside it,
+            // and so does what the frame is framed on.
+            let urls: Vec<&str> = datasets.iter().map(|d| d.url).collect();
+            for (sections, _) in datasets.iter().filter_map(|d| d.under) {
+                assert!(urls.contains(&sections), "{}: {sections}", example.name);
+            }
+            if let Some(url) = example.frame_on {
+                assert!(urls.contains(&url), "{}: {url}", example.name);
+            }
+        }
+    }
+
+    #[test]
+    fn no_section_has_two_images_under_it() {
+        for example in &LAYERED_EXAMPLES {
+            let mut ids: Vec<&str> = std::iter::once(&example.base)
+                .chain(example.layers)
+                .filter_map(|d| d.under)
+                .flat_map(|(_, ids)| ids.iter().copied())
+                .collect();
+            let count = ids.len();
+            ids.sort_unstable();
+            ids.dedup();
+            assert_eq!(ids.len(), count, "{}", example.name);
         }
     }
 }

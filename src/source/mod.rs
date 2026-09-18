@@ -13,6 +13,7 @@
 pub mod channels;
 pub mod hover;
 pub mod properties;
+pub mod sections;
 pub mod stack;
 pub mod volume;
 

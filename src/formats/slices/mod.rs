@@ -25,6 +25,7 @@ use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::ViewLimits;
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::properties::{CellProperties, CellSelection};
+use crate::source::sections::{PlacedSection, SectionPlacement};
 use crate::source::{self, DataSource, SourceBusy, SourceExtent, SourceStatus};
 use crate::view::ShowsSource;
 
@@ -336,6 +337,27 @@ impl SliceStreamer {
             }
         }
         best.map(|(_, hit)| hit)
+    }
+
+    /// Where every slide is drawn in the current mode.
+    pub fn placement(&self) -> SectionPlacement {
+        SectionPlacement(
+            self.cloud
+                .slides
+                .iter()
+                .enumerate()
+                .map(|(index, slide)| {
+                    let b = slide.tight_bounds;
+                    PlacedSection {
+                        id: slide.id.clone(),
+                        // Display y runs up, the slide's down.
+                        bounds: bevy::math::Rect::new(b.min_x, -b.max_y, b.max_x, -b.min_y),
+                        offset: self.offset(index),
+                        shown: self.visible(index),
+                    }
+                })
+                .collect(),
+        )
     }
 
     /// Whether a slide is drawn in the current mode.
@@ -707,20 +729,29 @@ pub fn apply_slice_layout(
     }
 }
 
-/// Keep the source's advertised extent matching the current mode.
+/// Keep the source's advertised extent, and where each slide is drawn,
+/// matching the current mode.
 ///
-/// A frame opened onto the sections later is framed from this, so leaving it at
-/// the value registered on startup left a new frame unable to zoom out past a
-/// single slice until something happened to trigger a refit.
-pub fn publish_extent(streamers: Query<Ref<SliceStreamer>>, mut sources: Query<&mut SourceExtent>) {
+/// A frame opened onto the sections later is framed from the extent, so leaving
+/// it at the value registered on startup left a new frame unable to zoom out
+/// past a single slice until something happened to trigger a refit. The
+/// placement is what anything drawn under the slides follows.
+pub fn publish_extent(
+    streamers: Query<Ref<SliceStreamer>>,
+    mut sources: Query<(&mut SourceExtent, &mut SectionPlacement)>,
+) {
     for streamer in &streamers {
         if !streamer.is_changed() {
             continue;
         }
-        let Ok(mut extent) = sources.get_mut(streamer.source) else {
+        let Ok((mut extent, mut placement)) = sources.get_mut(streamer.source) else {
             continue;
         };
         *extent = streamer.extent();
+        let placed = streamer.placement();
+        if *placement != placed {
+            *placement = placed;
+        }
     }
 }
 
@@ -873,6 +904,7 @@ pub fn spawn_source(world: &mut World, cloud: Arc<Scatterbrain>, budget: usize) 
         // systems can write through a query rather than through commands.
         SourceHighlight::default(),
         HoverInfo::default(),
+        SectionPlacement::default(),
         // Placeholder until a lookup service supplies the real value
         // labels; the column names and ids are the dataset's own.
         crate::formats::scatterbrain::placeholder_properties(
@@ -1167,6 +1199,28 @@ mod tests {
             let offset = streamer.offset(slide);
             assert!((offset.x + cx).abs() < 1e-4);
             assert!((offset.y - cy).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn a_placed_slide_lands_where_its_points_are_drawn() {
+        let mut streamer = streamer();
+        for mode in [SliceMode::Grid, SliceMode::Single] {
+            streamer.mode = mode;
+            let placement = streamer.placement();
+            assert_eq!(placement.0.len(), 53);
+            // Moved by its offset, a slide's bounds are centred where the
+            // points of a slide are centred: on its grid cell, or the origin.
+            let slide = &placement.0[18];
+            let centre = slide.bounds.center() + slide.offset;
+            let cell = match mode {
+                SliceMode::Grid => streamer.layout.grid[18],
+                SliceMode::Single => Vec2::ZERO,
+            };
+            assert!(
+                centre.distance(cell) < 1e-3,
+                "{mode:?}: {centre} not {cell}"
+            );
         }
     }
 

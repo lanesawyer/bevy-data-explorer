@@ -127,6 +127,120 @@ pub const EXAMPLES: [Example; 8] = [
     },
 ];
 
+/// A frame the app knows how to build: one dataset with others stacked over it.
+///
+/// Kept apart from [`EXAMPLES`], which are single datasets and offered as
+/// such everywhere a dataset can be chosen. These are views, and only make
+/// sense opened whole.
+pub struct LayeredExample {
+    pub name: &'static str,
+    pub kind: &'static str,
+    /// What the frame opens onto, at the bottom.
+    pub base: ExampleDataset,
+    /// Stacked over the base, bottom first.
+    pub layers: &'static [ExampleDataset],
+    /// The dataset the frame is framed on, if not the base.
+    pub frame_on: Option<&'static str>,
+}
+
+pub struct ExampleDataset {
+    pub url: &'static str,
+    /// Drawn under these sections of the sectioned dataset at this address,
+    /// rather than where it lies.
+    pub under: Option<(&'static str, &'static [&'static str])>,
+}
+
+const MACAQUE_BG_CELLS: &str = "https://bkp-2d-visualizations.s3.amazonaws.com/bkppg-sfs-prod-hmba_bg_spatial_macaque_10012025-20251011175411/9AUTE9S10KAEC2UZO31/ScatterBrain.json";
+
+/// The macaque basal ganglia cells, over the photograph of the slab each
+/// section was cut from.
+///
+/// The cells and the slab photographs share the slab's coordinates, so each
+/// photograph lines up with its sections once it is moved with them. Which
+/// slab a section came from is its "Slab Plane Label" in the Brain Knowledge
+/// Platform (`QM23.50.001.CX.44.Plane.03` is slab 44); the ids here are those
+/// labels' reference ids, as the sections are keyed by them. Every slab is
+/// shown by its anterior face.
+pub const LAYERED_EXAMPLES: [LayeredExample; 1] = [LayeredExample {
+    name: "Macaque basal ganglia cells on their slabs",
+    kind: "OME-Zarr under Scatterbrain",
+    base: ExampleDataset {
+        url: "https://allen-hmba-releases.s3.us-west-2.amazonaws.com/neuroglancer/HMBA-MERSCOPE-QM23.50.001-BG/20250630/slab/slabs/CX42_A/",
+        under: Some((
+            MACAQUE_BG_CELLS,
+            &[
+                "RKNWRVJ3YOT6KJKWUAL",
+                "CWMH8J09KE7S038N3JI",
+                "Z981BFIQCI66A7XIFE6",
+            ],
+        )),
+    },
+    layers: &[
+        ExampleDataset {
+            url: "https://allen-hmba-releases.s3.us-west-2.amazonaws.com/neuroglancer/HMBA-MERSCOPE-QM23.50.001-BG/20250630/slab/slabs/CX43_A/",
+            under: Some((
+                MACAQUE_BG_CELLS,
+                &[
+                    "B6INPSMT424848VNP3F",
+                    "9F2UVF88M0Q9TKZ3SCY",
+                    "SLYV2IK91E4LYB3HEMY",
+                    "69OBB83YBZFL30X5M2O",
+                    "XIS7H245UGS7ZJ1ZHNP",
+                    "GEI4W8TFLHZOMDZQY0G",
+                    "4I8IHVOCTX1NSC1MOB7",
+                ],
+            )),
+        },
+        ExampleDataset {
+            url: "https://allen-hmba-releases.s3.us-west-2.amazonaws.com/neuroglancer/HMBA-MERSCOPE-QM23.50.001-BG/20250630/slab/slabs/CX44_A/",
+            under: Some((
+                MACAQUE_BG_CELLS,
+                &[
+                    "00DVT5W5SU9Q62AITT9",
+                    "N2S946RWWL1AY8TSZSN",
+                    "C7TM0FNZ7REMI0E89FS",
+                    "7ZS5UYGDRBJ50V950IR",
+                    "YJ37SO4BX53MDCKJ1Z2",
+                    "SASQAMXID1XQGEXV8QO",
+                ],
+            )),
+        },
+        ExampleDataset {
+            url: "https://allen-hmba-releases.s3.us-west-2.amazonaws.com/neuroglancer/HMBA-MERSCOPE-QM23.50.001-BG/20250630/slab/slabs/CX45_A/",
+            under: Some((
+                MACAQUE_BG_CELLS,
+                &[
+                    "V2JJFLCAZRL36UB0QSI",
+                    "WSNDYBQPE4PN2POZ38M",
+                    "KWDRJYLMMKRL8OQUTID",
+                    "8PXZCPUS6OMPWPM4EXU",
+                    "MCNFLFDHH9YP1EGTLDK",
+                    "58DC0M2S8A57P7EL2RA",
+                ],
+            )),
+        },
+        ExampleDataset {
+            url: "https://allen-hmba-releases.s3.us-west-2.amazonaws.com/neuroglancer/HMBA-MERSCOPE-QM23.50.001-BG/20250630/slab/slabs/CX46_A/",
+            under: Some((
+                MACAQUE_BG_CELLS,
+                &[
+                    "9Q8ZNBVY9DX3BI5PX88",
+                    "DXXGJ51FN3I6FVQ7NUV",
+                    "11OU4SWBVJK4LUS2D5N",
+                    "TB3QL8YOGQ75V6GGS12",
+                    "3S3OY4BXDLY2WHOMAW3",
+                    "O339FSR20BCOC1CDJ41",
+                ],
+            )),
+        },
+        ExampleDataset {
+            url: MACAQUE_BG_CELLS,
+            under: None,
+        },
+    ],
+    frame_on: Some(MACAQUE_BG_CELLS),
+}];
+
 /// The known datasets not open yet, with their place in [`EXAMPLES`].
 ///
 /// `opened` is every address a source was read from. A dataset already open is

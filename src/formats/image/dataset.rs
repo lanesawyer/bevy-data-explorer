@@ -85,6 +85,8 @@ pub struct Channel {
     pub start: f32,
     pub end: f32,
     pub active: bool,
+    /// Cuts the image out where it is low, rather than adding colour.
+    pub mask: bool,
 }
 
 /// One resolution level of the pyramid.
@@ -803,6 +805,10 @@ fn build_channels(
         [1.0, 0.0, 1.0],
     ];
     let (lo, hi) = nominal_range(array);
+    // Four bytes a pixel and nothing said about them is a colour photograph
+    // with its alpha: the Neuroglancer slab exports are written this way, and
+    // painting the alpha as a fourth colour washed them yellow.
+    let rgba = omero.is_none() && count == 4 && data_type_name(array) == "uint8";
 
     (0..count)
         .map(|i| {
@@ -831,6 +837,13 @@ fn build_channels(
                 .and_then(|c| c.other.get("label"))
                 .and_then(|v| v.as_str())
                 .map_or_else(|| format!("channel {i}"), str::to_string);
+            let (label, color) = match (rgba, i) {
+                (true, 0) => ("red".to_string(), color),
+                (true, 1) => ("green".to_string(), color),
+                (true, 2) => ("blue".to_string(), color),
+                (true, _) => ("alpha".to_string(), [1.0; 3]),
+                (false, _) => (label, color),
+            };
 
             let active = meta
                 .and_then(|c| c.other.get("active"))
@@ -843,6 +856,7 @@ fn build_channels(
                 start,
                 end,
                 active,
+                mask: rgba && i == 3,
             }
         })
         .collect()

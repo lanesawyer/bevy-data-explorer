@@ -35,6 +35,9 @@ pub struct MixChannel {
     /// it reaches full colour.
     pub window: (f32, f32),
     pub shown: bool,
+    /// Cuts out what is below the middle of its window instead of adding
+    /// colour. Only tiles cut; a volume ignores it.
+    pub mask: bool,
 }
 
 /// How channels are mixed into colour, as the shaders read it.
@@ -43,6 +46,9 @@ pub struct ChannelMix {
     pub colours: [Vec4; MAX_CHANNELS],
     pub windows: [Vec4; MAX_CHANNELS],
     pub count: u32,
+    /// One more than the index of the channel that cuts the tile out, or 0
+    /// when none does.
+    pub mask: u32,
     pub tint: Vec4,
 }
 
@@ -52,6 +58,7 @@ impl Default for ChannelMix {
             colours: [Vec4::ZERO; MAX_CHANNELS],
             windows: [Vec4::ZERO; MAX_CHANNELS],
             count: 0,
+            mask: 0,
             tint: Vec4::ONE,
         }
     }
@@ -63,10 +70,17 @@ impl ChannelMix {
     pub fn set_channels(&mut self, channels: &[MixChannel]) {
         self.colours = [Vec4::ZERO; MAX_CHANNELS];
         self.windows = [Vec4::ZERO; MAX_CHANNELS];
+        self.mask = 0;
         for (index, channel) in channels.iter().take(MAX_CHANNELS).enumerate() {
             let [r, g, b] = channel.colour;
-            self.colours[index] = Vec4::new(r, g, b, if channel.shown { 1.0 } else { 0.0 });
+            let paints = channel.shown && !channel.mask;
+            self.colours[index] = Vec4::new(r, g, b, if paints { 1.0 } else { 0.0 });
             self.windows[index] = Vec4::new(channel.window.0, channel.window.1, 0.0, 0.0);
+            // Hiding the mask shows the whole tile, which is how to see what
+            // it was cutting away.
+            if channel.mask && channel.shown {
+                self.mask = index as u32 + 1;
+            }
         }
         self.count = channels.len().min(MAX_CHANNELS) as u32;
     }
@@ -171,7 +185,25 @@ mod tests {
             colour: [1.0, 0.5, 0.0],
             window: (0.0, 0.25),
             shown,
+            mask: false,
         }
+    }
+
+    #[test]
+    fn a_mask_cuts_rather_than_paints_and_only_while_shown() {
+        let alpha = MixChannel {
+            mask: true,
+            ..channel(true)
+        };
+        let mix = ChannelMix::of(&[channel(true), alpha]);
+        assert_eq!(mix.mask, 2);
+        assert_eq!(mix.colours[1].w, 0.0, "the mask added colour");
+
+        let hidden = MixChannel {
+            shown: false,
+            ..alpha
+        };
+        assert_eq!(ChannelMix::of(&[channel(true), hidden]).mask, 0);
     }
 
     #[test]

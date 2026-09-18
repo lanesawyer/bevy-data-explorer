@@ -37,6 +37,7 @@ use crate::formats::image::dataset::{
 use crate::render::channels::{ChannelTileMaterial, MixChannel, channel_texture};
 use crate::source::channels::{ChannelSetting, SourceChannels};
 use crate::source::hover::{HoverInfo, HoverProbe};
+use crate::source::sections::{Placement, Placements};
 use crate::source::stack::SliceStack;
 use crate::source::{self, SourceBusy, SourceExtent, SourceStatus};
 use crate::view::ShowsSource;
@@ -74,11 +75,12 @@ pub struct TileKey {
     pub tx: u64,
 }
 
-/// Marks a spawned tile sprite.
+/// Marks a spawned tile.
 ///
 /// Which tile it draws is not recorded here: the streamer's own slots say that,
 /// and reading it from there is what keeps one image's visibility from reaching
-/// another image's tiles.
+/// another image's tiles. The tile itself draws nothing; its children do, one
+/// for each place the image is drawn (see [`place_tiles`]).
 #[derive(Component)]
 pub struct Tile;
 
@@ -97,6 +99,8 @@ enum SlotState {
         bytes: usize,
         /// Where its channels are mixed, rewritten when they change.
         material: Handle<ChannelTileMaterial>,
+        /// Which of the streamer's placements its quads were cut for.
+        placed: u64,
     },
     /// Nothing to draw: the tile is outside the image or entirely fill value.
     Blank,
@@ -187,6 +191,11 @@ pub struct TileStreamer {
     pub budget_bytes: usize,
     /// Tiles abandoned before starting, for the status display.
     pub cancelled: usize,
+    /// The copies of the image to draw, from the source's [`Placements`], or
+    /// `None` to draw it once where it lies.
+    placements: Option<Vec<Placement>>,
+    /// Counts changes to `placements`, so a tile can tell its quads are stale.
+    placed: u64,
 }
 
 impl TileStreamer {
@@ -207,6 +216,8 @@ impl TileStreamer {
             resident_bytes: 0,
             budget_bytes: DEFAULT_CACHE_BUDGET_MB * 1024 * 1024,
             cancelled: 0,
+            placements: None,
+            placed: 0,
         }
     }
 
@@ -224,6 +235,7 @@ impl TileStreamer {
                 colour: channel.color,
                 window: (channel.start / scale, channel.end / scale),
                 shown: channel.active,
+                mask: channel.mask,
             })
             .collect()
     }
@@ -295,6 +307,22 @@ pub fn select_tiles(
             views.push((view, level));
         }
 
+        // Each copy of the image is looked at through the part of the view
+        // that falls on it, moved back to where that part of the image lies.
+        let views: Vec<(View, usize)> = match &streamer.placements {
+            None => views,
+            Some(placements) => views
+                .iter()
+                .flat_map(|(view, level)| {
+                    placements
+                        .iter()
+                        .filter(|placement| placement.shown)
+                        .filter_map(|placement| view.through(placement))
+                        .map(|seen| (seen, *level))
+                })
+                .collect(),
+        };
+
         let mut visible = Tiers::default();
         // The one overview a frame can show at once while its own level loads.
         for (view, _) in &views {
@@ -361,6 +389,22 @@ impl View {
             half,
             margin: half * 0.15,
         }
+    }
+
+    /// The part of this view that shows one copy of the image, where that
+    /// part of the image lies, or `None` if the copy is off screen.
+    fn through(&self, placement: &Placement) -> Option<View> {
+        let seen = Rect::from_center_half_size(self.centre - placement.offset, self.half)
+            .intersect(placement.window);
+        if seen.is_empty() {
+            return None;
+        }
+        let half = seen.half_size();
+        Some(View {
+            centre: seen.center(),
+            half,
+            margin: half * 0.15,
+        })
     }
 }
 
@@ -606,22 +650,30 @@ pub fn collect_tile_tasks(
 
                     // Finer levels sit on top of coarser ones.
                     let z = (level_count - key.level) as f32;
-                    let size = Vec2::new(x1 - x0, y1 - y0);
                     let entity = commands
                         .spawn((
-                            Mesh2d(meshes.add(Rectangle::from_size(size))),
-                            MeshMaterial2d(material.clone()),
-                            // Placed by its middle; the image's y runs down.
-                            Transform::from_xyz(x0 + size.x * 0.5, -(y0 + size.y * 0.5), z),
-                            RenderLayers::layer(layer),
+                            Transform::from_xyz(0.0, 0.0, z),
+                            Visibility::default(),
                             Tile,
                         ))
                         .id();
+                    // The image's y runs down, display y up.
+                    let rect = Rect::new(x0, -y1, x1, -y0);
+                    place_tile(
+                        &mut commands,
+                        &mut meshes,
+                        entity,
+                        rect,
+                        &material,
+                        layer,
+                        streamer.placements.as_deref(),
+                    );
                     streamer.resident_bytes += bytes;
                     SlotState::Ready {
                         entity,
                         bytes,
                         material,
+                        placed: streamer.placed,
                     }
                 }
                 TileOutcome::Blank => SlotState::Blank,
@@ -638,6 +690,131 @@ pub fn collect_tile_tasks(
                     state,
                     last_wanted: frame,
                 },
+            );
+        }
+    }
+}
+
+/// Draw a tile's quads: one where it lies, or one for each copy of the image,
+/// cut to what that copy shows and moved to where it is drawn.
+fn place_tile(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    tile: Entity,
+    rect: Rect,
+    material: &Handle<ChannelTileMaterial>,
+    layer: usize,
+    placements: Option<&[Placement]>,
+) {
+    let whole = [Placement {
+        window: rect,
+        offset: Vec2::ZERO,
+        shown: true,
+    }];
+    for placement in placements.unwrap_or(&whole) {
+        let part = rect.intersect(placement.window);
+        if part.is_empty() {
+            continue;
+        }
+        commands.spawn((
+            ChildOf(tile),
+            Mesh2d(meshes.add(cropped_quad(rect, part))),
+            MeshMaterial2d(material.clone()),
+            Transform::from_translation((part.center() + placement.offset).extend(0.0)),
+            if placement.shown {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            },
+            RenderLayers::layer(layer),
+        ));
+    }
+}
+
+/// A quad the size of `part`, textured with that part of a tile covering
+/// `whole`.
+fn cropped_quad(whole: Rect, part: Rect) -> Mesh {
+    let mut mesh = Mesh::from(Rectangle::from_size(part.size()));
+    let uvs: Option<Vec<[f32; 2]>> = mesh
+        .attribute(Mesh::ATTRIBUTE_POSITION)
+        .and_then(|positions| positions.as_float3())
+        .map(|positions| {
+            positions
+                .iter()
+                .map(|[x, y, _]| {
+                    let at = part.center() + Vec2::new(*x, *y);
+                    // Texture v runs down the tile, display y up.
+                    [
+                        (at.x - whole.min.x) / whole.width(),
+                        (whole.max.y - at.y) / whole.height(),
+                    ]
+                })
+                .collect()
+        });
+    if let Some(uvs) = uvs {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    }
+    mesh
+}
+
+/// Take up the source's placements, and recut every resident tile's quads to
+/// match them.
+///
+/// Placements change when the sections they follow move — a switch between
+/// grid and single, a step to the next slice — which is rare enough that
+/// cutting every tile again is cheap next to reading them.
+pub fn place_tiles(
+    mut commands: Commands,
+    mut streamers: Query<(&mut TileStreamer, Option<Ref<Placements>>)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    sources: Query<&source::DataSource>,
+    tiles: Query<Option<&Children>, With<Tile>>,
+) {
+    for (mut streamer, placements) in &mut streamers {
+        let wanted = placements.as_ref().map(|p| p.0.clone());
+        if wanted != streamer.placements {
+            streamer.placements = wanted;
+            streamer.placed = streamer.placed.wrapping_add(1);
+        }
+        let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
+            continue;
+        };
+        let dataset = streamer.dataset.clone();
+        let current = streamer.placed;
+        let TileStreamer {
+            slots, placements, ..
+        } = &mut *streamer;
+        for (key, slot) in slots.iter_mut() {
+            let SlotState::Ready {
+                entity,
+                material,
+                placed,
+                ..
+            } = &mut slot.state
+            else {
+                continue;
+            };
+            if *placed == current {
+                continue;
+            }
+            *placed = current;
+            let Some((x0, y0, x1, y1)) = dataset.levels[key.level].tile_world_rect(key.ty, key.tx)
+            else {
+                continue;
+            };
+            if let Ok(Some(children)) = tiles.get(*entity) {
+                for child in children {
+                    commands.entity(*child).despawn();
+                }
+            }
+            place_tile(
+                &mut commands,
+                &mut meshes,
+                *entity,
+                Rect::new(x0, -y1, x1, -y0),
+                material,
+                layer,
+                placements.as_deref(),
             );
         }
     }
@@ -846,6 +1023,7 @@ impl Plugin for ImageSystems {
             Update,
             (
                 follow_slice_stack,
+                place_tiles,
                 select_tiles,
                 spawn_tile_tasks,
                 collect_tile_tasks,
@@ -1307,6 +1485,7 @@ mod tests {
                 start: 0.0,
                 end: 1000.0,
                 active: true,
+                mask: false,
             })
             .collect()
     }

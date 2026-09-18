@@ -15,6 +15,8 @@ struct ChannelMix {
     // show, y where it is at full colour.
     windows: array<vec4<f32>, 16>,
     count: u32,
+    // One more than the index of the channel that cuts the tile out, or 0.
+    mask: u32,
     // Multiplies the mixed colour, carrying the source's transparency.
     tint: vec4<f32>,
 };
