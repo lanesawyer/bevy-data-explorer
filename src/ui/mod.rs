@@ -6,6 +6,7 @@ use bevy::prelude::*;
 pub mod addsource;
 pub mod cellpanel;
 pub mod channels;
+pub mod help;
 pub mod inspector;
 pub mod layers;
 pub mod logpanel;
@@ -31,6 +32,7 @@ impl Plugin for UiPlugin {
             cellpanel::CellPanelPlugin,
             welcome::WelcomePlugin,
             logpanel::LogPanelPlugin,
+            help::HelpPlugin,
         ));
     }
 }

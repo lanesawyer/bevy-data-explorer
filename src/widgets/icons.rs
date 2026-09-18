@@ -21,13 +21,16 @@ const SIZE: f32 = 15.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Icon {
+    Bug,
     Camera,
     ChevronDown,
     ChevronRight,
+    CircleHelp,
     Copy,
     CopyPlus,
     Cube,
     Ellipsis,
+    ExternalLink,
     FilterX,
     Info,
     Moon,
@@ -45,14 +48,17 @@ pub enum Icon {
 
 impl Icon {
     #[cfg(test)]
-    const ALL: [Icon; 20] = [
+    const ALL: [Icon; 23] = [
+        Icon::Bug,
         Icon::Camera,
         Icon::ChevronDown,
         Icon::ChevronRight,
+        Icon::CircleHelp,
         Icon::Copy,
         Icon::CopyPlus,
         Icon::Cube,
         Icon::Ellipsis,
+        Icon::ExternalLink,
         Icon::FilterX,
         Icon::Info,
         Icon::Moon,
@@ -72,13 +78,16 @@ impl Icon {
     /// compared against and written into a `Text` directly.
     pub fn glyph(self) -> &'static str {
         match self {
+            Icon::Bug => "\u{e20c}",
             Icon::Camera => "\u{e064}",
             Icon::ChevronDown => "\u{e06d}",
             Icon::ChevronRight => "\u{e06f}",
+            Icon::CircleHelp => "\u{e082}",
             Icon::Copy => "\u{e09e}",
             Icon::CopyPlus => "\u{e3fd}",
             Icon::Cube => "\u{e061}",
             Icon::Ellipsis => "\u{e0b6}",
+            Icon::ExternalLink => "\u{e0b9}",
             Icon::FilterX => "\u{e3b5}",
             Icon::Info => "\u{e0f9}",
             Icon::Moon => "\u{e11e}",

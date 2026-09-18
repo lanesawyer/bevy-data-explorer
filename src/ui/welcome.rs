@@ -2,8 +2,8 @@
 //!
 //! Nothing is loaded at startup any more, so the frame area would otherwise be
 //! a cleared rectangle with no way into the app. This fills it: what the viewer
-//! is for, every dataset it knows the address of, and the same URL
-//! field the sidebar carries, for anything else.
+//! is for, every dataset it knows the address of, the same URL field the
+//! sidebar carries, for anything else, and who made it.
 //!
 //! It is UI rather than frame chrome, but it is placed against
 //! [`FrameArea`] like the chrome is, so the docks take their space off it
@@ -12,6 +12,8 @@
 //! here.
 
 use bevy::prelude::*;
+use bevy::text::{FontSourceTemplate, FontWeight};
+use bevy_feathers::constants::fonts;
 use bevy_feathers::controls::{ButtonVariant, FeathersButton};
 use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
@@ -20,8 +22,9 @@ use bevy_ui_widgets::{Activate, ScrollArea};
 use crate::app::schedule::{Boot, Stage};
 use crate::formats::EXAMPLES;
 use crate::ui::addsource::spawn_custom_section;
+use crate::ui::help::{AUTHOR, LICENSE, LICENSE_URL, REPOSITORY};
 use crate::view::{BlocksFrameInput, FrameArea, Panel};
-use crate::widgets::button_text;
+use crate::widgets::{Icon, button_text, link_button};
 
 /// The empty-state panel itself.
 #[derive(Component, Clone, Default)]
@@ -41,7 +44,7 @@ const COLUMN_PX: f32 = 520.0;
 /// over everything.
 const WELCOME_Z: i32 = 5;
 
-const BLURB: &str = "An experimental streaming explorer for large scientific datasets. \
+pub const BLURB: &str = "An experimental streaming explorer for large scientific datasets. \
                      Currently supports OME-Zarr v2 and v3, Deep Zoom images, the \
                      Allen Institute Scatterbrain format for point clouds, and SVG \
                      annotations.";
@@ -73,7 +76,13 @@ pub fn spawn_welcome(mut commands: Commands) {
     let title = commands
         .spawn_scene(bsn! {
             label("Bevy Data Explorer")
-            InheritableFont { font_size: { 22.0f32 } }
+            // `TextFont` rather than `InheritableFont`: a Feathers label opts
+            // out of inherited fonts, so an inheritable size on it is ignored.
+            TextFont {
+                font: FontSourceTemplate::Handle(fonts::BOLD),
+                font_size: { FontSize::Px(32.0) },
+                weight: { FontWeight::BOLD },
+            }
             // Centred by auto margins at either end rather than by
             // `JustifyContent::Center`, which overflows both ways once the
             // content is taller than the screen and puts the top out of reach
@@ -116,14 +125,31 @@ pub fn spawn_welcome(mut commands: Commands) {
         flex_direction: FlexDirection::Column,
         width: Val::Px(COLUMN_PX),
         row_gap: Val::Px(4.0),
-        margin: UiRect {
-            top: Val::Px(14.0),
-            bottom: Val::Auto,
-            ..default()
-        },
+        margin: UiRect::top(Val::Px(14.0)),
         ..default()
     });
     children.push(custom);
+
+    // Pushed to the foot of the screen by its auto margin, which with the
+    // title's leaves the rest centred in what is between them.
+    let footer = commands
+        .spawn_scene(bsn! {
+            Node {
+                align_items: { AlignItems::Center },
+                column_gap: { Val::Px(4.0) },
+                margin: { UiRect::top(Val::Auto) },
+                padding: { UiRect::top(Val::Px(24.0)) },
+            }
+            Children [
+                label_dim(format!("Made by {AUTHOR} \u{00b7} Licensed under")),
+                link_button(Icon::ExternalLink, LICENSE, LICENSE_URL, ButtonVariant::Plain),
+                label_dim("\u{00b7}"),
+                link_button(Icon::ExternalLink, "GitHub", REPOSITORY, ButtonVariant::Plain),
+            ]
+            InheritableFont { font_size: { 12.0f32 } }
+        })
+        .id();
+    children.push(footer);
 
     commands.entity(screen).add_children(&children);
 }

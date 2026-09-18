@@ -2,6 +2,8 @@
 name = "bevy-data-explorer"
 version = "0.2.0"
 edition = "2024"
+authors = ["Lane Sawyer"]
+repository = "https://github.com/lanesawyer/bevy-data-explorer"
 
 [dependencies]
 bevy = { version = "0.19", default-features = false, features = ["bevy_winit", "bevy_sprite", "bevy_window", "bevy_core_pipeline", "bevy_render", "bevy_asset", "bevy_log", "bevy_text", "bevy_ui", "bevy_ui_render", "x11", "wayland", "multi_threaded", "default_font", "bevy_picking", "bevy_scene", "bevy_ui_widgets", "ui_picking", "bevy_feathers", "system_clipboard"] }
@@ -44,6 +46,8 @@ url = "2.5.8"
 # The Deep Zoom descriptor is a few lines of XML. Already in the lockfile
 # through the Wayland bindings.
 quick-xml = { version = "0.41", features = ["serialize"] }
+# Hands the help screen's links to the system browser.
+open = "5"
 
 [lints.rust]
 unsafe_code = "forbid"

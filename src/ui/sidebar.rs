@@ -217,6 +217,19 @@ fn spawn_sidebar(mut commands: Commands) {
                 )]
             ),
             (
+                Node {
+                    width: { Val::Percent(100.0) },
+                    align_items: { AlignItems::Center },
+                }
+                Children [(
+                    @FeathersToolButton {
+                        @caption: { bsn_list![button_icon(Icon::CircleHelp)] }
+                    }
+                    crate::ui::help::HelpToggle
+                    BlocksFrameInput
+                )]
+            ),
+            (
                 // The footer sits on the bottom edge: the margin above belongs
                 // to the theme row now, so both stay down there whether the
                 // sections are showing or the dock is collapsed to its ribbon.
