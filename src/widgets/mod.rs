@@ -15,6 +15,7 @@ use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy_feathers::containers::{group_body, group_header, pane_body, pane_header};
 use bevy_feathers::controls::{ButtonVariant, FeathersButton, FeathersSlider, FeathersToolButton};
+use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::rounded_corners::RoundedCorners;
@@ -641,6 +642,40 @@ pub fn button_text(text: impl Into<String>) -> impl Scene {
     bsn! {
         label(text)
         ThemeTextColor({ tokens::BUTTON_TEXT })
+    }
+}
+
+/// Draw order for the edges docks are dragged by.
+///
+/// Each straddles its dock's edge, so half of it lies over whatever is beside
+/// the dock: the welcome screen, or another dock — the log panel runs along
+/// the bottom beside the sidebar. Anything drawn over an edge hides it from
+/// the pointer as well as the eye, so its cursor never shows there and it
+/// cannot be grabbed. Above those; below the menus.
+pub const DOCK_HANDLE_Z: i32 = 6;
+
+/// Hold `icon` as the window's cursor for as long as `dragging` is set.
+///
+/// Hovering a drag handle is the handle's own `EntityCursor`, which Feathers
+/// applies. Feathers also sets the window's cursor every frame from whatever is
+/// hovered, so a system writing the cursor directly is either overwritten or,
+/// once it writes a default back, overwrites every other control's. A drag
+/// outlives the hover — the edge moves out from under the pointer as soon as
+/// it starts — so for its length the cursor is held through Feathers' own
+/// override. Written only as a drag starts and ends, so docks do not clear
+/// each other's.
+pub fn hold_drag_cursor(
+    dragging: bool,
+    held: &mut bool,
+    cursor: Option<ResMut<OverrideCursor>>,
+    icon: bevy::window::SystemCursorIcon,
+) {
+    if dragging == *held {
+        return;
+    }
+    *held = dragging;
+    if let Some(mut cursor) = cursor {
+        cursor.0 = dragging.then_some(EntityCursor::System(icon));
     }
 }
 

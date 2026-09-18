@@ -7,11 +7,11 @@
 //! It starts closed, because it is opened on demand from a frame's info button
 //! rather than being somewhere to put things permanently.
 
-use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::ui::{FocusPolicy, Interaction};
-use bevy::window::{CursorIcon, PrimaryWindow, SystemCursorIcon};
+use bevy::window::SystemCursorIcon;
 use bevy_feathers::controls::FeathersToolButton;
+use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
@@ -21,7 +21,7 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::{Boot, Stage};
 use crate::source::{DataSource, SourceStatus};
 use crate::view::{BlocksFrameInput, FrameArea, PanelRequest, SelectedPanel, ShowsSource};
-use crate::widgets::{Icon, button_icon};
+use crate::widgets::{DOCK_HANDLE_Z, Icon, button_icon, hold_drag_cursor};
 
 const MIN_PX: f32 = 200.0;
 const MAX_FRACTION: f32 = 0.5;
@@ -132,6 +132,9 @@ fn spawn_inspector(mut commands: Commands) {
         Interaction
         template_value(FocusPolicy::Block)
         BlocksFrameInput
+        // See `hold_drag_cursor` for why the cursor is named here.
+        EntityCursor::System(SystemCursorIcon::ColResize)
+        GlobalZIndex({ DOCK_HANDLE_Z })
         Node {
             position_type: { PositionType::Absolute },
             top: { Val::Px(0.0) },
@@ -198,30 +201,16 @@ pub fn resize_inspector(
 
 /// Show a resize cursor over the drag handle, and for as long as a drag lasts.
 pub fn inspector_cursor(
-    mut commands: Commands,
     inspector: Res<Inspector>,
-    hover: Res<HoverMap>,
-    handles: Query<Entity, With<InspectorHandle>>,
-    windows: Query<(Entity, Option<&CursorIcon>), With<PrimaryWindow>>,
+    mut held: Local<bool>,
+    cursor: Option<ResMut<OverrideCursor>>,
 ) {
-    let over = inspector.resizing()
-        || hover
-            .values()
-            .flat_map(|hits| hits.keys())
-            .any(|hovered| handles.get(*hovered).is_ok());
-    if !over && !inspector.is_changed() {
-        return;
-    }
-    let wanted = if over {
-        CursorIcon::System(SystemCursorIcon::ColResize)
-    } else {
-        return;
-    };
-    for (window, current) in &windows {
-        if current != Some(&wanted) {
-            commands.entity(window).insert(wanted.clone());
-        }
-    }
+    hold_drag_cursor(
+        inspector.resizing(),
+        &mut held,
+        cursor,
+        SystemCursorIcon::ColResize,
+    );
 }
 
 /// Match the inspector's chrome to its width, and fill it from the selection.

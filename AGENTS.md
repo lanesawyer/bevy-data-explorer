@@ -108,6 +108,12 @@ re-measuring will regress something:
   carry it too, which is what makes a layered source stream. Anything that
   *iterates* frames — counting them, laying them out, drawing chrome — filters
   `With<Panel>`; streamers deliberately do not.
+- **Never write the window's `CursorIcon` directly.** Feathers sets it every
+  frame from what is hovered, so a direct write is either overwritten or, if
+  it writes a default back, silently breaks every other control's cursor — the
+  sidebar's did, and the log panel's resize cursor never showed. Put an
+  `EntityCursor` on the hovered entity, and hold a cursor through a drag with
+  `widgets::hold_drag_cursor`.
 - **Chrome that overlaps the grid needs `BlocksFrameInput`** and, if it holds
   no buttons, an `Interaction` of its own — otherwise the pointer falls through
   to the frame behind.

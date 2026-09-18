@@ -11,8 +11,9 @@
 
 use bevy::prelude::*;
 use bevy::ui::{FocusPolicy, Interaction};
-use bevy::window::{CursorIcon, PrimaryWindow, SystemCursorIcon};
+use bevy::window::SystemCursorIcon;
 use bevy_feathers::controls::FeathersToolButton;
+use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
@@ -20,7 +21,7 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::ThemeMode;
 use crate::view::{BlocksFrameInput, FrameArea};
-use crate::widgets::{Icon, button_icon};
+use crate::widgets::{DOCK_HANDLE_Z, Icon, button_icon, hold_drag_cursor};
 
 /// Width when collapsed. Enough for the short title and the toggle beneath it.
 const RIBBON_PX: f32 = 52.0;
@@ -250,6 +251,9 @@ fn spawn_sidebar(mut commands: Commands) {
         Interaction
         template_value(FocusPolicy::Block)
         BlocksFrameInput
+        // See `hold_drag_cursor` for why the cursor is named here.
+        EntityCursor::System(SystemCursorIcon::ColResize)
+        GlobalZIndex({ DOCK_HANDLE_Z })
         Node {
             position_type: { PositionType::Absolute },
             top: { Val::Px(0.0) },
@@ -302,25 +306,16 @@ pub fn resize_sidebar(
 /// The handle is a thin target, so without this it reads as decoration rather
 /// than something to grab.
 pub fn sidebar_cursor(
-    mut commands: Commands,
     sidebar: Res<Sidebar>,
-    windows: Query<(Entity, Option<&CursorIcon>), With<PrimaryWindow>>,
-    handle: Query<&Interaction, With<SidebarHandle>>,
+    mut held: Local<bool>,
+    cursor: Option<ResMut<OverrideCursor>>,
 ) {
-    // Keep the cursor while dragging even once the pointer has left the
-    // handle, which it does as soon as the edge starts moving.
-    let over_handle = sidebar.resizing() || handle.iter().any(|i| *i != Interaction::None);
-    let wanted = if over_handle {
-        CursorIcon::System(SystemCursorIcon::ColResize)
-    } else {
-        CursorIcon::System(SystemCursorIcon::Default)
-    };
-
-    for (window, current) in &windows {
-        if current != Some(&wanted) {
-            commands.entity(window).insert(wanted.clone());
-        }
-    }
+    hold_drag_cursor(
+        sidebar.resizing(),
+        &mut held,
+        cursor,
+        SystemCursorIcon::ColResize,
+    );
 }
 
 pub fn toggle_sidebar(

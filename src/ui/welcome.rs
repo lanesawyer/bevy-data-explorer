@@ -15,7 +15,7 @@ use bevy::prelude::*;
 use bevy_feathers::controls::{ButtonVariant, FeathersButton};
 use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
-use bevy_ui_widgets::Activate;
+use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::formats::EXAMPLES;
@@ -53,14 +53,17 @@ pub fn spawn_welcome(mut commands: Commands) {
             // It covers the grid, so it has to stop clicks reaching whatever is
             // behind it. Frames can be opened while it is on screen.
             BlocksFrameInput
+            // A short frame area, under an open log panel, holds less than the
+            // screen needs: it scrolls rather than spilling over the docks.
+            ScrollArea
             Node {
                 position_type: { PositionType::Absolute },
                 display: { Display::None },
                 flex_direction: { FlexDirection::Column },
                 align_items: { AlignItems::Center },
-                justify_content: { JustifyContent::Center },
                 row_gap: { Val::Px(14.0) },
                 padding: { UiRect::all(Val::Px(24.0)) },
+                overflow: { Overflow::scroll_y() },
             }
             GlobalZIndex({ WELCOME_Z })
             InheritableFont { font_size: { 13.0f32 } }
@@ -71,6 +74,11 @@ pub fn spawn_welcome(mut commands: Commands) {
         .spawn_scene(bsn! {
             label("Bevy Data Explorer")
             InheritableFont { font_size: { 22.0f32 } }
+            // Centred by auto margins at either end rather than by
+            // `JustifyContent::Center`, which overflows both ways once the
+            // content is taller than the screen and puts the top out of reach
+            // of the scroll. Auto margins shrink to nothing instead.
+            Node { margin: { UiRect::top(Val::Auto) } }
         })
         .id();
 
@@ -108,7 +116,11 @@ pub fn spawn_welcome(mut commands: Commands) {
         flex_direction: FlexDirection::Column,
         width: Val::Px(COLUMN_PX),
         row_gap: Val::Px(4.0),
-        margin: UiRect::top(Val::Px(14.0)),
+        margin: UiRect {
+            top: Val::Px(14.0),
+            bottom: Val::Auto,
+            ..default()
+        },
         ..default()
     });
     children.push(custom);
