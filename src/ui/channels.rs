@@ -12,10 +12,10 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use bevy::ui::Checked;
+use bevy::ui::{Checked, InteractionDisabled};
+use bevy_feathers::containers::{subpane, subpane_body, subpane_header};
 use bevy_feathers::controls::{FeathersCheckbox, FeathersToolButton};
-use bevy_feathers::display::label;
-use bevy_feathers::font_styles::InheritableFont;
+use bevy_feathers::theme::ThemedText;
 use bevy_ui_widgets::{Activate, SliderValue, ValueChange};
 
 use crate::app::schedule::Stage;
@@ -40,8 +40,8 @@ pub struct ChannelCheckbox {
     pub channel: usize,
 }
 
-/// Puts every channel back as the dataset published it. Shown only once
-/// something differs, since a reset that would do nothing is clutter.
+/// Puts every channel back as the dataset published it. Always in its place,
+/// and disabled while there is nothing to put back.
 #[derive(Component, Clone, Default)]
 pub struct ChannelReset;
 
@@ -53,11 +53,11 @@ pub struct ChannelSlider {
 
 /// The section, for View configuration to put in its body.
 pub fn spawn_channel_section(commands: &mut Commands) -> Entity {
+    // A Feathers sub-pane: the header keeps its height whatever it holds, and
+    // the reset sits at its far end, disabled rather than hidden until there is
+    // something to put back, so touching a slider moves nothing.
     let title = commands
-        .spawn_scene(bsn! {
-            label("Channels")
-            InheritableFont { font_size: { 12.0f32 } }
-        })
+        .spawn_scene(bsn! { Text("Channels") ThemedText })
         .id();
     let reset = commands
         .spawn_scene(bsn! {
@@ -66,36 +66,24 @@ pub fn spawn_channel_section(commands: &mut Commands) -> Entity {
             }
             BlocksFrameInput
             ChannelReset
-            Node { display: { Display::None } }
+            InteractionDisabled
         })
         .id();
-    let heading = commands
-        .spawn(Node {
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::SpaceBetween,
-            ..default()
-        })
+    let header = commands
+        .spawn_scene(bsn! { subpane_header() })
         .add_children(&[title, reset])
         .id();
     let rows = commands
-        .spawn_scene(bsn! {
-            ChannelRows
-            Node {
-                flex_direction: { FlexDirection::Column },
-                row_gap: { Val::Px(4.0) },
-            }
-        })
+        .spawn_scene(bsn! { subpane_body() ChannelRows })
         .id();
     commands
         .spawn_scene(bsn! {
+            subpane()
             ChannelSection
-            Node {
-                flex_direction: { FlexDirection::Column },
-                row_gap: { Val::Px(4.0) },
-                display: { Display::None },
-            }
+            // Hidden until the selection has channels to show.
+            Node { display: { Display::None } }
         })
-        .add_children(&[heading, rows])
+        .add_children(&[header, rows])
         .id()
 }
 
@@ -272,7 +260,7 @@ pub fn sync_channel_controls(
     mut sources: Query<&mut SourceChannels>,
     sliders: Query<(Entity, &ChannelSlider, &SliderValue)>,
     boxes: Query<(Entity, &ChannelCheckbox, Has<Checked>)>,
-    mut resets: Query<&mut Node, With<ChannelReset>>,
+    resets: Query<(Entity, Has<InteractionDisabled>), With<ChannelReset>>,
     mut seen: Local<HashMap<Entity, f32>>,
 ) {
     let Some(source) = selected
@@ -324,14 +312,12 @@ pub fn sync_channel_controls(
         }
     }
 
-    let display = if channels.changed_from_published() {
-        Display::Flex
-    } else {
-        Display::None
-    };
-    for mut node in &mut resets {
-        if node.display != display {
-            node.display = display;
+    let idle = !channels.changed_from_published();
+    for (entity, disabled) in &resets {
+        if idle && !disabled {
+            commands.entity(entity).insert(InteractionDisabled);
+        } else if !idle && disabled {
+            commands.entity(entity).remove::<InteractionDisabled>();
         }
     }
 }
