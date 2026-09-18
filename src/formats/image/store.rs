@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn the_example_store_survives_normalisation() {
-        assert!(!http_base(crate::formats::EXAMPLES[0].url).ends_with('/'));
+        assert!(!http_base(crate::catalog::examples::EXAMPLES[0].url).ends_with('/'));
     }
 
     #[test]

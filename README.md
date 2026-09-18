@@ -362,13 +362,14 @@ tooltip still names the cell.
 A frame can draw several datasets, one over another: annotations over the slide
 they were drawn on, a point cloud over the image it was measured from. The
 dataset a frame opened onto is the bottom of its stack, and anything open — or
-any dataset the app knows the address of — can be put on top: from the frame's
-own `...` menu (`+ layer`, `- layer`), from the **Layers** section of the
-sidebar, or with `--layer` on the command line, which stacks onto the first
-frame and can be repeated.
+anything any catalog lists — can be put on top: from the frame's own `...`
+menu, from the **Layers** section of the sidebar, or with `--layer` on the
+command line, which stacks onto the first frame and can be repeated. Both menus
+offer what could go on top through the same searchable picker as a frame's
+title, so every catalog is there, not only the examples.
 
-A known dataset that is not open yet is read when it is chosen and layered once
-it lands, so nothing has to be opened in a frame of its own first. Choices made
+A catalogued dataset that is not open yet is read when it is chosen and layered
+once it lands, so nothing has to be opened in a frame of its own first. Choices made
 while one is still being read wait their turn rather than being dropped, since
 the menu they were made from is far from any status line that could say so. A
 dataset is recognised as open by the address it was read from, which every

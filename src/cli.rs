@@ -4,7 +4,7 @@
 //! line rather than behind a blank panel.
 //!
 //! Nothing is opened unless it is named. The window starts empty and offers the
-//! examples in `formats::EXAMPLES` instead, because a first run that spends a
+//! examples in `catalog::examples::EXAMPLES` instead, because a first run that spends a
 //! minute fetching three reference datasets nobody asked for is a first run
 //! spent waiting.
 

@@ -20,7 +20,7 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::schedule::{Boot, Stage};
-use crate::formats::EXAMPLES;
+use crate::catalog::examples::EXAMPLES;
 use crate::ui::addsource::spawn_custom_section;
 use crate::ui::help::{AUTHOR, LICENSE, LICENSE_URL, REPOSITORY};
 use crate::view::{BlocksFrameInput, FrameArea, Panel};

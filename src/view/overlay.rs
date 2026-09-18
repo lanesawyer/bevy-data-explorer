@@ -26,7 +26,7 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::Stage;
 use crate::catalog::{Catalogs, EntryId};
 use crate::source::hover::{HoverInfo, HoverProbe};
-use crate::source::{DataSource, SourceStatus, SourceUrl};
+use crate::source::{DataSource, SourceStatus};
 use crate::view::layers::stacked_sources;
 use crate::view::{
     BlocksFrameInput, DatasetRequest, DatasetTarget, FrameLayers, LayerOf, Panel, PanelRequest,
@@ -107,9 +107,9 @@ pub enum ChoiceAction {
     RemoveLayer,
     /// Move its layer one place towards the top of the stack, or the bottom.
     MoveLayer { up: bool },
-    /// Read a known dataset that is not open yet, and draw it over the frame
-    /// once it lands. Carries its place in [`crate::formats::EXAMPLES`].
-    LayerExample(usize),
+    /// Read a dataset from a catalog, and draw it over the frame once it
+    /// lands.
+    LayerCatalog(EntryId),
 }
 
 impl Default for SourceChoice {
@@ -257,7 +257,16 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
     super::capture::spawn_capture_button(commands, header, panel);
     super::orbit::spawn_view_button(commands, header, panel);
     let menu = spawn_menu(commands, header);
-    commands.entity(menu).insert(SourceMenu { panel });
+    // Built once, under the rows `rebuild_source_menus` puts above it, so
+    // whatever is typed into its search survives the stack changing.
+    let picker = super::dataset_menu::spawn_dataset_picker(
+        commands,
+        super::dataset_menu::PickerTarget::Layer(panel),
+    );
+    commands
+        .entity(menu)
+        .insert(SourceMenu { panel })
+        .add_child(picker);
 
     let status = commands
         .spawn_scene(bsn! {
@@ -466,10 +475,10 @@ pub fn on_source_chosen(
             }
             return;
         }
-        ChoiceAction::LayerExample(index) => {
-            if let Some(example) = crate::formats::EXAMPLES.get(index) {
+        ChoiceAction::LayerCatalog(id) => {
+            if let Some(entry) = catalogs.get(id) {
                 datasets.write(DatasetRequest {
-                    url: example.url.to_string(),
+                    url: entry.url.clone(),
                     target: DatasetTarget::Layer(panel),
                 });
             }
@@ -478,23 +487,22 @@ pub fn on_source_chosen(
     });
 }
 
-/// Fill each frame's `...` menu: what it draws on top, and what else could go
-/// on top.
+/// Fill each frame's `...` menu with what it draws on top, over the picker
+/// offering what else could go there.
 ///
-/// Rebuilt when the set of sources changes, or when what a frame stacks
-/// changes, so the current state stays marked.
+/// Rebuilt when what a frame stacks changes, so the current state stays
+/// marked.
 pub fn rebuild_source_menus(
     mut commands: Commands,
     menus: Query<(Entity, &SourceMenu)>,
     panels: Query<(&ShowsSource, Option<&FrameLayers>), With<Panel>>,
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     sources: Query<(Entity, &DataSource)>,
-    urls: Query<&SourceUrl>,
     existing: Query<Entity, With<SourceMenuContent>>,
     mut shown: Local<Option<(Vec<(Entity, Vec<Entity>)>, usize)>>,
 ) {
-    // What each frame is stacking, plus how many datasets there are to offer.
-    // Either changing is what the rows have to reflect.
+    // What each frame is stacking, plus how many datasets there are, since a
+    // layer's row names its dataset.
     let mut current: Vec<(Entity, Vec<Entity>)> = menus
         .iter()
         .filter_map(|(_, menu)| {
@@ -515,30 +523,25 @@ pub fn rebuild_source_menus(
         commands.entity(entity).despawn();
     }
 
-    let mut listed: Vec<(Entity, &DataSource)> = sources.iter().collect();
-    // Registration order, which is the order the frames were opened in.
-    listed.sort_by_key(|(_, source)| source.layer);
     let lookup = |entity: Entity| sources.get(entity).ok().map(|(_, data)| data);
-    let opened: Vec<&str> = urls.iter().map(|url| url.0.as_str()).collect();
 
     for (menu_entity, menu) in &menus {
         let Some((_, stack)) = fingerprint.0.iter().find(|(panel, _)| *panel == menu.panel) else {
             continue;
         };
         let panel = menu.panel;
-        let rows = layer_rows(&mut commands, panel, stack, &listed, &opened, lookup);
-        commands.entity(menu_entity).add_children(&rows);
+        let rows = layer_rows(&mut commands, panel, stack, lookup);
+        commands.entity(menu_entity).insert_children(0, &rows);
     }
     *shown = Some(fingerprint);
 }
 
-/// What a frame draws over its dataset, and what else could go on top.
+/// What a frame draws over its dataset, and the heading over the picker for
+/// what else could go on top.
 fn layer_rows<'a>(
     commands: &mut Commands,
     panel: Entity,
     stack: &[Entity],
-    listed: &[(Entity, &DataSource)],
-    opened: &[&str],
     lookup: impl Fn(Entity) -> Option<&'a DataSource>,
 ) -> Vec<Entity> {
     let base = stack.first().and_then(|base| lookup(*base));
@@ -577,46 +580,10 @@ fn layer_rows<'a>(
         }
     }
 
-    let room = stack.len() < super::grid::MAX_LAYERS;
     let gap = if rows.is_empty() { 0.0 } else { 10.0 };
     rows.push(menu_heading(commands, "Add a layer", gap));
-    for (entity, source) in listed {
-        if !super::layers::can_add_layer(stack, *entity) {
-            continue;
-        }
-        rows.push(menu_row(
-            commands,
-            &source.name,
-            &layer_note(base, source),
-            vec![(
-                SourceChoice {
-                    panel,
-                    source: *entity,
-                    action: ChoiceAction::AddLayer,
-                },
-                Icon::Plus,
-                true,
-            )],
-        ));
-    }
-    // Known datasets not read yet, so choosing a layer never means opening
-    // it somewhere first. What they are measured in is not known until
-    // they are read, so there is no mismatch to note.
-    for (index, example) in crate::formats::unopened_examples(opened) {
-        rows.push(menu_row(
-            commands,
-            example.name,
-            &format!("{}, not loaded yet", example.kind),
-            vec![(
-                SourceChoice {
-                    panel,
-                    source: Entity::PLACEHOLDER,
-                    action: ChoiceAction::LayerExample(index),
-                },
-                Icon::Plus,
-                room,
-            )],
-        ));
+    if stack.len() >= super::grid::MAX_LAYERS {
+        rows.push(menu_caption(commands, "This frame holds all it can."));
     }
     rows
 }
@@ -649,6 +616,17 @@ fn menu_heading(commands: &mut Commands, text: &str, gap: f32) -> Entity {
             label(text)
             InheritableFont { font_size: { 12.0f32 } }
             Node { margin: { UiRect::new(Val::Px(2.0), Val::Px(0.0), Val::Px(gap), Val::Px(2.0)) } }
+        })
+        .id()
+}
+
+fn menu_caption(commands: &mut Commands, text: &str) -> Entity {
+    let text = text.to_string();
+    commands
+        .spawn_scene(bsn! {
+            SourceMenuContent
+            label_dim(text)
+            Node { margin: { UiRect::new(Val::Px(2.0), Val::Px(0.0), Val::Px(0.0), Val::Px(4.0)) } }
         })
         .id()
 }

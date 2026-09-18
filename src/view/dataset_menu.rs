@@ -1,9 +1,10 @@
 //! The dataset picker: a search field over every dataset open or on offer.
 //!
-//! It appears in two places. On a frame's title it is the popup of a dropdown
-//! that repoints that frame; in View configuration it sits inline and opens
-//! what is chosen in a frame of its own. One picker in both places, so the two
-//! lists cannot drift apart.
+//! It appears wherever a dataset is chosen. On a frame's title it is the popup
+//! of a dropdown that repoints that frame; in View configuration it sits inline
+//! and opens what is chosen in a frame of its own; in the Layers section and a
+//! frame's `...` menu it draws what is chosen over the frame. One picker in
+//! every place, so the lists cannot drift apart.
 //!
 //! The frame's dropdown is built on Feathers' own menu rather than on
 //! [`crate::widgets::spawn_menu`], for what that brings: arrow keys between
@@ -16,8 +17,8 @@
 //! section each — some read over HTTP, and growing as they land — which is why
 //! it searches and scrolls rather than assuming it fits.
 //!
-//! Choosing an item raises the same [`SourceChoice`] the layers menu does, so
-//! both land in [`super::overlay::on_source_chosen`].
+//! Choosing an item raises a [`SourceChoice`], which lands in
+//! [`super::overlay::on_source_chosen`] wherever the picker is.
 
 use bevy::input::ButtonState;
 use bevy::input::keyboard::KeyboardInput;
@@ -33,8 +34,10 @@ use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, MenuAction, MenuEvent, ScrollArea};
 
+use super::grid::MAX_LAYERS;
+use super::layers::{stacked_sources, unit_mismatch};
 use super::overlay::{ChoiceAction, PanelTitle, SourceChoice};
-use super::{BlocksFrameInput, MAX_PANELS, Panel, ShowsSource};
+use super::{BlocksFrameInput, FrameLayers, LayerOf, MAX_PANELS, Panel, ShowsSource};
 use crate::catalog::Catalogs;
 use crate::source::{DataSource, SourceUrl};
 use crate::widgets::{MENU_WIDTH, button_text, truncate_to_width};
@@ -47,6 +50,8 @@ pub enum PickerTarget {
     /// In a frame of its own.
     #[default]
     NewFrame,
+    /// Drawn over what this frame shows, as a layer.
+    Layer(Entity),
 }
 
 /// The list a picker is rebuilt into.
@@ -223,8 +228,9 @@ pub fn matches_search(query: &str, fields: &[&str]) -> bool {
 #[derive(Clone, PartialEq)]
 pub struct ListState {
     list: Entity,
-    /// What its frame shows; nothing for a picker that opens new frames.
-    showing: Option<Entity>,
+    /// What its frame shows, bottom first; nothing for a picker that opens
+    /// new frames.
+    stack: Vec<Entity>,
     query: String,
     sources: usize,
     catalogued: usize,
@@ -241,7 +247,8 @@ pub fn rebuild_dataset_lists(
     mut commands: Commands,
     lists: Query<(Entity, &DatasetList)>,
     fields: Query<(&DatasetSearch, &EditableText)>,
-    panels: Query<&ShowsSource, With<Panel>>,
+    panels: Query<(&ShowsSource, Option<&FrameLayers>), With<Panel>>,
+    layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     sources: Query<(Entity, &DataSource)>,
     urls: Query<&SourceUrl>,
     existing: Query<(Entity, &ChildOf), With<DatasetListContent>>,
@@ -253,9 +260,12 @@ pub fn rebuild_dataset_lists(
     let mut current: Vec<ListState> = lists
         .iter()
         .filter_map(|(entity, list)| {
-            let showing = match list.target {
-                PickerTarget::Frame(panel) => Some(panels.get(panel).ok()?.0),
-                PickerTarget::NewFrame => None,
+            let stack = match list.target {
+                PickerTarget::Frame(panel) | PickerTarget::Layer(panel) => {
+                    let (shows, layers) = panels.get(panel).ok()?;
+                    stacked_sources(shows, layers, &layer_cameras)
+                }
+                PickerTarget::NewFrame => Vec::new(),
             };
             let query = fields
                 .iter()
@@ -263,7 +273,7 @@ pub fn rebuild_dataset_lists(
                 .map_or_else(String::new, |(_, text)| text.value().to_string());
             Some(ListState {
                 list: entity,
-                showing,
+                stack,
                 query,
                 sources: source_count,
                 catalogued: catalogs.len(),
@@ -309,13 +319,32 @@ pub fn rebuild_dataset_lists(
                 ChoiceAction::Open,
                 ChoiceAction::OpenCatalog,
             ),
+            PickerTarget::Layer(panel) => {
+                (panel, ChoiceAction::AddLayer, ChoiceAction::LayerCatalog)
+            }
         };
-        // Nowhere for another frame to go. Repointing a frame needs no room.
-        let refuse = list.target == PickerTarget::NewFrame && !state.room;
+        let layering = matches!(list.target, PickerTarget::Layer(_));
+        let base = state
+            .stack
+            .first()
+            .and_then(|base| sources.get(*base).ok())
+            .map(|(_, data)| data);
+        // Nowhere for another frame, or another layer, to go. Repointing a
+        // frame needs no room.
+        let refuse = match list.target {
+            PickerTarget::Frame(_) => false,
+            PickerTarget::NewFrame => !state.room,
+            PickerTarget::Layer(_) => state.stack.is_empty() || state.stack.len() >= MAX_LAYERS,
+        };
 
         let mut items = Vec::new();
         let mut section = None;
         for (entity, data, url) in &listed {
+            // A layer is offered only if it could go on top: not what the
+            // frame already stacks.
+            if layering && state.stack.contains(entity) {
+                continue;
+            }
             if !matches_search(&state.query, &[&data.name, &data.detail, url.unwrap_or("")]) {
                 continue;
             }
@@ -323,10 +352,20 @@ pub fn rebuild_dataset_lists(
                 section = Some("Open");
                 items.push(heading(&mut commands, "Open", items.is_empty()));
             }
+            // Drawn anyway, since nothing rescales a layer, so say why it may
+            // not line up rather than leave the two to look aligned by
+            // coincidence.
+            let note = match base
+                .filter(|_| layering)
+                .and_then(|base| unit_mismatch(base, data))
+            {
+                Some(mismatch) => format!("{mismatch}, not rescaled"),
+                None => data.detail.clone(),
+            };
             let item = item(
                 &mut commands,
                 &data.name,
-                &data.detail,
+                &note,
                 SourceChoice {
                     panel,
                     source: *entity,
@@ -335,7 +374,7 @@ pub fn rebuild_dataset_lists(
             );
             // Listed so the frame's own dataset is there to be found, but
             // choosing it would change nothing.
-            if refuse || state.showing == Some(*entity) {
+            if refuse || (!layering && state.stack.first() == Some(entity)) {
                 commands.entity(item).insert(InteractionDisabled);
             }
             items.push(item);

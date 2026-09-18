@@ -2,7 +2,9 @@
 //! dataset it opened onto, how strongly, and what else could go on top.
 //!
 //! Every change is a [`PanelRequest`], the same ones a frame's own menu raises,
-//! so the two routes cannot disagree about what may be layered. The transparency
+//! so the two routes cannot disagree about what may be layered. What could go
+//! on top is the dataset picker, which offers every catalog as well as what is
+//! open. The transparency
 //! of a layer is the layer's own [`LayerOpacity`] rather than its dataset's, so
 //! the same dataset can be faint over one frame and fully shown in another.
 
@@ -14,15 +16,15 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, SliderValue};
 
 use crate::app::schedule::{Boot, Stage};
-use crate::formats::{EXAMPLES, Example, unopened_examples};
-use crate::source::{DataSource, SourceUrl};
+use crate::source::DataSource;
 use crate::ui::addsource::CustomLoad;
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
+use crate::view::dataset_menu::{PickerTarget, spawn_dataset_picker};
 use crate::view::grid::MAX_LAYERS;
-use crate::view::layers::{can_add_layer, stacked_sources, unit_mismatch};
+use crate::view::layers::{stacked_sources, unit_mismatch};
 use crate::view::{
-    BlocksFrameInput, DatasetRequest, DatasetTarget, FrameLayers, LayerOf, LayerOpacity, Panel,
-    PanelRequest, SelectedPanel, ShowsSource,
+    BlocksFrameInput, FrameLayers, LayerOf, LayerOpacity, Panel, PanelRequest, SelectedPanel,
+    ShowsSource,
 };
 use crate::widgets::{Icon, SectionLevel, button_icon, caption, spawn_accordion, spawn_slider};
 
@@ -41,7 +43,7 @@ pub struct LayersBody;
 #[derive(Component, Clone, Default)]
 pub struct LayersContent;
 
-/// Adds a source to the selected frame's stack, takes it off, or moves it.
+/// Takes a source off the selected frame's stack, or moves it.
 #[derive(Component, Clone)]
 pub struct LayerButton {
     pub panel: Entity,
@@ -50,23 +52,19 @@ pub struct LayerButton {
 
 #[derive(Clone, Copy)]
 pub enum LayerAction {
-    Add(Entity),
     Remove(Entity),
     /// Move a layer one place towards the top of the stack, or the bottom.
     Move {
         source: Entity,
         up: bool,
     },
-    /// Read a known dataset, by its place in [`EXAMPLES`], and layer it once
-    /// it lands.
-    AddExample(usize),
 }
 
 impl Default for LayerButton {
     fn default() -> Self {
         LayerButton {
             panel: Entity::PLACEHOLDER,
-            action: LayerAction::Add(Entity::PLACEHOLDER),
+            action: LayerAction::Remove(Entity::PLACEHOLDER),
         }
     }
 }
@@ -100,7 +98,6 @@ pub fn rebuild_layers(
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     opacities: Query<(&ShowsSource, &LayerOpacity), With<LayerOf>>,
     sources: Query<(Entity, &DataSource)>,
-    urls: Query<&SourceUrl>,
     load: Res<CustomLoad>,
     body: Query<Entity, With<LayersBody>>,
     existing: Query<Entity, With<LayersContent>>,
@@ -186,12 +183,6 @@ pub fn rebuild_layers(
         &format!("over {}", base.name),
     ));
 
-    let mut candidates: Vec<(Entity, &DataSource)> = sources
-        .iter()
-        .filter(|(entity, _)| can_add_layer(&stack, *entity))
-        .collect();
-    candidates.sort_by_key(|(_, data)| data.layer);
-    let opened: Vec<&str> = urls.iter().map(|url| url.0.as_str()).collect();
     let room = stack.len() < MAX_LAYERS;
 
     let heading = commands
@@ -215,26 +206,9 @@ pub fn rebuild_layers(
             "This frame holds all it can.",
         ));
     }
-    for (source, data) in candidates {
-        let details = details(&mut commands, data, unit_mismatch(base, data));
-        rows.push(candidate_row(
-            &mut commands,
-            panel,
-            LayerAction::Add(source),
-            details,
-        ));
-    }
-    // Known datasets not read yet: choosing one reads it and layers it once it
-    // lands, so nothing has to be opened somewhere else first.
-    for (index, example) in unopened_examples(&opened).filter(|_| room) {
-        let details = example_details(&mut commands, example);
-        rows.push(candidate_row(
-            &mut commands,
-            panel,
-            LayerAction::AddExample(index),
-            details,
-        ));
-    }
+    let picker = spawn_dataset_picker(&mut commands, PickerTarget::Layer(panel));
+    commands.entity(picker).insert(LayersContent);
+    rows.push(picker);
 
     commands.entity(body).add_children(&rows);
 }
@@ -254,16 +228,6 @@ fn details(commands: &mut Commands, data: &DataSource, mismatch: Option<String>)
         lines.push(format!("{mismatch}, not rescaled"));
     }
     name_column(commands, data.name.clone(), lines)
-}
-
-/// A known dataset's name and kind. What it is measured in is not known until
-/// it has been read, so there is no mismatch to warn about yet.
-fn example_details(commands: &mut Commands, example: &Example) -> Entity {
-    name_column(
-        commands,
-        example.name.to_string(),
-        vec![format!("{}, not loaded yet", example.kind)],
-    )
 }
 
 /// A name with captions under it.
@@ -369,47 +333,23 @@ fn layer_row(
     row
 }
 
-fn candidate_row(
-    commands: &mut Commands,
-    panel: Entity,
-    action: LayerAction,
-    details: Entity,
-) -> Entity {
-    let row = row(commands);
-    let add = button(commands, Icon::Plus, LayerButton { panel, action });
-    commands.entity(row).add_children(&[add, details]);
-    row
-}
-
 /// Feathers buttons trigger [`Activate`] rather than carrying an
 /// `Interaction`, so this is an observer.
 pub fn on_layer_button(
     activate: On<Activate>,
     buttons: Query<&LayerButton>,
     mut requests: MessageWriter<PanelRequest>,
-    mut datasets: MessageWriter<DatasetRequest>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
         return;
     };
     let panel = button.panel;
     match button.action {
-        LayerAction::Add(source) => {
-            requests.write(PanelRequest::AddLayer { panel, source });
-        }
         LayerAction::Remove(source) => {
             requests.write(PanelRequest::RemoveLayer { panel, source });
         }
         LayerAction::Move { source, up } => {
             requests.write(PanelRequest::MoveLayer { panel, source, up });
-        }
-        LayerAction::AddExample(index) => {
-            if let Some(example) = EXAMPLES.get(index) {
-                datasets.write(DatasetRequest {
-                    url: example.url.to_string(),
-                    target: DatasetTarget::Layer(panel),
-                });
-            }
         }
     }
 }

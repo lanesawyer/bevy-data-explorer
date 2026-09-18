@@ -38,7 +38,6 @@ pub enum Icon {
     Palette,
     PanelLeftClose,
     PanelLeftOpen,
-    Plus,
     RotateCcw,
     ScrollText,
     Square,
@@ -49,7 +48,7 @@ pub enum Icon {
 
 impl Icon {
     #[cfg(test)]
-    const ALL: [Icon; 24] = [
+    const ALL: [Icon; 23] = [
         Icon::Bug,
         Icon::Camera,
         Icon::ChevronDown,
@@ -67,7 +66,6 @@ impl Icon {
         Icon::Palette,
         Icon::PanelLeftClose,
         Icon::PanelLeftOpen,
-        Icon::Plus,
         Icon::RotateCcw,
         Icon::ScrollText,
         Icon::Square,
@@ -97,7 +95,6 @@ impl Icon {
             Icon::Palette => "\u{e1dd}",
             Icon::PanelLeftClose => "\u{e21c}",
             Icon::PanelLeftOpen => "\u{e21d}",
-            Icon::Plus => "\u{e13d}",
             Icon::RotateCcw => "\u{e148}",
             Icon::ScrollText => "\u{e45f}",
             Icon::Square => "\u{e167}",

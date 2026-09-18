@@ -67,81 +67,6 @@ pub fn plain_url(source: &str) -> String {
     }
 }
 
-/// A dataset the app knows the address of.
-///
-/// Listed here rather than in the command line or in the UI because it is the
-/// formats that know what there is to open. Nothing loads on its own any more,
-/// so this is what an empty window has to offer — and what the layout menu
-/// offers once something is already open.
-///
-/// Every one of them is offered in both places. They differ in more than kind —
-/// a Zarr v2 store against a v3 one, a flat image against a stack of sections,
-/// a single cloud against a sectioned one — so picking one per kind to show
-/// would hide exactly the differences worth opening them for.
-pub struct Example {
-    pub name: &'static str,
-    /// What kind of dataset it is, in the words shown beside it.
-    pub kind: &'static str,
-    pub url: &'static str,
-}
-
-pub const EXAMPLES: [Example; 8] = [
-    Example {
-        name: "Epifluorescence whole slide",
-        kind: "OME-Zarr image",
-        url: "https://h301-scanning-802451596237-us-west-2.s3.us-west-2.amazonaws.com/2402091625/ome_zarr_conversion/1458501514.zarr/",
-    },
-    Example {
-        name: "Whole mouse brain cells",
-        kind: "Scatterbrain point cloud",
-        url: "https://d2o7sc91n904vd.cloudfront.net/wmb_tenx_01172024_stage-20240128193624/G4I4GFJXJB9ATZ3PTX1/ScatterBrain.json",
-    },
-    Example {
-        name: "Imputed genes, 53 sections",
-        kind: "Scatterbrain sections",
-        url: "https://d2o7sc91n904vd.cloudfront.net/bkppg-sfs-stage-wmb-imputed-genes-20240918212918/VFOFYPFQGRKUDQUZ3FF/ScatterBrain.json",
-    },
-    Example {
-        name: "SEA-AD mapped cells",
-        kind: "Scatterbrain point cloud",
-        url: "https://d2o7sc91n904vd.cloudfront.net/bkppg-sfs-stage-mjff-updates-03262025-20250403032833/839TIB6YQVFHZSGX401/ScatterBrain.json",
-    },
-    Example {
-        name: "Epifluorescence, Zarr v2",
-        kind: "OME-Zarr image",
-        url: "https://allen-genetic-tools.s3.us-west-2.amazonaws.com/epifluorescence/1401210938/ome_zarr_conversion/1401210938.zarr/",
-    },
-    Example {
-        name: "Tissuecyte, 142 sections",
-        kind: "OME-Zarr image stack",
-        url: "zarr2://s3://allen-genetic-tools/tissuecyte/1219090168/ome_zarr_conversion/1219090168.zarr/",
-    },
-    Example {
-        name: "SEA-AD pathology slide",
-        kind: "Deep Zoom image",
-        url: "https://idk-etl-prod-download-bucket.s3.amazonaws.com/idf-23-10-pathology-images/pat_images_JGCXWER774NLNWX2NNR/H20.33.040-A12-I6-primary/H20.33.040-A12-I6-primary.dzi",
-    },
-    Example {
-        name: "SEA-AD pathology annotations",
-        kind: "SVG annotations",
-        url: "https://idk-etl-prod-download-bucket.s3.amazonaws.com/idf-23-10-pathology-images/pat_images_JGCXWER774NLNWX2NNR/H20.33.040-A12-I6-primary/annotation.svg",
-    },
-];
-
-/// The known datasets not open yet, with their place in [`EXAMPLES`].
-///
-/// `opened` is every address a source was read from. A dataset already open is
-/// offered as the source it is instead, so listing it here too would offer it
-/// twice under the same name.
-pub fn unopened_examples<'a>(
-    opened: &'a [&'a str],
-) -> impl Iterator<Item = (usize, &'static Example)> + 'a {
-    EXAMPLES
-        .iter()
-        .enumerate()
-        .filter(|(_, example)| !opened.contains(&example.url))
-}
-
 /// The budgets a dataset is opened with, kept so that one opened at runtime is
 /// given the same allowances as one named on the command line.
 #[derive(Resource, Clone, Copy)]
@@ -222,16 +147,6 @@ mod tests {
             let url = plain_url(&format!("{prefix}https://example.com/a.zarr/"));
             assert_eq!(url, "https://example.com/a.zarr/");
         }
-    }
-
-    #[test]
-    fn an_open_example_is_not_offered_again_as_a_download() {
-        let all = unopened_examples(&[]).count();
-        assert_eq!(all, EXAMPLES.len());
-        let open = [EXAMPLES[0].url];
-        let left: Vec<usize> = unopened_examples(&open).map(|(index, _)| index).collect();
-        assert_eq!(left.len(), EXAMPLES.len() - 1);
-        assert!(!left.contains(&0));
     }
 
     #[test]
