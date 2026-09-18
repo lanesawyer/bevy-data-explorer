@@ -7,6 +7,7 @@
 //! the same dataset can be faint over one frame and fully shown in another.
 
 use bevy::prelude::*;
+use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
@@ -40,7 +41,7 @@ pub struct LayersBody;
 #[derive(Component, Clone, Default)]
 pub struct LayersContent;
 
-/// Adds a source to the selected frame's stack, or takes it off.
+/// Adds a source to the selected frame's stack, takes it off, or moves it.
 #[derive(Component, Clone)]
 pub struct LayerButton {
     pub panel: Entity,
@@ -51,6 +52,11 @@ pub struct LayerButton {
 pub enum LayerAction {
     Add(Entity),
     Remove(Entity),
+    /// Move a layer one place towards the top of the stack, or the bottom.
+    Move {
+        source: Entity,
+        up: bool,
+    },
     /// Read a known dataset, by its place in [`EXAMPLES`], and layer it once
     /// it lands.
     AddExample(usize),
@@ -153,7 +159,7 @@ pub fn rebuild_layers(
 
     // Topmost first, the way layers are listed wherever layers are listed: the
     // first row is what is drawn over everything else.
-    for camera in cameras.iter().rev() {
+    for (depth, camera) in cameras.iter().enumerate().rev() {
         let Ok((shows, opacity)) = opacities.get(*camera) else {
             continue;
         };
@@ -166,6 +172,8 @@ pub fn rebuild_layers(
             shows.0,
             data,
             unit_mismatch(base, data),
+            depth + 1 < cameras.len(),
+            depth > 0,
         ));
         let slider = spawn_slider(&mut commands, opacity.0 * PERCENT, (0.0, PERCENT), 0);
         commands
@@ -309,15 +317,44 @@ fn button(commands: &mut Commands, icon: Icon, action: LayerButton) -> Entity {
         .id()
 }
 
+/// Disabled rather than left out at either end of the stack, so the buttons
+/// line up down the rows.
+fn move_button(
+    commands: &mut Commands,
+    panel: Entity,
+    source: Entity,
+    up: bool,
+    enabled: bool,
+) -> Entity {
+    let icon = if up {
+        Icon::ChevronUp
+    } else {
+        Icon::ChevronDown
+    };
+    let action = LayerButton {
+        panel,
+        action: LayerAction::Move { source, up },
+    };
+    let entity = button(commands, icon, action);
+    if !enabled {
+        commands.entity(entity).insert(InteractionDisabled);
+    }
+    entity
+}
+
 fn layer_row(
     commands: &mut Commands,
     panel: Entity,
     source: Entity,
     data: &DataSource,
     mismatch: Option<String>,
+    can_raise: bool,
+    can_lower: bool,
 ) -> Entity {
     let row = row(commands);
     let details = details(commands, data, mismatch);
+    let raise = move_button(commands, panel, source, true, can_raise);
+    let lower = move_button(commands, panel, source, false, can_lower);
     let remove = button(
         commands,
         Icon::Trash,
@@ -326,7 +363,9 @@ fn layer_row(
             action: LayerAction::Remove(source),
         },
     );
-    commands.entity(row).add_children(&[details, remove]);
+    commands
+        .entity(row)
+        .add_children(&[details, raise, lower, remove]);
     row
 }
 
@@ -360,6 +399,9 @@ pub fn on_layer_button(
         }
         LayerAction::Remove(source) => {
             requests.write(PanelRequest::RemoveLayer { panel, source });
+        }
+        LayerAction::Move { source, up } => {
+            requests.write(PanelRequest::MoveLayer { panel, source, up });
         }
         LayerAction::AddExample(index) => {
             if let Some(example) = EXAMPLES.get(index) {

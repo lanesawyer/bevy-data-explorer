@@ -52,6 +52,12 @@ impl FrameLayers {
     pub fn cameras(&self) -> &[Entity] {
         &self.0
     }
+
+    /// Swap two layers' places in the stack. Only reorders, so the
+    /// relationship stays whole.
+    pub fn swap(&mut self, a: usize, b: usize) {
+        self.0.swap(a, b);
+    }
 }
 
 /// How opaque a layer is laid over what is beneath it.

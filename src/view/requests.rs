@@ -41,6 +41,13 @@ pub enum PanelRequest {
         panel: Entity,
         source: Entity,
     },
+    /// Move a source's layer one place up the stack, towards the top, or down.
+    /// It never moves below the source the frame opened onto.
+    MoveLayer {
+        panel: Entity,
+        source: Entity,
+        up: bool,
+    },
 }
 
 /// Show a dataset by its address, fetching it first if it is not open yet.
@@ -299,6 +306,34 @@ pub fn apply_panel_requests(
                     remove_layers_of(&mut commands, layers, &layer_cameras, source);
                 }
             }
+            PanelRequest::MoveLayer { panel, source, up } => {
+                let Ok((.., Some(layers), _)) = panels.get(panel) else {
+                    continue;
+                };
+                let Some(camera) = layers.cameras().iter().copied().find(|camera| {
+                    layer_cameras
+                        .get(*camera)
+                        .is_ok_and(|shows| shows.0 == source)
+                }) else {
+                    continue;
+                };
+                // Found again when the command runs rather than now, so two
+                // moves asked for in one frame both land.
+                commands
+                    .entity(panel)
+                    .queue(move |mut frame: EntityWorldMut| {
+                        let Some(mut layers) = frame.get_mut::<FrameLayers>() else {
+                            return;
+                        };
+                        let Some(at) = layers.cameras().iter().position(|c| *c == camera) else {
+                            return;
+                        };
+                        let to = if up { at + 1 } else { at.wrapping_sub(1) };
+                        if to < layers.cameras().len() {
+                            layers.swap(at, to);
+                        }
+                    });
+            }
         }
     }
 
@@ -498,6 +533,39 @@ mod tests {
             },
         );
         assert_eq!(layers_of(&app, panel), vec![cells]);
+    }
+
+    #[test]
+    fn a_layer_moves_within_the_stack_and_no_further() {
+        let mut app = app();
+        let slide = source(&mut app, "Slide", "px");
+        let outlines = source(&mut app, "Outlines", "px");
+        let cells = source(&mut app, "Cells", "um");
+        request(&mut app, PanelRequest::Open(slide));
+        let panel = only_panel(&mut app);
+        for layer in [outlines, cells] {
+            request(
+                &mut app,
+                PanelRequest::AddLayer {
+                    panel,
+                    source: layer,
+                },
+            );
+        }
+
+        let move_layer = |source, up| PanelRequest::MoveLayer { panel, source, up };
+        request(&mut app, move_layer(outlines, true));
+        assert_eq!(layers_of(&app, panel), vec![cells, outlines]);
+        // Already on top, and nothing goes under the base.
+        request(&mut app, move_layer(outlines, true));
+        request(&mut app, move_layer(cells, false));
+        assert_eq!(layers_of(&app, panel), vec![cells, outlines]);
+
+        // Two moves in one frame both land.
+        app.world_mut().write_message(move_layer(outlines, false));
+        app.world_mut().write_message(move_layer(outlines, true));
+        app.update();
+        assert_eq!(layers_of(&app, panel), vec![cells, outlines]);
     }
 
     #[test]

@@ -105,6 +105,8 @@ pub enum ChoiceAction {
     AddLayer,
     /// Take its layer off the frame.
     RemoveLayer,
+    /// Move its layer one place towards the top of the stack, or the bottom.
+    MoveLayer { up: bool },
     /// Read a known dataset that is not open yet, and draw it over the frame
     /// once it lands. Carries its place in [`crate::formats::EXAMPLES`].
     LayerExample(usize),
@@ -441,6 +443,7 @@ pub fn on_source_chosen(
         ChoiceAction::Open => PanelRequest::Open(source),
         ChoiceAction::AddLayer => PanelRequest::AddLayer { panel, source },
         ChoiceAction::RemoveLayer => PanelRequest::RemoveLayer { panel, source },
+        ChoiceAction::MoveLayer { up } => PanelRequest::MoveLayer { panel, source, up },
         ChoiceAction::ShowCatalog(id) => {
             if let Some(entry) = catalogs.get(id) {
                 commands.entity(panel).insert(PendingShow {
@@ -543,21 +546,33 @@ fn layer_rows<'a>(
 
     if stack.len() > 1 {
         rows.push(menu_heading(commands, "Layers, top first", 0.0));
-        for entity in stack[1..].iter().rev() {
+        let layers = &stack[1..];
+        for (depth, entity) in layers.iter().enumerate().rev() {
             let Some(source) = lookup(*entity) else {
                 continue;
+            };
+            let choice = |action| SourceChoice {
+                panel,
+                source: *entity,
+                action,
             };
             rows.push(menu_row(
                 commands,
                 &source.name,
                 &layer_note(base, source),
-                SourceChoice {
-                    panel,
-                    source: *entity,
-                    action: ChoiceAction::RemoveLayer,
-                },
-                Icon::Trash,
-                true,
+                vec![
+                    (
+                        choice(ChoiceAction::MoveLayer { up: true }),
+                        Icon::ChevronUp,
+                        depth + 1 < layers.len(),
+                    ),
+                    (
+                        choice(ChoiceAction::MoveLayer { up: false }),
+                        Icon::ChevronDown,
+                        depth > 0,
+                    ),
+                    (choice(ChoiceAction::RemoveLayer), Icon::Trash, true),
+                ],
             ));
         }
     }
@@ -573,13 +588,15 @@ fn layer_rows<'a>(
             commands,
             &source.name,
             &layer_note(base, source),
-            SourceChoice {
-                panel,
-                source: *entity,
-                action: ChoiceAction::AddLayer,
-            },
-            Icon::Plus,
-            true,
+            vec![(
+                SourceChoice {
+                    panel,
+                    source: *entity,
+                    action: ChoiceAction::AddLayer,
+                },
+                Icon::Plus,
+                true,
+            )],
         ));
     }
     // Known datasets not read yet, so choosing a layer never means opening
@@ -590,13 +607,15 @@ fn layer_rows<'a>(
             commands,
             example.name,
             &format!("{}, not loaded yet", example.kind),
-            SourceChoice {
-                panel,
-                source: Entity::PLACEHOLDER,
-                action: ChoiceAction::LayerExample(index),
-            },
-            Icon::Plus,
-            room,
+            vec![(
+                SourceChoice {
+                    panel,
+                    source: Entity::PLACEHOLDER,
+                    action: ChoiceAction::LayerExample(index),
+                },
+                Icon::Plus,
+                room,
+            )],
         ));
     }
     rows
@@ -606,11 +625,13 @@ fn layer_rows<'a>(
 #[derive(Component, Clone, Default)]
 pub struct SourceMenuContent;
 
-/// Room the name and caption get beside a row's button, in logical pixels.
+/// Room the name and caption get beside a row's buttons, in logical pixels.
 ///
 /// Fixed because the menu is: a menu's width never changes, so text can be
 /// cut to it once when the rows are built rather than measured every frame.
-const MENU_TEXT_PX: f32 = crate::widgets::MENU_WIDTH - 20.0 - 6.0 - 24.0;
+fn menu_text_px(buttons: usize) -> f32 {
+    crate::widgets::MENU_WIDTH - 20.0 - buttons as f32 * (6.0 + 24.0)
+}
 
 /// What a layer is, and whether it is measured the way the frame under it is.
 fn layer_note(base: Option<&DataSource>, source: &DataSource) -> String {
@@ -632,8 +653,8 @@ fn menu_heading(commands: &mut Commands, text: &str, gap: f32) -> Entity {
         .id()
 }
 
-/// A dataset on one line, what it is on a dimmer one under it, and the one
-/// thing this row does.
+/// A dataset on one line, what it is on a dimmer one under it, and what this
+/// row does: each button is a choice, its icon, and whether it is enabled.
 ///
 /// Both lines are cut to fit rather than wrapped. A wrapped name breaks the
 /// row's height and runs into its neighbour, and the full name is already in
@@ -642,12 +663,11 @@ fn menu_row(
     commands: &mut Commands,
     name: &str,
     note: &str,
-    choice: SourceChoice,
-    icon: Icon,
-    enabled: bool,
+    buttons: Vec<(SourceChoice, Icon, bool)>,
 ) -> Entity {
-    let name = crate::widgets::truncate_to_width(name, MENU_TEXT_PX, 13.0);
-    let note = crate::widgets::truncate_to_width(note, MENU_TEXT_PX, 11.0);
+    let room = menu_text_px(buttons.len());
+    let name = crate::widgets::truncate_to_width(name, room, 13.0);
+    let note = crate::widgets::truncate_to_width(note, room, 11.0);
     let row = commands
         .spawn_scene(bsn! {
             SourceMenuContent
@@ -682,20 +702,22 @@ fn menu_row(
             ]
         })
         .id();
-    let button = commands
-        .spawn_scene(bsn! {
-            @FeathersToolButton {
-                @caption: { bsn_list![button_icon(icon)] }
-            }
-            BlocksFrameInput
-            template_value(choice)
-            Node { flex_shrink: { 0.0_f32 } }
-        })
-        .id();
-    if !enabled {
-        commands.entity(button).insert(InteractionDisabled);
+    for (choice, icon, enabled) in buttons {
+        let button = commands
+            .spawn_scene(bsn! {
+                @FeathersToolButton {
+                    @caption: { bsn_list![button_icon(icon)] }
+                }
+                BlocksFrameInput
+                template_value(choice)
+                Node { flex_shrink: { 0.0_f32 } }
+            })
+            .id();
+        if !enabled {
+            commands.entity(button).insert(InteractionDisabled);
+        }
+        commands.entity(row).add_child(button);
     }
-    commands.entity(row).add_child(button);
     row
 }
 

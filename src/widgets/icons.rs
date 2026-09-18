@@ -25,6 +25,7 @@ pub enum Icon {
     Camera,
     ChevronDown,
     ChevronRight,
+    ChevronUp,
     CircleHelp,
     Copy,
     CopyPlus,
@@ -48,11 +49,12 @@ pub enum Icon {
 
 impl Icon {
     #[cfg(test)]
-    const ALL: [Icon; 23] = [
+    const ALL: [Icon; 24] = [
         Icon::Bug,
         Icon::Camera,
         Icon::ChevronDown,
         Icon::ChevronRight,
+        Icon::ChevronUp,
         Icon::CircleHelp,
         Icon::Copy,
         Icon::CopyPlus,
@@ -82,6 +84,7 @@ impl Icon {
             Icon::Camera => "\u{e064}",
             Icon::ChevronDown => "\u{e06d}",
             Icon::ChevronRight => "\u{e06f}",
+            Icon::ChevronUp => "\u{e070}",
             Icon::CircleHelp => "\u{e082}",
             Icon::Copy => "\u{e09e}",
             Icon::CopyPlus => "\u{e3fd}",
