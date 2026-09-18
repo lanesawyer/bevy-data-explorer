@@ -13,6 +13,7 @@ pub mod pointcloud;
 pub mod scatterbrain;
 pub mod slices;
 pub mod svg;
+pub mod tiles;
 
 use bevy::prelude::*;
 

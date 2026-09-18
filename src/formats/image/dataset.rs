@@ -181,13 +181,6 @@ impl Level {
     }
 }
 
-/// A decoded tile ready to be uploaded as a texture.
-pub struct TilePixels {
-    pub width: u32,
-    pub height: u32,
-    pub rgba: Vec<u8>,
-}
-
 pub struct Dataset {
     pub name: String,
     /// Finest level first.

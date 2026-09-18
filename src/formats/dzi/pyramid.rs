@@ -12,9 +12,11 @@
 //! first column is 513px, and the last one at 15936px wide is 65px — what is
 //! left after 31 columns, plus the overlap on its left.
 
+use bevy::asset::RenderAssetUsages;
+use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
+use bevy::prelude::{Image, default};
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use serde::Deserialize;
-
-use crate::formats::image::dataset::TilePixels;
 
 /// The descriptor as written. Attributes are `@`-prefixed for `quick-xml`;
 /// the namespace and anything else a writer adds are ignored.
@@ -174,6 +176,40 @@ impl DeepZoom {
     pub fn tile_url(&self, level: u32, column: u64, row: u64) -> String {
         format!("{}/{level}/{column}_{row}.{}", self.tiles_base, self.format)
     }
+}
+
+/// A decoded tile ready to be uploaded as a texture.
+pub struct TilePixels {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// A tile's pixels as a texture.
+pub fn tile_texture(pixels: TilePixels) -> Image {
+    let mut image = Image::new(
+        Extent3d {
+            width: pixels.width,
+            height: pixels.height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        pixels.rgba,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    // Nearest magnification keeps individual pixels crisp past 1:1; linear
+    // minification avoids shimmer when zoomed out. Clamping stops neighbouring
+    // tiles bleeding across their seams.
+    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        mag_filter: ImageFilterMode::Nearest,
+        min_filter: ImageFilterMode::Linear,
+        mipmap_filter: ImageFilterMode::Linear,
+        address_mode_u: ImageAddressMode::ClampToEdge,
+        address_mode_v: ImageAddressMode::ClampToEdge,
+        ..default()
+    });
+    image
 }
 
 /// Fetch and decode one tile.

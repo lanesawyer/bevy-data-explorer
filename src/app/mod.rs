@@ -69,10 +69,10 @@ impl Plugin for ExplorerPlugin {
 fn task_pool_options() -> TaskPoolOptions {
     TaskPoolOptions {
         min_total_threads: bevy::tasks::available_parallelism()
-            + crate::formats::image::TILE_FETCH_THREADS,
+            + crate::formats::tiles::TILE_FETCH_THREADS,
         async_compute: TaskPoolThreadAssignmentPolicy {
-            min_threads: crate::formats::image::TILE_FETCH_THREADS,
-            max_threads: crate::formats::image::TILE_FETCH_THREADS,
+            min_threads: crate::formats::tiles::TILE_FETCH_THREADS,
+            max_threads: crate::formats::tiles::TILE_FETCH_THREADS,
             percent: 1.0,
             on_thread_spawn: None,
             on_thread_destroy: None,
