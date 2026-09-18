@@ -14,6 +14,7 @@
 //! back out, or panning away and returning, redraws from what is already
 //! resident instead of refetching it.
 
+pub mod blocks;
 pub mod dataset;
 pub mod store;
 pub mod volume;

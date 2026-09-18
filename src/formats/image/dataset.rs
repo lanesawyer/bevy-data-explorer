@@ -5,9 +5,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use bevy::log::debug;
 use bevy::math::Vec3;
 use ome_zarr_metadata::v0_4::AxisType;
 
+use crate::formats::image::blocks::BlockReader;
 use crate::formats::image::store::MultiscaleSpec;
 use crate::render::channels::{MAX_CHANNELS, VOLUME_CHANNELS};
 use zarrs::array::{Array, ArraySubset, ChunkShapeTraits};
@@ -120,6 +122,9 @@ pub struct Level {
     /// Top-level chunk (shard) extent in level pixels, along y and x.
     pub shard_y_px: u64,
     pub shard_x_px: u64,
+    /// Reads single slices out of deep chunks block by block, where the
+    /// chunks are simple enough to; see [`super::blocks`].
+    pub blocks: Option<Arc<BlockReader>>,
     pub tiles_x: u64,
     pub tiles_y: u64,
 }
@@ -254,6 +259,14 @@ impl Dataset {
 
             let width = shape[layout.x];
             let height = shape[layout.y];
+            // Worth it only where a chunk holds several slices, since a tile
+            // wants one; and only where a slice of a chunk is one run of
+            // bytes, which needs y and x last.
+            let deep = layout.z.is_some_and(|z| chunk[z] > 1);
+            let planar = layout.y + 2 == layout.ndim && layout.x + 1 == layout.ndim;
+            let blocks = (!sharded && deep && planar)
+                .then(|| BlockReader::for_array(&array))
+                .flatten();
             levels.push(Level {
                 index,
                 path,
@@ -272,6 +285,7 @@ impl Dataset {
                 sharded,
                 shard_y_px: chunk[layout.y],
                 shard_x_px: chunk[layout.x],
+                blocks,
                 tiles_x: width.div_ceil(tile_px),
                 tiles_y: height.div_ceil(tile_px),
             });
@@ -490,7 +504,32 @@ impl ChannelSamples {
 }
 
 /// Read one tile, every channel of it, as stored.
+///
+/// From deep chunks, only the blocks holding the slice are fetched; see
+/// [`super::blocks`]. Should that fail for any reason, the tile is read whole
+/// instead, which costs only the time it would have saved.
 pub async fn read_tile(
+    dataset: &Dataset,
+    level: &Level,
+    source: TileSource<'_>,
+    ty: u64,
+    tx: u64,
+    z: u64,
+) -> Result<Option<ChannelSamples>, String> {
+    let Some(extent) = level.tile_extent(ty, tx) else {
+        return Ok(None);
+    };
+    if let (TileSource::Array, Some(reader)) = (&source, &level.blocks) {
+        match read_tile_by_blocks(dataset, level, reader, extent, z).await {
+            Ok(samples) => return Ok(Some(samples)),
+            Err(e) => debug!("tile ({ty},{tx}) of {}: {e}; reading it whole", level.path),
+        }
+    }
+    read_tile_whole(dataset, level, source, ty, tx, z).await
+}
+
+/// Read one tile through zarrs, whole chunks at a time.
+async fn read_tile_whole(
     dataset: &Dataset,
     level: &Level,
     source: TileSource<'_>,
@@ -607,6 +646,98 @@ pub async fn read_tile(
     }
 
     Ok(Some(samples))
+}
+
+/// Read a tile of one slice from deep chunks, fetching only the blocks of
+/// each chunk that hold that slice.
+async fn read_tile_by_blocks(
+    dataset: &Dataset,
+    level: &Level,
+    reader: &BlockReader,
+    (x0, y0, x1, y1): (u64, u64, u64, u64),
+    z: u64,
+) -> Result<ChannelSamples, String> {
+    let layout = &dataset.layout;
+    let zi = layout.z.ok_or("no z axis")?;
+    let chunk = level
+        .array
+        .chunk_shape(&vec![0; layout.ndim])
+        .map_err(|e| e.to_string())?
+        .to_array_shape();
+    let (chunk_y, chunk_x) = (chunk[layout.y], chunk[layout.x]);
+    let element = element_size(&level.array)?;
+    let sample = sample_reader(&level.array)?;
+    let scale = dataset.sample_scale;
+
+    // C order: how many samples one step along each axis of a chunk skips.
+    let mut strides = vec![1u64; layout.ndim];
+    for axis in (0..layout.ndim.saturating_sub(1)).rev() {
+        strides[axis] = strides[axis + 1] * chunk[axis + 1];
+    }
+    let plane = (chunk_y * chunk_x) as usize;
+    let count = dataset.channels.len().min(MAX_CHANNELS);
+    let chunk_c = layout.c.map_or(1, |c| chunk[c]).max(1);
+
+    // Every chunk under the tile, and for each the planes the tile needs from
+    // it: one per channel, at this slice.
+    let mut reads = Vec::new();
+    for cy in y0 / chunk_y..y1.div_ceil(chunk_y) {
+        for cx in x0 / chunk_x..x1.div_ceil(chunk_x) {
+            // Channels in separate chunks along c are separate reads.
+            for group in 0..(count as u64).div_ceil(chunk_c) {
+                let mut indices = vec![0u64; layout.ndim];
+                indices[layout.y] = cy;
+                indices[layout.x] = cx;
+                indices[zi] = z / chunk[zi];
+                if let Some(c) = layout.c {
+                    indices[c] = group;
+                }
+                let channels: Vec<usize> = (0..count)
+                    .filter(|ci| *ci as u64 / chunk_c == group)
+                    .collect();
+                let parts: Vec<(usize, usize)> = channels
+                    .iter()
+                    .map(|ci| {
+                        let within = layout.c.map_or(0, |c| (*ci as u64 % chunk_c) * strides[c])
+                            + (z % chunk[zi]) * strides[zi];
+                        (within as usize * element, plane * element)
+                    })
+                    .collect();
+                reads.push(async move {
+                    let planes = reader.read(&level.array, &indices, &parts).await?;
+                    Ok::<_, String>((cy, cx, channels, planes))
+                });
+            }
+        }
+    }
+    let planes = futures::future::try_join_all(reads).await?;
+
+    let (w, h) = ((x1 - x0) as usize, (y1 - y0) as usize);
+    let mut samples = ChannelSamples::zeroed(w, h, count.div_ceil(4).max(1));
+    let tile_plane = w * h;
+    for (cy, cx, channels, planes) in planes {
+        // A chunk never written is all fill, which is zero, which the tile
+        // already holds.
+        let Some(planes) = planes else { continue };
+        let (top, left) = (cy * chunk_y, cx * chunk_x);
+        let rows = y0.max(top)..y1.min(top + chunk_y);
+        let columns = x0.max(left)..x1.min(left + chunk_x);
+        for (ci, bytes) in channels.iter().zip(&planes) {
+            let (layer, component) = (ci / 4, ci % 4);
+            for y in rows.clone() {
+                for x in columns.clone() {
+                    let at = (((y - top) * chunk_x + (x - left)) as usize) * element;
+                    let texel = (y - y0) as usize * w + (x - x0) as usize;
+                    samples.put(
+                        layer * tile_plane + texel,
+                        component,
+                        sample(&bytes[at..at + element]) / scale,
+                    );
+                }
+            }
+        }
+    }
+    Ok(samples)
 }
 
 /// What intensities are divided by before being stored as half floats.
@@ -1187,3 +1318,57 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod block_reads {
+    use super::*;
+
+    /// Reads the same tiles of the live Tissuecyte stack block by block and
+    /// whole, checks they agree to the byte, and prints how long each took.
+    /// `cargo test --release block_reads -- --ignored --nocapture`
+    #[test]
+    #[ignore = "reads the live Tissuecyte store"]
+    fn tiles_read_by_block_match_tiles_read_whole() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let dataset = crate::formats::image::store::open(
+                "https://allen-genetic-tools.s3.us-west-2.amazonaws.com/tissuecyte/1219090168/ome_zarr_conversion/1219090168.zarr/",
+            )
+            .await
+            .unwrap();
+            let (mut by_block, mut whole) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
+            for level_index in [4usize, 2, 0] {
+                let level = &dataset.levels[level_index];
+                let reader = level.blocks.as_ref().expect("deep v2 blosc chunks qualify");
+                let (ty, tx) = (level.tiles_y / 2, level.tiles_x / 2);
+                // Slice 71 sits mid-chunk, 40 at the start of one, and 139 in
+                // the last, short chunk.
+                for z in [71u64, 40, 139] {
+                    let extent = level.tile_extent(ty, tx).unwrap();
+                    let started = std::time::Instant::now();
+                    let fast = read_tile_by_blocks(&dataset, level, reader, extent, z)
+                        .await
+                        .unwrap();
+                    let fast_time = started.elapsed();
+                    let started = std::time::Instant::now();
+                    let slow = read_tile_whole(&dataset, level, TileSource::Array, ty, tx, z)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    let slow_time = started.elapsed();
+                    println!(
+                        "level {level_index} z {z}: by block {fast_time:?}, whole {slow_time:?}"
+                    );
+                    assert!(fast.data == slow.data, "level {level_index} z {z} differs");
+                    // The middle of the specimen has tissue in it; the ends
+                    // may not, and matching zeros would prove nothing.
+                    if z == 71 {
+                        assert!(fast.data.iter().any(|b| *b != 0), "an empty tile proves nothing");
+                    }
+                    by_block += fast_time;
+                    whole += slow_time;
+                }
+            }
+            println!("in all: by block {by_block:?}, whole {whole:?}");
+        });
+    }
+}

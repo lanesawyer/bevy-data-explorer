@@ -693,6 +693,16 @@ measuring against it, and are worth knowing before changing them:
   That is ten bytes a point against the eighty each already costs as vertices,
   and only the octree nodes whose regions actually reach the pointer are
   searched — the path from the root down, rather than everything on screen.
+- **A slice is read out of a deep chunk block by block.** The Tissuecyte
+  stack keeps forty slices in every chunk, so a level-0 tile of one slice
+  covered sixteen chunks of 2.3 MB each: 37 MB downloaded to draw one slice
+  in forty. Blosc compresses a chunk in independent blocks — here 256 KB,
+  eight slices of one channel — and lists where each starts, so a tile now
+  reads each chunk's header and table once, then only the blocks holding its
+  slice: three of fifteen. Against the live store the tiles come back byte for
+  byte the same, in 0.25–0.45 s where they took 1.1 s. Only plain Zarr v2
+  blosc chunks with a fill of zero are read this way; anything else, or any
+  block read that fails, is read whole through zarrs as before.
 - **Tiles are cached well past leaving the viewport.** Zooming in narrows the
   wanted set to a handful of fine tiles; the surrounding coarse ones are
   exactly what is needed again on the way back out. They are evicted

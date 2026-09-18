@@ -68,6 +68,10 @@ re-measuring will regress something:
   chunk.
 - **24 tile threads on top of the core count** (`app/mod.rs`). Reads are blocking,
   so one tile holds one thread; Bevy's async-compute pool caps at four.
+- **Block reads of deep chunks** (`formats/image/blocks.rs`). A tile of one
+  slice fetches only the blosc blocks holding it, not the chunk: 0.3 s
+  against 1.1 s a tile on the Tissuecyte stack, byte for byte the same. The
+  live test `block_reads` is what proves both; run it after touching either.
 - **4M section budget** (`formats/slices/mod.rs`). The grid draws every slice at once and
   their root subsamples alone come to ~3M points. Below that, whole slices
   vanish rather than the grid thinning.
