@@ -122,6 +122,8 @@ pub mod token {
     /// The rail a numeric range is dragged along, and the ends that drag it.
     pub const TRACK: ThemeToken = ThemeToken::new_static("explorer.track");
     pub const THUMB: ThemeToken = ThemeToken::new_static("explorer.thumb");
+    /// The bar that sweeps across a frame while it is fetching.
+    pub const LOADING: ThemeToken = ThemeToken::new_static("explorer.loading");
 }
 
 /// Every colour the app names that is not a Feathers token.
@@ -218,6 +220,7 @@ impl Palette {
             (token::SELECTION, self.selection),
             (token::TRACK, self.track),
             (token::THUMB, self.thumb),
+            (token::LOADING, self.fill),
         ] {
             theme.color.insert(name, colour);
         }

@@ -118,7 +118,7 @@ pub fn update_selection_border(
     }
 }
 
-const SELECTION_PX: f32 = 2.0;
+pub(super) const SELECTION_PX: f32 = 2.0;
 
 /// Draw order for the selection outline.
 ///

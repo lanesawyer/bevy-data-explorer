@@ -25,7 +25,7 @@ use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::ViewLimits;
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::properties::{CellProperties, CellSelection};
-use crate::source::{self, DataSource, SourceExtent, SourceStatus};
+use crate::source::{self, DataSource, SourceBusy, SourceExtent, SourceStatus};
 use crate::view::ShowsSource;
 
 /// Descend into a slide's octree while its region covers at least this many
@@ -956,8 +956,15 @@ fn describe(
     )
 }
 
-fn report_status(streamers: Query<&SliceStreamer>, mut sources: Query<&mut SourceStatus>) {
+fn report_status(
+    streamers: Query<&SliceStreamer>,
+    mut sources: Query<&mut SourceStatus>,
+    mut busy: Query<&mut SourceBusy>,
+) {
     for streamer in &streamers {
+        if let Ok(mut busy) = busy.get_mut(streamer.source) {
+            busy.set_if_neq(SourceBusy(streamer.in_flight > 0));
+        }
         let Ok(mut status) = sources.get_mut(streamer.source) else {
             continue;
         };

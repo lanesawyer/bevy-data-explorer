@@ -114,6 +114,13 @@ pub struct SourceUrl(pub String);
 #[derive(Component, Default)]
 pub struct SourceStatus(pub String);
 
+/// Whether a source is fetching anything, set each frame by its plugin.
+///
+/// Says nothing about which frame asked: a streamer serves the union of every
+/// frame showing its source, so each of them is shown loading while it works.
+#[derive(Component, Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SourceBusy(pub bool);
+
 /// Hands out render layers, one per source.
 ///
 /// Layer 0 is left alone: it is the default layer, and anything spawned without
@@ -159,6 +166,7 @@ pub fn register_in(world: &mut World, info: SourceInfo, extent: SourceExtent) ->
             },
             extent,
             SourceStatus::default(),
+            SourceBusy::default(),
         ))
         .id()
 }

@@ -98,6 +98,11 @@ impl ImageVolume {
         }
     }
 
+    /// Whether slices are being read, for the whole stack or for detail.
+    pub fn is_reading(&self) -> bool {
+        matches!(self.state, State::Loading { .. }) || self.detail.loading.is_some()
+    }
+
     /// A line for the status overlay, once there is anything to say.
     pub fn status(&self, depth: u64) -> Option<String> {
         let whole = match &self.state {

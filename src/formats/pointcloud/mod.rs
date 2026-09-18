@@ -23,7 +23,7 @@ use crate::formats::scatterbrain::{Rect, Scatterbrain, Slide};
 use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::properties::{CellProperties, CellSelection};
-use crate::source::{self, DataSource, SourceExtent, SourceStatus};
+use crate::source::{self, DataSource, SourceBusy, SourceExtent, SourceStatus};
 use crate::view::ShowsSource;
 
 /// Descend into a node's children while its region covers at least this many
@@ -667,8 +667,15 @@ fn describe(
     )
 }
 
-fn report_status(streamers: Query<&PointStreamer>, mut sources: Query<&mut SourceStatus>) {
+fn report_status(
+    streamers: Query<&PointStreamer>,
+    mut sources: Query<&mut SourceStatus>,
+    mut busy: Query<&mut SourceBusy>,
+) {
     for streamer in &streamers {
+        if let Ok(mut busy) = busy.get_mut(streamer.source) {
+            busy.set_if_neq(SourceBusy(streamer.in_flight > 0));
+        }
         report_for(streamer, &mut sources);
     }
 }

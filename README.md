@@ -278,6 +278,13 @@ dataset and the moment, and the frame says where its last one went. The encode
 runs on a task, since several megapixels of PNG is enough work to freeze the
 window if done where the pixels arrive.
 
+While anything a frame shows is being fetched — tiles, nodes, slices for the
+3D view, or a dataset it is about to switch to — a thin bar sweeps across its
+top edge. It says only that more is coming: streaming has no end to measure,
+since what is wanted changes with every pan, so the bar keeps going while what
+has arrived is drawn under it, and lingers a moment so bursts of tiles do not
+make it flicker.
+
 The copy button in a panel's corner duplicates it, and the `x` closes it. Closing
 renumbers the remaining frames so the grid stays contiguous. The last frame can
 be closed too: the window returns to the empty state it started in, examples and

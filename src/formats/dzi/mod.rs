@@ -22,7 +22,7 @@ use crate::app::schedule::Stage;
 use crate::formats::image::dataset::TilePixels;
 use crate::formats::image::{Candidate, Tiers, View, plan_eviction, request_order, tile_texture};
 use crate::source::hover::{HoverInfo, HoverProbe};
-use crate::source::{self, SourceExtent, SourceStatus};
+use crate::source::{self, SourceBusy, SourceExtent, SourceStatus};
 use crate::view::ShowsSource;
 use pyramid::DeepZoom;
 
@@ -347,8 +347,15 @@ fn update_tile_visibility(
     }
 }
 
-fn report_status(streamers: Query<&DziStreamer>, mut sources: Query<&mut SourceStatus>) {
+fn report_status(
+    streamers: Query<&DziStreamer>,
+    mut sources: Query<&mut SourceStatus>,
+    mut busy: Query<&mut SourceBusy>,
+) {
     for streamer in &streamers {
+        if let Ok(mut busy) = busy.get_mut(streamer.source) {
+            busy.set_if_neq(SourceBusy(streamer.in_flight > 0));
+        }
         let Ok(mut status) = sources.get_mut(streamer.source) else {
             continue;
         };

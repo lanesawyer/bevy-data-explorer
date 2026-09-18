@@ -38,7 +38,7 @@ use crate::render::channels::{ChannelTileMaterial, MixChannel, channel_texture};
 use crate::source::channels::{ChannelSetting, SourceChannels};
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::stack::SliceStack;
-use crate::source::{self, SourceExtent, SourceStatus};
+use crate::source::{self, SourceBusy, SourceExtent, SourceStatus};
 use crate::view::ShowsSource;
 
 /// Threads reserved for fetching and decoding tiles.
@@ -1131,8 +1131,15 @@ fn report_status(
     stacks: Query<&SliceStack>,
     volumes: Query<&volume::ImageVolume>,
     mut sources: Query<&mut SourceStatus>,
+    mut busy: Query<&mut SourceBusy>,
 ) {
     for streamer in &streamers {
+        let reading = volumes
+            .get(streamer.source)
+            .is_ok_and(|volume| volume.is_reading());
+        if let Ok(mut busy) = busy.get_mut(streamer.source) {
+            busy.set_if_neq(SourceBusy(streamer.in_flight > 0 || reading));
+        }
         let mut stacked = stacks
             .get(streamer.source)
             .map(|stack| format!("{}, PgUp/PgDn to page\n", stack.label()))

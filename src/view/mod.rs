@@ -22,6 +22,7 @@ pub mod dataset_menu;
 pub mod grid;
 pub mod input;
 pub mod layers;
+pub mod loading;
 pub mod orbit;
 pub mod overlay;
 pub mod requests;
@@ -212,7 +213,10 @@ impl Plugin for ViewPlugin {
                     .chain()
                     .in_set(Stage::Frames),
             )
-            .add_systems(Update, sync_panel_buttons.in_set(Stage::FrameChrome))
+            .add_systems(
+                Update,
+                (sync_panel_buttons, loading::sync_loading_bars).in_set(Stage::FrameChrome),
+            )
             .add_systems(
                 Update,
                 (
@@ -238,6 +242,8 @@ impl Plugin for ViewPlugin {
             // new slice streaming the same frame it was asked for.
             .add_systems(Update, page_slice_stack.in_set(Stage::ControlsApply))
             .add_systems(Update, probe_hover.in_set(Stage::HoverProbe))
+            // After the sources, which is when each says whether it is fetching.
+            .add_systems(Update, loading::update_loading_bars.in_set(Stage::Overlay))
             .add_systems(
                 Startup,
                 (spawn_ui_camera, spawn_dividers, spawn_selection_border).in_set(Boot::Shell),
