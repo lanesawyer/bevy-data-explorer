@@ -15,10 +15,8 @@
 
 use bevy::input::ButtonInput;
 use bevy::prelude::*;
-use bevy::ui::{FocusPolicy, Interaction, InteractionDisabled};
-use bevy::window::SystemCursorIcon;
+use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::{ThemeBackgroundColor, UiTheme};
@@ -29,7 +27,7 @@ use crate::app::logs::LogTail;
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::Palette;
 use crate::view::{BlocksFrameInput, FrameArea, TextEntryFocused};
-use crate::widgets::{DOCK_HANDLE_Z, Icon, button_icon, hold_drag_cursor};
+use crate::widgets::{AddDock, Dock, DockEdge, HANDLE_PX, Icon, button_icon, dock_handle};
 
 /// Height the panel opens at, before anyone has dragged it.
 const HEIGHT_PX: f32 = 240.0;
@@ -37,7 +35,6 @@ const HEIGHT_PX: f32 = 240.0;
 const MIN_PX: f32 = 120.0;
 /// The most of the window it can take, so the frames are never squeezed out.
 const MAX_FRACTION: f32 = 0.75;
-const HANDLE_PX: f32 = 6.0;
 
 /// Lines kept on screen. The log holds more; this is what a panel this tall can
 /// show without spending a thousand text entities on what nobody scrolls to.
@@ -48,7 +45,6 @@ const SHOWN_LINES: usize = 200;
 pub struct LogPanel {
     pub open: bool,
     height: f32,
-    resizing: bool,
     /// Records written when the lines were last built, so the panel rebuilds
     /// when the log moves rather than every frame.
     shown: u64,
@@ -59,20 +55,28 @@ impl Default for LogPanel {
         LogPanel {
             open: false,
             height: HEIGHT_PX,
-            resizing: false,
             shown: 0,
         }
     }
 }
 
 impl LogPanel {
-    /// Height a drag to `cursor_y` should produce, measured from the bottom
-    /// edge since the panel is docked there.
+    /// Height a drag reaching `from_bottom` up from the bottom edge should
+    /// produce.
     ///
     /// Always a usable height, as with the inspector: dragging does not close
     /// it, since a panel squeezed to nothing leaves no edge to grab.
-    fn height_for_drag(cursor_y: f32, window_height: f32) -> f32 {
-        (window_height - cursor_y).clamp(MIN_PX, max_height(window_height))
+    fn height_for_drag(from_bottom: f32, window_height: f32) -> f32 {
+        from_bottom.clamp(MIN_PX, max_height(window_height))
+    }
+}
+
+impl Dock for LogPanel {
+    type Handle = LogPanelHandle;
+    const EDGE: DockEdge = DockEdge::Bottom;
+
+    fn drag_to(&mut self, reach: f32, span: f32) {
+        self.height = LogPanel::height_for_drag(reach, span);
     }
 }
 
@@ -177,19 +181,10 @@ pub fn spawn_log_panel(mut commands: Commands) {
 
     commands.spawn_scene(bsn! {
         LogPanelHandle
-        // Not a button, as with the other docks: a press without the chrome.
-        Interaction
-        template_value(FocusPolicy::Block)
-        BlocksFrameInput
+        dock_handle(DockEdge::Bottom)
         Node {
-            position_type: { PositionType::Absolute },
-            height: { Val::Px(HANDLE_PX) },
             display: { Display::None },
         }
-        GlobalZIndex({ DOCK_HANDLE_Z })
-        // See `hold_drag_cursor` for why the cursor is named here.
-        EntityCursor::System(SystemCursorIcon::RowResize)
-        ThemeBackgroundColor({ tokens::BUTTON_BG })
     });
 }
 
@@ -236,46 +231,6 @@ pub fn on_copy_pressed(
         Ok(()) => info!("log copied to the clipboard"),
         Err(e) => warn!("could not copy the log: {e}"),
     }
-}
-
-/// Drag the top edge to resize.
-pub fn resize_log_panel(
-    mut panel: ResMut<LogPanel>,
-    windows: Query<&Window>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    handle: Query<&Interaction, With<LogPanelHandle>>,
-) {
-    let Ok(window) = windows.single() else { return };
-
-    if handle.iter().any(|i| *i == Interaction::Pressed) {
-        panel.resizing = true;
-    }
-    if !mouse.pressed(MouseButton::Left) {
-        panel.resizing = false;
-        return;
-    }
-    if !panel.resizing {
-        return;
-    }
-
-    let Some(cursor) = window.cursor_position() else {
-        return;
-    };
-    panel.height = LogPanel::height_for_drag(cursor.y, window.height());
-}
-
-/// Keep the resize cursor for as long as a drag lasts.
-pub fn log_panel_cursor(
-    panel: Res<LogPanel>,
-    mut held: Local<bool>,
-    cursor: Option<ResMut<OverrideCursor>>,
-) {
-    hold_drag_cursor(
-        panel.resizing,
-        &mut held,
-        cursor,
-        SystemCursorIcon::RowResize,
-    );
 }
 
 /// Take the panel's height off the grid while it is open.
@@ -406,18 +361,13 @@ pub struct LogPanelPlugin;
 
 impl Plugin for LogPanelPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<LogPanel>()
+        app.add_dock::<LogPanel>()
             .add_observer(on_log_panel_toggled)
             .add_observer(on_copy_pressed)
             // With the docks: it reads the keyboard before anything measures
             // against the space it takes, and gives that space back the frame
             // it closes.
-            .add_systems(
-                Update,
-                (log_panel_shortcut, resize_log_panel, log_panel_cursor)
-                    .chain()
-                    .in_set(Stage::DockInput),
-            )
+            .add_systems(Update, log_panel_shortcut.in_set(Stage::DockInput))
             .add_systems(Update, reserve_space.in_set(Stage::DockReserve))
             .add_systems(Update, place_log_panel.in_set(Stage::Chrome))
             .add_systems(
@@ -446,20 +396,16 @@ mod tests {
     }
 
     #[test]
-    fn dragging_measures_from_the_bottom_edge() {
-        assert_eq!(LogPanel::height_for_drag(600.0, 1000.0), 400.0);
-    }
-
-    #[test]
     fn dragging_never_squeezes_the_panel_away() {
-        for cursor in [950.0, 1000.0, 1200.0] {
-            assert_eq!(LogPanel::height_for_drag(cursor, 1000.0), MIN_PX);
+        for reach in [50.0, 0.0, -200.0] {
+            assert_eq!(LogPanel::height_for_drag(reach, 1000.0), MIN_PX);
         }
     }
 
     #[test]
     fn dragging_leaves_the_frames_a_quarter_of_the_window() {
-        assert_eq!(LogPanel::height_for_drag(0.0, 1000.0), 750.0);
+        assert_eq!(LogPanel::height_for_drag(400.0, 1000.0), 400.0);
+        assert_eq!(LogPanel::height_for_drag(1000.0, 1000.0), 750.0);
     }
 
     #[test]

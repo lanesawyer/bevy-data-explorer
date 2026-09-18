@@ -10,10 +10,7 @@
 //! nothing over there has to know the sidebar exists.
 
 use bevy::prelude::*;
-use bevy::ui::{FocusPolicy, Interaction};
-use bevy::window::SystemCursorIcon;
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
@@ -21,7 +18,7 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::ThemeMode;
 use crate::view::{BlocksFrameInput, FrameArea};
-use crate::widgets::{DOCK_HANDLE_Z, Icon, button_icon, hold_drag_cursor};
+use crate::widgets::{AddDock, Dock, DockEdge, HANDLE_PX, Icon, button_icon, dock_handle};
 
 /// Width when collapsed. Enough for the short title and the toggle beneath it.
 const RIBBON_PX: f32 = 52.0;
@@ -33,8 +30,6 @@ const MAX_FRACTION: f32 = 0.5;
 /// minimum width.
 const COLLAPSE_BELOW_PX: f32 = 120.0;
 
-const HANDLE_PX: f32 = 6.0;
-
 const FULL_TITLE: &str = "Bevy Data Explorer";
 const SHORT_TITLE: &str = "BDE";
 
@@ -43,7 +38,6 @@ pub struct Sidebar {
     /// Width when expanded. Kept across a collapse so reopening restores it.
     pub width: f32,
     pub collapsed: bool,
-    resizing: bool,
 }
 
 impl Default for Sidebar {
@@ -51,22 +45,20 @@ impl Default for Sidebar {
         Sidebar {
             width: 320.0,
             collapsed: false,
-            resizing: false,
         }
     }
 }
 
 impl Sidebar {
-    pub fn resizing(&self) -> bool {
-        self.resizing
-    }
-
-    /// Width the sidebar actually occupies right now.
-    pub fn current_width(&self) -> f32 {
+    /// Width the sidebar actually occupies right now, in a window this wide.
+    ///
+    /// Held to the most it may take of the window as well as the drag is, so
+    /// narrowing the window later cannot leave it covering the frames.
+    pub fn current_width(&self, window_width: f32) -> f32 {
         if self.collapsed {
             RIBBON_PX
         } else {
-            self.width
+            self.width.min(max_width(window_width))
         }
     }
 
@@ -87,8 +79,28 @@ impl Sidebar {
         if cursor_x < COLLAPSE_BELOW_PX {
             return None;
         }
-        Some(cursor_x.clamp(MIN_PX, (window_width * MAX_FRACTION).max(MIN_PX)))
+        Some(cursor_x.clamp(MIN_PX, max_width(window_width)))
     }
+}
+
+impl Dock for Sidebar {
+    type Handle = SidebarHandle;
+    const EDGE: DockEdge = DockEdge::Left;
+
+    fn drag_to(&mut self, reach: f32, span: f32) {
+        match Sidebar::width_for_drag(reach, span) {
+            Some(width) => {
+                self.collapsed = false;
+                self.width = width;
+            }
+            None => self.collapsed = true,
+        }
+    }
+}
+
+/// The widest the sidebar may be in a window this wide.
+fn max_width(window_width: f32) -> f32 {
+    (window_width * MAX_FRACTION).max(MIN_PX)
 }
 
 #[derive(Component, Clone, Default)]
@@ -259,76 +271,14 @@ fn spawn_sidebar(mut commands: Commands) {
 
     commands.spawn_scene(bsn! {
         SidebarHandle
-        // Not a button: `ui_focus_system` drives `Interaction` on any node
-        // carrying it, and a drag target wants the press without the chrome.
-        Interaction
-        template_value(FocusPolicy::Block)
-        BlocksFrameInput
-        // See `hold_drag_cursor` for why the cursor is named here.
-        EntityCursor::System(SystemCursorIcon::ColResize)
-        GlobalZIndex({ DOCK_HANDLE_Z })
-        Node {
-            position_type: { PositionType::Absolute },
-            top: { Val::Px(0.0) },
-            width: { Val::Px(HANDLE_PX) },
-            height: { Val::Percent(100.0) },
-        }
-        ThemeBackgroundColor({ tokens::BUTTON_BG })
+        dock_handle(DockEdge::Left)
     });
 }
 
 /// Take the sidebar's width off the frame grid.
-pub fn reserve_space(sidebar: Res<Sidebar>, mut area: ResMut<FrameArea>) {
-    area.reserve_left(sidebar.current_width());
-}
-
-/// Drag the edge to resize, or far enough left to collapse.
-pub fn resize_sidebar(
-    mut sidebar: ResMut<Sidebar>,
-    windows: Query<&Window>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    handle: Query<&Interaction, With<SidebarHandle>>,
-) {
+pub fn reserve_space(sidebar: Res<Sidebar>, windows: Query<&Window>, mut area: ResMut<FrameArea>) {
     let Ok(window) = windows.single() else { return };
-
-    if handle.iter().any(|i| *i == Interaction::Pressed) {
-        sidebar.resizing = true;
-    }
-    if !mouse.pressed(MouseButton::Left) {
-        sidebar.resizing = false;
-        return;
-    }
-    if !sidebar.resizing {
-        return;
-    }
-
-    let Some(cursor) = window.cursor_position() else {
-        return;
-    };
-    match Sidebar::width_for_drag(cursor.x, window.width()) {
-        Some(width) => {
-            sidebar.collapsed = false;
-            sidebar.width = width;
-        }
-        None => sidebar.collapsed = true,
-    }
-}
-
-/// Show a resize cursor over the drag handle, and for as long as a drag lasts.
-///
-/// The handle is a thin target, so without this it reads as decoration rather
-/// than something to grab.
-pub fn sidebar_cursor(
-    sidebar: Res<Sidebar>,
-    mut held: Local<bool>,
-    cursor: Option<ResMut<OverrideCursor>>,
-) {
-    hold_drag_cursor(
-        sidebar.resizing(),
-        &mut held,
-        cursor,
-        SystemCursorIcon::ColResize,
-    );
+    area.reserve_left(sidebar.current_width(window.width()));
 }
 
 pub fn toggle_sidebar(
@@ -344,6 +294,7 @@ pub fn toggle_sidebar(
 /// Match the sidebar's chrome to its current width and state.
 pub fn update_sidebar(
     sidebar: Res<Sidebar>,
+    windows: Query<&Window>,
     mut roots: Query<&mut Node, (With<SidebarRoot>, Without<SidebarHandle>)>,
     mut handles: Query<&mut Node, (With<SidebarHandle>, Without<SidebarRoot>)>,
     mut content: Query<
@@ -368,7 +319,8 @@ pub fn update_sidebar(
     toggles: Query<&Children, With<SidebarToggle>>,
     mut texts: Query<&mut Text>,
 ) {
-    let width = sidebar.current_width();
+    let Ok(window) = windows.single() else { return };
+    let width = sidebar.current_width(window.width());
     for mut node in &mut roots {
         node.width = Val::Px(width);
     }
@@ -460,15 +412,9 @@ pub struct SidebarPlugin;
 
 impl Plugin for SidebarPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Sidebar>()
+        app.add_dock::<Sidebar>()
             .add_observer(toggle_sidebar)
             .add_observer(on_theme_pressed)
-            .add_systems(
-                Update,
-                (resize_sidebar, sidebar_cursor)
-                    .chain()
-                    .in_set(Stage::DockInput),
-            )
             .add_systems(Update, reserve_space.in_set(Stage::DockReserve))
             .add_systems(
                 Update,
@@ -499,11 +445,22 @@ mod tests {
         let mut sidebar = Sidebar {
             width: 320.0,
             collapsed: true,
+        };
+        assert_eq!(sidebar.current_width(1600.0), RIBBON_PX);
+        sidebar.collapsed = false;
+        assert_eq!(sidebar.current_width(1600.0), 320.0);
+    }
+
+    #[test]
+    fn narrowing_the_window_narrows_a_wide_sidebar() {
+        // Dragged to half a wide window, then the window halved: left at its
+        // width, it and the inspector could cover every frame between them.
+        let sidebar = Sidebar {
+            width: 800.0,
             ..Default::default()
         };
-        assert_eq!(sidebar.current_width(), RIBBON_PX);
-        sidebar.collapsed = false;
-        assert_eq!(sidebar.current_width(), 320.0);
+        assert_eq!(sidebar.current_width(1600.0), 800.0);
+        assert_eq!(sidebar.current_width(800.0), 400.0);
     }
 
     #[test]

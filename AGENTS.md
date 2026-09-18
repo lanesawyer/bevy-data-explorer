@@ -113,7 +113,8 @@ re-measuring will regress something:
   it writes a default back, silently breaks every other control's cursor — the
   sidebar's did, and the log panel's resize cursor never showed. Put an
   `EntityCursor` on the hovered entity, and hold a cursor through a drag with
-  `widgets::hold_drag_cursor`.
+  `hold_drag_cursor` in `widgets/dock.rs`. A new dock gets both, and its
+  drag, by implementing `widgets::Dock` and registering with `add_dock`.
 - **Chrome that overlaps the grid needs `BlocksFrameInput`** and, if it holds
   no buttons, an `Interaction` of its own — otherwise the pointer falls through
   to the frame behind.

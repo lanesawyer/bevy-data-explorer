@@ -8,10 +8,7 @@
 //! rather than being somewhere to put things permanently.
 
 use bevy::prelude::*;
-use bevy::ui::{FocusPolicy, Interaction};
-use bevy::window::SystemCursorIcon;
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
@@ -21,17 +18,15 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::{Boot, Stage};
 use crate::source::{DataSource, SourceStatus};
 use crate::view::{BlocksFrameInput, FrameArea, PanelRequest, SelectedPanel, ShowsSource};
-use crate::widgets::{DOCK_HANDLE_Z, Icon, button_icon, hold_drag_cursor};
+use crate::widgets::{AddDock, Dock, DockEdge, HANDLE_PX, Icon, button_icon, dock_handle};
 
 const MIN_PX: f32 = 200.0;
 const MAX_FRACTION: f32 = 0.5;
-const HANDLE_PX: f32 = 6.0;
 
 #[derive(Resource)]
 pub struct Inspector {
     pub width: f32,
     pub open: bool,
-    resizing: bool,
 }
 
 impl Default for Inspector {
@@ -39,30 +34,45 @@ impl Default for Inspector {
         Inspector {
             width: 300.0,
             open: false,
-            resizing: false,
         }
     }
 }
 
 impl Inspector {
-    pub fn current_width(&self) -> f32 {
-        if self.open { self.width } else { 0.0 }
+    /// Width the inspector occupies in a window this wide: held to the most it
+    /// may take, as the sidebar's is, so narrowing the window cannot leave the
+    /// two covering every frame.
+    pub fn current_width(&self, window_width: f32) -> f32 {
+        if self.open {
+            self.width.min(max_width(window_width))
+        } else {
+            0.0
+        }
     }
 
-    pub fn resizing(&self) -> bool {
-        self.resizing
-    }
-
-    /// Width a drag to `cursor_x` should produce, measured from the right edge
-    /// since the inspector is docked there.
+    /// Width a drag reaching `from_right` in from the right edge should
+    /// produce.
     ///
     /// Always a usable width. Dragging does not close the inspector: squeezing
     /// it to nothing leaves a dock that is still open but invisible, with no
     /// edge left to grab. Closing is the X button's job.
-    fn width_for_drag(cursor_x: f32, window_width: f32) -> f32 {
-        let from_right = window_width - cursor_x;
-        from_right.clamp(MIN_PX, (window_width * MAX_FRACTION).max(MIN_PX))
+    fn width_for_drag(from_right: f32, window_width: f32) -> f32 {
+        from_right.clamp(MIN_PX, max_width(window_width))
     }
+}
+
+impl Dock for Inspector {
+    type Handle = InspectorHandle;
+    const EDGE: DockEdge = DockEdge::Right;
+
+    fn drag_to(&mut self, reach: f32, span: f32) {
+        self.width = Inspector::width_for_drag(reach, span);
+    }
+}
+
+/// The widest the inspector may be in a window this wide.
+fn max_width(window_width: f32) -> f32 {
+    (window_width * MAX_FRACTION).max(MIN_PX)
 }
 
 #[derive(Component, Clone, Default)]
@@ -128,21 +138,10 @@ fn spawn_inspector(mut commands: Commands) {
 
     commands.spawn_scene(bsn! {
         InspectorHandle
-        // Not a button, as in the sidebar: a press without the chrome.
-        Interaction
-        template_value(FocusPolicy::Block)
-        BlocksFrameInput
-        // See `hold_drag_cursor` for why the cursor is named here.
-        EntityCursor::System(SystemCursorIcon::ColResize)
-        GlobalZIndex({ DOCK_HANDLE_Z })
+        dock_handle(DockEdge::Right)
         Node {
-            position_type: { PositionType::Absolute },
-            top: { Val::Px(0.0) },
-            width: { Val::Px(HANDLE_PX) },
-            height: { Val::Percent(100.0) },
             display: { Display::None },
         }
-        ThemeBackgroundColor({ tokens::BUTTON_BG })
     });
 }
 
@@ -169,48 +168,13 @@ pub fn close_inspector(
 }
 
 /// Take the inspector's width off the frame grid.
-pub fn reserve_space(inspector: Res<Inspector>, mut area: ResMut<FrameArea>) {
-    area.reserve_right(inspector.current_width());
-}
-
-/// Drag the edge to resize, or far enough right to close.
-pub fn resize_inspector(
-    mut inspector: ResMut<Inspector>,
+pub fn reserve_space(
+    inspector: Res<Inspector>,
     windows: Query<&Window>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    handle: Query<&Interaction, With<InspectorHandle>>,
+    mut area: ResMut<FrameArea>,
 ) {
     let Ok(window) = windows.single() else { return };
-
-    if handle.iter().any(|i| *i == Interaction::Pressed) {
-        inspector.resizing = true;
-    }
-    if !mouse.pressed(MouseButton::Left) {
-        inspector.resizing = false;
-        return;
-    }
-    if !inspector.resizing {
-        return;
-    }
-
-    let Some(cursor) = window.cursor_position() else {
-        return;
-    };
-    inspector.width = Inspector::width_for_drag(cursor.x, window.width());
-}
-
-/// Show a resize cursor over the drag handle, and for as long as a drag lasts.
-pub fn inspector_cursor(
-    inspector: Res<Inspector>,
-    mut held: Local<bool>,
-    cursor: Option<ResMut<OverrideCursor>>,
-) {
-    hold_drag_cursor(
-        inspector.resizing(),
-        &mut held,
-        cursor,
-        SystemCursorIcon::ColResize,
-    );
+    area.reserve_right(inspector.current_width(window.width()));
 }
 
 /// Match the inspector's chrome to its width, and fill it from the selection.
@@ -227,7 +191,7 @@ pub fn update_inspector(
     bodies: Query<Entity, With<InspectorBody>>,
 ) {
     let Ok(window) = windows.single() else { return };
-    let width = inspector.current_width();
+    let width = inspector.current_width(window.width());
     let shown = if inspector.open {
         Display::Flex
     } else {
@@ -282,14 +246,9 @@ pub struct InspectorPlugin;
 
 impl Plugin for InspectorPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Inspector>()
+        app.add_dock::<Inspector>()
             .add_observer(close_inspector)
-            .add_systems(
-                Update,
-                (open_on_request, resize_inspector, inspector_cursor)
-                    .chain()
-                    .in_set(Stage::DockInput),
-            )
+            .add_systems(Update, open_on_request.in_set(Stage::DockInput))
             .add_systems(Update, reserve_space.in_set(Stage::DockReserve))
             .add_systems(Update, update_inspector.in_set(Stage::Chrome))
             .add_systems(Startup, spawn_inspector.in_set(Boot::Shell));
@@ -304,36 +263,40 @@ mod tests {
     fn a_closed_inspector_takes_no_space_from_the_grid() {
         let mut inspector = Inspector::default();
         assert!(!inspector.open);
-        assert_eq!(inspector.current_width(), 0.0);
+        assert_eq!(inspector.current_width(1600.0), 0.0);
         inspector.open = true;
-        assert_eq!(inspector.current_width(), 300.0);
-    }
-
-    #[test]
-    fn dragging_measures_from_the_right_edge() {
-        // Docked right, so a cursor far from that edge means a wide panel.
-        assert_eq!(Inspector::width_for_drag(1200.0, 1600.0), 400.0);
+        assert_eq!(inspector.current_width(1600.0), 300.0);
     }
 
     #[test]
     fn dragging_never_squeezes_the_inspector_away() {
         // Collapsed to nothing it would still be open, with no edge left to
         // grab and no way back. Closing belongs to the X button.
-        for cursor in [1400.0, 1590.0, 1600.0, 2000.0] {
-            assert_eq!(Inspector::width_for_drag(cursor, 1600.0), MIN_PX);
+        for reach in [200.0, 10.0, 0.0, -400.0] {
+            assert_eq!(Inspector::width_for_drag(reach, 1600.0), MIN_PX);
         }
     }
 
     #[test]
     fn dragging_is_clamped_to_half_the_window() {
-        assert_eq!(Inspector::width_for_drag(100.0, 1600.0), 800.0);
+        assert_eq!(Inspector::width_for_drag(400.0, 1600.0), 400.0);
+        assert_eq!(Inspector::width_for_drag(1500.0, 1600.0), 800.0);
     }
 
     #[test]
     fn a_narrow_window_does_not_invert_the_clamp() {
         // Half a small window is under the minimum; the result must still be a
         // width the grid can survive.
-        assert_eq!(Inspector::width_for_drag(0.0, 300.0), MIN_PX);
+        assert_eq!(Inspector::width_for_drag(300.0, 300.0), MIN_PX);
+    }
+
+    #[test]
+    fn narrowing_the_window_narrows_a_wide_inspector() {
+        let inspector = Inspector {
+            width: 800.0,
+            open: true,
+        };
+        assert_eq!(inspector.current_width(800.0), 400.0);
     }
 
     #[test]
