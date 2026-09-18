@@ -7,18 +7,15 @@
 //! node visited is drawn, so zooming in genuinely increases point density
 //! rather than swapping one level for another.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::app::net::{Fetching, fetching};
+use crate::app::net::fetching;
 use bevy::camera::visibility::RenderLayers;
-use bevy::mesh::Mesh;
 use bevy::prelude::*;
 
 use crate::app::schedule::Stage;
-use crate::formats::scatterbrain::nodes::{
-    NodeOutcome, NodePoints, PICK_PX, build_mesh, load_node, pick_reach,
-};
+use crate::formats::scatterbrain::nodes::{NodeCache, NodeOutcome, PICK_PX, load_node, pick_reach};
 use crate::formats::scatterbrain::{Rect, Scatterbrain, Slide};
 use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::hover::{HoverInfo, HoverProbe};
@@ -30,33 +27,17 @@ use crate::view::ShowsSource;
 /// screen pixels. Lower values load deeper, denser detail sooner.
 const SUBDIVIDE_PX: f32 = 420.0;
 
-/// Ceiling on points held on the GPU. Reached only when zoomed into a dense
+/// Maximum points held on the GPU. Reached only when zoomed into a dense
 /// region; nodes beyond it are simply not requested.
-/// Maximum points held on the GPU.
 ///
 /// Each point is a quad so it can be given a size: four vertices of position,
 /// packed colour and corner, or [`crate::render::points::BYTES_PER_POINT`].
 pub const DEFAULT_POINT_BUDGET: usize = 3_000_000;
 
-const MAX_IN_FLIGHT: usize = 12;
-
 #[derive(Component)]
 /// Marks a spawned point-cloud node. Which node it is lives in the
 /// streamer's slot map.
 pub struct PointNode;
-
-enum Slot {
-    Loading(Fetching<NodeOutcome>),
-    Ready {
-        entity: Entity,
-        points: usize,
-        resident: NodePoints,
-    },
-    /// Loaded, and the filters left nothing of it. Nothing is spawned for a
-    /// node like this: see the note where it is built.
-    Empty,
-    Failed,
-}
 
 /// A point found under the pointer.
 pub struct Hit {
@@ -85,18 +66,8 @@ pub struct PointStreamer {
     pub selection: CellSelection,
     /// Which slide this panel draws. Single-cloud datasets have only one.
     pub slide: usize,
-    slots: HashMap<usize, Slot>,
-    wanted: Vec<usize>,
-    /// Nodes of the selection being replaced, kept on screen until the new one
-    /// is built. Empty except while a swap is pending.
-    retiring: Vec<Entity>,
-    pub in_flight: usize,
-    /// Reads given up on because the view moved off them, counted for the
-    /// status line: it is the number that says whether panning is costing
-    /// anything.
-    pub cancelled: usize,
-    pub resident_points: usize,
-    pub budget: usize,
+    /// Keyed by node index within the slide.
+    nodes: NodeCache<usize>,
     pub deepest: usize,
 }
 
@@ -107,74 +78,8 @@ impl PointStreamer {
             selection: CellSelection::default(),
             cloud,
             slide: 0,
-            slots: HashMap::new(),
-            wanted: Vec::new(),
-            retiring: Vec::new(),
-            in_flight: 0,
-            cancelled: 0,
-            resident_points: 0,
-            budget: DEFAULT_POINT_BUDGET,
+            nodes: NodeCache::new(DEFAULT_POINT_BUDGET),
             deepest: 0,
-        }
-    }
-
-    /// Start every node again, keeping what is on screen until the new set is
-    /// built.
-    ///
-    /// Colouring and filtering decide what a node's vertices are, and the raw
-    /// columns are not kept once a node is built, so changing either means
-    /// loading them afresh. Despawning them here is what made the cloud blink
-    /// away for as long as that took; instead they are handed to
-    /// [`Self::reveal`], which drops them only once their replacements are all
-    /// resident.
-    pub fn retire(&mut self, commands: &mut Commands) {
-        // A second change while a swap is pending: what is in the slots this
-        // time has never been shown and is already out of date, while the nodes
-        // retired earlier are still the last complete picture there was.
-        let pending = self.swapping();
-        for slot in self.slots.values() {
-            if let Slot::Ready { entity, .. } = slot {
-                if pending {
-                    commands.entity(*entity).despawn();
-                } else {
-                    self.retiring.push(*entity);
-                }
-            }
-        }
-        self.slots.clear();
-        self.in_flight = 0;
-        self.resident_points = 0;
-    }
-
-    /// Whether nodes are being held on screen while their replacements load.
-    pub fn swapping(&self) -> bool {
-        !self.retiring.is_empty()
-    }
-
-    /// Whether everything the current selection asked for has been built.
-    ///
-    /// Failed nodes count as done: a node that cannot be read is not going to
-    /// arrive, and waiting on it would hold the previous selection on screen
-    /// for good.
-    fn generation_ready(&self) -> bool {
-        self.in_flight == 0
-            && self.wanted.iter().all(|index| {
-                matches!(
-                    self.slots.get(index),
-                    Some(Slot::Ready { .. } | Slot::Empty | Slot::Failed)
-                )
-            })
-    }
-
-    /// Show the new selection and drop the one it replaces.
-    fn reveal(&mut self, commands: &mut Commands) {
-        for entity in self.retiring.drain(..) {
-            commands.entity(entity).despawn();
-        }
-        for slot in self.slots.values() {
-            if let Slot::Ready { entity, .. } = slot {
-                commands.entity(*entity).insert(Visibility::Inherited);
-            }
         }
     }
 
@@ -184,13 +89,6 @@ impl PointStreamer {
 
     fn slide(&self) -> &Slide {
         &self.cloud.slides[self.slide]
-    }
-
-    pub fn loaded_nodes(&self) -> usize {
-        self.slots
-            .values()
-            .filter(|s| matches!(s, Slot::Ready { .. } | Slot::Empty))
-            .count()
     }
 
     /// The resident point nearest the probe, within a few pixels of it.
@@ -208,10 +106,7 @@ impl PointStreamer {
         let nodes = &self.cloud.slides[self.slide].nodes;
 
         let mut best: Option<(f32, Hit)> = None;
-        for (index, slot) in &self.slots {
-            let Slot::Ready { resident, .. } = slot else {
-                continue;
-            };
+        for (index, _, resident) in self.nodes.ready() {
             if !nodes[*index].bounds.intersects(&reach) {
                 continue;
             }
@@ -253,7 +148,7 @@ fn select_for(
     let slide = streamer.slide;
     let mut wanted = Vec::new();
     let mut deepest = 0usize;
-    let mut budget = streamer.budget;
+    let mut budget = streamer.nodes.budget;
     let mut seen = HashSet::new();
 
     // Every panel of this kind draws the same entities, so the resident set is
@@ -308,61 +203,27 @@ fn select_for(
     }
 
     streamer.deepest = deepest;
-    streamer.wanted = wanted;
+    streamer.nodes.want(wanted);
 }
 
 /// Fetch the coordinates and colour column for nodes that are not loaded yet.
 pub fn spawn_node_tasks(mut streamers: Query<&mut PointStreamer>) {
     for mut streamer in &mut streamers {
-        spawn_for(&mut streamer);
-    }
-}
-
-fn spawn_for(streamer: &mut PointStreamer) {
-    let cloud = streamer.cloud.clone();
-    let selection = streamer.selection.clone();
-    let slide = streamer.slide;
-    let wanted = std::mem::take(&mut streamer.wanted);
-
-    // Give up on nodes the view has moved off. Dropping the slot aborts the
-    // request behind it, which is the whole reason the reads are asynchronous:
-    // a pan across a cloud used to pay for every node it crossed, because a
-    // blocking read could only be declined before it started. It also frees a
-    // place in the queue below for a node that is wanted.
-    let keep: HashSet<usize> = wanted.iter().copied().collect();
-    let mut cancelled = 0usize;
-    streamer.slots.retain(|index, slot| {
-        let loading = matches!(slot, Slot::Loading(_));
-        if loading && !keep.contains(index) {
-            cancelled += 1;
-            return false;
-        }
-        true
-    });
-    streamer.in_flight = streamer.in_flight.saturating_sub(cancelled);
-    streamer.cancelled += cancelled;
-
-    for &index in &wanted {
-        if streamer.in_flight >= MAX_IN_FLIGHT {
-            break;
-        }
-        if streamer.slots.contains_key(&index) {
-            continue;
-        }
-
-        let cloud = cloud.clone();
-        let selection = selection.clone();
-        let task = fetching(async move {
-            let node = &cloud.slides[slide].nodes[index];
-            match load_node(&cloud, node, &selection).await {
-                Ok((positions, categories)) => NodeOutcome::Ready(positions, categories),
-                Err(e) => NodeOutcome::Failed(e),
-            }
+        let cloud = streamer.cloud.clone();
+        let selection = streamer.selection.clone();
+        let slide = streamer.slide;
+        streamer.nodes.start(|index| {
+            let cloud = cloud.clone();
+            let selection = selection.clone();
+            fetching(async move {
+                let node = &cloud.slides[slide].nodes[index];
+                match load_node(&cloud, node, &selection).await {
+                    Ok((positions, categories)) => NodeOutcome::Ready(positions, categories),
+                    Err(e) => NodeOutcome::Failed(e),
+                }
+            })
         });
-        streamer.slots.insert(index, Slot::Loading(task));
-        streamer.in_flight += 1;
     }
-    streamer.wanted = wanted;
 }
 
 /// Turn finished fetches into meshes.
@@ -374,79 +235,32 @@ pub fn collect_node_tasks(
     mut materials: ResMut<Assets<PointMaterial>>,
 ) {
     for mut streamer in &mut streamers {
-        collect_for(
-            &mut commands,
-            &mut streamer,
-            &sources,
-            &mut meshes,
-            &mut materials,
-        );
-    }
-}
-
-fn collect_for(
-    commands: &mut Commands,
-    streamer: &mut PointStreamer,
-    sources: &Query<&DataSource>,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<PointMaterial>,
-) {
-    let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
-        return;
-    };
-    let mut finished = Vec::new();
-    for (index, slot) in &mut streamer.slots {
-        let Slot::Loading(task) = slot else { continue };
-        if let Some(outcome) = task.take() {
-            finished.push((*index, outcome));
-        }
-    }
-
-    for (index, outcome) in finished {
-        streamer.in_flight = streamer.in_flight.saturating_sub(1);
-        let slot = match outcome {
-            // A filter can leave a node with nothing in it. Spawning it anyway
-            // costs an entity and a draw call to draw no points, and Bevy's mesh
-            // allocator skips allocating a zero-length vertex buffer while still
-            // copying into it, which it reports as a use-after-free for as long
-            // as the node stays resident.
-            NodeOutcome::Ready(positions, _) if positions.is_empty() => Slot::Empty,
-            NodeOutcome::Ready(positions, categories) => {
-                let count = positions.len();
-                let mesh = build_mesh(&positions, &categories);
-                let entity = commands
-                    .spawn((
-                        Mesh2d(meshes.add(mesh)),
-                        MeshMaterial2d(materials.add(PointMaterial::default())),
-                        Transform::default(),
-                        RenderLayers::layer(layer),
-                        PointNode,
-                        // Held back while the selection it replaces is still on
-                        // screen: showing each node as it arrived would draw
-                        // the new picture half-built over the old one.
-                        if streamer.swapping() {
-                            Visibility::Hidden
-                        } else {
-                            Visibility::Inherited
-                        },
-                    ))
-                    .id();
-                streamer.resident_points += count;
-                Slot::Ready {
-                    entity,
-                    points: count,
-                    resident: NodePoints {
-                        positions,
-                        categories,
-                    },
-                }
-            }
-            NodeOutcome::Failed(e) => {
-                warn!("point node {}: {e}", streamer.slide().nodes[index].name);
-                Slot::Failed
-            }
+        let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
+            continue;
         };
-        streamer.slots.insert(index, slot);
+        // Held back while the selection it replaces is still on screen:
+        // showing each node as it arrived would draw the new picture
+        // half-built over the old one.
+        let visibility = if streamer.nodes.swapping() {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+        let failed = streamer.nodes.collect(|_, mesh| {
+            commands
+                .spawn((
+                    Mesh2d(meshes.add(mesh)),
+                    MeshMaterial2d(materials.add(PointMaterial::default())),
+                    Transform::default(),
+                    RenderLayers::layer(layer),
+                    PointNode,
+                    visibility,
+                ))
+                .id()
+        });
+        for (index, e) in failed {
+            warn!("point node {}: {e}", streamer.slide().nodes[index].name);
+        }
     }
 }
 
@@ -460,51 +274,21 @@ pub fn swap_generations(mut commands: Commands, mut streamers: Query<&mut PointS
     for mut streamer in &mut streamers {
         // Read before touching it: taking the streamer mutably every frame
         // would mark it changed for everything watching.
-        if !streamer.swapping() || !streamer.generation_ready() {
+        if !streamer.nodes.swapping() || !streamer.nodes.generation_ready() {
             continue;
         }
-        streamer.reveal(&mut commands);
+        streamer.nodes.reveal(&mut commands, |_| true);
     }
 }
 
 /// Drop nodes that are no longer wanted once the budget is exceeded.
 pub fn evict_nodes(mut commands: Commands, mut streamers: Query<&mut PointStreamer>) {
     for mut streamer in &mut streamers {
-        evict_for(&mut commands, &mut streamer);
-    }
-}
-
-fn evict_for(commands: &mut Commands, streamer: &mut PointStreamer) {
-    let wanted: HashSet<usize> = streamer.wanted.iter().copied().collect();
-    if wanted.is_empty() || streamer.resident_points <= streamer.budget {
-        return;
-    }
-
-    // Shallow nodes are cheap to keep and are needed at every zoom level, so
-    // discard the deepest unwanted nodes first.
-    let cloud = streamer.cloud.clone();
-    let slide = streamer.slide;
-    let mut candidates: Vec<(usize, usize, usize)> = streamer
-        .slots
-        .iter()
-        .filter(|(index, _)| !wanted.contains(*index))
-        .filter_map(|(index, slot)| match slot {
-            Slot::Ready { points, .. } => {
-                Some((cloud.slides[slide].nodes[*index].depth, *points, *index))
-            }
-            _ => None,
-        })
-        .collect();
-    candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
-
-    for (_, points, index) in candidates {
-        if streamer.resident_points <= streamer.budget {
-            break;
-        }
-        if let Some(Slot::Ready { entity, .. }) = streamer.slots.remove(&index) {
-            commands.entity(entity).despawn();
-            streamer.resident_points = streamer.resident_points.saturating_sub(points);
-        }
+        let cloud = streamer.cloud.clone();
+        let slide = streamer.slide;
+        streamer.nodes.evict(&mut commands, |index| {
+            cloud.slides[slide].nodes[*index].depth
+        });
     }
 }
 
@@ -525,7 +309,7 @@ fn apply_selection(
         let selection = properties.selection();
         if streamer.selection != selection {
             streamer.selection = selection;
-            streamer.retire(&mut commands);
+            streamer.nodes.retire(&mut commands);
         }
     }
 }
@@ -600,7 +384,7 @@ pub fn spawn_source(
     ));
 
     let mut streamer = PointStreamer::new(cloud, source);
-    streamer.budget = budget;
+    streamer.nodes.budget = budget;
     world.entity_mut(source).insert(streamer);
     source
 }
@@ -674,7 +458,7 @@ fn report_status(
 ) {
     for streamer in &streamers {
         if let Ok(mut busy) = busy.get_mut(streamer.source) {
-            busy.set_if_neq(SourceBusy(streamer.in_flight > 0));
+            busy.set_if_neq(SourceBusy(streamer.nodes.busy()));
         }
         report_for(streamer, &mut sources);
     }
@@ -698,26 +482,15 @@ fn report_for(streamer: &PointStreamer, sources: &mut Query<&mut SourceStatus>) 
         })
         .unwrap_or_else(|| "none".into());
 
-    let given_up = if streamer.cancelled > 0 {
-        format!(", {} cancelled", streamer.cancelled)
-    } else {
-        String::new()
-    };
-
     status.0 = format!(
         "{} points in {} octree nodes, depth {}\n\
-         showing depth {}, {} nodes loaded, {} loading{given_up}\n\
-         {} / {} points resident ({} MB)\n\
+         showing depth {}, {}\n\
          colour by  {}",
         cloud.total_points(),
         cloud.node_count(),
         cloud.max_depth(),
         streamer.deepest,
-        streamer.loaded_nodes(),
-        streamer.in_flight,
-        streamer.resident_points,
-        streamer.budget,
-        crate::render::points::budget_megabytes(streamer.resident_points),
+        streamer.nodes.status(),
         colour,
     );
 }
@@ -752,76 +525,6 @@ mod tests {
             }
         }
         wanted
-    }
-
-    /// A streamer with `nodes` asked for and the first `built` of them resident.
-    fn staged(asked: &[usize], built: usize) -> PointStreamer {
-        let mut streamer = PointStreamer::new(Arc::new(cloud()), Entity::PLACEHOLDER);
-        streamer.wanted = asked.to_vec();
-        for index in &asked[..built] {
-            streamer.slots.insert(
-                *index,
-                Slot::Ready {
-                    entity: Entity::PLACEHOLDER,
-                    points: 1,
-                    resident: NodePoints {
-                        positions: vec![[0.0, 0.0]],
-                        categories: Vec::new(),
-                    },
-                },
-            );
-        }
-        streamer
-    }
-
-    #[test]
-    fn a_selection_is_shown_only_once_every_node_it_asked_for_is_built() {
-        // The whole point of holding the previous nodes on screen: revealing a
-        // half-built set is the flash, drawn over the old picture instead of
-        // replacing it.
-        let mut streamer = staged(&[0, 1, 2], 2);
-        assert!(!streamer.generation_ready(), "one node is still missing");
-
-        streamer = staged(&[0, 1, 2], 3);
-        assert!(streamer.generation_ready());
-    }
-
-    #[test]
-    fn a_node_still_loading_holds_the_swap() {
-        let mut streamer = staged(&[0, 1], 2);
-        streamer.in_flight = 1;
-        assert!(!streamer.generation_ready());
-    }
-
-    #[test]
-    fn a_node_that_cannot_be_read_does_not_hold_the_swap_for_good() {
-        // Waiting on a node that will never arrive would leave the previous
-        // selection on screen with no way back.
-        let mut streamer = staged(&[0, 1], 1);
-        streamer.slots.insert(1, Slot::Failed);
-        assert!(streamer.generation_ready());
-    }
-
-    #[test]
-    fn a_node_the_filter_emptied_counts_as_arrived() {
-        // Nothing is spawned for it, so the swap has nothing to wait for.
-        let mut streamer = staged(&[0, 1], 1);
-        streamer.slots.insert(1, Slot::Empty);
-        assert!(streamer.generation_ready());
-        assert_eq!(streamer.loaded_nodes(), 2);
-    }
-
-    #[test]
-    fn a_selection_that_asks_for_nothing_is_ready_at_once() {
-        // Panned off the data there is nothing to wait for, and nothing to show.
-        assert!(staged(&[], 0).generation_ready());
-    }
-
-    #[test]
-    fn nothing_is_held_back_when_there_was_nothing_on_screen() {
-        // The first selection has no previous picture to protect, so its nodes
-        // are drawn as they arrive rather than waiting for the whole set.
-        assert!(!staged(&[0, 1], 1).swapping());
     }
 
     #[test]
@@ -895,17 +598,9 @@ mod tests {
     /// A streamer with one node already resident, holding `points`.
     fn resident(points: &[[f32; 2]], categories: &[u16]) -> PointStreamer {
         let mut streamer = PointStreamer::new(Arc::new(cloud()), Entity::PLACEHOLDER);
-        streamer.slots.insert(
-            0,
-            Slot::Ready {
-                entity: Entity::PLACEHOLDER,
-                points: points.len(),
-                resident: NodePoints {
-                    positions: points.to_vec(),
-                    categories: categories.to_vec(),
-                },
-            },
-        );
+        streamer
+            .nodes
+            .landed(0, NodeOutcome::Ready(points.to_vec(), categories.to_vec()));
         streamer
     }
 
@@ -1038,27 +733,5 @@ mod tests {
             "the tooltip should name the value, not its code"
         );
         assert!(info.rows[1].1.ends_with("um"));
-    }
-
-    #[test]
-    fn a_mesh_without_categories_still_builds() {
-        let mesh = build_mesh(&[[0.0, 0.0], [1.0, 1.0]], &[]);
-        // Four vertices per point: each is drawn as a quad so that it can be
-        // given a size.
-        assert_eq!(mesh.count_vertices(), 8);
-        assert!(
-            mesh.attribute(crate::render::points::ATTRIBUTE_POINT_COLOR)
-                .is_some()
-        );
-    }
-
-    #[test]
-    fn meshes_flip_y_to_match_the_image_panel() {
-        let mesh = build_mesh(&[[2.0, 3.0]], &[]);
-        let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap();
-        let bevy::mesh::VertexAttributeValues::Float32x3(values) = positions else {
-            panic!("unexpected position format");
-        };
-        assert_eq!(values[0], [2.0, -3.0, 0.0]);
     }
 }

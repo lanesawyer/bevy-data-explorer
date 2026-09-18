@@ -9,17 +9,15 @@
 //! The offset lives on each node's transform, so switching modes only rewrites
 //! transforms and visibility. Nothing is refetched.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::app::net::{Fetching, fetching};
+use crate::app::net::fetching;
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 
 use crate::app::schedule::Stage;
-use crate::formats::scatterbrain::nodes::{
-    NodeOutcome, NodePoints, PICK_PX, build_mesh, load_node, pick_reach,
-};
+use crate::formats::scatterbrain::nodes::{NodeCache, NodeOutcome, PICK_PX, load_node, pick_reach};
 use crate::formats::scatterbrain::{Rect, Scatterbrain};
 use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::ViewLimits;
@@ -34,8 +32,6 @@ const SUBDIVIDE_PX: f32 = 420.0;
 
 /// Gap between grid cells, as a fraction of the cell size.
 const CELL_PADDING: f32 = 0.06;
-
-const MAX_IN_FLIGHT: usize = 12;
 
 /// Maximum points held on the GPU.
 ///
@@ -68,19 +64,6 @@ pub struct SliceNode {
 #[derive(Component)]
 pub struct SliceNodeTag;
 
-enum Slot {
-    Loading(Fetching<NodeOutcome>),
-    Ready {
-        entity: Entity,
-        points: usize,
-        resident: NodePoints,
-    },
-    /// Loaded, and the filters left nothing of it. Nothing is spawned for a
-    /// node like this: see the note where it is built.
-    Empty,
-    Failed,
-}
-
 /// Whether a node is drawn, as the component that says so.
 fn visibility_of(shown: bool) -> Visibility {
     if shown {
@@ -112,18 +95,7 @@ pub struct SliceStreamer {
     pub current: usize,
     /// Where each slide sits, by mode.
     layout: Layout,
-    slots: HashMap<SliceNode, Slot>,
-    wanted: Vec<SliceNode>,
-    /// Nodes of the selection being replaced, kept on screen until the new one
-    /// is built. Empty except while a swap is pending, and keyed so that a mode
-    /// change lays them out like any other node.
-    retiring: Vec<(SliceNode, Entity)>,
-    pub in_flight: usize,
-    /// Reads given up on because the view moved off them, counted for the
-    /// status line.
-    pub cancelled: usize,
-    pub resident_points: usize,
-    pub budget: usize,
+    nodes: NodeCache<SliceNode>,
     /// Set when the mode or slice changed and the camera should refit.
     pub refit: bool,
 }
@@ -185,79 +157,8 @@ impl SliceStreamer {
             mode: SliceMode::Grid,
             current: 0,
             layout,
-            slots: HashMap::new(),
-            wanted: Vec::new(),
-            retiring: Vec::new(),
-            in_flight: 0,
-            cancelled: 0,
-            resident_points: 0,
-            budget: DEFAULT_SLICE_BUDGET,
+            nodes: NodeCache::new(DEFAULT_SLICE_BUDGET),
             refit: true,
-        }
-    }
-
-    /// Start every node again, keeping what is on screen until the new set is
-    /// built.
-    ///
-    /// Colouring and filtering decide what a node's vertices are, and the raw
-    /// columns are not kept once a node is built, so changing either means
-    /// loading them afresh. Despawning them here is what made the sections blink
-    /// away for as long as that took; instead they are handed to
-    /// [`Self::reveal`], which drops them only once their replacements are all
-    /// resident.
-    pub fn retire(&mut self, commands: &mut Commands) {
-        // A second change while a swap is pending: what is in the slots this
-        // time has never been shown and is already out of date, while the nodes
-        // retired earlier are still the last complete picture there was.
-        let pending = self.swapping();
-        for (key, slot) in &self.slots {
-            if let Slot::Ready { entity, .. } = slot {
-                if pending {
-                    commands.entity(*entity).despawn();
-                } else {
-                    self.retiring.push((*key, *entity));
-                }
-            }
-        }
-        self.slots.clear();
-        self.in_flight = 0;
-        self.resident_points = 0;
-    }
-
-    /// Whether nodes are being held on screen while their replacements load.
-    pub fn swapping(&self) -> bool {
-        !self.retiring.is_empty()
-    }
-
-    /// Whether everything the current selection asked for has been built.
-    ///
-    /// Failed nodes count as done: a node that cannot be read is not going to
-    /// arrive, and waiting on it would hold the previous selection on screen
-    /// for good.
-    fn generation_ready(&self) -> bool {
-        self.in_flight == 0
-            && self.wanted.iter().all(|key| {
-                matches!(
-                    self.slots.get(key),
-                    Some(Slot::Ready { .. } | Slot::Empty | Slot::Failed)
-                )
-            })
-    }
-
-    /// Show the new selection and drop the one it replaces.
-    ///
-    /// Revealing goes through the same rule as the layout, so a slide hidden by
-    /// the current mode stays hidden.
-    fn reveal(&mut self, commands: &mut Commands) {
-        for (_, entity) in self.retiring.drain(..) {
-            commands.entity(entity).despawn();
-        }
-        for (key, slot) in &self.slots {
-            if let Slot::Ready { entity, .. } = slot {
-                commands
-                    .entity(*entity)
-                    .insert(visibility_of(self.visible(key.slide)));
-            }
         }
     }
 
@@ -267,13 +168,6 @@ impl SliceStreamer {
 
     pub fn columns(&self) -> usize {
         self.layout.columns
-    }
-
-    pub fn loaded_nodes(&self) -> usize {
-        self.slots
-            .values()
-            .filter(|s| matches!(s, Slot::Ready { .. } | Slot::Empty))
-            .count()
     }
 
     /// Translation applied to a slide's points in the current mode.
@@ -303,10 +197,7 @@ impl SliceStreamer {
         let limit = radius * radius;
 
         let mut best: Option<(f32, SliceHit)> = None;
-        for (key, slot) in &self.slots {
-            let Slot::Ready { resident, .. } = slot else {
-                continue;
-            };
+        for (key, _, resident) in self.nodes.ready() {
             if !self.visible(key.slide) {
                 continue;
             }
@@ -521,7 +412,7 @@ pub fn select_slice_nodes(
         // detail rather than dropping whole slices out of the grid.
         candidates.sort_by_key(|(depth, _)| *depth);
 
-        let mut budget = streamer.budget;
+        let mut budget = streamer.nodes.budget;
         let mut wanted = Vec::with_capacity(candidates.len());
         for (_, key) in candidates {
             let count = cloud.slides[key.slide].nodes[key.node].count as usize;
@@ -532,7 +423,7 @@ pub fn select_slice_nodes(
             wanted.push(key);
         }
 
-        streamer.wanted = wanted;
+        streamer.nodes.want(wanted);
     }
 }
 
@@ -540,44 +431,18 @@ pub fn spawn_slice_tasks(mut streamers: Query<&mut SliceStreamer>) {
     for mut streamer in &mut streamers {
         let cloud = streamer.cloud.clone();
         let selection = streamer.selection.clone();
-        let wanted = std::mem::take(&mut streamer.wanted);
-
-        // Give up on nodes the view has moved off — stepping to another slice
-        // abandons a whole grid's worth at once. Dropping the slot aborts the
-        // request behind it, and frees a place in the queue below.
-        let keep: HashSet<SliceNode> = wanted.iter().copied().collect();
-        let mut cancelled = 0usize;
-        streamer.slots.retain(|key, slot| {
-            if matches!(slot, Slot::Loading(_)) && !keep.contains(key) {
-                cancelled += 1;
-                return false;
-            }
-            true
-        });
-        streamer.in_flight = streamer.in_flight.saturating_sub(cancelled);
-        streamer.cancelled += cancelled;
-
-        for &key in &wanted {
-            if streamer.in_flight >= MAX_IN_FLIGHT {
-                break;
-            }
-            if streamer.slots.contains_key(&key) {
-                continue;
-            }
-
+        // Stepping to another slice abandons a whole grid's worth at once.
+        streamer.nodes.start(|key| {
             let cloud = cloud.clone();
             let selection = selection.clone();
-            let task = fetching(async move {
+            fetching(async move {
                 let node = &cloud.slides[key.slide].nodes[key.node];
                 match load_node(&cloud, node, &selection).await {
                     Ok((positions, categories)) => NodeOutcome::Ready(positions, categories),
                     Err(e) => NodeOutcome::Failed(e),
                 }
-            });
-            streamer.slots.insert(key, Slot::Loading(task));
-            streamer.in_flight += 1;
-        }
-        streamer.wanted = wanted;
+            })
+        });
     }
 }
 
@@ -592,59 +457,33 @@ pub fn collect_slice_tasks(
         let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
             continue;
         };
-        let mut finished = Vec::new();
-        for (key, slot) in &mut streamer.slots {
-            let Slot::Loading(task) = slot else { continue };
-            if let Some(outcome) = task.take() {
-                finished.push((*key, outcome));
-            }
-        }
-
-        for (key, outcome) in finished {
-            streamer.in_flight = streamer.in_flight.saturating_sub(1);
-            let slot = match outcome {
-                // A filter can leave a node with nothing in it. Spawning it
-                // anyway costs an entity and a draw call to draw no points, and
-                // Bevy's mesh allocator skips allocating a zero-length vertex
-                // buffer while still copying into it, which it reports as a
-                // use-after-free for as long as the node stays resident.
-                NodeOutcome::Ready(positions, _) if positions.is_empty() => Slot::Empty,
-                NodeOutcome::Ready(positions, categories) => {
-                    let count = positions.len();
-                    let mesh = build_mesh(&positions, &categories);
-                    let offset = streamer.offset(key.slide);
-                    let entity = commands
-                        .spawn((
-                            Mesh2d(meshes.add(mesh)),
-                            MeshMaterial2d(materials.add(PointMaterial::default())),
-                            Transform::from_translation(offset.extend(0.0)),
-                            RenderLayers::layer(layer),
-                            SliceNodeTag,
-                            // Held back while the selection it replaces is still
-                            // on screen: showing each node as it arrived would
-                            // draw the new picture half-built over the old one.
-                            visibility_of(!streamer.swapping() && streamer.visible(key.slide)),
-                        ))
-                        .id();
-                    streamer.resident_points += count;
-                    Slot::Ready {
-                        entity,
-                        points: count,
-                        resident: NodePoints {
-                            positions,
-                            categories,
-                        },
-                    }
-                }
-                NodeOutcome::Failed(e) => {
-                    warn!(
-                        "slice node {}: {e}",
-                        streamer.cloud.slides[key.slide].nodes[key.node].name
-                    );
-                    Slot::Failed
-                }
-            };
-            streamer.slots.insert(key, slot);
+        // Where each slide sits and whether it is drawn, worked out before the
+        // nodes are borrowed to build into.
+        let placed: Vec<(Vec2, bool)> = (0..streamer.cloud.slides.len())
+            .map(|slide| (streamer.offset(slide), streamer.visible(slide)))
+            .collect();
+        let swapping = streamer.nodes.swapping();
+        let failed = streamer.nodes.collect(|key, mesh| {
+            let (offset, visible) = placed[key.slide];
+            commands
+                .spawn((
+                    Mesh2d(meshes.add(mesh)),
+                    MeshMaterial2d(materials.add(PointMaterial::default())),
+                    Transform::from_translation(offset.extend(0.0)),
+                    RenderLayers::layer(layer),
+                    SliceNodeTag,
+                    // Held back while the selection it replaces is still on
+                    // screen: showing each node as it arrived would draw the
+                    // new picture half-built over the old one.
+                    visibility_of(!swapping && visible),
+                ))
+                .id()
+        });
+        for (key, e) in failed {
+            warn!(
+                "slice node {}: {e}",
+                streamer.cloud.slides[key.slide].nodes[key.node].name
+            );
         }
     }
 }
@@ -659,10 +498,15 @@ pub fn swap_slice_generations(mut commands: Commands, mut streamers: Query<&mut 
     for mut streamer in &mut streamers {
         // Read before touching it: taking the streamer mutably every frame would
         // mark it changed for everything watching.
-        if !streamer.swapping() || !streamer.generation_ready() {
+        if !streamer.nodes.swapping() || !streamer.nodes.generation_ready() {
             continue;
         }
-        streamer.reveal(&mut commands);
+        // Through the same rule as the layout, so a slide hidden by the current
+        // mode stays hidden.
+        let shown: Vec<bool> = (0..streamer.cloud.slides.len())
+            .map(|slide| streamer.visible(slide))
+            .collect();
+        streamer.nodes.reveal(&mut commands, |key| shown[key.slide]);
     }
 }
 
@@ -682,12 +526,14 @@ pub fn apply_slice_layout(
         }
         // The nodes being replaced are laid out like any other: a mode change
         // mid-swap has to move what is on screen, not what is waiting behind it.
-        let staged = streamer.slots.iter().filter_map(|(key, slot)| match slot {
-            Slot::Ready { entity, .. } => Some((key.slide, *entity, !streamer.swapping())),
-            _ => None,
-        });
+        let showable = !streamer.nodes.swapping();
+        let staged = streamer
+            .nodes
+            .ready()
+            .map(|(key, entity, _)| (key.slide, entity, showable));
         let retiring = streamer
-            .retiring
+            .nodes
+            .retiring()
             .iter()
             .map(|(key, entity)| (key.slide, *entity, true));
 
@@ -762,35 +608,10 @@ pub fn refit_slice_camera(
 /// Drop nodes that are no longer wanted once the budget is exceeded.
 pub fn evict_slice_nodes(mut commands: Commands, mut streamers: Query<&mut SliceStreamer>) {
     for mut streamer in &mut streamers {
-        let wanted: HashSet<SliceNode> = streamer.wanted.iter().copied().collect();
-        if wanted.is_empty() || streamer.resident_points <= streamer.budget {
-            continue;
-        }
-
         let cloud = streamer.cloud.clone();
-        let mut candidates: Vec<(usize, usize, SliceNode)> = streamer
-            .slots
-            .iter()
-            .filter(|(key, _)| !wanted.contains(*key))
-            .filter_map(|(key, slot)| match slot {
-                Slot::Ready { points, .. } => {
-                    Some((cloud.slides[key.slide].nodes[key.node].depth, *points, *key))
-                }
-                _ => None,
-            })
-            .collect();
-        // Deepest first: shallow nodes are cheap and needed at every zoom level.
-        candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
-
-        for (_, points, key) in candidates {
-            if streamer.resident_points <= streamer.budget {
-                break;
-            }
-            if let Some(Slot::Ready { entity, .. }) = streamer.slots.remove(&key) {
-                commands.entity(entity).despawn();
-                streamer.resident_points = streamer.resident_points.saturating_sub(points);
-            }
-        }
+        streamer.nodes.evict(&mut commands, |key| {
+            cloud.slides[key.slide].nodes[key.node].depth
+        });
     }
 }
 
@@ -811,7 +632,7 @@ fn apply_selection(
         let selection = properties.selection();
         if streamer.selection != selection {
             streamer.selection = selection;
-            streamer.retire(&mut commands);
+            streamer.nodes.retire(&mut commands);
         }
     }
 }
@@ -882,7 +703,7 @@ pub fn spawn_source(world: &mut World, cloud: Arc<Scatterbrain>, budget: usize) 
     ));
 
     let mut streamer = SliceStreamer::new(cloud, source);
-    streamer.budget = budget;
+    streamer.nodes.budget = budget;
     world.entity_mut(source).insert(streamer);
     source
 }
@@ -963,7 +784,7 @@ fn report_status(
 ) {
     for streamer in &streamers {
         if let Ok(mut busy) = busy.get_mut(streamer.source) {
-            busy.set_if_neq(SourceBusy(streamer.in_flight > 0));
+            busy.set_if_neq(SourceBusy(streamer.nodes.busy()));
         }
         let Ok(mut status) = sources.get_mut(streamer.source) else {
             continue;
@@ -1003,18 +824,13 @@ fn report_status(
         status.0 = format!(
             "{} points in {} slices\n\
          {}\n\
-         {} nodes loaded, {} loading\n\
-         {} / {} points resident ({} MB)\n\
+         {}\n\
          colour by  {}\n\
          G grid/single · arrows or [ ] step slices",
             cloud.total_points(),
             cloud.slides.len(),
             showing,
-            streamer.loaded_nodes(),
-            streamer.in_flight,
-            streamer.resident_points,
-            streamer.budget,
-            crate::render::points::budget_megabytes(streamer.resident_points),
+            streamer.nodes.status(),
             colour,
         );
     }
@@ -1039,16 +855,9 @@ mod tests {
 
     /// Make one node of `slide` resident, holding a single point.
     fn resident(streamer: &mut SliceStreamer, slide: usize, point: [f32; 2], category: u16) {
-        streamer.slots.insert(
+        streamer.nodes.landed(
             SliceNode { slide, node: 0 },
-            Slot::Ready {
-                entity: Entity::PLACEHOLDER,
-                points: 1,
-                resident: NodePoints {
-                    positions: vec![point],
-                    categories: vec![category],
-                },
-            },
+            NodeOutcome::Ready(vec![point], vec![category]),
         );
     }
 
