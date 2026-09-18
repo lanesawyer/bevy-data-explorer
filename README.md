@@ -273,7 +273,7 @@ whatever the original happened to load.
 | `x` button | close that panel |
 | `i` button | open the inspector on that frame |
 | `3d` / `2d` button | look at a stack in depth, or go back to the flat view; offered only where the data has depth |
-| drag, in 3D | turn the volume; middle-drag slides it, scroll moves in and out, `R` turns it back |
+| drag, in 3D | turn the volume; right-, middle- or shift-drag slides it, scroll zooms toward the pointer, `R` turns it back |
 | dataset name | show a different dataset in that frame |
 | `...` button | add or remove that frame's layers |
 | drag sidebar edge | resize the sidebar, or collapse it — the pointer becomes a resize cursor over the handle |
@@ -552,6 +552,21 @@ keeps the brightest sample — a maximum-intensity projection, the usual way to
 look at fluorescence in depth, and one that needs nothing sorted. Dark tissue
 lets the frame show through; the brightest signal hides it.
 
+Zooming in reads finer detail. What the 3D frames can see of the volume —
+every point along every ray they cast, which head-on is a column through all
+142 slices and side-on is most of the block — is read again at the finest
+level where it fits the same budget, and drawn inside the whole in place of
+the coarse voxels there. Since a pyramid shrinks x and y and never z, the
+budget buys a region about 330 pixels square through the whole stack at any
+level: a millimetre square in the middle of the reference stack comes back at
+level 4, eight times finer than the whole, in about two seconds, and a smaller
+view goes finer still. The region is widened to whole chunks, so a small turn
+asks for the region already held rather than one a pixel over, and nothing is
+read until the view has held still for a moment — a turn crosses many regions
+on the way to the one it stops at. The whole stays drawn around the detail, so
+turning away shows the rest of the specimen at once, coarsely, rather than a
+hole.
+
 A 3D frame is still the same camera. Its projection turns perspective and it
 draws a render layer the volume was given of its own, so it shows none of the
 tiles the same source streams for flat frames, and its place in the grid — its
@@ -692,8 +707,10 @@ measuring against it, and are worth knowing before changing them:
   Queued work is dropped when the view moves on, which is where a backlog
   actually builds up during a fast pan.
 - Only the first multiscale image in a store is shown, at a single z slice.
-- A stack in 3D is drawn from one level of its pyramid, with no finer detail
-  streamed in as it is approached, and as a maximum-intensity projection only.
+- A stack in 3D holds one region of detail at a time, for everything its 3D
+  frames can see together, so two frames zoomed into different places share
+  a region wide enough for both, at a coarser level. It is drawn as a
+  maximum-intensity projection only.
   Toggling a channel reads it again, as it does tiles; the transparency slider
   does not fade it; layers are not drawn over a 3D frame; and it answers no
   hover.

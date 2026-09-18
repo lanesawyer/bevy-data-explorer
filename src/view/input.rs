@@ -265,6 +265,7 @@ pub fn panel_controls(
     windows: Query<&Window>,
     area: Res<FrameArea>,
     buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
     hover: Res<bevy::picking::hover::HoverMap>,
     chrome: Query<(), With<BlocksFrameInput>>,
     parents: Query<&ChildOf>,
@@ -273,7 +274,10 @@ pub fn panel_controls(
     mut drag: Local<Option<Drag>>,
 ) {
     let Ok(window) = windows.single() else { return };
-    let held = buttons.pressed(MouseButton::Left) || buttons.pressed(MouseButton::Middle);
+    // The right button drags too: it is how a 3D frame is slid about without
+    // a middle button, which a trackpad does not have.
+    const DRAGGING: [MouseButton; 3] = [MouseButton::Left, MouseButton::Middle, MouseButton::Right];
+    let held = buttons.any_pressed(DRAGGING);
 
     let Some(cursor) = window.cursor_position() else {
         // The pointer left the window. Hold the gesture so it resumes if the
@@ -304,9 +308,7 @@ pub fn panel_controls(
 
     if !held {
         *drag = None;
-    } else if drag.is_none()
-        && (buttons.just_pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Middle))
-    {
+    } else if drag.is_none() && buttons.any_just_pressed(DRAGGING) {
         let index = panel_under_cursor(local, window_size, count);
         *drag = Some(Drag {
             panel: index,
@@ -333,16 +335,22 @@ pub fn panel_controls(
         if panel.index != active {
             continue;
         }
-        // The same gestures, read as turning a volume: a drag turns it, a
-        // middle drag slides it, and the wheel moves in and out.
+        // The same gestures, read as moving about a volume: a drag turns it,
+        // any other drag slides it, and the wheel moves toward whatever is
+        // under the pointer, as it does in a flat frame.
         if let Some(mut orbit) = orbit {
             if scroll != 0.0 {
-                orbit.zoom(scroll);
+                match camera.viewport_to_world(global, cursor) {
+                    Ok(ray) => orbit.zoom_towards(scroll, ray),
+                    Err(_) => orbit.zoom(scroll),
+                }
             }
             if let Some(state) = *drag {
                 let delta = cursor - state.last;
                 if delta != Vec2::ZERO {
-                    if buttons.pressed(MouseButton::Middle) {
+                    let sliding = buttons.any_pressed([MouseButton::Middle, MouseButton::Right])
+                        || keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+                    if sliding {
                         let height = camera.logical_viewport_size().map_or(1.0, |size| size.y);
                         orbit.pan(delta, height);
                     } else {

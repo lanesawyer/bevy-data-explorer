@@ -820,6 +820,7 @@ impl Plugin for ImageSystems {
                 update_tile_visibility,
                 toggle_channels,
                 volume::request_volumes,
+                volume::request_detail,
                 volume::collect_volumes,
                 report_status,
             )
@@ -878,13 +879,13 @@ pub fn spawn_source(
     // when some level of it fits a texture; a stack that is merely paged
     // through never shows the control.
     if let Some((centre, size)) = dataset.volume_extent()
-        && let Some(level) =
-            dataset.volume_level(volume::VOLUME_VOXEL_BUDGET, volume::MAX_TEXTURE_EDGE)
+        && let Some(whole) =
+            dataset.whole_volume(volume::VOLUME_VOXEL_BUDGET, volume::MAX_TEXTURE_EDGE)
     {
         source::volume::advertise(world, source, centre, size);
         world
             .entity_mut(source)
-            .insert(volume::ImageVolume::new(level));
+            .insert(volume::ImageVolume::new(whole));
     }
 
     let mut streamer = TileStreamer::new(dataset, source);

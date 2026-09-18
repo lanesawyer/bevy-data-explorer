@@ -116,6 +116,10 @@ pub struct Level {
     pub origin_z: f64,
     /// Tile edge in level pixels.
     pub tile_px: u64,
+    /// Edge of the smallest block the store reads whole — the inner chunk of
+    /// a shard, or the chunk itself — along y and x.
+    pub chunk_y_px: u64,
+    pub chunk_x_px: u64,
     /// Whether the top-level chunk is a shard holding inner chunks.
     ///
     /// A shard is one object holding many chunks, so a tile cut from it costs
@@ -271,6 +275,8 @@ impl Dataset {
                 scale_z: layout.z.map_or(0.0, |z| scale[z]),
                 origin_z: layout.z.map_or(0.0, |z| translation[z]),
                 tile_px,
+                chunk_y_px: inner[layout.y],
+                chunk_x_px: inner[layout.x],
                 sharded,
                 shard_y_px: chunk[layout.y],
                 shard_x_px: chunk[layout.x],
@@ -337,14 +343,84 @@ impl Dataset {
         ))
     }
 
-    /// The finest level whose whole stack fits in `voxel_budget` and in a 3D
-    /// texture, or `None` when not even the coarsest does.
-    pub fn volume_level(&self, voxel_budget: u64, max_edge: u64) -> Option<usize> {
-        let depth = self.depth();
-        self.levels.iter().position(|level| {
-            level.width * level.height * depth <= voxel_budget
-                && level.width.max(level.height).max(depth) <= max_edge
+    /// The whole stack at the finest level that fits in `voxel_budget` and in a
+    /// 3D texture, or `None` when not even the coarsest does.
+    pub fn whole_volume(&self, voxel_budget: u64, max_edge: u64) -> Option<VolumeRegion> {
+        (0..self.levels.len())
+            .map(|level| VolumeRegion {
+                level,
+                x: (0, self.levels[level].width),
+                y: (0, self.levels[level].height),
+            })
+            .find(|region| self.fits(region, voxel_budget, max_edge))
+    }
+
+    /// The part of the stack inside the display box from `min` to `max`, at
+    /// the finest level where it fits in `voxel_budget` and in a 3D texture.
+    ///
+    /// Every slice is included whatever the box's depth: levels here shrink x
+    /// and y and leave z alone, and a projection draws every slice a ray
+    /// crosses. The region is widened to whole chunks, so a view that moves a
+    /// little asks for the same region again rather than a new one a pixel
+    /// over, and no chunk is fetched to have part of it thrown away. Chunks
+    /// rather than tiles: a tile is four chunks across, and through 142 slices
+    /// the smallest region of whole tiles is already over the budget.
+    pub fn region_within(
+        &self,
+        min: Vec3,
+        max: Vec3,
+        voxel_budget: u64,
+        max_edge: u64,
+    ) -> Option<VolumeRegion> {
+        self.levels.iter().enumerate().find_map(|(index, level)| {
+            let span = |low: f32, high: f32, origin: f64, scale: f64, extent: u64, tile: u64| {
+                let tile = tile.max(1);
+                let from = ((f64::from(low) - origin) / scale).floor().max(0.0) as u64;
+                let to = ((f64::from(high) - origin) / scale).ceil().max(0.0) as u64;
+                let from = (from / tile * tile).min(extent);
+                let to = to.div_ceil(tile).saturating_mul(tile).min(extent);
+                (from < to).then_some((from, to))
+            };
+            // Display y is image y negated, so the box's top is the image's
+            // first row.
+            let region = VolumeRegion {
+                level: index,
+                x: span(
+                    min.x,
+                    max.x,
+                    level.origin_x,
+                    level.scale_x,
+                    level.width,
+                    level.chunk_x_px,
+                )?,
+                y: span(
+                    -max.y,
+                    -min.y,
+                    level.origin_y,
+                    level.scale_y,
+                    level.height,
+                    level.chunk_y_px,
+                )?,
+            };
+            self.fits(&region, voxel_budget, max_edge).then_some(region)
         })
+    }
+
+    fn fits(&self, region: &VolumeRegion, voxel_budget: u64, max_edge: u64) -> bool {
+        let (w, h, d) = (region.width(), region.height(), self.depth());
+        w * h * d <= voxel_budget && w.max(h).max(d) <= max_edge
+    }
+
+    /// The display box a region fills, through the whole depth of the stack.
+    pub fn region_box(&self, region: &VolumeRegion) -> Option<(Vec3, Vec3)> {
+        let (centre, size) = self.volume_extent()?;
+        let level = self.levels.get(region.level)?;
+        let x = |px: u64| (level.origin_x + px as f64 * level.scale_x) as f32;
+        let y = |px: u64| -((level.origin_y + px as f64 * level.scale_y) as f32);
+        Some((
+            Vec3::new(x(region.x.0), y(region.y.1), centre.z - size.z * 0.5),
+            Vec3::new(x(region.x.1), y(region.y.0), centre.z + size.z * 0.5),
+        ))
     }
 
     /// How many slices the image holds along z.
@@ -668,6 +744,34 @@ fn z_is_measured(axes: &[ome_zarr_metadata::v0_4::Axis], layout: &AxisLayout) ->
     matches!(z.r#type, Some(AxisType::Space)) && unit(z) == unit(x)
 }
 
+/// A block of one level's pixels, through every slice of the stack.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VolumeRegion {
+    pub level: usize,
+    /// Pixel ranges, end exclusive.
+    pub x: (u64, u64),
+    pub y: (u64, u64),
+}
+
+impl VolumeRegion {
+    pub fn width(&self) -> u64 {
+        self.x.1 - self.x.0
+    }
+
+    pub fn height(&self) -> u64 {
+        self.y.1 - self.y.0
+    }
+
+    /// Whether this holds all of `other`, at least as finely.
+    pub fn covers(&self, other: &VolumeRegion) -> bool {
+        self.level == other.level
+            && self.x.0 <= other.x.0
+            && self.x.1 >= other.x.1
+            && self.y.0 <= other.y.0
+            && self.y.1 >= other.y.1
+    }
+}
+
 /// A whole stack composited into RGBA, x fastest, then y, then z — the order
 /// a 3D texture is uploaded in.
 pub struct VolumePixels {
@@ -677,7 +781,7 @@ pub struct VolumePixels {
     pub rgba: Vec<u8>,
 }
 
-/// Read every slice of one level, compositing the active channels the way a
+/// Read every slice of a region, compositing the active channels the way a
 /// tile does.
 ///
 /// Read a chunk's depth of slices at a time: the chunks hold dozens of slices
@@ -686,14 +790,18 @@ pub struct VolumePixels {
 /// volume. `progress` counts slices read, for the status line.
 pub async fn read_volume(
     dataset: &Dataset,
-    level: &Level,
+    region: VolumeRegion,
     channels: &[Channel],
     progress: &AtomicU64,
 ) -> Result<VolumePixels, String> {
     let layout = &dataset.layout;
+    let level = dataset
+        .levels
+        .get(region.level)
+        .ok_or("no such level in the image")?;
     let zi = layout.z.ok_or("the image has no z axis")?;
     let shape = level.array.shape().to_vec();
-    let (w, h, d) = (shape[layout.x], shape[layout.y], shape[zi]);
+    let (w, h, d) = (region.width(), region.height(), shape[zi]);
     let chunk = level
         .array
         .chunk_shape(&vec![0; layout.ndim])
@@ -710,8 +818,8 @@ pub async fn read_volume(
     while z0 < d {
         let z1 = (z0 + block).min(d);
         let mut ranges = vec![0..1u64; layout.ndim];
-        ranges[layout.x] = 0..w;
-        ranges[layout.y] = 0..h;
+        ranges[layout.x] = region.x.0..region.x.1;
+        ranges[layout.y] = region.y.0..region.y.1;
         ranges[zi] = z0..z1;
         if let Some(c) = layout.c {
             ranges[c] = 0..channel_count;
@@ -1024,6 +1132,24 @@ mod tests {
     }
 
     #[test]
+    fn a_region_covers_only_what_it_holds_at_its_own_level() {
+        let region = VolumeRegion {
+            level: 3,
+            x: (512, 2048),
+            y: (0, 1024),
+        };
+        let inside = VolumeRegion {
+            level: 3,
+            x: (1024, 1536),
+            y: (512, 1024),
+        };
+        assert!(region.covers(&inside));
+        assert!(!inside.covers(&region));
+        // The same pixels at another level are other pixels altogether.
+        assert!(!region.covers(&VolumeRegion { level: 2, ..inside }));
+    }
+
+    #[test]
     fn a_stack_measured_in_millimetres_lies_in_real_depth() {
         // The Tissuecyte stack: z, y and x all spatial and all in millimetres,
         // so its 0.1 spacing is a distance between sections.
@@ -1064,16 +1190,13 @@ mod tests {
             println!("volume centre {centre:?} size {size:?}");
             assert!((size.z - 14.2).abs() < 1e-3, "142 sections 0.1 mm apart");
 
-            let index = dataset
-                .volume_level(
-                    crate::formats::image::volume::VOLUME_VOXEL_BUDGET,
-                    crate::formats::image::volume::MAX_TEXTURE_EDGE,
-                )
-                .expect("some level fits");
-            let level = &dataset.levels[index];
+            let budget = crate::formats::image::volume::VOLUME_VOXEL_BUDGET;
+            let edge = crate::formats::image::volume::MAX_TEXTURE_EDGE;
+            let region = dataset.whole_volume(budget, edge).expect("some level fits");
+            let index = region.level;
             let started = std::time::Instant::now();
             let progress = AtomicU64::new(0);
-            let volume = read_volume(&dataset, level, &dataset.channels, &progress)
+            let volume = read_volume(&dataset, region, &dataset.channels, &progress)
                 .await
                 .unwrap();
             let lit = volume
@@ -1095,6 +1218,25 @@ mod tests {
             assert_eq!(progress.load(Ordering::Relaxed), 142);
             // Tissue, not a wrong offset: some of it lit, most of the block dark.
             assert!(lit > total / 100 && lit < total * 9 / 10);
+
+            // Zoomed in on a millimetre square in the middle, a far finer level
+            // fits, and it reads the same tissue in more pixels.
+            let half = Vec3::new(0.5, 0.5, size.z);
+            let detail = dataset
+                .region_within(centre - half, centre + half, budget, edge)
+                .expect("a small region fits");
+            assert!(detail.level < index, "{detail:?} is no finer");
+            let started = std::time::Instant::now();
+            let pixels = read_volume(&dataset, detail, &dataset.channels, &progress)
+                .await
+                .unwrap();
+            println!(
+                "detail {detail:?}: {} x {} x {} in {:?}",
+                pixels.width,
+                pixels.height,
+                pixels.depth,
+                started.elapsed()
+            );
         });
     }
 

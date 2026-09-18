@@ -21,6 +21,9 @@ struct VolumeSettings {
     // are all a ray needs to find where it enters and leaves.
     box_min: vec4<f32>,
     box_max: vec4<f32>,
+    // The part read finely, or an inside-out box when there is none.
+    detail_min: vec4<f32>,
+    detail_max: vec4<f32>,
     // World distance between samples, and a ceiling on how many there are.
     step: f32,
     max_steps: u32,
@@ -29,6 +32,16 @@ struct VolumeSettings {
 @group(2) @binding(0) var<uniform> settings: VolumeSettings;
 @group(2) @binding(1) var voxels: texture_3d<f32>;
 @group(2) @binding(2) var voxel_sampler: sampler;
+@group(2) @binding(3) var detail: texture_3d<f32>;
+@group(2) @binding(4) var detail_sampler: sampler;
+
+// Where a point lies in a box as texture coordinates. Texture rows run down
+// the image and layers from the first slice, which sits at the front of the
+// box; world y and z run the other way.
+fn texture_coordinates(point: vec3<f32>, low: vec3<f32>, high: vec3<f32>) -> vec3<f32> {
+    let t = (point - low) / (high - low);
+    return vec3<f32>(t.x, 1.0 - t.y, 1.0 - t.z);
+}
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -46,7 +59,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    let size = settings.box_max.xyz - settings.box_min.xyz;
     let length = far - near;
     let count = min(u32(ceil(length / settings.step)), settings.max_steps);
     let step = length / f32(max(count, 1u));
@@ -54,11 +66,15 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var brightest = vec3<f32>(0.0);
     for (var i = 0u; i < count; i++) {
         let point = origin + direction * (near + (f32(i) + 0.5) * step);
-        // Texture rows run down the image and layers from the first slice,
-        // which sits at the front of the box; world y and z run the other way.
-        let t = (point - settings.box_min.xyz) / size;
-        let uvw = vec3<f32>(t.x, 1.0 - t.y, 1.0 - t.z);
-        brightest = max(brightest, textureSampleLevel(voxels, voxel_sampler, uvw, 0.0).rgb);
+        var colour: vec3<f32>;
+        if all(point >= settings.detail_min.xyz) && all(point <= settings.detail_max.xyz) {
+            let uvw = texture_coordinates(point, settings.detail_min.xyz, settings.detail_max.xyz);
+            colour = textureSampleLevel(detail, detail_sampler, uvw, 0.0).rgb;
+        } else {
+            let uvw = texture_coordinates(point, settings.box_min.xyz, settings.box_max.xyz);
+            colour = textureSampleLevel(voxels, voxel_sampler, uvw, 0.0).rgb;
+        }
+        brightest = max(brightest, colour);
     }
 
     // Covers what is behind it by as much as it is bright, so dark tissue lets

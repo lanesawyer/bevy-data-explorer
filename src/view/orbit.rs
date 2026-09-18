@@ -124,6 +124,25 @@ impl Orbit {
         self.distance = (self.distance * 1.12_f32.powf(-scroll)).clamp(radius * 0.02, radius * 8.0);
     }
 
+    /// Zoom as [`Self::zoom`] does, toward where `ray` — the one under the
+    /// pointer — crosses the plane through the target facing the camera.
+    ///
+    /// The target moves the same fraction of the way there as the distance
+    /// shrinks, which is what keeps that point under the pointer: it is how a
+    /// flat frame zooms, and without it the only way in was toward the middle.
+    pub fn zoom_towards(&mut self, scroll: f32, ray: Ray3d) {
+        let before = self.distance;
+        let forward = self.transform().forward().as_vec3();
+        let facing = ray.direction.dot(forward);
+        self.zoom(scroll);
+        if facing <= f32::EPSILON {
+            return;
+        }
+        let along = (self.target - ray.origin).dot(forward) / facing;
+        let under = ray.get_point(along);
+        self.target += (under - self.target) * (1.0 - self.distance / before);
+    }
+
     pub fn projection(&self) -> PerspectiveProjection {
         PerspectiveProjection {
             fov: FOV,
@@ -352,6 +371,30 @@ mod tests {
         let moved = orbit.target - before;
         assert!(moved.length() > 0.0);
         assert!(moved.dot(forward).abs() < 1e-4);
+    }
+
+    #[test]
+    fn zooming_keeps_the_point_under_the_pointer_where_it_is() {
+        let mut orbit = Orbit::fit(&volume(), flat());
+        let camera = orbit.transform();
+        // A pointer off to one side: the ray through it from the camera.
+        let aside = camera.translation
+            + camera.forward().as_vec3() * orbit.distance
+            + camera.right().as_vec3() * 2.0
+            + camera.up().as_vec3() * 1.0;
+        let under = aside;
+        let ray = Ray3d::new(
+            camera.translation,
+            Dir3::new(under - camera.translation).unwrap(),
+        );
+        orbit.zoom_towards(3.0, ray);
+
+        // Seen from where the camera is now, the same point lies straight
+        // along the same direction the pointer's ray took.
+        let after = orbit.transform();
+        let now = (under - after.translation).normalize();
+        assert!(now.dot(ray.direction.as_vec3()) > 0.9999);
+        assert!(orbit.distance < orbit.home.distance);
     }
 
     #[test]

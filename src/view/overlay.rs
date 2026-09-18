@@ -377,7 +377,7 @@ pub fn update_hud(
                 let units_per_px = ortho.area.width() / viewport.x.max(1.0);
                 format!("zoom {:.5} {}/screen px", units_per_px, source.unit)
             }
-            _ => "3D: drag to turn, middle-drag to pan, scroll to zoom, R to reset".to_string(),
+            _ => "3D: drag to turn, right- or shift-drag to move, scroll to zoom to the pointer, R to reset".to_string(),
         };
         let next = format!("{waiting}{}\n{view}", status.0);
         if text.0 != next {

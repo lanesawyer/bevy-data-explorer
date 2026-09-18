@@ -41,6 +41,44 @@ impl SourceVolume {
     pub fn radius(&self) -> f32 {
         (self.size.length() * 0.5).max(f32::MIN_POSITIVE)
     }
+
+    /// The box around every part of the volume that `rays` pass through, or
+    /// `None` when none of them reach it.
+    ///
+    /// What a view can see of a volume is not a slab at some depth but every
+    /// point along every ray it casts, since a projection through the volume
+    /// draws all of them. Rays from across a frame's viewport, clipped to the
+    /// volume, are therefore what bound the part worth reading in detail —
+    /// zoomed in head-on that is a narrow column through every slice, and
+    /// turned side-on it is most of the specimen.
+    pub fn seen_by(&self, rays: impl IntoIterator<Item = Ray3d>) -> Option<(Vec3, Vec3)> {
+        let (min, max) = self.bounds();
+        let mut seen: Option<(Vec3, Vec3)> = None;
+        for ray in rays {
+            let Some((near, far)) = crossing(&ray, min, max) else {
+                continue;
+            };
+            for point in [ray.get_point(near), ray.get_point(far)] {
+                let point = point.clamp(min, max);
+                seen = Some(match seen {
+                    Some((low, high)) => (low.min(point), high.max(point)),
+                    None => (point, point),
+                });
+            }
+        }
+        seen
+    }
+}
+
+/// Where a ray is inside the box from `min` to `max`, as distances along it,
+/// counting only what lies ahead of its origin.
+fn crossing(ray: &Ray3d, min: Vec3, max: Vec3) -> Option<(f32, f32)> {
+    let inverse = ray.direction.as_vec3().recip();
+    let a = (min - ray.origin) * inverse;
+    let b = (max - ray.origin) * inverse;
+    let near = a.min(b).max_element().max(0.0);
+    let far = a.max(b).min_element();
+    (far >= near).then_some((near, far))
 }
 
 /// Mark `source` as occupying `size` of real depth around `centre`, and give its
@@ -96,6 +134,51 @@ mod tests {
         assert_ne!(volume.layer, next);
         assert_ne!(volume.layer, 0);
         assert_eq!(world.get::<SourceVolume>(stack), Some(&volume));
+    }
+
+    fn stack() -> SourceVolume {
+        SourceVolume {
+            centre: Vec3::ZERO,
+            size: Vec3::new(14.0, 10.0, 14.0),
+            layer: 1,
+        }
+    }
+
+    fn ray(origin: Vec3, towards: Vec3) -> Ray3d {
+        Ray3d::new(origin, Dir3::new(towards - origin).unwrap())
+    }
+
+    #[test]
+    fn a_head_on_view_sees_a_column_through_every_slice() {
+        // Looking straight down z at a small patch: narrow in x and y, but the
+        // whole depth, since every slice along those rays is drawn.
+        let volume = stack();
+        let rays = [-1.0f32, 1.0].into_iter().flat_map(|x| {
+            [-1.0f32, 1.0]
+                .into_iter()
+                .map(move |y| ray(Vec3::new(x, y, 50.0), Vec3::new(x, y, 0.0)))
+        });
+        let (low, high) = volume.seen_by(rays).unwrap();
+        assert!((high.x - low.x - 2.0).abs() < 1e-4);
+        assert!((high.y - low.y - 2.0).abs() < 1e-4);
+        assert!((high.z - low.z - 14.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn rays_that_miss_see_nothing() {
+        let volume = stack();
+        let away = ray(Vec3::new(0.0, 0.0, 50.0), Vec3::new(0.0, 0.0, 100.0));
+        let beside = ray(Vec3::new(40.0, 0.0, 50.0), Vec3::new(40.0, 0.0, 0.0));
+        assert!(volume.seen_by([away, beside]).is_none());
+    }
+
+    #[test]
+    fn from_inside_only_what_lies_ahead_is_seen() {
+        let volume = stack();
+        let forward = ray(Vec3::ZERO, Vec3::new(0.0, 0.0, -1.0));
+        let (low, high) = volume.seen_by([forward]).unwrap();
+        assert!((high.z - 0.0).abs() < 1e-4);
+        assert!((low.z + 7.0).abs() < 1e-4);
     }
 
     #[test]
