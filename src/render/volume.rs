@@ -6,15 +6,15 @@
 //! its own camera and trades its projection for a perspective one, so the grid's
 //! draw order and its one clearing camera are untouched by a frame going 3D.
 
-use bevy::asset::RenderAssetUsages;
 use bevy::asset::{Asset, AssetPath, embedded_asset, embedded_path};
-use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    AsBindGroup, BlendState, Extent3d, Face, RenderPipelineDescriptor, ShaderType,
-    SpecializedMeshPipelineError, TextureDimension, TextureFormat,
+    AsBindGroup, BlendState, Face, RenderPipelineDescriptor, ShaderType,
+    SpecializedMeshPipelineError,
 };
+
+use super::channels::ChannelMix;
 use bevy::shader::ShaderRef;
 use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dKey, Material2dPlugin};
 
@@ -42,6 +42,9 @@ pub struct VolumeMaterial {
     #[texture(3, dimension = "3d")]
     #[sampler(4)]
     pub detail: Handle<Image>,
+    /// How the stored channels are mixed, the same as the source's tiles.
+    #[uniform(5)]
+    pub mix: ChannelMix,
 }
 
 #[derive(Clone, Copy, ShaderType)]
@@ -62,8 +65,15 @@ fn half_voxel(min: Vec3, max: Vec3, dimensions: UVec3) -> f32 {
 
 impl VolumeMaterial {
     /// A volume filling the box from `min` to `max`, sampled every half voxel.
-    pub fn new(voxels: Handle<Image>, min: Vec3, max: Vec3, dimensions: UVec3) -> Self {
+    pub fn new(
+        voxels: Handle<Image>,
+        min: Vec3,
+        max: Vec3,
+        dimensions: UVec3,
+        mix: ChannelMix,
+    ) -> Self {
         VolumeMaterial {
+            mix,
             settings: VolumeSettings {
                 box_min: min.extend(1.0),
                 box_max: max.extend(1.0),
@@ -127,34 +137,6 @@ impl Material2d for VolumeMaterial {
     }
 }
 
-/// A composited stack as a 3D texture, filtered between voxels.
-///
-/// Linear in every direction, slices included: sections are far apart next
-/// to their pixels, and a ray crossing between two of them should see a blend
-/// of both rather than a staircase.
-pub fn volume_texture(width: u32, height: u32, depth: u32, rgba: Vec<u8>) -> Image {
-    let mut image = Image::new(
-        Extent3d {
-            width,
-            height,
-            depth_or_array_layers: depth,
-        },
-        TextureDimension::D3,
-        rgba,
-        TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-        mag_filter: ImageFilterMode::Linear,
-        min_filter: ImageFilterMode::Linear,
-        address_mode_u: ImageAddressMode::ClampToEdge,
-        address_mode_v: ImageAddressMode::ClampToEdge,
-        address_mode_w: ImageAddressMode::ClampToEdge,
-        ..default()
-    });
-    image
-}
-
 pub struct VolumeRenderPlugin;
 
 impl Plugin for VolumeRenderPlugin {
@@ -177,6 +159,7 @@ mod tests {
             Vec3::ZERO,
             Vec3::new(14.0, 10.5, 14.2),
             UVec3::new(312, 234, 142),
+            ChannelMix::default(),
         );
         let pixel = 14.0 / 312.0;
         assert!((material.settings.step - pixel * 0.5).abs() < 1e-5);
@@ -189,6 +172,7 @@ mod tests {
             Vec3::ZERO,
             Vec3::splat(10.0),
             UVec3::splat(100),
+            ChannelMix::default(),
         );
         // No detail yet: the box is inside out, so nothing is ever in it.
         let s = material.settings;
@@ -204,12 +188,5 @@ mod tests {
         assert_eq!(s.detail_min.truncate(), Vec3::splat(4.0));
         // Stepping follows the detail's voxels, a hundredth of the box's.
         assert!((s.step - 0.005).abs() < 1e-6);
-    }
-
-    #[test]
-    fn the_texture_holds_the_whole_stack() {
-        let image = volume_texture(4, 3, 2, vec![0; 4 * 3 * 2 * 4]);
-        assert_eq!(image.texture_descriptor.dimension, TextureDimension::D3);
-        assert_eq!(image.texture_descriptor.size.depth_or_array_layers, 2);
     }
 }

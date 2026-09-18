@@ -22,9 +22,12 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 
 use super::TileStreamer;
-use super::dataset::{VolumePixels, VolumeRegion, read_volume};
+use bevy::render::render_resource::TextureDimension;
+
+use super::dataset::{ChannelSamples, VolumeRegion, read_volume};
 use crate::app::net::{Fetching, fetching};
-use crate::render::volume::{VolumeMaterial, volume_texture};
+use crate::render::channels::{ChannelMix, channel_texture};
+use crate::render::volume::VolumeMaterial;
 use crate::source::volume::SourceVolume;
 use crate::view::{Orbit, ShowsSource};
 
@@ -52,7 +55,7 @@ const DETAIL_SETTLE_SECS: f32 = 0.3;
 /// they bound is widened to whole tiles, so a sparse grid is enough.
 const RAYS_PER_SIDE: usize = 9;
 
-type Read = Fetching<Result<VolumePixels, String>>;
+type Read = Fetching<Result<ChannelSamples, String>>;
 
 enum State {
     /// Not read, because no frame has looked at it in 3D yet.
@@ -63,7 +66,6 @@ enum State {
         progress: Arc<AtomicU64>,
     },
     Ready {
-        entity: Entity,
         material: Handle<VolumeMaterial>,
     },
     Failed(String),
@@ -85,10 +87,6 @@ pub struct ImageVolume {
     whole: VolumeRegion,
     state: State,
     detail: Detail,
-    /// Which channels the volume was composited with. The composite is baked
-    /// into the texture, as it is into tiles, so toggling one means reading
-    /// the stack again.
-    channels: Vec<bool>,
 }
 
 impl ImageVolume {
@@ -97,7 +95,6 @@ impl ImageVolume {
             whole,
             state: State::Idle,
             detail: Detail::default(),
-            channels: Vec::new(),
         }
     }
 
@@ -131,12 +128,12 @@ impl ImageVolume {
         Some(whole + &detail)
     }
 
-    fn drop_drawn(&mut self, commands: &mut Commands) {
-        if let State::Ready { entity, .. } = self.state {
-            commands.entity(entity).despawn();
+    /// The material the volume is mixed and drawn with, once it is drawn.
+    pub fn material(&self) -> Option<&Handle<VolumeMaterial>> {
+        match &self.state {
+            State::Ready { material, .. } => Some(material),
+            _ => None,
         }
-        self.state = State::Idle;
-        self.detail = Detail::default();
     }
 
     /// Whether a read is needed for the views to see `wanted` as finely as it
@@ -154,25 +151,21 @@ impl ImageVolume {
 
 fn start_read(streamer: &TileStreamer, region: VolumeRegion) -> (Read, Arc<AtomicU64>) {
     let dataset = streamer.dataset().clone();
-    let channels = streamer.channels.clone();
     let progress = Arc::new(AtomicU64::new(0));
     let counter = progress.clone();
-    let task = fetching(async move { read_volume(&dataset, region, &channels, &counter).await });
+    let task = fetching(async move { read_volume(&dataset, region, &counter).await });
     (task, progress)
 }
 
-/// Start reading a volume the first time a frame orbits it, and start again
-/// when the channels it was composited with change.
+/// Start reading a volume the first time a frame orbits it.
+///
+/// Once: the volume keeps each channel apart and mixes them as it draws, so a
+/// change of channels is a change of uniform, not a reason to read it again.
 pub fn request_volumes(
-    mut commands: Commands,
     mut volumes: Query<(Entity, &TileStreamer, &mut ImageVolume)>,
     orbiting: Query<&ShowsSource, With<Orbit>>,
 ) {
     for (source, streamer, mut volume) in &mut volumes {
-        let channels: Vec<bool> = streamer.channels.iter().map(|c| c.active).collect();
-        if !matches!(volume.state, State::Idle) && volume.channels != channels {
-            volume.drop_drawn(&mut commands);
-        }
         if !matches!(volume.state, State::Idle) || !orbiting.iter().any(|shows| shows.0 == source) {
             continue;
         }
@@ -183,7 +176,6 @@ pub fn request_volumes(
             whole.level,
             streamer.dataset().name
         );
-        volume.channels = channels;
         volume.state = State::Loading { task, progress };
     }
 }
@@ -257,29 +249,29 @@ pub fn collect_volumes(
         {
             volume.state = match outcome {
                 Ok(pixels) => {
-                    let dimensions = UVec3::new(pixels.width, pixels.height, pixels.depth);
-                    let texture = images.add(volume_texture(
+                    let dimensions = UVec3::new(pixels.width, pixels.height, pixels.layers);
+                    let texture = images.add(channel_texture(
                         pixels.width,
                         pixels.height,
-                        pixels.depth,
-                        pixels.rgba,
+                        pixels.layers,
+                        pixels.data,
+                        TextureDimension::D3,
                     ));
                     let (min, max) = placed.bounds();
+                    let mix = ChannelMix::of(&streamer.mix_channels());
                     let material =
-                        materials.add(VolumeMaterial::new(texture, min, max, dimensions));
-                    let entity = commands
-                        .spawn((
-                            Mesh2d(meshes.add(Cuboid::from_size(placed.size))),
-                            MeshMaterial2d(material.clone()),
-                            Transform::from_translation(placed.centre),
-                            RenderLayers::layer(placed.layer),
-                        ))
-                        .id();
+                        materials.add(VolumeMaterial::new(texture, min, max, dimensions, mix));
+                    commands.spawn((
+                        Mesh2d(meshes.add(Cuboid::from_size(placed.size))),
+                        MeshMaterial2d(material.clone()),
+                        Transform::from_translation(placed.centre),
+                        RenderLayers::layer(placed.layer),
+                    ));
                     info!(
                         "3D: volume ready, {} x {} x {}",
                         dimensions.x, dimensions.y, dimensions.z
                     );
-                    State::Ready { entity, material }
+                    State::Ready { material }
                 }
                 Err(e) => {
                     warn!("3D: {e}");
@@ -312,12 +304,13 @@ pub fn collect_volumes(
         ) else {
             continue;
         };
-        let dimensions = UVec3::new(pixels.width, pixels.height, pixels.depth);
-        let texture = images.add(volume_texture(
+        let dimensions = UVec3::new(pixels.width, pixels.height, pixels.layers);
+        let texture = images.add(channel_texture(
             pixels.width,
             pixels.height,
-            pixels.depth,
-            pixels.rgba,
+            pixels.layers,
+            pixels.data,
+            TextureDimension::D3,
         ));
         // The texture it replaces is dropped with its last handle, here.
         material.set_detail(texture, min, max, dimensions);

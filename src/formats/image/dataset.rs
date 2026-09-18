@@ -9,6 +9,7 @@ use bevy::math::Vec3;
 use ome_zarr_metadata::v0_4::AxisType;
 
 use crate::formats::image::store::MultiscaleSpec;
+use crate::render::channels::{MAX_CHANNELS, VOLUME_CHANNELS};
 use zarrs::array::{Array, ArraySubset, ChunkShapeTraits};
 use zarrs::storage::AsyncReadableStorageTraits;
 use zarrs_codec::AsyncArrayPartialDecoderTraits;
@@ -75,25 +76,13 @@ impl AxisLayout {
 }
 
 /// A channel's display mapping: intensity window and tint.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Channel {
     pub label: String,
     pub color: [f32; 3],
     pub start: f32,
     pub end: f32,
     pub active: bool,
-}
-
-impl Channel {
-    /// Map a raw intensity to 0..1 across the channel's window.
-    #[inline]
-    fn normalize(&self, value: f32) -> f32 {
-        let span = self.end - self.start;
-        if span.abs() < f32::EPSILON {
-            return 0.0;
-        }
-        ((value - self.start) / span).clamp(0.0, 1.0)
-    }
 }
 
 /// One resolution level of the pyramid.
@@ -207,6 +196,9 @@ pub struct Dataset {
     /// Whether the slices of a stack are placed in the same space as their
     /// pixels, so that piling them up at their spacing is the specimen itself.
     pub spatial_stack: bool,
+    /// What intensities are divided by before they are stored for the GPU;
+    /// see [`sample_scale`].
+    pub sample_scale: f32,
 }
 
 impl Dataset {
@@ -305,6 +297,7 @@ impl Dataset {
         let channel_count = layout.c.map_or(1, |c| finest.array.shape()[c] as usize);
         let channels = build_channels(omero, channel_count, &finest.array);
         let spatial_stack = z_is_measured(&multiscale.axes, &layout);
+        let sample_scale = sample_scale(&finest.array, &channels);
 
         Ok(Dataset {
             name: multiscale.name.clone().unwrap_or_else(|| "image".into()),
@@ -314,6 +307,7 @@ impl Dataset {
             unit,
             world,
             spatial_stack,
+            sample_scale,
         })
     }
 
@@ -462,16 +456,48 @@ pub enum TileSource<'a> {
     Array,
 }
 
-/// Read one tile, compositing the active channels into RGBA.
+/// A block of pixels with every channel kept apart, for a shader to mix.
+///
+/// Four channels to a texel, as half floats of the intensity over the
+/// dataset's [`sample_scale`]; channels beyond four go into further layers.
+/// Mixing them into colour on the GPU is what makes showing, hiding and
+/// brightening a channel instant: nothing baked has to be read again.
+pub struct ChannelSamples {
+    pub width: u32,
+    pub height: u32,
+    /// Array layers for a tile, slices for a volume.
+    pub layers: u32,
+    /// Texels, four half floats each: x fastest, then y, then layer.
+    pub data: Vec<u8>,
+}
+
+impl ChannelSamples {
+    fn zeroed(width: usize, height: usize, layers: usize) -> Self {
+        ChannelSamples {
+            width: width as u32,
+            height: height as u32,
+            layers: layers as u32,
+            data: vec![0; width * height * layers * 4 * size_of::<half::f16>()],
+        }
+    }
+
+    /// Store `value` as channel `component` of texel `texel`.
+    #[inline]
+    fn put(&mut self, texel: usize, component: usize, value: f32) {
+        let at = (texel * 4 + component) * size_of::<half::f16>();
+        self.data[at..at + 2].copy_from_slice(&half::f16::from_f32(value).to_ne_bytes());
+    }
+}
+
+/// Read one tile, every channel of it, as stored.
 pub async fn read_tile(
     dataset: &Dataset,
     level: &Level,
-    channels: &[Channel],
     source: TileSource<'_>,
     ty: u64,
     tx: u64,
     z: u64,
-) -> Result<Option<TilePixels>, String> {
+) -> Result<Option<ChannelSamples>, String> {
     let layout = &dataset.layout;
     let Some((x0, y0, x1, y1)) = level.tile_extent(ty, tx) else {
         return Ok(None);
@@ -495,7 +521,8 @@ pub async fn read_tile(
     let rel_x = x0 - origin_x;
     let (w, h) = ((x1 - x0) as usize, (y1 - y0) as usize);
 
-    let mut accum = vec![0f32; w * h * 3];
+    let count = dataset.channels.len().min(MAX_CHANNELS);
+    let mut samples = ChannelSamples::zeroed(w, h, count.div_ceil(4).max(1));
     let channel_chunk = layout
         .c
         .map_or(1, |c| {
@@ -507,19 +534,21 @@ pub async fn read_tile(
         .max(1);
 
     // Channels sharing a chunk are fetched together; the reference store keeps
-    // all of them in one chunk, so this is normally a single read.
+    // all of them in one chunk, so this is normally a single read. Every
+    // channel is read, shown or not, so showing one later costs nothing.
     let mut groups: Vec<(u64, Vec<usize>)> = Vec::new();
-    for (ci, _) in channels.iter().enumerate().filter(|(_, c)| c.active) {
+    for ci in 0..count {
         let group = ci as u64 / channel_chunk;
         match groups.iter_mut().find(|(g, _)| *g == group) {
             Some((_, list)) => list.push(ci),
             None => groups.push((group, vec![ci])),
         }
     }
-    if groups.is_empty() {
-        return Ok(None);
-    }
 
+    let element = element_size(&level.array)?;
+    let sample = sample_reader(&level.array)?;
+    let scale = dataset.sample_scale;
+    let plane = w * h;
     for (group, members) in groups {
         let mut ranges = vec![0..1u64; layout.ndim];
         ranges[layout.y] = rel_y..rel_y + h as u64;
@@ -566,79 +595,40 @@ pub async fn read_tile(
             .into_fixed()
             .map_err(|_| "variable-length data types are not supported".to_string())?;
 
-        let element = element_size(&level.array)?;
-        let plane = w * h;
         for &ci in &members {
-            let within = ci as u64 - group_base;
-            let offset = within as usize * plane * element;
-            let channel = &channels[ci];
-            composite(
-                &raw[offset..offset + plane * element],
-                &mut accum,
-                channel,
-                &level.array,
-            )?;
+            let offset = (ci as u64 - group_base) as usize * plane * element;
+            let (layer, component) = (ci / 4, ci % 4);
+            for i in 0..plane {
+                let at = offset + i * element;
+                let value = sample(&raw[at..at + element]) / scale;
+                samples.put(layer * plane + i, component, value);
+            }
         }
     }
 
-    let mut rgba = vec![0u8; w * h * 4];
-    for (pixel, out) in accum
-        .as_chunks::<3>()
-        .0
-        .iter()
-        .zip(rgba.as_chunks_mut::<4>().0.iter_mut())
-    {
-        out[0] = (pixel[0].min(1.0) * 255.0) as u8;
-        out[1] = (pixel[1].min(1.0) * 255.0) as u8;
-        out[2] = (pixel[2].min(1.0) * 255.0) as u8;
-        out[3] = 255;
-    }
-
-    Ok(Some(TilePixels {
-        width: w as u32,
-        height: h as u32,
-        rgba,
-    }))
+    Ok(Some(samples))
 }
 
-/// Add one channel's contribution to the running RGB accumulation.
-#[expect(
-    clippy::cast_lossless,
-    reason = "one macro reads every sample type, and only the narrow ones widen losslessly"
-)]
-fn composite(
-    raw: &[u8],
-    accum: &mut [f32],
-    channel: &Channel,
-    array: &SharedArray,
-) -> Result<(), String> {
-    let name = data_type_name(array);
-    macro_rules! blend {
-        ($ty:ty, $size:expr) => {{
-            for (i, chunk) in raw.chunks_exact($size).enumerate() {
-                let value = <$ty>::from_ne_bytes(chunk.try_into().unwrap()) as f32;
-                let t = channel.normalize(value);
-                if t > 0.0 {
-                    let out = &mut accum[i * 3..i * 3 + 3];
-                    out[0] += channel.color[0] * t;
-                    out[1] += channel.color[1] * t;
-                    out[2] += channel.color[2] * t;
-                }
-            }
-        }};
+/// What intensities are divided by before being stored as half floats.
+///
+/// Integer samples are divided by the largest their type holds, which puts
+/// them in 0..1 where a half float keeps three significant figures anywhere —
+/// enough for a window as narrow as the reference stack's 0..1377 of 65535.
+/// Float samples have no such bound, and a half float tops out at 65504, so
+/// they are divided by the furthest any channel's window reaches.
+fn sample_scale(array: &SharedArray, channels: &[Channel]) -> f32 {
+    match data_type_name(array).as_str() {
+        "uint8" => f32::from(u8::MAX),
+        "int8" => f32::from(i8::MAX),
+        "uint16" => f32::from(u16::MAX),
+        "int16" => f32::from(i16::MAX),
+        "uint32" => u32::MAX as f32,
+        "int32" => i32::MAX as f32,
+        _ => channels
+            .iter()
+            .map(|c| c.start.abs().max(c.end.abs()))
+            .fold(1.0, f32::max),
     }
-    match name.as_str() {
-        "uint8" => blend!(u8, 1),
-        "int8" => blend!(i8, 1),
-        "uint16" => blend!(u16, 2),
-        "int16" => blend!(i16, 2),
-        "uint32" => blend!(u32, 4),
-        "int32" => blend!(i32, 4),
-        "float32" => blend!(f32, 4),
-        "float64" => blend!(f64, 8),
-        other => return Err(format!("unsupported data type `{other}`")),
-    }
-    Ok(())
 }
 
 fn data_type_name(array: &SharedArray) -> String {
@@ -772,28 +762,18 @@ impl VolumeRegion {
     }
 }
 
-/// A whole stack composited into RGBA, x fastest, then y, then z — the order
-/// a 3D texture is uploaded in.
-pub struct VolumePixels {
-    pub width: u32,
-    pub height: u32,
-    pub depth: u32,
-    pub rgba: Vec<u8>,
-}
-
-/// Read every slice of a region, compositing the active channels the way a
-/// tile does.
+/// Read every slice of a region, its first [`VOLUME_CHANNELS`] channels kept
+/// apart as a tile's are, one slice to a layer.
 ///
 /// Read a chunk's depth of slices at a time: the chunks hold dozens of slices
 /// whatever is asked for, so a block costs what one slice would, and holding
-/// only a block's worth of samples keeps the peak well under the finished
+/// only a block's worth of raw bytes keeps the peak well under the finished
 /// volume. `progress` counts slices read, for the status line.
 pub async fn read_volume(
     dataset: &Dataset,
     region: VolumeRegion,
-    channels: &[Channel],
     progress: &AtomicU64,
-) -> Result<VolumePixels, String> {
+) -> Result<ChannelSamples, String> {
     let layout = &dataset.layout;
     let level = dataset
         .levels
@@ -809,11 +789,13 @@ pub async fn read_volume(
         .to_array_shape();
     let block = chunk[zi].max(1);
     let channel_count = layout.c.map_or(1, |c| shape[c]);
+    let kept = (channel_count as usize).min(VOLUME_CHANNELS);
     let element = element_size(&level.array)?;
     let sample = sample_reader(&level.array)?;
+    let scale = dataset.sample_scale;
     let plane = (w * h) as usize;
 
-    let mut rgba = vec![0u8; plane * d as usize * 4];
+    let mut samples = ChannelSamples::zeroed(w as usize, h as usize, d as usize);
     let mut z0 = 0;
     while z0 < d {
         let z1 = (z0 + block).min(d);
@@ -822,7 +804,7 @@ pub async fn read_volume(
         ranges[layout.y] = region.y.0..region.y.1;
         ranges[zi] = z0..z1;
         if let Some(c) = layout.c {
-            ranges[c] = 0..channel_count;
+            ranges[c] = 0..kept as u64;
         }
         let lengths: Vec<u64> = ranges.iter().map(|r| r.end - r.start).collect();
         let subset = ArraySubset::new_with_ranges(&ranges);
@@ -841,53 +823,24 @@ pub async fn read_volume(
             strides[axis] = strides[axis + 1] * lengths[axis + 1] as usize;
         }
 
-        let slices = (z1 - z0) as usize;
-        let mut accum = vec![0f32; plane * slices * 3];
-        for (ci, channel) in channels.iter().enumerate().filter(|(_, c)| c.active) {
-            if ci as u64 >= channel_count {
-                continue;
-            }
+        for ci in 0..kept {
             let base = layout.c.map_or(0, |c| ci * strides[c]);
-            for dz in 0..slices {
+            for dz in 0..(z1 - z0) as usize {
+                let slice = (z0 as usize + dz) * plane;
                 for y in 0..h as usize {
                     let row = base + dz * strides[zi] + y * strides[layout.y];
                     for x in 0..w as usize {
                         let at = (row + x * strides[layout.x]) * element;
-                        let value = sample(&raw[at..at + element]);
-                        let t = channel.normalize(value);
-                        if t > 0.0 {
-                            let out = ((dz * h as usize + y) * w as usize + x) * 3;
-                            accum[out] += channel.color[0] * t;
-                            accum[out + 1] += channel.color[1] * t;
-                            accum[out + 2] += channel.color[2] * t;
-                        }
+                        let value = sample(&raw[at..at + element]) / scale;
+                        samples.put(slice + y * w as usize + x, ci, value);
                     }
                 }
             }
         }
-
-        let offset = z0 as usize * plane * 4;
-        for (pixel, out) in accum
-            .as_chunks::<3>()
-            .0
-            .iter()
-            .zip(rgba[offset..].as_chunks_mut::<4>().0.iter_mut())
-        {
-            out[0] = (pixel[0].min(1.0) * 255.0) as u8;
-            out[1] = (pixel[1].min(1.0) * 255.0) as u8;
-            out[2] = (pixel[2].min(1.0) * 255.0) as u8;
-            out[3] = 255;
-        }
         progress.store(z1, Ordering::Relaxed);
         z0 = z1;
     }
-
-    Ok(VolumePixels {
-        width: w as u32,
-        height: h as u32,
-        depth: d as u32,
-        rgba,
-    })
+    Ok(samples)
 }
 
 /// How to read one sample as a float, settled once for the array rather than
@@ -1054,35 +1007,6 @@ mod tests {
     }
 
     #[test]
-    fn channel_window_maps_onto_zero_to_one() {
-        let c = Channel {
-            label: "t".into(),
-            color: [1.0; 3],
-            start: 10.0,
-            end: 20.0,
-            active: true,
-        };
-        assert_eq!(c.normalize(10.0), 0.0);
-        assert_eq!(c.normalize(15.0), 0.5);
-        assert_eq!(c.normalize(20.0), 1.0);
-        // Values outside the window clamp rather than wrapping or going negative.
-        assert_eq!(c.normalize(0.0), 0.0);
-        assert_eq!(c.normalize(1000.0), 1.0);
-    }
-
-    #[test]
-    fn a_degenerate_window_does_not_divide_by_zero() {
-        let c = Channel {
-            label: "t".into(),
-            color: [1.0; 3],
-            start: 5.0,
-            end: 5.0,
-            active: true,
-        };
-        assert_eq!(c.normalize(5.0), 0.0);
-    }
-
-    #[test]
     fn axis_layout_comes_from_the_real_metadata() {
         let ms = &reference_multiscale()[0];
         let layout = AxisLayout::infer(&ms.axes).unwrap();
@@ -1196,25 +1120,35 @@ mod tests {
             let index = region.level;
             let started = std::time::Instant::now();
             let progress = AtomicU64::new(0);
-            let volume = read_volume(&dataset, region, &dataset.channels, &progress)
-                .await
-                .unwrap();
+            let volume = read_volume(&dataset, region, &progress).await.unwrap();
+            // Lit where any channel is past the start of its published window
+            // by a thirtieth of it: what a composite would paint visibly.
+            let windows: Vec<f32> = dataset
+                .channels
+                .iter()
+                .map(|c| (c.start + (c.end - c.start) / 30.0) / dataset.sample_scale)
+                .collect();
             let lit = volume
-                .rgba
-                .as_chunks::<4>()
+                .data
+                .as_chunks::<8>()
                 .0
                 .iter()
-                .filter(|p| p[0] > 8 || p[1] > 8 || p[2] > 8)
+                .filter(|texel| {
+                    windows.iter().enumerate().any(|(c, threshold)| {
+                        let bytes = [texel[c * 2], texel[c * 2 + 1]];
+                        half::f16::from_ne_bytes(bytes).to_f32() > *threshold
+                    })
+                })
                 .count();
-            let total = volume.rgba.len() / 4;
+            let total = volume.data.len() / 8;
             println!(
                 "level {index}: {} x {} x {} in {:?}, {lit} of {total} voxels lit",
                 volume.width,
                 volume.height,
-                volume.depth,
+                volume.layers,
                 started.elapsed()
             );
-            assert_eq!(volume.depth, 142);
+            assert_eq!(volume.layers, 142);
             assert_eq!(progress.load(Ordering::Relaxed), 142);
             // Tissue, not a wrong offset: some of it lit, most of the block dark.
             assert!(lit > total / 100 && lit < total * 9 / 10);
@@ -1227,14 +1161,12 @@ mod tests {
                 .expect("a small region fits");
             assert!(detail.level < index, "{detail:?} is no finer");
             let started = std::time::Instant::now();
-            let pixels = read_volume(&dataset, detail, &dataset.channels, &progress)
-                .await
-                .unwrap();
+            let pixels = read_volume(&dataset, detail, &progress).await.unwrap();
             println!(
                 "detail {detail:?}: {} x {} x {} in {:?}",
                 pixels.width,
                 pixels.height,
-                pixels.depth,
+                pixels.layers,
                 started.elapsed()
             );
         });
@@ -1254,3 +1186,4 @@ mod tests {
         assert_eq!(inner, vec![3, 1, 128, 128]);
     }
 }
+

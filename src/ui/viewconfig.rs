@@ -17,13 +17,16 @@ use bevy_ui_widgets::{SliderRange, SliderValue};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::formats::EXAMPLES;
+use crate::render::channels::ChannelTileMaterial;
 use crate::render::lines::LineMaterial;
 use crate::render::points::{
     DEFAULT_POINT_PX, HIGHLIGHT_NONE, MAX_POINT_PX, MIN_POINT_PX, PointMaterial, SourceHighlight,
     SourcePointSize,
 };
+use crate::render::volume::VolumeMaterial;
 use crate::source::DataSource;
 use crate::source::stack::SliceStack;
+use crate::source::volume::SourceVolume;
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{SelectedPanel, ShowsSource};
 use crate::widgets::{
@@ -183,6 +186,9 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         .entity(slice_slider)
         .insert((SliceSlider, SliceRow));
 
+    // Last, since how many rows it holds depends on the dataset.
+    let channels = crate::ui::channels::spawn_channel_section(&mut commands);
+
     commands.entity(body).add_children(&[
         name,
         transparency,
@@ -191,6 +197,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         size_slider,
         slice_label,
         slice_slider,
+        channels,
     ]);
 }
 
@@ -459,6 +466,48 @@ pub fn apply_line_opacity(
     }
 }
 
+/// Push a source's opacity into whatever mixes its channels: its image tiles,
+/// on the source's own layer, and its volume, on the volume's.
+///
+/// Dims, as every other fade here does, by the tint the shaders multiply the
+/// mixed colour by. Mixing owns the rest of the uniform, so only the tint is
+/// written.
+pub fn apply_channel_opacity(
+    sources: Query<(&DataSource, Ref<SourceOpacity>, Option<&SourceVolume>)>,
+    tiles: Query<(&RenderLayers, Ref<MeshMaterial2d<ChannelTileMaterial>>)>,
+    volumes: Query<(&RenderLayers, Ref<MeshMaterial2d<VolumeMaterial>>)>,
+    mut tile_materials: ResMut<Assets<ChannelTileMaterial>>,
+    mut volume_materials: ResMut<Assets<VolumeMaterial>>,
+) {
+    for (source, opacity, volume) in &sources {
+        let tint = fade_tint(opacity.0).to_linear();
+        let tint = Vec4::new(tint.red, tint.green, tint.blue, 1.0);
+        let flat = RenderLayers::layer(source.layer);
+        for (layers, material) in &tiles {
+            if *layers != flat || !(opacity.is_changed() || material.is_added()) {
+                continue;
+            }
+            if let Some(mut material) = tile_materials.get_mut(&material.0)
+                && material.mix.tint != tint
+            {
+                material.mix.tint = tint;
+            }
+        }
+        let Some(volume) = volume else { continue };
+        let deep = RenderLayers::layer(volume.layer);
+        for (layers, material) in &volumes {
+            if *layers != deep || !(opacity.is_changed() || material.is_added()) {
+                continue;
+            }
+            if let Some(mut material) = volume_materials.get_mut(&material.0)
+                && material.mix.tint != tint
+            {
+                material.mix.tint = tint;
+            }
+        }
+    }
+}
+
 /// The sidebar section that acts on the selected frame.
 pub struct ViewConfigPlugin;
 
@@ -480,6 +529,7 @@ impl Plugin for ViewConfigPlugin {
                     apply_point_settings,
                     apply_point_settings_to_new,
                     apply_line_opacity,
+                    apply_channel_opacity,
                 )
                     .chain()
                     .in_set(Stage::ControlsApply),

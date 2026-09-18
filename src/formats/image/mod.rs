@@ -26,12 +26,15 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::sprite::Anchor;
 use zarrs_codec::AsyncArrayPartialDecoderTraits;
 
 use crate::app::net::{Fetching, fetching};
 use crate::app::schedule::Stage;
-use crate::formats::image::dataset::{Channel, Dataset, TilePixels, TileSource, read_tile};
+use crate::formats::image::dataset::{
+    Channel, ChannelSamples, Dataset, TilePixels, TileSource, read_tile,
+};
+use crate::render::channels::{ChannelTileMaterial, MixChannel, channel_texture};
+use crate::source::channels::{ChannelSetting, SourceChannels};
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::stack::SliceStack;
 use crate::source::{self, SourceExtent, SourceStatus};
@@ -91,6 +94,8 @@ enum SlotState {
         entity: Entity,
         /// Texture footprint, used to keep the cache inside its budget.
         bytes: usize,
+        /// Where its channels are mixed, rewritten when they change.
+        material: Handle<ChannelTileMaterial>,
     },
     /// Nothing to draw: the tile is outside the image or entirely fill value.
     Blank,
@@ -104,7 +109,7 @@ impl SlotState {
 }
 
 enum TileOutcome {
-    Ready(TilePixels),
+    Ready(ChannelSamples),
     Blank,
     Failed(String),
     /// The view moved on before this tile started, so its work was skipped.
@@ -206,6 +211,20 @@ impl TileStreamer {
 
     pub fn dataset(&self) -> &Arc<Dataset> {
         &self.dataset
+    }
+
+    /// The channels as the shaders mix them: windows over the intensities as
+    /// they are stored, which is divided down by the dataset's sample scale.
+    pub fn mix_channels(&self) -> Vec<MixChannel> {
+        let scale = self.dataset.sample_scale;
+        self.channels
+            .iter()
+            .map(|channel| MixChannel {
+                colour: channel.color,
+                window: (channel.start / scale, channel.end / scale),
+                shown: channel.active,
+            })
+            .collect()
     }
 
     pub fn loaded(&self) -> usize {
@@ -447,7 +466,6 @@ pub fn spawn_tile_tasks(mut streamers: Query<&mut TileStreamer>) {
         let dataset = streamer.dataset.clone();
         let decoders = streamer.decoders.clone();
         let z = streamer.z_slice;
-        let channels = streamer.channels.clone();
 
         let shared = streamer.wanted_shared.clone();
         let wanted = std::mem::take(&mut streamer.wanted);
@@ -461,7 +479,6 @@ pub fn spawn_tile_tasks(mut streamers: Query<&mut TileStreamer>) {
 
             let dataset = dataset.clone();
             let decoders = decoders.clone();
-            let channels = channels.clone();
             let shared = shared.clone();
             let key = *key;
             let task = fetching(async move {
@@ -499,7 +516,7 @@ pub fn spawn_tile_tasks(mut streamers: Query<&mut TileStreamer>) {
                     Some(decoder) => TileSource::Shard(decoder.as_ref()),
                     None => TileSource::Array,
                 };
-                match read_tile(&dataset, level, &channels, source, key.ty, key.tx, z).await {
+                match read_tile(&dataset, level, source, key.ty, key.tx, z).await {
                     Ok(Some(pixels)) => TileOutcome::Ready(pixels),
                     Ok(None) => TileOutcome::Blank,
                     Err(e) => TileOutcome::Failed(e),
@@ -525,9 +542,12 @@ pub fn collect_tile_tasks(
     mut commands: Commands,
     mut streamers: Query<&mut TileStreamer>,
     mut images: ResMut<Assets<Image>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ChannelTileMaterial>>,
     sources: Query<&source::DataSource>,
 ) {
     for mut streamer in &mut streamers {
+        let mix = crate::render::channels::ChannelMix::of(&streamer.mix_channels());
         let Ok(layer) = sources.get(streamer.source).map(|s| s.layer) else {
             continue;
         };
@@ -570,26 +590,38 @@ pub fn collect_tile_tasks(
                         );
                         continue;
                     };
-                    let bytes = pixels.rgba.len();
-                    let image = tile_texture(pixels);
+                    let bytes = pixels.data.len();
+                    let texture = images.add(channel_texture(
+                        pixels.width,
+                        pixels.height,
+                        pixels.layers,
+                        pixels.data,
+                        TextureDimension::D2,
+                    ));
+                    let material = materials.add(ChannelTileMaterial {
+                        mix,
+                        samples: texture,
+                    });
 
                     // Finer levels sit on top of coarser ones.
                     let z = (level_count - key.level) as f32;
+                    let size = Vec2::new(x1 - x0, y1 - y0);
                     let entity = commands
                         .spawn((
-                            Sprite {
-                                image: images.add(image),
-                                custom_size: Some(Vec2::new(x1 - x0, y1 - y0)),
-                                ..default()
-                            },
-                            Anchor::TOP_LEFT,
-                            Transform::from_xyz(x0, -y0, z),
+                            Mesh2d(meshes.add(Rectangle::from_size(size))),
+                            MeshMaterial2d(material.clone()),
+                            // Placed by its middle; the image's y runs down.
+                            Transform::from_xyz(x0 + size.x * 0.5, -(y0 + size.y * 0.5), z),
                             RenderLayers::layer(layer),
                             Tile,
                         ))
                         .id();
                     streamer.resident_bytes += bytes;
-                    SlotState::Ready { entity, bytes }
+                    SlotState::Ready {
+                        entity,
+                        bytes,
+                        material,
+                    }
                 }
                 TileOutcome::Blank => SlotState::Blank,
                 TileOutcome::Failed(e) => {
@@ -662,7 +694,7 @@ pub fn evict_tiles(mut commands: Commands, mut streamers: Query<&mut TileStreame
 
         for key in plan_eviction(candidates, streamer.resident_bytes, streamer.budget_bytes) {
             if let Some(slot) = streamer.slots.remove(&key)
-                && let SlotState::Ready { entity, bytes } = slot.state
+                && let SlotState::Ready { entity, bytes, .. } = slot.state
             {
                 commands.entity(entity).despawn();
                 streamer.resident_bytes = streamer.resident_bytes.saturating_sub(bytes);
@@ -819,6 +851,7 @@ impl Plugin for ImageSystems {
                 evict_tiles,
                 update_tile_visibility,
                 toggle_channels,
+                apply_channels,
                 volume::request_volumes,
                 volume::request_detail,
                 volume::collect_volumes,
@@ -861,8 +894,18 @@ pub fn spawn_source(
     );
 
     // Written from registration so the hover system can go through a query
-    // rather than through commands.
-    world.entity_mut(source).insert(HoverInfo::default());
+    // rather than through commands. The channels are what the sidebar offers
+    // controls for, as the dataset publishes them.
+    world.entity_mut(source).insert((
+        HoverInfo::default(),
+        SourceChannels::new(
+            dataset
+                .channels
+                .iter()
+                .map(|c| ChannelSetting::new(c.label.clone(), c.color, c.active))
+                .collect(),
+        ),
+    ));
 
     // Advertising the stack is what puts the paging control in the sidebar and
     // gives the frame's keys something to step; a flat image offers neither.
@@ -957,16 +1000,17 @@ fn pixel_in(level: &dataset::Level, world: Vec2) -> Option<(u64, u64)> {
     Some((x as u64, y as u64))
 }
 
-/// Number keys toggle channels. Tiles bake the composite into RGBA, so the
-/// visible ones are rebuilt; the shard decoders survive, which keeps the
-/// refetch cheap.
+/// Number keys toggle channels.
+///
+/// Written to the source's channel settings, the same place the sidebar's
+/// checkboxes write, so the two always agree; [`apply_channels`] turns either
+/// into what is drawn.
 fn toggle_channels(
-    mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     typing: Res<crate::view::TextEntryFocused>,
     selected: Res<crate::view::SelectedPanel>,
     panels: Query<&ShowsSource>,
-    mut streamers: Query<&mut TileStreamer>,
+    mut sources: Query<&mut SourceChannels, With<TileStreamer>>,
 ) {
     // A digit typed into a URL is a digit, not a channel.
     if typing.0 {
@@ -978,35 +1022,85 @@ fn toggle_channels(
     let Some(source) = crate::view::selected_source(&selected, &panels) else {
         return;
     };
-    if let Ok(mut streamer) = streamers.get_mut(source) {
-        const DIGITS: [KeyCode; 9] = [
-            KeyCode::Digit1,
-            KeyCode::Digit2,
-            KeyCode::Digit3,
-            KeyCode::Digit4,
-            KeyCode::Digit5,
-            KeyCode::Digit6,
-            KeyCode::Digit7,
-            KeyCode::Digit8,
-            KeyCode::Digit9,
-        ];
-
-        let Some(index) = DIGITS
-            .iter()
-            .position(|key| keys.just_pressed(*key))
-            .filter(|i| *i < streamer.channels.len())
-        else {
-            return;
-        };
-
-        streamer.channels[index].active = !streamer.channels[index].active;
-        let channel = &streamer.channels[index];
+    const DIGITS: [KeyCode; 9] = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+    ];
+    let Some(index) = DIGITS.iter().position(|key| keys.just_pressed(*key)) else {
+        return;
+    };
+    if let Ok(mut channels) = sources.get_mut(source)
+        && let Some(shown) = channels.toggle(index)
+    {
         info!(
             "{} the {} channel",
-            if channel.active { "showing" } else { "hiding" },
-            channel.label
+            if shown { "showing" } else { "hiding" },
+            channels.channels[index].label
         );
-        streamer.reset(&mut commands);
+    }
+}
+
+/// The channels to composite with: the dataset's own, as `settings` show them.
+fn composite_channels(published: &[Channel], settings: &[ChannelSetting]) -> Vec<Channel> {
+    published
+        .iter()
+        .enumerate()
+        .map(|(index, channel)| {
+            let mut channel = channel.clone();
+            if let Some(setting) = settings.get(index) {
+                channel.active = setting.contributes();
+                (channel.start, channel.end) = setting.window(channel.start, channel.end);
+            }
+            channel
+        })
+        .collect()
+}
+
+/// Mix tiles and the volume with the source's channel settings.
+///
+/// Instant: tiles keep every channel's intensity and the shader mixes them,
+/// so a change of channels is a change of uniform on each resident tile and
+/// nothing is read again. A slider can be dragged and watched.
+fn apply_channels(
+    mut streamers: Query<(
+        Ref<SourceChannels>,
+        &mut TileStreamer,
+        Option<&volume::ImageVolume>,
+    )>,
+    mut tiles: ResMut<Assets<ChannelTileMaterial>>,
+    mut volumes: ResMut<Assets<crate::render::volume::VolumeMaterial>>,
+) {
+    for (settings, mut streamer, volume) in &mut streamers {
+        if !settings.is_changed() {
+            continue;
+        }
+        let wanted = composite_channels(&streamer.dataset.channels, &settings.channels);
+        if wanted == streamer.channels {
+            continue;
+        }
+        streamer.channels = wanted;
+        let mix = streamer.mix_channels();
+        for slot in streamer.slots.values() {
+            if let SlotState::Ready { material, .. } = &slot.state
+                && let Some(mut material) = tiles.get_mut(material)
+            {
+                material.mix.set_channels(&mix);
+            }
+        }
+        if let Some(material) = volume
+            .and_then(volume::ImageVolume::material)
+            .and_then(|handle| volumes.get_mut(handle))
+        {
+            let mut material = material;
+            material.mix.set_channels(&mix);
+        }
     }
 }
 
@@ -1194,6 +1288,39 @@ mod tests {
         prefetch.extend([key(0, 1), key(1, 0)]);
         assert_eq!(prefetch.order, [key(1, 0)]);
         assert_eq!(prefetch.seen.len(), 4);
+    }
+
+    fn published() -> Vec<Channel> {
+        ["red", "green"]
+            .into_iter()
+            .map(|label| Channel {
+                label: label.into(),
+                color: [1.0; 3],
+                start: 0.0,
+                end: 1000.0,
+                active: true,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn settings_reach_the_composite_through_the_published_window() {
+        let mut settings: Vec<ChannelSetting> = published()
+            .iter()
+            .map(|c| ChannelSetting::new(c.label.clone(), c.color, true))
+            .collect();
+        // As published, nothing changes, so nothing is read again.
+        assert_eq!(composite_channels(&published(), &settings), published());
+
+        settings[0].gain = 2.0;
+        settings[1].shown = false;
+        let channels = composite_channels(&published(), &settings);
+        assert_eq!(channels[0].end, 500.0);
+        assert!(!channels[1].active);
+        // Brightness is always measured from the published window, so turning
+        // one up and back down lands where it started.
+        settings[0].gain = 1.0;
+        assert_eq!(composite_channels(&published(), &settings)[0].end, 1000.0);
     }
 
     #[test]

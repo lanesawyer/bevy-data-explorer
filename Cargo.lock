@@ -474,6 +474,7 @@ dependencies = [
  "bevy_feathers",
  "bevy_ui_widgets",
  "clap",
+ "half",
  "image",
  "ome_zarr_metadata",
  "quick-xml",

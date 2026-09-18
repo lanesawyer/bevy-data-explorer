@@ -50,6 +50,7 @@ impl Plugin for ExplorerPlugin {
             .add_plugins(theme::ThemePlugin)
             .add_plugins(crate::render::points::PointRenderPlugin)
             .add_plugins(crate::render::lines::LineRenderPlugin)
+            .add_plugins(crate::render::channels::ChannelRenderPlugin)
             .add_plugins(crate::render::volume::VolumeRenderPlugin)
             .add_plugins(crate::view::ViewPlugin)
             .add_plugins(crate::widgets::WidgetsPlugin)

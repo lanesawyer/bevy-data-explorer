@@ -126,6 +126,35 @@ dataset and carries a transparency slider. With no frame selected it says so
 and shows nothing else — a slider with nothing to act on invites a drag that
 changes nothing.
 
+A dataset that mixes channels into colour — a multichannel image, where each
+channel is painted in its own colour and the colours added — also gets a row
+per channel there: its colour, a box to show or hide it, and a brightness
+slider. Brightness is a percentage of how the dataset publishes the channel,
+since a raw intensity window like 0–1377 out of 65535 means nothing at a
+glance: 100 is as published, 200 reaches full brightness at half the
+intensity, and 0 is dark. The rows read and write a `SourceChannels` component
+on the source rather than anything of the image's, so the number keys, which
+toggle the same channels, and the boxes always agree, and a format that
+composites channels some other way offers the same controls by carrying one.
+Once anything differs from how the dataset publishes it, a **reset** button
+beside the heading puts every channel back, sliders included.
+
+Every change is instant, because channels are mixed on the GPU rather than
+when a tile is read. A tile keeps each channel's intensity as it was stored —
+half floats, four channels to each layer of an array texture, up to sixteen —
+and its shader paints each channel in its colour by as much as its intensity
+reaches through its window, from a small uniform. Showing, hiding or
+brightening a channel rewrites that uniform on each resident tile and nothing
+is read again, so a slider can be dragged and watched. It used to mean reading
+every visible tile afresh, a second or two a change. A stack drawn in 3D mixes
+the same way, from the same shader code, so it follows as instantly.
+
+What that costs is memory: eight bytes a pixel for up to four channels, where a
+baked tile was four, so the same tile cache holds half as many tiles.
+Intensities are divided by the largest their integer type holds before being
+stored, which keeps them where a half float has three significant figures —
+enough for a window as narrow as the reference stack's 0–1377 of 65535.
+
 Every keyboard shortcut acts on that same frame and no other: paging a stack,
 stepping sections, toggling a channel, resetting a view. A key that reached
 every open dataset would page or toggle the one nobody was looking at, and with
@@ -546,8 +575,9 @@ a format that is 3D to begin with — offers it by advertising one.
 The volume is read whole, once, the first time a frame turns to it: at the
 finest level of the pyramid that fits 16M voxels, which for the reference stack
 is the coarsest, 312 × 234 × 142, read in about a second. Its channels are
-composited exactly as a tile's are and it is uploaded as one 3D texture, then
-drawn as a single box whose shader marches each pixel's ray through it and
+kept apart as a tile's are — the first four, which is what one 3D texture
+holds — uploaded as one 3D texture, and drawn as a single box whose shader
+mixes them as it marches each pixel's ray through it and
 keeps the brightest sample — a maximum-intensity projection, the usual way to
 look at fluorescence in depth, and one that needs nothing sorted. Dark tissue
 lets the frame show through; the brightest signal hides it.
@@ -701,8 +731,9 @@ measuring against it, and are worth knowing before changing them:
 - The sections panel always draws slices in metadata order. It carries no
   notion of anatomical position, so the grid is a contact sheet rather than a
   reconstruction.
-- Channel toggling recomputes tiles, because the composite is baked into RGBA
-  on the CPU. Interactive window/level adjustment wants a shader instead.
+- Brightness moves only the top of a channel's window, and only up to four
+  times as published; the bottom stays where the dataset put it. An image
+  mixes at most sixteen channels, and a volume its first four.
 - Reads are synchronous, so a request already under way cannot be abandoned.
   Queued work is dropped when the view moves on, which is where a backlog
   actually builds up during a fast pan.
@@ -710,10 +741,8 @@ measuring against it, and are worth knowing before changing them:
 - A stack in 3D holds one region of detail at a time, for everything its 3D
   frames can see together, so two frames zoomed into different places share
   a region wide enough for both, at a coarser level. It is drawn as a
-  maximum-intensity projection only.
-  Toggling a channel reads it again, as it does tiles; the transparency slider
-  does not fade it; layers are not drawn over a 3D frame; and it answers no
-  hover.
+  maximum-intensity projection only. Layers are not drawn over a 3D frame,
+  and it answers no hover.
 - Point colouring is fixed to the first categorical column; the others are
   parsed but not yet selectable.
 

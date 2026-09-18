@@ -15,6 +15,7 @@
     mesh2d_vertex_output::VertexOutput,
     mesh2d_view_bindings::view,
 }
+#import bde::channel_mix::{ChannelMix, contribution, srgb_to_linear}
 
 struct VolumeSettings {
     // Corners of the box, in world space. The box is never rotated, so these
@@ -34,6 +35,17 @@ struct VolumeSettings {
 @group(2) @binding(2) var voxel_sampler: sampler;
 @group(2) @binding(3) var detail: texture_3d<f32>;
 @group(2) @binding(4) var detail_sampler: sampler;
+@group(2) @binding(5) var<uniform> channels: ChannelMix;
+
+// A sample's channels mixed into colour, as a tile would paint them. A 3D
+// texture holds four channels, so a volume mixes at most four.
+fn mixed(texel: vec4<f32>) -> vec3<f32> {
+    var colour = vec3<f32>(0.0);
+    for (var index = 0u; index < min(channels.count, 4u); index++) {
+        colour += contribution(channels.colours[index], channels.windows[index], texel[index]);
+    }
+    return srgb_to_linear(min(colour, vec3<f32>(1.0)));
+}
 
 // Where a point lies in a box as texture coordinates. Texture rows run down
 // the image and layers from the first slice, which sits at the front of the
@@ -66,15 +78,15 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var brightest = vec3<f32>(0.0);
     for (var i = 0u; i < count; i++) {
         let point = origin + direction * (near + (f32(i) + 0.5) * step);
-        var colour: vec3<f32>;
+        var texel: vec4<f32>;
         if all(point >= settings.detail_min.xyz) && all(point <= settings.detail_max.xyz) {
             let uvw = texture_coordinates(point, settings.detail_min.xyz, settings.detail_max.xyz);
-            colour = textureSampleLevel(detail, detail_sampler, uvw, 0.0).rgb;
+            texel = textureSampleLevel(detail, detail_sampler, uvw, 0.0);
         } else {
             let uvw = texture_coordinates(point, settings.box_min.xyz, settings.box_max.xyz);
-            colour = textureSampleLevel(voxels, voxel_sampler, uvw, 0.0).rgb;
+            texel = textureSampleLevel(voxels, voxel_sampler, uvw, 0.0);
         }
-        brightest = max(brightest, colour);
+        brightest = max(brightest, mixed(texel));
     }
 
     // Covers what is behind it by as much as it is bright, so dark tissue lets
@@ -84,5 +96,5 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if coverage <= 0.0 {
         discard;
     }
-    return vec4<f32>(brightest, coverage);
+    return vec4<f32>(brightest * channels.tint.rgb, coverage);
 }
