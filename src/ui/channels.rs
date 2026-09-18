@@ -21,7 +21,7 @@ use bevy_ui_widgets::{Activate, SliderValue, ValueChange};
 use crate::app::schedule::Stage;
 use crate::source::channels::{MAX_GAIN, SourceChannels};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
-use crate::widgets::{button_text, spawn_slider};
+use crate::widgets::{Icon, button_icon, button_text, spawn_slider};
 
 /// Brightness runs 0..400 on the slider, so its readout is a percentage.
 const PERCENT: f32 = 100.0;
@@ -62,7 +62,7 @@ pub fn spawn_channel_section(commands: &mut Commands) -> Entity {
     let reset = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_text("reset")] }
+                @caption: { bsn_list![button_icon(Icon::RotateCcw)] }
             }
             BlocksFrameInput
             ChannelReset

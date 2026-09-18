@@ -266,8 +266,8 @@ and grows sideways, which keeps cells closer to square than a single row of
 eight would. Input goes to whichever panel the pointer is over, so the views
 pan and zoom independently.
 
-Each frame's header carries `i`, which opens the inspector on it, and `png`,
-which saves a picture of it. The picture is the frame's own viewport cut out of
+Each frame's header carries an info button, which opens the inspector on it,
+and a camera, which saves a picture of it. The picture is the frame's own viewport cut out of
 a window screenshot, at the size it is on screen, with that frame's chrome
 hidden for the shot so the header, its buttons and the selection outline are not
 burnt into it. Where the frame drew nothing the picture is transparent: the
@@ -278,7 +278,7 @@ dataset and the moment, and the frame says where its last one went. The encode
 runs on a task, since several megapixels of PNG is enough work to freeze the
 window if done where the pixels arrive.
 
-The `+` in a panel's corner duplicates it, and the `x` closes it. Closing
+The copy button in a panel's corner duplicates it, and the `x` closes it. Closing
 renumbers the remaining frames so the grid stays contiguous. The last frame can
 be closed too: the window returns to the empty state it started in, examples and
 all.
@@ -298,10 +298,10 @@ whatever the original happened to load.
 | drag | pan the panel under the cursor |
 | scroll | zoom that panel about the cursor |
 | `R` | reset that panel's view |
-| `+` button | duplicate that panel |
+| copy button | duplicate that panel |
 | `x` button | close that panel |
-| `i` button | open the inspector on that frame |
-| `3d` / `2d` button | look at a stack in depth, or go back to the flat view; offered only where the data has depth |
+| info button | open the inspector on that frame |
+| cube / square button | look at a stack in depth, or go back to the flat view; offered only where the data has depth |
 | drag, in 3D | turn the volume; right-, middle- or shift-drag slides it, scroll zooms toward the pointer, `R` turns it back |
 | dataset name | show a different dataset in that frame |
 | `...` button | add or remove that frame's layers |
@@ -555,8 +555,8 @@ the URL it is served from.
 
 A stack whose metadata measures z the way it measures x and y — a spatial
 axis, in the same unit — can be looked at in depth: its frame's header offers
-`3d`, which turns the frame from the slice it is paging to the whole specimen,
-seen from a little off its face, and `2d` turns it back to the view it left.
+a cube, which turns the frame from the slice it is paging to the whole specimen,
+seen from a little off its face, and a square turns it back to the view it left.
 The Tissuecyte stack qualifies: its sections are 0.1 mm apart in the same
 millimetres as its 0.35 µm pixels, so piled at that spacing they are the block
 the instrument cut. A stack whose z is not spatial, or in another unit, still
@@ -778,3 +778,10 @@ Dependabot opens weekly pull requests for the crates and for the actions in the
 workflow. Patch and minor crate updates are grouped into one, so a quiet week is
 one pull request rather than nine; majors arrive on their own, since those are
 the ones worth reading.
+
+## Icons
+
+Button icons are glyphs from [Lucide](https://lucide.dev) 1.47.0, embedded as
+its icon font (`src/widgets/assets/lucide.ttf`, ISC licence alongside it). The
+codepoints in `src/widgets/icons.rs` come from that release's `font/info.json`
+and move between releases, so upgrade the font and the table together.

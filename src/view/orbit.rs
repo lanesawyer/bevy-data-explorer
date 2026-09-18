@@ -23,7 +23,7 @@ use super::input::BlocksFrameInput;
 use super::{Panel, ShowsSource, View};
 use crate::source::DataSource;
 use crate::source::volume::SourceVolume;
-use crate::widgets::button_text;
+use crate::widgets::{Icon, button_icon};
 
 /// Radians turned per logical pixel dragged.
 const TURN_PER_PX: f32 = 0.008;
@@ -194,7 +194,7 @@ pub(super) fn spawn_view_button(commands: &mut Commands, header: Entity, panel: 
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_text("3d")] }
+                @caption: { bsn_list![button_icon(Icon::Cube)] }
             }
             BlocksFrameInput
             Node { display: { Display::None } }
@@ -204,10 +204,10 @@ pub(super) fn spawn_view_button(commands: &mut Commands, header: Entity, panel: 
     commands.entity(header).add_child(button);
 }
 
-/// What the button says: the view it would switch to, as the theme button
-/// names the theme it would switch to.
-fn caption(orbiting: bool) -> &'static str {
-    if orbiting { "2d" } else { "3d" }
+/// What the button shows: the view it would switch to, as the theme button
+/// shows the theme it would switch to.
+fn caption(orbiting: bool) -> Icon {
+    if orbiting { Icon::Square } else { Icon::Cube }
 }
 
 /// Show each frame's 3D button only over a source with depth, and keep its
@@ -234,7 +234,7 @@ pub fn sync_view_buttons(
         {
             node.display = display;
         }
-        let wanted = caption(orbiting);
+        let wanted = caption(orbiting).glyph();
         for child in children.iter_descendants(entity) {
             if let Ok(mut text) = texts.get_mut(child)
                 && text.0 != wanted
@@ -399,7 +399,7 @@ mod tests {
 
     #[test]
     fn the_button_names_the_view_it_switches_to() {
-        assert_eq!(caption(false), "3d");
-        assert_eq!(caption(true), "2d");
+        assert_eq!(caption(false), Icon::Cube);
+        assert_eq!(caption(true), Icon::Square);
     }
 }

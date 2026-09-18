@@ -24,6 +24,10 @@ use bevy_ui_widgets::Activate;
 use bevy_ui_widgets::ScrollArea;
 use bevy_ui_widgets::{Slider, SliderPrecision, TrackClick};
 
+mod icons;
+
+pub use icons::{Icon, button_icon, icon_text};
+
 use crate::app::schedule::Stage;
 use crate::view::BlocksFrameInput;
 
@@ -176,7 +180,8 @@ pub fn spawn_accordion(
             Children [
                 (
                     AccordionCaret
-                    label(caret(open))
+                    icon_text(caret(open))
+                    ThemeTextColor({ tokens::TEXT_MAIN })
                 ),
                 (
                     AccordionTitle { full: { title.to_string() } }
@@ -215,12 +220,11 @@ pub fn spawn_accordion(
 
 /// Add a button to the right of an accordion's header, returning it so the
 /// caller can attach its own marker and act on it.
-pub fn spawn_header_button(commands: &mut Commands, header: Entity, caption: &str) -> Entity {
-    let caption = caption.to_string();
+pub fn spawn_header_button(commands: &mut Commands, header: Entity, icon: Icon) -> Entity {
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_text(caption)] }
+                @caption: { bsn_list![button_icon(icon)] }
             }
             BlocksFrameInput
             // Header buttons hold their size; the title beside them gives way
@@ -310,7 +314,7 @@ pub fn spawn_menu(commands: &mut Commands, parent: Entity) -> Entity {
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_text("...")] }
+                @caption: { bsn_list![button_icon(Icon::Ellipsis)] }
             }
             BlocksFrameInput
             MenuButton { menu: { menu } }
@@ -517,8 +521,12 @@ fn header_corners(open: bool) -> RoundedCorners {
     }
 }
 
-fn caret(open: bool) -> &'static str {
-    if open { "v" } else { ">" }
+fn caret(open: bool) -> Icon {
+    if open {
+        Icon::ChevronDown
+    } else {
+        Icon::ChevronRight
+    }
 }
 
 /// Whether a section's body is laid out. Shared by the spawn and the update so
@@ -574,7 +582,7 @@ pub fn update_accordions(
                 continue;
             }
             if let Ok(mut text) = texts.get_mut(child) {
-                let wanted = caret(open);
+                let wanted = caret(open).glyph();
                 if text.0 != wanted {
                     text.0 = wanted.to_string();
                 }
@@ -647,6 +655,7 @@ pub struct WidgetsPlugin;
 
 impl Plugin for WidgetsPlugin {
     fn build(&self, app: &mut App) {
+        bevy::asset::embedded_asset!(app, "assets/lucide.ttf");
         app
             // Feathers' slider reports a value change but leaves writing it
             // back to the app; this observer is what closes that loop.

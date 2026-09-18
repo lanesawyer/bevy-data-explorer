@@ -20,7 +20,7 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::ThemeMode;
 use crate::view::{BlocksFrameInput, FrameArea};
-use crate::widgets::button_text;
+use crate::widgets::{Icon, button_icon};
 
 /// Width when collapsed. Enough for the short title and the toggle beneath it.
 const RIBBON_PX: f32 = 52.0;
@@ -196,7 +196,7 @@ fn spawn_sidebar(mut commands: Commands) {
                 }
                 Children [(
                     @FeathersToolButton {
-                        @caption: { bsn_list![button_text("log")] }
+                        @caption: { bsn_list![button_icon(Icon::ScrollText)] }
                     }
                     crate::ui::logpanel::LogPanelToggle
                     BlocksFrameInput
@@ -209,7 +209,7 @@ fn spawn_sidebar(mut commands: Commands) {
                 }
                 Children [(
                     @FeathersToolButton {
-                        @caption: { bsn_list![button_text("light")] }
+                        @caption: { bsn_list![button_icon(Icon::Sun)] }
                     }
                     ThemeButton
                     BlocksFrameInput
@@ -227,7 +227,7 @@ fn spawn_sidebar(mut commands: Commands) {
                 Children [
                     (
                         @FeathersToolButton {
-                            @caption: { bsn_list![button_text("<")] }
+                            @caption: { bsn_list![button_icon(Icon::PanelLeftClose)] }
                         }
                         SidebarToggle
                         BlocksFrameInput
@@ -395,7 +395,12 @@ pub fn update_sidebar(
     for children in &toggles {
         for child in children.iter() {
             if let Ok(mut text) = texts.get_mut(child) {
-                let wanted = if sidebar.collapsed { ">" } else { "<" };
+                let wanted = if sidebar.collapsed {
+                    Icon::PanelLeftOpen
+                } else {
+                    Icon::PanelLeftClose
+                }
+                .glyph();
                 if text.0 != wanted {
                     text.0 = wanted.to_string();
                 }
@@ -419,15 +424,18 @@ pub fn on_theme_pressed(
     }
 }
 
-/// Keep the theme button naming the theme it would switch to, shortened to fit
-/// the ribbon the way the title is.
+/// Keep the theme button showing the theme it would switch to.
 pub fn sync_theme_button(
     mode: Res<ThemeMode>,
-    sidebar: Res<Sidebar>,
     buttons: Query<&Children, With<ThemeButton>>,
     mut texts: Query<&mut Text>,
 ) {
-    let wanted = mode.other_name(sidebar.collapsed);
+    let wanted = if mode.is_dark() {
+        Icon::Sun
+    } else {
+        Icon::Moon
+    }
+    .glyph();
     for children in &buttons {
         for child in children.iter() {
             if let Ok(mut text) = texts.get_mut(child)

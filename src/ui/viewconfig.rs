@@ -28,7 +28,7 @@ use crate::source::volume::SourceVolume;
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{SelectedPanel, ShowsSource};
 use crate::widgets::{
-    SectionLevel, button_text, caption, spawn_accordion, spawn_menu, spawn_slider,
+    Icon, SectionLevel, button_icon, caption, spawn_accordion, spawn_menu, spawn_slider,
 };
 
 /// The opacity slider runs 0..100, so its built-in readout is a percentage.
@@ -745,10 +745,10 @@ fn frame_row(commands: &mut Commands, panel: Entity, data: &DataSource) -> Entit
         .id();
 
     let details = summary(commands, data);
-    let clone = action_button(commands, panel, LayoutAction::Clone, "Clone");
+    let clone = action_button(commands, panel, LayoutAction::Clone, Icon::CopyPlus);
     // Every frame offers to close, the last one included: the window it leaves
     // behind offers the examples again.
-    let remove = action_button(commands, panel, LayoutAction::Remove, "Close");
+    let remove = action_button(commands, panel, LayoutAction::Remove, Icon::X);
     commands.entity(row).add_children(&[details, clone, remove]);
     row
 }
@@ -757,13 +757,12 @@ fn action_button(
     commands: &mut Commands,
     panel: Entity,
     action: LayoutAction,
-    glyph: &str,
+    icon: Icon,
 ) -> Entity {
-    let glyph = glyph.to_string();
     commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_text(glyph)] }
+                @caption: { bsn_list![button_icon(icon)] }
             }
             crate::view::BlocksFrameInput
             LayoutButton { panel: { panel }, action: { action } }

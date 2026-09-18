@@ -23,7 +23,7 @@ use crate::view::{
     BlocksFrameInput, DatasetRequest, DatasetTarget, FrameLayers, LayerOf, LayerOpacity, Panel,
     PanelRequest, SelectedPanel, ShowsSource,
 };
-use crate::widgets::{SectionLevel, button_text, caption, spawn_accordion, spawn_slider};
+use crate::widgets::{Icon, SectionLevel, button_icon, caption, spawn_accordion, spawn_slider};
 
 /// Straight after View configuration, which acts on the bottom of the same
 /// stack.
@@ -296,12 +296,11 @@ fn row(commands: &mut Commands) -> Entity {
         .id()
 }
 
-fn button(commands: &mut Commands, glyph: &str, action: LayerButton) -> Entity {
-    let glyph = glyph.to_string();
+fn button(commands: &mut Commands, icon: Icon, action: LayerButton) -> Entity {
     commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_text(glyph)] }
+                @caption: { bsn_list![button_icon(icon)] }
             }
             BlocksFrameInput
             template_value(action)
@@ -321,7 +320,7 @@ fn layer_row(
     let details = details(commands, data, mismatch);
     let remove = button(
         commands,
-        "Remove",
+        Icon::Trash,
         LayerButton {
             panel,
             action: LayerAction::Remove(source),
@@ -338,7 +337,7 @@ fn candidate_row(
     details: Entity,
 ) -> Entity {
     let row = row(commands);
-    let add = button(commands, "+", LayerButton { panel, action });
+    let add = button(commands, Icon::Plus, LayerButton { panel, action });
     commands.entity(row).add_children(&[add, details]);
     row
 }

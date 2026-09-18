@@ -32,7 +32,7 @@ use crate::view::{
     BlocksFrameInput, DatasetRequest, DatasetTarget, FrameLayers, LayerOf, Panel, PanelRequest,
     PendingShow, ShowsSource,
 };
-use crate::widgets::{button_text, spawn_menu};
+use crate::widgets::{Icon, button_icon, spawn_menu};
 
 /// The translucent panel a frame's header and status sit on.
 #[derive(Component, Clone)]
@@ -242,7 +242,7 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
     let info = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_text("i")] }
+                @caption: { bsn_list![button_icon(Icon::Info)] }
             }
             BlocksFrameInput
             PanelInfoButton { panel: { panel } }
@@ -556,7 +556,7 @@ fn layer_rows<'a>(
                     source: *entity,
                     action: ChoiceAction::RemoveLayer,
                 },
-                "Remove",
+                Icon::Trash,
                 true,
             ));
         }
@@ -578,7 +578,7 @@ fn layer_rows<'a>(
                 source: *entity,
                 action: ChoiceAction::AddLayer,
             },
-            "Add",
+            Icon::Plus,
             true,
         ));
     }
@@ -595,7 +595,7 @@ fn layer_rows<'a>(
                 source: Entity::PLACEHOLDER,
                 action: ChoiceAction::LayerExample(index),
             },
-            "Add",
+            Icon::Plus,
             room,
         ));
     }
@@ -610,7 +610,7 @@ pub struct SourceMenuContent;
 ///
 /// Fixed because the menu is: a menu's width never changes, so text can be
 /// cut to it once when the rows are built rather than measured every frame.
-const MENU_TEXT_PX: f32 = crate::widgets::MENU_WIDTH - 20.0 - 6.0 - 64.0;
+const MENU_TEXT_PX: f32 = crate::widgets::MENU_WIDTH - 20.0 - 6.0 - 24.0;
 
 /// What a layer is, and whether it is measured the way the frame under it is.
 fn layer_note(base: Option<&DataSource>, source: &DataSource) -> String {
@@ -643,12 +643,11 @@ fn menu_row(
     name: &str,
     note: &str,
     choice: SourceChoice,
-    action: &str,
+    icon: Icon,
     enabled: bool,
 ) -> Entity {
     let name = crate::widgets::truncate_to_width(name, MENU_TEXT_PX, 13.0);
     let note = crate::widgets::truncate_to_width(note, MENU_TEXT_PX, 11.0);
-    let action = action.to_string();
     let row = commands
         .spawn_scene(bsn! {
             SourceMenuContent
@@ -686,7 +685,7 @@ fn menu_row(
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_text(action)] }
+                @caption: { bsn_list![button_icon(icon)] }
             }
             BlocksFrameInput
             template_value(choice)

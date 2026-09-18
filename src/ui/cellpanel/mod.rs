@@ -14,7 +14,7 @@
 
 use bevy::prelude::*;
 use bevy::ui::Checked;
-use bevy_feathers::controls::FeathersCheckbox;
+use bevy_feathers::controls::{ButtonVariant, FeathersCheckbox};
 use bevy_feathers::display::label_dim;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, ValueChange};
@@ -28,7 +28,7 @@ use crate::source::properties::{CellProperties, CellProperty, PropertyKind, Prop
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
 use crate::widgets::{
-    Accordion, SectionLevel, button_text, spawn_accordion, spawn_header_button, spawn_menu,
+    Accordion, Icon, SectionLevel, button_text, spawn_accordion, spawn_header_button, spawn_menu,
 };
 
 /// The section itself, hidden for sources with no properties to show.
@@ -92,7 +92,7 @@ pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<Side
 
     // Added before the menu so it sits to its left, and hides itself when
     // there is nothing to clear.
-    let clear = spawn_header_button(&mut commands, accordion.header, "Clear filters");
+    let clear = spawn_header_button(&mut commands, accordion.header, Icon::FilterX);
     commands.entity(clear).insert(ClearAllButton);
 
     let menu = spawn_menu(&mut commands, accordion.header);
@@ -210,16 +210,18 @@ pub fn rebuild_cell_panel(
 
         // Clearing sits to the left of the colour control, as it does on the
         // section's own header. It hides itself when there is nothing to clear.
-        let clear = spawn_header_button(&mut commands, sub.header, "clear");
+        let clear = spawn_header_button(&mut commands, sub.header, Icon::FilterX);
         commands
             .entity(clear)
             .insert(ClearPropertyButton { property: index });
 
-        let button =
-            spawn_header_button(&mut commands, sub.header, if colouring { "*" } else { "o" });
+        let button = spawn_header_button(&mut commands, sub.header, Icon::Palette);
         commands
             .entity(button)
             .insert(ColourByButton { property: index });
+        if colouring {
+            commands.entity(button).insert(ButtonVariant::Primary);
+        }
 
         let rows = match &property.kind {
             PropertyKind::Categorical(values) => values
@@ -466,9 +468,7 @@ pub fn update_property_controls(
     panels: Query<&ShowsSource>,
     sources: Query<&CellProperties>,
     boxes: Query<(Entity, &ValueCheckbox, Has<Checked>)>,
-    colours: Query<(Entity, &ColourByButton)>,
-    children: Query<&Children>,
-    mut texts: Query<&mut Text>,
+    mut colours: Query<(&ColourByButton, &mut ButtonVariant)>,
 ) {
     let Some(properties) = selected
         .0
@@ -494,19 +494,14 @@ pub fn update_property_controls(
         }
     }
 
-    for (entity, button) in &colours {
+    // The one property colouring the points is the one whose palette is lit.
+    for (button, mut variant) in &mut colours {
         let wanted = if properties.colour_by == Some(button.property) {
-            "*"
+            ButtonVariant::Primary
         } else {
-            "o"
+            ButtonVariant::Normal
         };
-        for child in children.iter_descendants(entity) {
-            if let Ok(mut text) = texts.get_mut(child)
-                && text.0 != wanted
-            {
-                text.0 = wanted.to_string();
-            }
-        }
+        variant.set_if_neq(wanted);
     }
 }
 /// The sidebar section that filters and colours a point cloud by its cell

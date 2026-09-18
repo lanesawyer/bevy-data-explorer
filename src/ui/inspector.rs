@@ -21,7 +21,7 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::{Boot, Stage};
 use crate::source::{DataSource, SourceStatus};
 use crate::view::{BlocksFrameInput, FrameArea, PanelRequest, SelectedPanel, ShowsSource};
-use crate::widgets::button_text;
+use crate::widgets::{Icon, button_icon};
 
 const MIN_PX: f32 = 200.0;
 const MAX_FRACTION: f32 = 0.5;
@@ -110,7 +110,7 @@ fn spawn_inspector(mut commands: Commands) {
                     ),
                     (
                         @FeathersToolButton {
-                            @caption: { bsn_list![button_text("x")] }
+                            @caption: { bsn_list![button_icon(Icon::X)] }
                         }
                         InspectorClose
                         BlocksFrameInput

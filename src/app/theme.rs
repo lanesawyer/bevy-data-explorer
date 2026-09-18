@@ -249,16 +249,6 @@ impl ThemeMode {
         matches!(self.mode, WindowTheme::Dark)
     }
 
-    /// What a control offering to switch should call the other theme.
-    pub fn other_name(&self, short: bool) -> &'static str {
-        match (self.is_dark(), short) {
-            (true, true) => "L",
-            (true, false) => "light",
-            (false, true) => "D",
-            (false, false) => "dark",
-        }
-    }
-
     /// Switch by hand, which is also what stops the desktop switching back.
     pub fn toggle(&mut self) {
         self.mode = if self.is_dark() {
@@ -461,14 +451,5 @@ mod tests {
         assert!(mode.is_dark());
         mode.follow(WindowTheme::Light);
         assert!(mode.is_dark(), "a chosen theme is not taken back");
-    }
-
-    #[test]
-    fn the_button_names_the_theme_it_would_switch_to() {
-        let mut mode = ThemeMode::default();
-        assert_eq!(mode.other_name(false), "light");
-        assert_eq!(mode.other_name(true), "L");
-        mode.toggle();
-        assert_eq!(mode.other_name(false), "dark");
     }
 }

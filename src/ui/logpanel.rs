@@ -27,7 +27,7 @@ use crate::app::logs::LogTail;
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::Palette;
 use crate::view::{BlocksFrameInput, FrameArea, TextEntryFocused};
-use crate::widgets::button_text;
+use crate::widgets::{Icon, button_icon};
 
 /// Height the panel takes off the grid when it is open.
 const HEIGHT_PX: f32 = 240.0;
@@ -101,14 +101,14 @@ pub fn spawn_log_panel(mut commands: Commands) {
                 ),
                 (
                     @FeathersToolButton {
-                        @caption: { bsn_list![button_text("copy")] }
+                        @caption: { bsn_list![button_icon(Icon::Copy)] }
                     }
                     BlocksFrameInput
                     CopyLogButton
                 ),
                 (
                     @FeathersToolButton {
-                        @caption: { bsn_list![button_text("x")] }
+                        @caption: { bsn_list![button_icon(Icon::X)] }
                     }
                     BlocksFrameInput
                     LogPanelToggle

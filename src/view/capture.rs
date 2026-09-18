@@ -41,7 +41,7 @@ use crate::source::DataSource;
 use crate::view::chrome::{PanelButton, SelectionBorder};
 use crate::view::overlay::{PanelHeader, PanelTooltip};
 use crate::view::{BlocksFrameInput, Panel, ShowsSource};
-use crate::widgets::button_text;
+use crate::widgets::{Icon, button_icon};
 
 /// Where pictures are written, relative to where the app was started.
 const FOLDER: &str = "screenshots";
@@ -128,10 +128,7 @@ pub(super) fn spawn_capture_button(commands: &mut Commands, header: Entity, pane
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                // Text, not a symbol: the default font carries no camera or
-                // box glyph and draws a missing one as `?`. It names what it
-                // writes, which is what the other header controls do.
-                @caption: { bsn_list![button_text("png")] }
+                @caption: { bsn_list![button_icon(Icon::Camera)] }
             }
             BlocksFrameInput
             PanelCaptureButton { panel: { panel } }

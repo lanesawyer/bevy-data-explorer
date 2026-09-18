@@ -6,7 +6,7 @@ use bevy_feathers::controls::{ButtonVariant, FeathersToolButton};
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeBorderColor};
 
 use crate::app::theme::token;
-use crate::widgets::button_text;
+use crate::widgets::{Icon, button_icon};
 use bevy_ui_widgets::Activate;
 
 use super::grid::{MAX_COLUMNS, MAX_ROWS};
@@ -152,10 +152,10 @@ impl PanelAction {
         }
     }
 
-    fn glyph(self) -> &'static str {
+    fn icon(self) -> Icon {
         match self {
-            PanelAction::Duplicate => "+",
-            PanelAction::Close => "x",
+            PanelAction::Duplicate => Icon::CopyPlus,
+            PanelAction::Close => Icon::X,
         }
     }
 }
@@ -207,10 +207,10 @@ pub fn sync_panel_buttons(
             {
                 continue;
             }
-            let glyph = action.glyph().to_string();
+            let icon = action.icon();
             commands.spawn_scene(bsn! {
                 @FeathersToolButton {
-                    @caption: { bsn_list![button_text(glyph)] },
+                    @caption: { bsn_list![button_icon(icon)] },
                     @variant: { variant_for(action) }
                 }
                 BlocksFrameInput
@@ -290,14 +290,14 @@ mod tests {
     }
 
     #[test]
-    fn every_action_has_its_own_slot_and_glyph() {
+    fn every_action_has_its_own_slot_and_icon() {
         let slots: std::collections::HashSet<u32> = PanelAction::ALL
             .iter()
             .map(|a| a.slot().to_bits())
             .collect();
-        let glyphs: std::collections::HashSet<&str> =
-            PanelAction::ALL.iter().map(|a| a.glyph()).collect();
+        let icons: std::collections::HashSet<Icon> =
+            PanelAction::ALL.iter().map(|a| a.icon()).collect();
         assert_eq!(slots.len(), PanelAction::ALL.len());
-        assert_eq!(glyphs.len(), PanelAction::ALL.len());
+        assert_eq!(icons.len(), PanelAction::ALL.len());
     }
 }
