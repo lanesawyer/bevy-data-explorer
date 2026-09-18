@@ -44,15 +44,28 @@ pub fn reset_selected_view(
     keys: Res<ButtonInput<KeyCode>>,
     typing: Res<TextEntryFocused>,
     selected: Res<SelectedPanel>,
-    mut panels: Query<(&mut Transform, &mut Projection, &ViewLimits), With<Panel>>,
+    mut panels: Query<
+        (
+            &mut Transform,
+            &mut Projection,
+            &ViewLimits,
+            Option<&mut super::Orbit>,
+        ),
+        With<Panel>,
+    >,
 ) {
     if typing.0 || !keys.just_pressed(KeyCode::KeyR) {
         return;
     }
     let Some(panel) = selected.0 else { return };
-    let Ok((mut transform, mut projection, limits)) = panels.get_mut(panel) else {
+    let Ok((mut transform, mut projection, limits, orbit)) = panels.get_mut(panel) else {
         return;
     };
+    // A 3D frame goes back to where it started turning, not out of 3D.
+    if let Some(mut orbit) = orbit {
+        orbit.reset();
+        return;
+    }
     let Projection::Orthographic(ortho) = projection.as_mut() else {
         return;
     };
@@ -247,6 +260,7 @@ pub fn panel_controls(
         &mut Projection,
         &Panel,
         &ViewLimits,
+        Option<&mut super::Orbit>,
     )>,
     windows: Query<&Window>,
     area: Res<FrameArea>,
@@ -315,8 +329,27 @@ pub fn panel_controls(
         };
     }
 
-    for (camera, global, mut transform, mut projection, panel, limits) in &mut panels {
+    for (camera, global, mut transform, mut projection, panel, limits, orbit) in &mut panels {
         if panel.index != active {
+            continue;
+        }
+        // The same gestures, read as turning a volume: a drag turns it, a
+        // middle drag slides it, and the wheel moves in and out.
+        if let Some(mut orbit) = orbit {
+            if scroll != 0.0 {
+                orbit.zoom(scroll);
+            }
+            if let Some(state) = *drag {
+                let delta = cursor - state.last;
+                if delta != Vec2::ZERO {
+                    if buttons.pressed(MouseButton::Middle) {
+                        let height = camera.logical_viewport_size().map_or(1.0, |size| size.y);
+                        orbit.pan(delta, height);
+                    } else {
+                        orbit.turn(delta);
+                    }
+                }
+            }
             continue;
         }
         let Projection::Orthographic(ortho) = projection.as_mut() else {

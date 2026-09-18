@@ -22,6 +22,7 @@ pub mod dataset_menu;
 pub mod grid;
 pub mod input;
 pub mod layers;
+pub mod orbit;
 pub mod overlay;
 pub mod requests;
 
@@ -45,6 +46,7 @@ use requests::apply_panel_requests;
 pub use grid::{MAX_PANELS, grid_for};
 pub use input::{BlocksFrameInput, TextEntryFocused};
 pub use layers::{FrameLayers, LayerOf, LayerOpacity, OpensAsLayer};
+pub use orbit::Orbit;
 pub use requests::{DatasetRequest, DatasetTarget, PanelRequest, PendingShow};
 
 /// The frame the sidebar's controls act on.
@@ -146,7 +148,7 @@ impl Default for ShowsSource {
 }
 
 /// The view a panel is currently showing, used when duplicating it.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct View {
     pub centre: Vec2,
     pub scale: f32,
@@ -201,6 +203,7 @@ impl Plugin for ViewPlugin {
             .init_resource::<SelectedPanel>()
             .init_resource::<TextEntryFocused>()
             .add_observer(panel_buttons)
+            .add_observer(orbit::on_view_toggled)
             .add_systems(Update, track_text_focus.in_set(Stage::Focus))
             .add_systems(Update, reset_frame_area.in_set(Stage::FrameArea))
             .add_systems(
@@ -215,6 +218,9 @@ impl Plugin for ViewPlugin {
                 (
                     panel_controls,
                     reset_selected_view,
+                    // After the pointer has turned it, so the camera never lags
+                    // a gesture, and before the layers copy the frame's view.
+                    orbit::apply_orbits,
                     update_viewports,
                     // After the viewports, and after the pan and zoom, so a
                     // layer never lags a frame behind what it is drawn over.
@@ -225,6 +231,7 @@ impl Plugin for ViewPlugin {
                     .chain()
                     .in_set(Stage::Viewports),
             )
+            .add_systems(Update, orbit::sync_view_buttons.in_set(Stage::Chrome))
             .add_systems(Update, update_selection_border.in_set(Stage::ControlsPlace))
             // Paging writes through to the source it pages, which is what every
             // other control does in this stage — and being here is what has the

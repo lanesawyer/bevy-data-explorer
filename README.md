@@ -272,6 +272,8 @@ whatever the original happened to load.
 | `+` button | duplicate that panel |
 | `x` button | close that panel |
 | `i` button | open the inspector on that frame |
+| `3d` / `2d` button | look at a stack in depth, or go back to the flat view; offered only where the data has depth |
+| drag, in 3D | turn the volume; middle-drag slides it, scroll moves in and out, `R` turns it back |
 | dataset name | show a different dataset in that frame |
 | `...` button | add or remove that frame's layers |
 | drag sidebar edge | resize the sidebar, or collapse it — the pointer becomes a resize cursor over the handle |
@@ -520,6 +522,45 @@ and names buckets its own way — `zarr2://s3://bucket/key` — so the prefix is
 dropped, since the bytes decide what a source is anyway, and the bucket becomes
 the URL it is served from.
 
+### Stacks in three dimensions
+
+A stack whose metadata measures z the way it measures x and y — a spatial
+axis, in the same unit — can be looked at in depth: its frame's header offers
+`3d`, which turns the frame from the slice it is paging to the whole specimen,
+seen from a little off its face, and `2d` turns it back to the view it left.
+The Tissuecyte stack qualifies: its sections are 0.1 mm apart in the same
+millimetres as its 0.35 µm pixels, so piled at that spacing they are the block
+the instrument cut. A stack whose z is not spatial, or in another unit, still
+pages; it just says nothing about where its slices lay, and drawing it in depth
+would invent that.
+
+Nothing else is offered this way yet, and not for want of a renderer. The
+sectioned point cloud looks like the obvious candidate and is not: its
+metadata places each slice in x and y only, lists them in no anatomical order,
+and the one per-slice column it has — a section label — is a code whose order
+does not follow the anatomy either. Stacked at a guessed spacing it would be a
+reconstruction nobody made. The button is driven by a `SourceVolume` component
+on the source rather than by format, so a point cloud that does carry z — or
+a format that is 3D to begin with — offers it by advertising one.
+
+The volume is read whole, once, the first time a frame turns to it: at the
+finest level of the pyramid that fits 16M voxels, which for the reference stack
+is the coarsest, 312 × 234 × 142, read in about a second. Its channels are
+composited exactly as a tile's are and it is uploaded as one 3D texture, then
+drawn as a single box whose shader marches each pixel's ray through it and
+keeps the brightest sample — a maximum-intensity projection, the usual way to
+look at fluorescence in depth, and one that needs nothing sorted. Dark tissue
+lets the frame show through; the brightest signal hides it.
+
+A 3D frame is still the same camera. Its projection turns perspective and it
+draws a render layer the volume was given of its own, so it shows none of the
+tiles the same source streams for flat frames, and its place in the grid — its
+draw order, and whether it is the one camera that clears the window — does not
+change. Everything that reads a frame's view as flat already passes over one
+that is not, so a 3D frame streams no tiles and shows no tooltip rather than
+answering wrongly. Duplicating one duplicates it in 3D, turned the same way;
+pointing it at another dataset puts it back in 2D.
+
 ### Scatterbrain point clouds
 
 A Potree-style octree of 2D points. Columns are stored one per directory, split
@@ -651,6 +692,11 @@ measuring against it, and are worth knowing before changing them:
   Queued work is dropped when the view moves on, which is where a backlog
   actually builds up during a fast pan.
 - Only the first multiscale image in a store is shown, at a single z slice.
+- A stack in 3D is drawn from one level of its pyramid, with no finer detail
+  streamed in as it is approached, and as a maximum-intensity projection only.
+  Toggling a channel reads it again, as it does tiles; the transparency slider
+  does not fade it; layers are not drawn over a 3D frame; and it answers no
+  hover.
 - Point colouring is fixed to the first categorical column; the others are
   parsed but not yet selectable.
 

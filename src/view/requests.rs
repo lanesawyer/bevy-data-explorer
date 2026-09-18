@@ -102,6 +102,7 @@ pub fn apply_panel_requests(
         &Projection,
         &ViewLimits,
         Option<&FrameLayers>,
+        Option<&super::Orbit>,
     )>,
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     layer_opacities: Query<(&ShowsSource, &LayerOpacity), With<LayerOf>>,
@@ -137,15 +138,23 @@ pub fn apply_panel_requests(
                 if open.len() + spawned >= MAX_PANELS {
                     continue;
                 }
-                let Ok((_, _, shows, transform, projection, limits, layers)) = panels.get(panel)
+                let Ok((_, _, shows, transform, projection, limits, layers, orbit)) =
+                    panels.get(panel)
                 else {
                     continue;
                 };
                 let Ok((source, _)) = sources.get(shows.0) else {
                     continue;
                 };
-                let Projection::Orthographic(ortho) = projection else {
-                    continue;
+                // A 3D frame is duplicated in 3D, turned the same way, and
+                // keeps the 2D view it would go back to.
+                let flat = match (orbit, projection) {
+                    (Some(orbit), _) => orbit.flat,
+                    (None, Projection::Orthographic(ortho)) => View {
+                        centre: transform.translation.truncate(),
+                        scale: ortho.scale,
+                    },
+                    (None, _) => continue,
                 };
                 let copy = spawn_panel(
                     &mut commands,
@@ -153,12 +162,12 @@ pub fn apply_panel_requests(
                     source.layer,
                     open.len() + spawned,
                     *limits,
-                    Some(View {
-                        centre: transform.translation.truncate(),
-                        scale: ortho.scale,
-                    }),
+                    Some(flat),
                     palette.frame_bg,
                 );
+                if let Some(orbit) = orbit {
+                    commands.entity(copy).insert(*orbit);
+                }
                 // The same stack at the same opacities, so a duplicate is the
                 // same picture.
                 for camera in layers.map(FrameLayers::cameras).unwrap_or_default() {
@@ -210,7 +219,7 @@ pub fn apply_panel_requests(
                 }
             }
             PanelRequest::Show { panel, source } => {
-                let Ok((_, _, shows, _, _, _, layers)) = panels.get(panel) else {
+                let Ok((_, _, shows, _, _, _, layers, _)) = panels.get(panel) else {
                     continue;
                 };
                 // Only the dataset the frame is waiting on settles the wait: a
@@ -231,7 +240,9 @@ pub fn apply_panel_requests(
                 // source's layer and is reframed to its extent.
                 let limits = extent.limits(viewport);
                 info!("frame now showing {}", data.name);
-                commands.entity(panel).insert((
+                // In 2D, whatever it was: the new dataset may have no depth, and
+                // one that does has its own to be framed to.
+                commands.entity(panel).remove::<super::Orbit>().insert((
                     ShowsSource(source),
                     RenderLayers::layer(data.layer),
                     limits,
@@ -248,7 +259,7 @@ pub fn apply_panel_requests(
                 selected.0 = Some(panel);
             }
             PanelRequest::AddLayer { panel, source } => {
-                let Ok((_, _, shows, _, _, _, layers)) = panels.get(panel) else {
+                let Ok((_, _, shows, _, _, _, layers, _)) = panels.get(panel) else {
                     continue;
                 };
                 let Some(data) = lookup(source) else {
@@ -284,7 +295,7 @@ pub fn apply_panel_requests(
                 }
             }
             PanelRequest::RemoveLayer { panel, source } => {
-                if let Ok((.., layers)) = panels.get(panel) {
+                if let Ok((.., layers, _)) = panels.get(panel) {
                     remove_layers_of(&mut commands, layers, &layer_cameras, source);
                 }
             }

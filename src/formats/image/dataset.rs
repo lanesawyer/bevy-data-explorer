@@ -3,7 +3,9 @@
 //! display settings, and a way to read one tile.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
+use bevy::math::Vec3;
 use ome_zarr_metadata::v0_4::AxisType;
 
 use crate::formats::image::store::MultiscaleSpec;
@@ -108,6 +110,10 @@ pub struct Level {
     /// World-space origin of the level, from its translation transform.
     pub origin_x: f64,
     pub origin_y: f64,
+    /// World units between slices, and where the first one lies. Zero and the
+    /// origin for a flat image.
+    pub scale_z: f64,
+    pub origin_z: f64,
     /// Tile edge in level pixels.
     pub tile_px: u64,
     /// Whether the top-level chunk is a shard holding inner chunks.
@@ -194,6 +200,9 @@ pub struct Dataset {
     pub unit: String,
     /// Full image extent in world units.
     pub world: (f32, f32, f32, f32),
+    /// Whether the slices of a stack are placed in the same space as their
+    /// pixels, so that piling them up at their spacing is the specimen itself.
+    pub spatial_stack: bool,
 }
 
 impl Dataset {
@@ -259,6 +268,8 @@ impl Dataset {
                 scale_y: scale[layout.y],
                 origin_x: translation[layout.x],
                 origin_y: translation[layout.y],
+                scale_z: layout.z.map_or(0.0, |z| scale[z]),
+                origin_z: layout.z.map_or(0.0, |z| translation[z]),
                 tile_px,
                 sharded,
                 shard_y_px: chunk[layout.y],
@@ -287,6 +298,7 @@ impl Dataset {
 
         let channel_count = layout.c.map_or(1, |c| finest.array.shape()[c] as usize);
         let channels = build_channels(omero, channel_count, &finest.array);
+        let spatial_stack = z_is_measured(&multiscale.axes, &layout);
 
         Ok(Dataset {
             name: multiscale.name.clone().unwrap_or_else(|| "image".into()),
@@ -295,6 +307,43 @@ impl Dataset {
             layout,
             unit,
             world,
+            spatial_stack,
+        })
+    }
+
+    /// Where the stack lies in three dimensions, as its display centre and
+    /// extent — or `None` when it cannot honestly be drawn that way.
+    ///
+    /// Display coordinates follow the flat view: x right, y negated so the
+    /// image reads top-down, and z negated too, so the first slice is the one
+    /// nearest a camera looking down -z — the slice a frame opening on the
+    /// stack's front would see first.
+    pub fn volume_extent(&self) -> Option<(Vec3, Vec3)> {
+        let level = self.levels.first()?;
+        let depth = self.depth();
+        if !self.spatial_stack || depth < 2 || !(level.scale_z.is_finite() && level.scale_z > 0.0) {
+            return None;
+        }
+        let (x0, y0, x1, y1) = self.world;
+        let z0 = level.origin_z;
+        let z1 = z0 + depth as f64 * level.scale_z;
+        Some((
+            Vec3::new(
+                f32::midpoint(x0, x1),
+                -f32::midpoint(y0, y1),
+                -(f64::midpoint(z0, z1) as f32),
+            ),
+            Vec3::new((x1 - x0).abs(), (y1 - y0).abs(), (z1 - z0) as f32),
+        ))
+    }
+
+    /// The finest level whose whole stack fits in `voxel_budget` and in a 3D
+    /// texture, or `None` when not even the coarsest does.
+    pub fn volume_level(&self, voxel_budget: u64, max_edge: u64) -> Option<usize> {
+        let depth = self.depth();
+        self.levels.iter().position(|level| {
+            level.width * level.height * depth <= voxel_budget
+                && level.width.max(level.height).max(depth) <= max_edge
         })
     }
 
@@ -602,6 +651,166 @@ fn build_channels(
         .collect()
 }
 
+/// Whether the z axis is measured in the same space as x and y, so that its
+/// scale is a real distance between slices.
+///
+/// A z that is not declared spatial, or is in another unit, still pages as a
+/// stack — it just says nothing about where each slice lay, and drawing the
+/// stack in depth would invent that.
+fn z_is_measured(axes: &[ome_zarr_metadata::v0_4::Axis], layout: &AxisLayout) -> bool {
+    let Some(z) = layout.z.and_then(|z| axes.get(z)) else {
+        return false;
+    };
+    let Some(x) = axes.get(layout.x) else {
+        return false;
+    };
+    let unit = |axis: &ome_zarr_metadata::v0_4::Axis| axis.unit.as_ref().map(unit_symbol);
+    matches!(z.r#type, Some(AxisType::Space)) && unit(z) == unit(x)
+}
+
+/// A whole stack composited into RGBA, x fastest, then y, then z — the order
+/// a 3D texture is uploaded in.
+pub struct VolumePixels {
+    pub width: u32,
+    pub height: u32,
+    pub depth: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// Read every slice of one level, compositing the active channels the way a
+/// tile does.
+///
+/// Read a chunk's depth of slices at a time: the chunks hold dozens of slices
+/// whatever is asked for, so a block costs what one slice would, and holding
+/// only a block's worth of samples keeps the peak well under the finished
+/// volume. `progress` counts slices read, for the status line.
+pub async fn read_volume(
+    dataset: &Dataset,
+    level: &Level,
+    channels: &[Channel],
+    progress: &AtomicU64,
+) -> Result<VolumePixels, String> {
+    let layout = &dataset.layout;
+    let zi = layout.z.ok_or("the image has no z axis")?;
+    let shape = level.array.shape().to_vec();
+    let (w, h, d) = (shape[layout.x], shape[layout.y], shape[zi]);
+    let chunk = level
+        .array
+        .chunk_shape(&vec![0; layout.ndim])
+        .map_err(|e| format!("chunk shape of {}: {e}", level.path))?
+        .to_array_shape();
+    let block = chunk[zi].max(1);
+    let channel_count = layout.c.map_or(1, |c| shape[c]);
+    let element = element_size(&level.array)?;
+    let sample = sample_reader(&level.array)?;
+    let plane = (w * h) as usize;
+
+    let mut rgba = vec![0u8; plane * d as usize * 4];
+    let mut z0 = 0;
+    while z0 < d {
+        let z1 = (z0 + block).min(d);
+        let mut ranges = vec![0..1u64; layout.ndim];
+        ranges[layout.x] = 0..w;
+        ranges[layout.y] = 0..h;
+        ranges[zi] = z0..z1;
+        if let Some(c) = layout.c {
+            ranges[c] = 0..channel_count;
+        }
+        let lengths: Vec<u64> = ranges.iter().map(|r| r.end - r.start).collect();
+        let subset = ArraySubset::new_with_ranges(&ranges);
+        let raw = level
+            .array
+            .async_retrieve_array_subset::<zarrs::array::ArrayBytes<'_>>(&subset)
+            .await
+            .map_err(|e| format!("reading slices {z0}..{z1} of {}: {e}", level.path))?
+            .into_fixed()
+            .map_err(|_| "variable-length data types are not supported".to_string())?;
+
+        // Strides of the subset as read, in samples. Nothing here assumes
+        // which order the axes come in, only that x, y and z are among them.
+        let mut strides = vec![1usize; layout.ndim];
+        for axis in (0..layout.ndim.saturating_sub(1)).rev() {
+            strides[axis] = strides[axis + 1] * lengths[axis + 1] as usize;
+        }
+
+        let slices = (z1 - z0) as usize;
+        let mut accum = vec![0f32; plane * slices * 3];
+        for (ci, channel) in channels.iter().enumerate().filter(|(_, c)| c.active) {
+            if ci as u64 >= channel_count {
+                continue;
+            }
+            let base = layout.c.map_or(0, |c| ci * strides[c]);
+            for dz in 0..slices {
+                for y in 0..h as usize {
+                    let row = base + dz * strides[zi] + y * strides[layout.y];
+                    for x in 0..w as usize {
+                        let at = (row + x * strides[layout.x]) * element;
+                        let value = sample(&raw[at..at + element]);
+                        let t = channel.normalize(value);
+                        if t > 0.0 {
+                            let out = ((dz * h as usize + y) * w as usize + x) * 3;
+                            accum[out] += channel.color[0] * t;
+                            accum[out + 1] += channel.color[1] * t;
+                            accum[out + 2] += channel.color[2] * t;
+                        }
+                    }
+                }
+            }
+        }
+
+        let offset = z0 as usize * plane * 4;
+        for (pixel, out) in accum
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .zip(rgba[offset..].as_chunks_mut::<4>().0.iter_mut())
+        {
+            out[0] = (pixel[0].min(1.0) * 255.0) as u8;
+            out[1] = (pixel[1].min(1.0) * 255.0) as u8;
+            out[2] = (pixel[2].min(1.0) * 255.0) as u8;
+            out[3] = 255;
+        }
+        progress.store(z1, Ordering::Relaxed);
+        z0 = z1;
+    }
+
+    Ok(VolumePixels {
+        width: w as u32,
+        height: h as u32,
+        depth: d as u32,
+        rgba,
+    })
+}
+
+/// How to read one sample as a float, settled once for the array rather than
+/// asked of every voxel.
+#[expect(
+    clippy::cast_lossless,
+    reason = "one macro reads every sample type, and only the narrow ones widen losslessly"
+)]
+fn sample_reader(array: &SharedArray) -> Result<fn(&[u8]) -> f32, String> {
+    macro_rules! reader {
+        ($ty:ty) => {
+            |bytes: &[u8]| {
+                let mut buffer = [0u8; size_of::<$ty>()];
+                buffer.copy_from_slice(bytes);
+                <$ty>::from_ne_bytes(buffer) as f32
+            }
+        };
+    }
+    Ok(match data_type_name(array).as_str() {
+        "uint8" => reader!(u8),
+        "int8" => reader!(i8),
+        "uint16" => reader!(u16),
+        "int16" => reader!(i16),
+        "uint32" => reader!(u32),
+        "int32" => reader!(i32),
+        "float32" => reader!(f32),
+        "float64" => reader!(f64),
+        other => return Err(format!("unsupported data type `{other}`")),
+    })
+}
+
 /// Collapse a level's coordinate transformations into a scale and translation.
 fn transforms(
     list: &[ome_zarr_metadata::v0_4::CoordinateTransform],
@@ -802,6 +1011,91 @@ mod tests {
         // Chunks that do not divide the target leave the remainder unfetched.
         assert_eq!(whole_chunks_per_tile(300, 512), 300);
         assert_eq!(whole_chunks_per_tile(0, 512), 512);
+    }
+
+    fn axes_of(fixture: &str) -> Vec<ome_zarr_metadata::v0_4::Axis> {
+        let root: serde_json::Value = serde_json::from_str(fixture).unwrap();
+        let attributes = root.get("attributes").unwrap_or(&root);
+        crate::formats::image::store::parse_ome(attributes)
+            .unwrap()
+            .0[0]
+            .axes
+            .clone()
+    }
+
+    #[test]
+    fn a_stack_measured_in_millimetres_lies_in_real_depth() {
+        // The Tissuecyte stack: z, y and x all spatial and all in millimetres,
+        // so its 0.1 spacing is a distance between sections.
+        let axes = axes_of(include_str!("../../../testdata/root_zarr_v2_stack.json"));
+        let layout = AxisLayout::infer(&axes).unwrap();
+        assert!(z_is_measured(&axes, &layout));
+    }
+
+    #[test]
+    fn a_z_in_another_unit_or_not_spatial_says_nothing_about_depth() {
+        let mut axes = axes_of(include_str!("../../../testdata/root_zarr_v2_stack.json"));
+        let layout = AxisLayout::infer(&axes).unwrap();
+        let z = layout.z.unwrap();
+
+        let original = axes[z].clone();
+        axes[z].unit = None;
+        assert!(!z_is_measured(&axes, &layout), "z without the unit x has");
+
+        axes[z] = original;
+        axes[z].r#type = Some(AxisType::Time);
+        assert!(!z_is_measured(&axes, &layout), "a z that is not space");
+    }
+
+    /// Reads the live Tissuecyte stack at the level a frame would draw in 3D.
+    /// Run with `cargo test -- --ignored` to check the reader against real
+    /// bytes; it fetches tens of megabytes.
+    #[test]
+    #[ignore = "reads the live Tissuecyte store"]
+    fn the_reference_stack_reads_as_a_volume() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let dataset = crate::formats::image::store::open(
+                "https://allen-genetic-tools.s3.us-west-2.amazonaws.com/tissuecyte/1219090168/ome_zarr_conversion/1219090168.zarr/",
+            )
+            .await
+            .unwrap();
+            let (centre, size) = dataset.volume_extent().expect("the stack is spatial");
+            println!("volume centre {centre:?} size {size:?}");
+            assert!((size.z - 14.2).abs() < 1e-3, "142 sections 0.1 mm apart");
+
+            let index = dataset
+                .volume_level(
+                    crate::formats::image::volume::VOLUME_VOXEL_BUDGET,
+                    crate::formats::image::volume::MAX_TEXTURE_EDGE,
+                )
+                .expect("some level fits");
+            let level = &dataset.levels[index];
+            let started = std::time::Instant::now();
+            let progress = AtomicU64::new(0);
+            let volume = read_volume(&dataset, level, &dataset.channels, &progress)
+                .await
+                .unwrap();
+            let lit = volume
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|p| p[0] > 8 || p[1] > 8 || p[2] > 8)
+                .count();
+            let total = volume.rgba.len() / 4;
+            println!(
+                "level {index}: {} x {} x {} in {:?}, {lit} of {total} voxels lit",
+                volume.width,
+                volume.height,
+                volume.depth,
+                started.elapsed()
+            );
+            assert_eq!(volume.depth, 142);
+            assert_eq!(progress.load(Ordering::Relaxed), 142);
+            // Tissue, not a wrong offset: some of it lit, most of the block dark.
+            assert!(lit > total / 100 && lit < total * 9 / 10);
+        });
     }
 
     #[test]

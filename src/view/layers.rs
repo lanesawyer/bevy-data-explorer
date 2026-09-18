@@ -269,8 +269,13 @@ pub fn sync_layers(
                 }
             };
 
-            // Nothing to draw at no opacity, so nothing is drawn.
-            let active = frame_camera.is_active && image.is_some() && opacity.0 > 0.0;
+            // Nothing to draw at no opacity, so nothing is drawn. Nor over a
+            // frame turned 3D: a layer is flat, drawn in its own coordinates,
+            // and has nowhere to lie in a volume.
+            let active = frame_camera.is_active
+                && image.is_some()
+                && opacity.0 > 0.0
+                && matches!(frame_projection, Projection::Orthographic(_));
             if camera.is_active != active {
                 camera.is_active = active;
             }

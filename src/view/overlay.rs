@@ -248,6 +248,7 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
     // Beside the button that opens the inspector: both are about this frame
     // rather than about the grid, which is what the corner buttons are for.
     super::capture::spawn_capture_button(commands, header, panel);
+    super::orbit::spawn_view_button(commands, header, panel);
     let menu = spawn_menu(commands, header);
     commands.entity(menu).insert(SourceMenu { panel });
 
@@ -362,22 +363,26 @@ pub fn update_hud(
         let Ok((source, status)) = sources.get(shows.0) else {
             continue;
         };
-        let Projection::Orthographic(ortho) = projection else {
-            continue;
-        };
-        let viewport = camera.logical_viewport_size().unwrap_or(Vec2::ONE);
-        let units_per_px = ortho.area.width() / viewport.x.max(1.0);
-
         // The name has moved up into the header, so it is no longer repeated
         // here. A dataset on its way in is said first: the choice was made in
         // a menu that has since closed, and nothing else would show it landed.
         let waiting = pending.map_or_else(String::new, |pending| {
             format!("reading {}\u{2026}\n", pending.name)
         });
-        text.0 = format!(
-            "{waiting}{}\nzoom {:.5} {}/screen px",
-            status.0, units_per_px, source.unit,
-        );
+        // A zoom in units per pixel means nothing in perspective, where it
+        // differs with depth, so a 3D frame says how it is driven instead.
+        let view = match projection {
+            Projection::Orthographic(ortho) => {
+                let viewport = camera.logical_viewport_size().unwrap_or(Vec2::ONE);
+                let units_per_px = ortho.area.width() / viewport.x.max(1.0);
+                format!("zoom {:.5} {}/screen px", units_per_px, source.unit)
+            }
+            _ => "3D: drag to turn, middle-drag to pan, scroll to zoom, R to reset".to_string(),
+        };
+        let next = format!("{waiting}{}\n{view}", status.0);
+        if text.0 != next {
+            text.0 = next;
+        }
     }
 
     for (entity, _) in &titles {

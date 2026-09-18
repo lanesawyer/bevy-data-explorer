@@ -16,6 +16,7 @@
 
 pub mod dataset;
 pub mod store;
+pub mod volume;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
@@ -818,6 +819,8 @@ impl Plugin for ImageSystems {
                 evict_tiles,
                 update_tile_visibility,
                 toggle_channels,
+                volume::request_volumes,
+                volume::collect_volumes,
                 report_status,
             )
                 .chain()
@@ -869,6 +872,19 @@ pub fn spawn_source(
     }
     if depth > 1 {
         world.entity_mut(source).insert(stack);
+    }
+
+    // Offered in 3D only when the metadata puts every slice somewhere, and only
+    // when some level of it fits a texture; a stack that is merely paged
+    // through never shows the control.
+    if let Some((centre, size)) = dataset.volume_extent()
+        && let Some(level) =
+            dataset.volume_level(volume::VOLUME_VOXEL_BUDGET, volume::MAX_TEXTURE_EDGE)
+    {
+        source::volume::advertise(world, source, centre, size);
+        world
+            .entity_mut(source)
+            .insert(volume::ImageVolume::new(level));
     }
 
     let mut streamer = TileStreamer::new(dataset, source);
@@ -1017,13 +1033,22 @@ fn follow_slice_stack(
 fn report_status(
     streamers: Query<&TileStreamer>,
     stacks: Query<&SliceStack>,
+    volumes: Query<&volume::ImageVolume>,
     mut sources: Query<&mut SourceStatus>,
 ) {
     for streamer in &streamers {
-        let stacked = stacks
+        let mut stacked = stacks
             .get(streamer.source)
             .map(|stack| format!("{}, PgUp/PgDn to page\n", stack.label()))
             .unwrap_or_default();
+        if let Some(line) = volumes
+            .get(streamer.source)
+            .ok()
+            .and_then(|volume| volume.status(streamer.dataset().depth()))
+        {
+            stacked.push_str(&line);
+            stacked.push('\n');
+        }
         let Ok(mut status) = sources.get_mut(streamer.source) else {
             continue;
         };

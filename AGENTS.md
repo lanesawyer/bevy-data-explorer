@@ -88,6 +88,12 @@ re-measuring will regress something:
   or renders accumulate. Layer cameras (`view/layers.rs`) render into images of
   their own, not the window, and are laid over their frame as UI images; they
   clear those images, never the window.
+- **A frame's projection is not always orthographic.** A frame looking at a
+  stack in 3D (`view/orbit.rs`) is the same camera with a perspective
+  projection, drawing its source's volume layer. Anything that reads a frame's
+  view as flat — selecting tiles or nodes, hover, pan and zoom — matches
+  `Projection::Orthographic` and skips the frame otherwise; do the same, and
+  never `unwrap` it.
 - **A camera with `ShowsSource` is not necessarily a frame.** Layer cameras
   carry it too, which is what makes a layered source stream. Anything that
   *iterates* frames — counting them, laying them out, drawing chrome — filters
