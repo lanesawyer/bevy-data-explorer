@@ -8,6 +8,10 @@
 //!
 //! The offset lives on each node's transform, so switching modes only rewrites
 //! transforms and visibility. Nothing is refetched.
+//!
+//! Which slice the single mode shows is the source's [`SliceStack`], as it is
+//! for a volumetric image, so the frame's paging keys and the sidebar's slider
+//! step through sections without knowing they are not an image.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -23,6 +27,7 @@ use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::ViewLimits;
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::properties::{CellProperties, CellSelection};
+use crate::source::stack::SliceStack;
 use crate::source::{self, DataSource, SourceBusy, SourceExtent, SourceStatus};
 use crate::view::ShowsSource;
 
@@ -91,7 +96,8 @@ pub struct SliceStreamer {
     /// properties so that workers can be handed a copy.
     pub selection: CellSelection,
     pub mode: SliceMode,
-    /// Slice shown in [`SliceMode::Single`].
+    /// Slice shown in [`SliceMode::Single`], followed from the source's
+    /// [`SliceStack`].
     pub current: usize,
     /// Where each slide sits, by mode.
     layout: Layout,
@@ -265,17 +271,9 @@ impl SliceStreamer {
     pub fn limits(&self, viewport: Vec2) -> ViewLimits {
         self.extent().limits(viewport)
     }
-
-    fn step(&mut self, delta: isize) {
-        let count = self.cloud.slides.len() as isize;
-        if count == 0 {
-            return;
-        }
-        self.current = (((self.current as isize + delta) % count + count) % count) as usize;
-    }
 }
 
-/// `G` switches layout; arrows, brackets and page keys step through slices.
+/// `G` switches layout.
 pub fn slice_controls(
     keys: Res<ButtonInput<KeyCode>>,
     typing: Res<crate::view::TextEntryFocused>,
@@ -283,57 +281,48 @@ pub fn slice_controls(
     panels: Query<&ShowsSource>,
     mut streamers: Query<&mut SliceStreamer>,
 ) {
-    // Arrow keys move a cursor through a URL rather than through the slices.
-    if typing.0 {
+    if typing.0 || !keys.just_pressed(KeyCode::KeyG) {
         return;
     }
     // The selected frame's sections and no other: two sectioned datasets open
-    // at once are stepped one at a time, and the outline says which.
+    // at once are switched one at a time, and the outline says which.
     let Some(source) = crate::view::selected_source(&selected, &panels) else {
         return;
     };
     if let Ok(mut streamer) = streamers.get_mut(source) {
-        if keys.just_pressed(KeyCode::KeyG) {
-            streamer.mode = match streamer.mode {
-                SliceMode::Grid => SliceMode::Single,
-                SliceMode::Single => SliceMode::Grid,
-            };
-            streamer.refit = true;
-            info!(
-                "sections: {}",
-                match streamer.mode {
-                    SliceMode::Grid => "showing every slice".to_string(),
-                    SliceMode::Single => format!("showing slice {}", streamer.current + 1),
-                }
-            );
-        }
+        streamer.mode = match streamer.mode {
+            SliceMode::Grid => SliceMode::Single,
+            SliceMode::Single => SliceMode::Grid,
+        };
+        streamer.refit = true;
+        info!(
+            "sections: {}",
+            match streamer.mode {
+                SliceMode::Grid => "showing every slice".to_string(),
+                SliceMode::Single => format!("showing slice {}", streamer.current + 1),
+            }
+        );
+    }
+}
 
-        let mut delta = 0isize;
-        for (key, step) in [
-            (KeyCode::BracketRight, 1),
-            (KeyCode::BracketLeft, -1),
-            (KeyCode::ArrowRight, 1),
-            (KeyCode::ArrowLeft, -1),
-            (KeyCode::PageDown, 1),
-            (KeyCode::PageUp, -1),
-        ] {
-            if keys.just_pressed(key) {
-                delta += step;
-            }
+/// Show whichever slice the source's stack is on.
+///
+/// Stepping in grid mode would be invisible, so a move there switches to the
+/// single slice it moved to.
+pub fn follow_slice_stack(
+    mut streamers: Query<(&SliceStack, &mut SliceStreamer), Changed<SliceStack>>,
+) {
+    for (stack, mut streamer) in &mut streamers {
+        let wanted = stack.current as usize;
+        if streamer.current == wanted {
+            continue;
         }
-        if delta != 0 {
-            streamer.step(delta);
-            // Stepping in grid mode would be invisible, so show the slice instead.
-            if streamer.mode == SliceMode::Grid {
-                streamer.mode = SliceMode::Single;
-                streamer.refit = true;
-            }
-            info!(
-                "sections: showing slice {} of {}",
-                streamer.current + 1,
-                streamer.cloud.slides.len()
-            );
+        streamer.current = wanted;
+        if streamer.mode == SliceMode::Grid {
+            streamer.mode = SliceMode::Single;
+            streamer.refit = true;
         }
+        info!("sections: showing {}", stack.label());
     }
 }
 
@@ -648,6 +637,7 @@ impl Plugin for SlicesSystems {
             (
                 apply_selection,
                 slice_controls,
+                follow_slice_stack,
                 select_slice_nodes,
                 spawn_slice_tasks,
                 collect_slice_tasks,
@@ -702,7 +692,15 @@ pub fn spawn_source(world: &mut World, cloud: Arc<Scatterbrain>, budget: usize) 
         ),
     ));
 
+    // A dataset of one section has nothing to page through, and offers
+    // nothing to page with.
+    let stack = SliceStack::new(cloud.slides.len() as u64);
+    if stack.count > 1 {
+        world.entity_mut(source).insert(stack);
+    }
+
     let mut streamer = SliceStreamer::new(cloud, source);
+    streamer.current = stack.current as usize;
     streamer.nodes.budget = budget;
     world.entity_mut(source).insert(streamer);
     source
@@ -977,18 +975,6 @@ mod tests {
             assert!((offset.x + cx).abs() < 1e-4);
             assert!((offset.y - cy).abs() < 1e-4);
         }
-    }
-
-    #[test]
-    fn stepping_wraps_in_both_directions() {
-        let mut streamer = streamer();
-        streamer.current = 52;
-        streamer.step(1);
-        assert_eq!(streamer.current, 0);
-        streamer.step(-1);
-        assert_eq!(streamer.current, 52);
-        streamer.step(-53);
-        assert_eq!(streamer.current, 52);
     }
 
     #[test]

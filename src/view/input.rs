@@ -79,10 +79,10 @@ pub fn reset_selected_view(
 /// specimens open side by side are paged one at a time, and the outline says
 /// which one the keys are talking to.
 ///
-/// The keys are the ones the sectioned panel already uses — arrows, brackets
-/// and page keys — since paging a volume and stepping a specimen's sections are
-/// the same gesture, and a viewer where the same thing is done two ways is a
-/// viewer with two things to learn.
+/// Volumetric images and sectioned datasets both carry a stack, so arrows,
+/// brackets and page keys page either: paging a volume and stepping a
+/// specimen's sections are the same gesture, and a viewer where the same thing
+/// is done two ways is a viewer with two things to learn.
 pub fn page_slice_stack(
     keys: Res<ButtonInput<KeyCode>>,
     typing: Res<TextEntryFocused>,

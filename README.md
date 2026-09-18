@@ -531,11 +531,13 @@ The same holds for Deep Zoom images.
 
 A volumetric image — a specimen cut into sections — is paged through rather
 than shown all at once. The source advertises a stack of slices, and both the
-frame keys — the arrows, `[` and `]`, or `PageUp`/`PageDown`, the same ones
-the sectioned panel uses — and the slider in **View configuration** move it; paging acts on the selected frame, so two specimens
-open side by side are paged one at a time. Nothing in the sidebar knows an image
-is what it is paging: the stack is a component on the source, the way a point
-size is, and any format that has one can offer it. A stack opens on its middle
+frame keys — the arrows, `[` and `]`, or `PageUp`/`PageDown` — and the slider
+in **View configuration** move it; paging acts on the selected frame, so two
+specimens open side by side are paged one at a time. Nothing in the sidebar
+knows an image is what it is paging: the stack is a component on the source,
+the way a point size is, and any format that has one can offer it. A sectioned
+point cloud does, so its sections page the same way, and a step from the grid
+shows the slice it stepped to. A stack opens on its middle
 slice, since the first section of a block is usually empty and opening on it
 reads as a dataset that failed to load; `--z` names one instead.
 
