@@ -1136,7 +1136,7 @@ fn report_status(
     for streamer in &streamers {
         let reading = volumes
             .get(streamer.source)
-            .is_ok_and(|volume| volume.is_reading());
+            .is_ok_and(volume::ImageVolume::is_reading);
         if let Ok(mut busy) = busy.get_mut(streamer.source) {
             busy.set_if_neq(SourceBusy(streamer.in_flight > 0 || reading));
         }
