@@ -3,13 +3,21 @@
 //! Accordions are built as generic containers rather than one-offs, because the
 //! sidebar's contents will vary with whatever dataset is selected: a section is
 //! a title, an open flag, and whatever children a caller hangs off it.
+//!
+//! The look comes from Feathers' own containers — a pane for a section of the
+//! dock, a group for a section inside one — and only the collapsing is ours,
+//! since Feathers has no container that collapses. Anything drawn on a
+//! section therefore names a Feathers token and not a colour, so the light
+//! theme turns it over along with everything else.
 
 use bevy::input_focus::InputFocus;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
+use bevy_feathers::containers::{group_body, group_header, pane_body, pane_header};
 use bevy_feathers::controls::{ButtonVariant, FeathersButton, FeathersSlider, FeathersToolButton};
 use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
+use bevy_feathers::rounded_corners::RoundedCorners;
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
@@ -22,7 +30,23 @@ use crate::view::BlocksFrameInput;
 pub const ACCORDION_INDENT: f32 = 8.0;
 /// Size the accordion titles are drawn at, which sets how many characters fit.
 const TITLE_FONT: f32 = 13.0;
-const HEADER_HEIGHT: f32 = 26.0;
+
+/// Radius the Feathers containers round their outer corners to.
+const CORNER_PX: f32 = 4.0;
+
+/// How deep in the sidebar a section sits, which decides what it is drawn as.
+///
+/// Both are Feathers containers, and the difference is only which set of
+/// tokens they take: a pane reads as one of the dock's own divisions, a group
+/// as something inside one. Nesting a pane in a pane gave two identical
+/// headers one indent apart, with nothing to say which owned which.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SectionLevel {
+    /// A division of the sidebar itself.
+    Pane,
+    /// A section within a pane, such as one property of a dataset.
+    Group,
+}
 
 /// A collapsible section of the sidebar.
 #[derive(Component, Clone, Default)]
@@ -71,11 +95,19 @@ pub struct AccordionParts {
     pub header: Entity,
 }
 
-/// Spawn an accordion.
+/// Spawn an accordion, drawn as the Feathers container `level` names.
 ///
-/// The body is returned rather than populated here so that callers compose
-/// their own contents into it; a section knows nothing about what it holds.
-pub fn spawn_accordion(commands: &mut Commands, title: &str, open: bool) -> AccordionParts {
+/// The container supplies the look — a headed box with its own background,
+/// border and rounded corners — and this supplies the behaviour Feathers has
+/// none of: a header that collapses the body under it. What the header holds
+/// beyond its title is the caller's business, so the header is returned along
+/// with the body.
+pub fn spawn_accordion(
+    commands: &mut Commands,
+    title: &str,
+    open: bool,
+    level: SectionLevel,
+) -> AccordionParts {
     let accordion = commands
         .spawn_scene(bsn! {
             Accordion { open: { open } }
@@ -86,22 +118,38 @@ pub fn spawn_accordion(commands: &mut Commands, title: &str, open: bool) -> Acco
         })
         .id();
 
-    let header = commands
-        .spawn_scene(bsn! {
-            Node {
-                width: { Val::Percent(100.0) },
-                height: { Val::Px(HEADER_HEIGHT) },
-                align_items: { AlignItems::Center },
-                // Keeps the controls at the end of a header apart.
-                column_gap: { Val::Px(4.0) },
-                padding: { UiRect::right(Val::Px(4.0)) },
-                border_radius: { BorderRadius::all(Val::Px(3.0)) },
-                overflow: { Overflow::clip() },
-            }
-            ThemeBackgroundColor({ tokens::WINDOW_BG })
-            InheritableFont { font_size: { 13.0f32 } }
-        })
-        .id();
+    // The two containers differ only in their tokens, but a scene is a type
+    // rather than a value, so each level spawns its own. What is patched over
+    // them is the same: room for the controls at the end of a header, and a
+    // clip so a long title cannot push them out of it.
+    let header = match level {
+        SectionLevel::Pane => commands
+            .spawn_scene(bsn! {
+                pane_header()
+                Node {
+                    width: { Val::Percent(100.0) },
+                    padding: { UiRect::right(Val::Px(4.0)) },
+                    column_gap: { Val::Px(4.0) },
+                    border_radius: { header_corners(open).to_border_radius(CORNER_PX) },
+                    overflow: { Overflow::clip() },
+                }
+                InheritableFont { font_size: { TITLE_FONT } }
+            })
+            .id(),
+        SectionLevel::Group => commands
+            .spawn_scene(bsn! {
+                group_header()
+                Node {
+                    width: { Val::Percent(100.0) },
+                    padding: { UiRect::right(Val::Px(4.0)) },
+                    column_gap: { Val::Px(4.0) },
+                    border_radius: { header_corners(open).to_border_radius(CORNER_PX) },
+                    overflow: { Overflow::clip() },
+                }
+                InheritableFont { font_size: { TITLE_FONT } }
+            })
+            .id(),
+    };
 
     let toggle = commands
         .spawn_scene(bsn! {
@@ -147,26 +195,15 @@ pub fn spawn_accordion(commands: &mut Commands, title: &str, open: bool) -> Acco
         .id();
     commands.entity(header).add_child(toggle);
 
-    let body = commands
-        .spawn_scene(bsn! {
-            AccordionBody { accordion: { accordion } }
-            Node {
-                // Set here rather than left for `update_accordions` to correct:
-                // that runs a frame later, and a section spawned closed would
-                // draw its contents once before being hidden.
-                display: { body_display(open) },
-                flex_direction: { FlexDirection::Column },
-                width: { Val::Percent(100.0) },
-                row_gap: { Val::Px(6.0) },
-                padding: { UiRect::new(
-                    Val::Px(ACCORDION_INDENT),
-                    Val::Px(2.0),
-                    Val::Px(6.0),
-                    Val::Px(6.0),
-                ) },
-            }
-        })
-        .id();
+    let body = match level {
+        SectionLevel::Pane => {
+            commands.spawn_scene(bsn! { pane_body() {body_patch(accordion, open)} })
+        }
+        SectionLevel::Group => {
+            commands.spawn_scene(bsn! { group_body() {body_patch(accordion, open)} })
+        }
+    }
+    .id();
 
     commands.entity(accordion).add_children(&[header, body]);
     AccordionParts {
@@ -448,6 +485,38 @@ pub fn truncate_accordion_titles(
     }
 }
 
+/// What every accordion body patches over its container, whichever it is: the
+/// indent the sidebar's contents are read against, and the state to start in.
+fn body_patch(accordion: Entity, open: bool) -> impl Scene {
+    bsn! {
+        AccordionBody { accordion: { accordion } }
+        Node {
+            // Set here rather than left for `update_accordions` to correct:
+            // that runs a frame later, and a section spawned closed would
+            // draw its contents once before being hidden.
+            display: { body_display(open) },
+            width: { Val::Percent(100.0) },
+            row_gap: { Val::Px(6.0) },
+            padding: { UiRect::new(
+                Val::Px(ACCORDION_INDENT),
+                Val::Px(2.0),
+                Val::Px(6.0),
+                Val::Px(6.0),
+            ) },
+        }
+    }
+}
+
+/// Which corners a header rounds. A closed section is a box on its own, so it
+/// rounds all four; an open one is the top of the box its body finishes.
+fn header_corners(open: bool) -> RoundedCorners {
+    if open {
+        RoundedCorners::Top
+    } else {
+        RoundedCorners::All
+    }
+}
+
 fn caret(open: bool) -> &'static str {
     if open { "v" } else { ">" }
 }
@@ -472,11 +541,13 @@ pub fn toggle_accordions(
     }
 }
 
-/// Show or hide bodies, and turn the carets, to match each section's state.
+/// Show or hide bodies, round the headers, and turn the carets, to match each
+/// section's state.
 pub fn update_accordions(
     accordions: Query<&Accordion>,
     mut bodies: Query<(&AccordionBody, &mut Node)>,
-    headers: Query<(&AccordionHeader, &Children)>,
+    headers: Query<(&AccordionHeader, &ChildOf, &Children)>,
+    mut containers: Query<&mut Node, Without<AccordionBody>>,
     carets: Query<Entity, With<AccordionCaret>>,
     mut texts: Query<&mut Text>,
 ) {
@@ -488,8 +559,16 @@ pub fn update_accordions(
         }
     }
 
-    for (header, children) in &headers {
+    for (header, parent, children) in &headers {
         let open = accordions.get(header.accordion).is_ok_and(|a| a.open);
+        // The container the toggle sits in is what carries the container's
+        // corners; a closed section has no body under it to finish the box.
+        if let Ok(mut node) = containers.get_mut(parent.parent()) {
+            let wanted = header_corners(open).to_border_radius(CORNER_PX);
+            if node.border_radius != wanted {
+                node.border_radius = wanted;
+            }
+        }
         for child in children.iter() {
             if carets.get(child).is_err() {
                 continue;
@@ -629,6 +708,17 @@ mod tests {
     #[test]
     fn the_caret_shows_whether_a_section_is_open() {
         assert_ne!(caret(true), caret(false));
+    }
+
+    #[test]
+    fn a_closed_header_rounds_the_corners_its_body_would_have_finished() {
+        let open = header_corners(true).to_border_radius(CORNER_PX);
+        let closed = header_corners(false).to_border_radius(CORNER_PX);
+        // Open, the body under it carries the bottom of the box.
+        assert_eq!(open.bottom_left, Val::Px(0.0));
+        assert_eq!(open.top_left, Val::Px(CORNER_PX));
+        assert_eq!(closed.bottom_left, Val::Px(CORNER_PX));
+        assert_eq!(closed.top_left, Val::Px(CORNER_PX));
     }
 
     #[test]

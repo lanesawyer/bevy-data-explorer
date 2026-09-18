@@ -26,7 +26,9 @@ use crate::source::DataSource;
 use crate::source::stack::SliceStack;
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{SelectedPanel, ShowsSource};
-use crate::widgets::{button_text, caption, spawn_accordion, spawn_menu, spawn_slider};
+use crate::widgets::{
+    SectionLevel, button_text, caption, spawn_accordion, spawn_menu, spawn_slider,
+};
 
 /// The opacity slider runs 0..100, so its built-in readout is a percentage.
 const PERCENT: f32 = 100.0;
@@ -90,7 +92,12 @@ const SECTION_ORDER: u32 = 10;
 pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
     let Ok(parent) = content.single() else { return };
 
-    let accordion = spawn_accordion(&mut commands, "View configuration", true);
+    let accordion = spawn_accordion(
+        &mut commands,
+        "View configuration",
+        true,
+        SectionLevel::Pane,
+    );
     commands
         .entity(accordion.section)
         .insert(SectionOrder(SECTION_ORDER));

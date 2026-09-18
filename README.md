@@ -171,6 +171,17 @@ Widgets come from **Feathers**, Bevy 0.19's widget collection: the slider,
 buttons and labels are Feathers controls, themed from its dark theme, so they
 match rather than being hand-styled one at a time.
 
+The sidebar's sections are Feathers containers. Each is a headed box with its
+own background, border and rounded corners, which is what separates one section
+from the next rather than a run of headings down a flat column. A section of
+the dock itself — View configuration, Layers, Cell properties — is drawn as a
+**pane**; a section inside one, such as a single cell property, is drawn as a
+**group**, whose darker header says it belongs to the pane above it rather than
+competing with it. Feathers has no collapsing container, so the open and close
+behaviour is still ours: the header is a full-width plain button that hides the
+body under it, and a closed header rounds all four corners, since it no longer
+has a body to finish the box.
+
 The app starts maximized, since several frames beside a sidebar need the room.
 
 Each accordion can carry a menu button on the right that opens a popup. A menu

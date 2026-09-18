@@ -27,7 +27,9 @@ use crate::source::DataSource;
 use crate::source::properties::{CellProperties, CellProperty, PropertyKind, PropertyState};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
-use crate::widgets::{Accordion, button_text, spawn_accordion, spawn_header_button, spawn_menu};
+use crate::widgets::{
+    Accordion, SectionLevel, button_text, spawn_accordion, spawn_header_button, spawn_menu,
+};
 
 /// The section itself, hidden for sources with no properties to show.
 #[derive(Component, Clone, Default)]
@@ -74,7 +76,7 @@ const SECTION_ORDER: u32 = 20;
 pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
     let Ok(parent) = content.single() else { return };
 
-    let accordion = spawn_accordion(&mut commands, "Cell properties", true);
+    let accordion = spawn_accordion(&mut commands, "Cell properties", true, SectionLevel::Pane);
     commands
         .entity(accordion.section)
         .insert(CellPanel)
@@ -194,7 +196,14 @@ pub fn rebuild_cell_panel(
         // all of them open at once would bury the rest of the sidebar. One the
         // user opened stays open across a rebuild.
         let was_open = open.0.get(&index).copied().unwrap_or(false);
-        let sub = spawn_accordion(&mut commands, &property.name, was_open);
+        let sub = spawn_accordion(
+            &mut commands,
+            &property.name,
+            was_open,
+            // A group rather than a pane: these sit inside the section above
+            // them, and a second pane header would not say so.
+            SectionLevel::Group,
+        );
         commands
             .entity(sub.section)
             .insert((CellPanelContent, PropertySection { property: index }));

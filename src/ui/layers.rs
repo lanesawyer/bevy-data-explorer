@@ -23,7 +23,7 @@ use crate::view::{
     BlocksFrameInput, DatasetRequest, DatasetTarget, FrameLayers, LayerOf, LayerOpacity, Panel,
     PanelRequest, SelectedPanel, ShowsSource,
 };
-use crate::widgets::{button_text, caption, spawn_accordion, spawn_slider};
+use crate::widgets::{SectionLevel, button_text, caption, spawn_accordion, spawn_slider};
 
 /// Straight after View configuration, which acts on the bottom of the same
 /// stack.
@@ -74,7 +74,7 @@ pub struct LayerOpacitySlider {
 
 pub fn spawn_layers_section(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
     let Ok(parent) = content.single() else { return };
-    let accordion = spawn_accordion(&mut commands, "Layers", true);
+    let accordion = spawn_accordion(&mut commands, "Layers", true, SectionLevel::Pane);
     commands
         .entity(accordion.section)
         .insert(SectionOrder(SECTION_ORDER));
