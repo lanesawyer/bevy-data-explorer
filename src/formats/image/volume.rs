@@ -28,8 +28,8 @@ use super::dataset::{ChannelSamples, VolumeRegion, read_volume};
 use crate::app::net::{Fetching, fetching};
 use crate::render::channels::{ChannelMix, channel_texture};
 use crate::render::volume::VolumeMaterial;
+use crate::source::ShowsSource;
 use crate::source::volume::SourceVolume;
-use crate::view::{Orbit, ShowsSource};
 
 /// Voxels a volume may hold, which at four bytes each is 64 MB of texture.
 ///
@@ -162,16 +162,25 @@ fn start_read(streamer: &TileStreamer, region: VolumeRegion) -> (Read, Arc<Atomi
     (task, progress)
 }
 
+/// Whether a frame looks at its source in 3D. Only an orbiting frame has a
+/// perspective projection, so this asks the camera rather than the view.
+fn in_3d(projection: &Projection) -> bool {
+    matches!(projection, Projection::Perspective(_))
+}
+
 /// Start reading a volume the first time a frame orbits it.
 ///
 /// Once: the volume keeps each channel apart and mixes them as it draws, so a
 /// change of channels is a change of uniform, not a reason to read it again.
 pub fn request_volumes(
     mut volumes: Query<(Entity, &TileStreamer, &mut ImageVolume)>,
-    orbiting: Query<&ShowsSource, With<Orbit>>,
+    frames: Query<(&ShowsSource, &Projection)>,
 ) {
     for (source, streamer, mut volume) in &mut volumes {
-        if !matches!(volume.state, State::Idle) || !orbiting.iter().any(|shows| shows.0 == source) {
+        let orbited = frames
+            .iter()
+            .any(|(shows, projection)| shows.0 == source && in_3d(projection));
+        if !matches!(volume.state, State::Idle) || !orbited {
             continue;
         }
         let whole = volume.whole;
@@ -190,7 +199,7 @@ pub fn request_volumes(
 pub fn request_detail(
     time: Res<Time>,
     mut volumes: Query<(Entity, &SourceVolume, &TileStreamer, &mut ImageVolume)>,
-    frames: Query<(&Camera, &GlobalTransform, &ShowsSource), With<Orbit>>,
+    frames: Query<(&Camera, &GlobalTransform, &ShowsSource, &Projection)>,
 ) {
     let now = time.elapsed_secs();
     for (source, placed, streamer, mut volume) in &mut volumes {
@@ -199,8 +208,8 @@ pub fn request_detail(
         }
         let rays = frames
             .iter()
-            .filter(|(.., shows)| shows.0 == source)
-            .flat_map(|(camera, global, _)| {
+            .filter(|(.., shows, projection)| shows.0 == source && in_3d(projection))
+            .flat_map(|(camera, global, ..)| {
                 let rect = camera.logical_viewport_rect().unwrap_or(Rect::EMPTY);
                 (0..RAYS_PER_SIDE * RAYS_PER_SIDE).filter_map(move |i| {
                     let at = Vec2::new((i % RAYS_PER_SIDE) as f32, (i / RAYS_PER_SIDE) as f32)

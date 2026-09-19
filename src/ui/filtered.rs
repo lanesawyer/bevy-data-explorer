@@ -12,9 +12,10 @@ use bevy_ui_widgets::{SliderValue, ValueChange};
 
 use crate::app::prefs::Preferences;
 use crate::app::schedule::Stage;
+use crate::source::ShowsSource;
 use crate::source::properties::{CellProperties, FILTERED_GRAY, FilteredPoints};
-use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
-use crate::widgets::button_text;
+use crate::view::SelectedPanel;
+use crate::widgets::{BlocksFrameInput, button_text};
 
 /// Height of the hue and saturation plane. Feathers' own minimum, which is
 /// room enough to aim at in a sidebar.

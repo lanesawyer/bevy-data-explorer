@@ -10,8 +10,8 @@ use super::grid::{MAX_PANELS, grid_for};
 use super::layers::{
     FrameLayers, LayerOf, LayerOpacity, can_add_layer, spawn_layer, stacked_sources,
 };
-use super::{FrameArea, Panel, SelectedPanel, ShowsSource, View, spawn_panel};
-use crate::source::{DataSource, SourceExtent, SourceUrl, ViewLimits};
+use super::{FrameArea, Panel, SelectedPanel, View, spawn_panel};
+use crate::source::{DataSource, ShowsSource, SourceExtent, SourceUrl, ViewLimits};
 
 /// A change to the set of frames.
 ///

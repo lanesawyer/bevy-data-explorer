@@ -32,8 +32,8 @@ use crate::app::theme::Palette;
 use crate::formats::discover::{self, Discovered};
 use crate::formats::{LoadSettings, spawn_discovered};
 use crate::source::SourceUrl;
-use crate::view::{BlocksFrameInput, DatasetRequest, DatasetTarget, PendingShow};
-use crate::widgets::{button_text, field_well};
+use crate::view::{DatasetRequest, DatasetTarget, PendingShow};
+use crate::widgets::{BlocksFrameInput, button_text, field_well};
 
 /// The field a URL is typed into. On the inner text entity, which is the one
 /// holding the [`EditableText`], rather than on its container.

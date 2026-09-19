@@ -20,11 +20,11 @@ use bevy_ui_widgets::{Activate, ValueChange};
 
 use super::{MAX_VALUE_ROWS, spawn_more_note, spawn_value_row};
 use crate::app::theme::Palette;
-use crate::source::compact_count;
 use crate::source::properties::{CellProperties, Tree};
-use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
+use crate::source::{ShowsSource, compact_count};
+use crate::view::SelectedPanel;
 use crate::widgets::Menu;
-use crate::widgets::{Icon, button_icon, button_text};
+use crate::widgets::{BlocksFrameInput, Icon, button_icon, button_text};
 
 /// Indent per level of the tree.
 const INDENT_PX: f32 = 14.0;

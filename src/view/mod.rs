@@ -31,7 +31,7 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 
 use crate::app::schedule::{Boot, Stage};
-use crate::source::{DataSource, SourceExtent, ViewLimits};
+use crate::source::{DataSource, ShowsSource, SourceExtent, ViewLimits};
 
 use camera::{clear_when_empty, follow_theme, normalize_panels, spawn_ui_camera, update_viewports};
 use chrome::{
@@ -48,7 +48,7 @@ use requests::apply_panel_requests;
 // The grid's vocabulary, kept importable from `view` itself so that what a
 // caller needs to know does not depend on how this module is cut up.
 pub use grid::{MAX_PANELS, grid_for};
-pub use input::{BlocksFrameInput, TextEntryFocused};
+pub use input::TextEntryFocused;
 pub use layers::{FrameLayers, LayerOf, LayerOpacity, OpensAsLayer};
 pub use orbit::Orbit;
 pub use requests::{DatasetRequest, DatasetTarget, PanelRequest, PendingShow};
@@ -136,19 +136,6 @@ pub fn reset_frame_area(windows: Query<&Window>, mut area: ResMut<FrameArea>) {
 pub struct Panel {
     /// Cell index, left to right then top to bottom.
     pub index: usize,
-}
-
-/// The source a panel is currently displaying.
-///
-/// Held as an entity rather than a format tag so that repointing a frame at
-/// another dataset is a component write plus a layer change.
-#[derive(Component, Clone, Copy)]
-pub struct ShowsSource(pub Entity);
-
-impl Default for ShowsSource {
-    fn default() -> Self {
-        ShowsSource(Entity::PLACEHOLDER)
-    }
 }
 
 /// The view a panel is currently showing, used when duplicating it.

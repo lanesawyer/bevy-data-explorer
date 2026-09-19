@@ -26,13 +26,12 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::Stage;
 use crate::catalog::{Catalogs, EntryId};
 use crate::source::hover::{HoverInfo, HoverProbe};
-use crate::source::{DataSource, SourceStatus};
+use crate::source::{DataSource, ShowsSource, SourceStatus};
 use crate::view::layers::stacked_sources;
 use crate::view::{
-    BlocksFrameInput, DatasetRequest, DatasetTarget, FrameLayers, LayerOf, Panel, PanelRequest,
-    PendingShow, ShowsSource,
+    DatasetRequest, DatasetTarget, FrameLayers, LayerOf, Panel, PanelRequest, PendingShow,
 };
-use crate::widgets::{Icon, button_icon, spawn_menu};
+use crate::widgets::{BlocksFrameInput, Icon, button_icon, spawn_menu};
 
 /// The translucent panel a frame's header and status sit on.
 #[derive(Component, Clone)]

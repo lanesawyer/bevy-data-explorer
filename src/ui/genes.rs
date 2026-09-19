@@ -19,15 +19,16 @@ use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::Palette;
+use crate::source::ShowsSource;
 use crate::source::genes::{GeneSearch, SearchState};
 use crate::source::properties::CellProperties;
 use crate::ui::cellpanel::range::spawn_range_control;
 use crate::ui::cellpanel::{ClearPropertyButton, ColorByButton, SMALL_PX};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
-use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
+use crate::view::SelectedPanel;
 use crate::widgets::{
-    Accordion, Icon, SectionLevel, button_text, field_well, spawn_accordion, spawn_header_button,
-    spawn_search_field,
+    Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, field_well, spawn_accordion,
+    spawn_header_button, spawn_search_field,
 };
 
 /// Under the cell properties, whose numeric controls these are, and above the

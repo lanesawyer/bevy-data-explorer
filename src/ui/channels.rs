@@ -19,9 +19,10 @@ use bevy_feathers::theme::ThemedText;
 use bevy_ui_widgets::{Activate, SliderValue, ValueChange};
 
 use crate::app::schedule::Stage;
+use crate::source::ShowsSource;
 use crate::source::channels::{MAX_GAIN, SourceChannels};
-use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
-use crate::widgets::{Icon, button_icon, button_text, spawn_slider};
+use crate::view::SelectedPanel;
+use crate::widgets::{BlocksFrameInput, Icon, button_icon, button_text, spawn_slider};
 
 /// Brightness runs 0..400 on the slider, so its readout is a percentage.
 const PERCENT: f32 = 100.0;

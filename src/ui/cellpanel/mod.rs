@@ -37,12 +37,12 @@ use crate::source::properties::{
     CellColumns, CellProperties, CellProperty, PropertyKind, PropertyState, PropertyValue,
     Provenance,
 };
-use crate::source::{DataSource, compact_count};
+use crate::source::{DataSource, ShowsSource, compact_count};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
-use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
+use crate::view::SelectedPanel;
 use crate::widgets::{
-    Accordion, Icon, SectionLevel, button_icon, button_text, spawn_accordion, spawn_header_button,
-    spawn_icon_menu, spawn_menu, spawn_skeleton,
+    Accordion, BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, spawn_accordion,
+    spawn_header_button, spawn_icon_menu, spawn_menu, spawn_skeleton,
 };
 
 /// The section itself, hidden for sources with no properties to show.

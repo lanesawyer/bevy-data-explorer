@@ -16,7 +16,7 @@ use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 
 use crate::app::net::Fetching;
-use crate::view::ShowsSource;
+use crate::source::ShowsSource;
 
 /// Threads reserved for fetching and decoding tiles.
 ///

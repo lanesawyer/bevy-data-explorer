@@ -25,6 +25,7 @@ use bevy_ui_widgets::ScrollArea;
 use bevy_ui_widgets::{Slider, SliderPrecision, TrackClick};
 
 mod dock;
+mod frame_input;
 mod icons;
 mod scroll;
 mod search;
@@ -32,6 +33,7 @@ mod selectable;
 mod skeleton;
 
 pub use dock::{AddDock, Dock, DockEdge, HANDLE_PX, ResetDockSizes, dock_handle, hold_drag_cursor};
+pub use frame_input::BlocksFrameInput;
 pub use icons::{Icon, button_icon, icon_text};
 pub use scroll::scroll_list;
 pub use search::{matches_search, spawn_search_field};
@@ -39,7 +41,6 @@ pub use selectable::{SelectableText, has_selection};
 pub use skeleton::spawn_skeleton;
 
 use crate::app::schedule::Stage;
-use crate::view::BlocksFrameInput;
 
 pub const ACCORDION_INDENT: f32 = 8.0;
 /// Size the accordion titles are drawn at, which sets how many characters fit.

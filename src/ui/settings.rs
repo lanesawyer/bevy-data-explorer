@@ -21,8 +21,7 @@ use crate::app::prefs::{Preferences, PreferencesFile};
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::ThemeMode;
 use crate::ui::filtered::{FilteredTarget, filtered_controls};
-use crate::view::BlocksFrameInput;
-use crate::widgets::{Icon, ResetDockSizes, button_icon, button_text};
+use crate::widgets::{BlocksFrameInput, Icon, ResetDockSizes, button_icon, button_text};
 
 /// With the help screen: both cover everything a menu could open over.
 const SETTINGS_Z: i32 = 20;

@@ -26,8 +26,7 @@ use crate::render::channels::{ChannelTileMaterial, MixChannel, channel_texture};
 use crate::source::channels::{ChannelSetting, SourceChannels};
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::stack::SliceStack;
-use crate::source::{self, SourceBusy, SourceExtent, SourceStatus};
-use crate::view::ShowsSource;
+use crate::source::{self, ShowsSource, SourceBusy, SourceExtent, SourceStatus};
 
 /// Cached shard decoders. Each holds a shard index, so reusing one saves both a
 /// round trip and ~16 KB per tile.

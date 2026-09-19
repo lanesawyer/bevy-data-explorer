@@ -14,8 +14,7 @@ use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
-use crate::view::BlocksFrameInput;
-use crate::widgets::{Icon, button_icon, link_button};
+use crate::widgets::{BlocksFrameInput, Icon, button_icon, link_button};
 
 /// Taken from the manifest, like the version, so the two cannot disagree.
 pub const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");

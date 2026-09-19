@@ -14,8 +14,7 @@ use bevy_feathers::controls::{
 use bevy_feathers::display::label_dim;
 use bevy_ui_widgets::Activate;
 
-use super::{Icon, button_icon};
-use crate::view::BlocksFrameInput;
+use super::{BlocksFrameInput, Icon, button_icon};
 
 /// The clear button's size: smaller than Feathers' row, so it sits inside the
 /// field rather than filling it.

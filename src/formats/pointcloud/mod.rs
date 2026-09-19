@@ -22,8 +22,7 @@ use crate::formats::scatterbrain::{Rect, Scatterbrain, Slide};
 use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::properties::{CellProperties, CellSelection, FilteredPoints, Shade};
-use crate::source::{self, DataSource, SourceBusy, SourceExtent, SourceStatus};
-use crate::view::ShowsSource;
+use crate::source::{self, DataSource, ShowsSource, SourceBusy, SourceExtent, SourceStatus};
 
 /// Descend into a node's children while its region covers at least this many
 /// screen pixels. Lower values load deeper, denser detail sooner.

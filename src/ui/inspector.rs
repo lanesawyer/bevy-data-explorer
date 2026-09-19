@@ -16,9 +16,11 @@ use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
-use crate::source::{DataSource, SourceStatus};
-use crate::view::{BlocksFrameInput, FrameArea, PanelRequest, SelectedPanel, ShowsSource};
-use crate::widgets::{AddDock, Dock, DockEdge, HANDLE_PX, Icon, button_icon, dock_handle};
+use crate::source::{DataSource, ShowsSource, SourceStatus};
+use crate::view::{FrameArea, PanelRequest, SelectedPanel};
+use crate::widgets::{
+    AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, dock_handle,
+};
 
 const WIDTH_PX: f32 = 300.0;
 const MIN_PX: f32 = 200.0;

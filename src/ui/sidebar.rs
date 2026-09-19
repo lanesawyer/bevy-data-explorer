@@ -17,9 +17,10 @@ use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::ThemeMode;
-use crate::view::{BlocksFrameInput, FrameArea};
+use crate::view::FrameArea;
 use crate::widgets::{
-    AddDock, Dock, DockEdge, HANDLE_PX, Icon, button_icon, button_text, dock_handle,
+    AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, button_text,
+    dock_handle,
 };
 
 /// Width when collapsed. Enough for the short title and the toggle beneath it.

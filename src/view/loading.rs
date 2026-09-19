@@ -9,12 +9,10 @@ use bevy::prelude::*;
 use bevy_feathers::theme::ThemeBackgroundColor;
 
 use crate::app::theme::token;
-use crate::source::SourceBusy;
+use crate::source::{ShowsSource, SourceBusy};
 use crate::view::chrome::SELECTION_PX;
 use crate::view::layers::stacked_sources;
-use crate::view::{
-    FrameArea, FrameLayers, LayerOf, Panel, PendingShow, SelectedPanel, ShowsSource,
-};
+use crate::view::{FrameArea, FrameLayers, LayerOf, Panel, PendingShow, SelectedPanel};
 
 const HEIGHT_PX: f32 = 3.0;
 /// How much of the frame's width the moving segment covers, in percent.

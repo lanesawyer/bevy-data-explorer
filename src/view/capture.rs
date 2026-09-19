@@ -37,12 +37,12 @@ use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::theme::ThemeTextColor;
 
 use crate::app::schedule::Stage;
-use crate::source::DataSource;
+use crate::source::{DataSource, ShowsSource};
+use crate::view::Panel;
 use crate::view::chrome::{PanelButton, SelectionBorder};
 use crate::view::loading::LoadingBar;
 use crate::view::overlay::{PanelHeader, PanelTooltip};
-use crate::view::{BlocksFrameInput, Panel, ShowsSource};
-use crate::widgets::{Icon, button_icon};
+use crate::widgets::{BlocksFrameInput, Icon, button_icon};
 
 /// Where pictures are written, relative to where the app was started.
 const FOLDER: &str = "screenshots";

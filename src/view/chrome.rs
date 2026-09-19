@@ -6,11 +6,10 @@ use bevy_feathers::controls::{ButtonVariant, FeathersToolButton};
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeBorderColor};
 
 use crate::app::theme::token;
-use crate::widgets::{Icon, button_icon};
+use crate::widgets::{BlocksFrameInput, Icon, button_icon};
 use bevy_ui_widgets::Activate;
 
 use super::grid::{MAX_COLUMNS, MAX_ROWS};
-use super::input::BlocksFrameInput;
 use super::{FrameArea, Panel, PanelRequest, SelectedPanel};
 
 /// Width of the rule drawn between panels, in logical pixels.

@@ -15,17 +15,16 @@ use bevy_feathers::display::label;
 use bevy_ui_widgets::{Activate, SliderValue};
 
 use crate::app::schedule::{Boot, Stage};
-use crate::source::DataSource;
+use crate::source::{DataSource, ShowsSource};
 use crate::ui::addsource::CustomLoad;
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::dataset_menu::{PickerTarget, spawn_dataset_picker};
 use crate::view::grid::MAX_LAYERS;
 use crate::view::layers::{stacked_sources, unit_mismatch};
-use crate::view::{
-    BlocksFrameInput, FrameLayers, LayerOf, LayerOpacity, Panel, PanelRequest, SelectedPanel,
-    ShowsSource,
+use crate::view::{FrameLayers, LayerOf, LayerOpacity, Panel, PanelRequest, SelectedPanel};
+use crate::widgets::{
+    BlocksFrameInput, Icon, SectionLevel, button_icon, caption, spawn_accordion, spawn_slider,
 };
-use crate::widgets::{Icon, SectionLevel, button_icon, caption, spawn_accordion, spawn_slider};
 
 /// Straight after View configuration, which acts on the bottom of the same
 /// stack.

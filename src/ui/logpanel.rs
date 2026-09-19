@@ -28,10 +28,10 @@ use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::logs::LogTail;
 use crate::app::schedule::{Boot, Stage};
-use crate::view::{BlocksFrameInput, FrameArea, TextEntryFocused};
+use crate::view::{FrameArea, TextEntryFocused};
 use crate::widgets::{
-    AddDock, Dock, DockEdge, HANDLE_PX, Icon, SelectableText, button_icon, dock_handle,
-    has_selection,
+    AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, SelectableText, button_icon,
+    dock_handle, has_selection,
 };
 
 /// Height the panel opens at, before anyone has dragged it.

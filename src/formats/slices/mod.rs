@@ -32,8 +32,7 @@ use crate::source::ViewLimits;
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::properties::{CellProperties, CellSelection, FilteredPoints, Shade};
 use crate::source::stack::{SliceGrid, SliceStack};
-use crate::source::{self, DataSource, SourceBusy, SourceExtent, SourceStatus};
-use crate::view::ShowsSource;
+use crate::source::{self, DataSource, ShowsSource, SourceBusy, SourceExtent, SourceStatus};
 
 /// Descend into a slide's octree while its region covers at least this many
 /// screen pixels.

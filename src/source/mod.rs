@@ -184,6 +184,19 @@ pub fn compact_count(value: u64) -> String {
     }
 }
 
+/// The source a frame, or a layer of one, is currently displaying.
+///
+/// Held as an entity rather than a format tag so that repointing a frame at
+/// another dataset is a component write plus a layer change.
+#[derive(Component, Clone, Copy)]
+pub struct ShowsSource(pub Entity);
+
+impl Default for ShowsSource {
+    fn default() -> Self {
+        ShowsSource(Entity::PLACEHOLDER)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

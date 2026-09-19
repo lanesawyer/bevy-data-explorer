@@ -23,10 +23,10 @@ use bevy_feathers::tokens;
 
 use super::SMALL_PX;
 use crate::app::theme::{Palette, token};
-use crate::source::compact_count;
 use crate::source::properties::{CellProperties, NumericRange, Ramp, RangeEnd};
-use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
-use crate::widgets::hold_drag_cursor;
+use crate::source::{ShowsSource, compact_count};
+use crate::view::SelectedPanel;
+use crate::widgets::{BlocksFrameInput, hold_drag_cursor};
 
 /// Height of the histogram drawn above a numeric range.
 const HISTOGRAM_PX: f32 = 44.0;

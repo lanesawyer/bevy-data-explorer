@@ -17,8 +17,7 @@ use crate::app::net::fetching;
 use crate::app::schedule::Stage;
 use crate::formats::tiles::{self, SlotState, TileCache, View};
 use crate::source::hover::{HoverInfo, HoverProbe};
-use crate::source::{self, SourceBusy, SourceExtent, SourceStatus};
-use crate::view::ShowsSource;
+use crate::source::{self, ShowsSource, SourceBusy, SourceExtent, SourceStatus};
 use pyramid::{DeepZoom, TilePixels};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

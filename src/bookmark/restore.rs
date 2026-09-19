@@ -579,7 +579,7 @@ mod tests {
         let panel = restored[0];
         let world = app.world();
         assert_eq!(
-            world.get::<crate::view::ShowsSource>(panel).unwrap().0,
+            world.get::<crate::source::ShowsSource>(panel).unwrap().0,
             slide
         );
         let translation = world.get::<Transform>(panel).unwrap().translation;

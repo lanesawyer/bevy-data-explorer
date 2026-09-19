@@ -19,10 +19,11 @@ use bevy_feathers::controls::FeathersCheckbox;
 use bevy_feathers::display::label;
 use bevy_ui_widgets::ValueChange;
 
+use crate::source::ShowsSource;
 use crate::source::properties::CellProperties;
 use crate::ui::cellpanel::{CellPanelMenu, PropertySection};
-use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
-use crate::widgets::button_text;
+use crate::view::SelectedPanel;
+use crate::widgets::{BlocksFrameInput, button_text};
 
 /// A checkbox in the menu, listing or hiding one property.
 #[derive(Component, Clone, Default)]

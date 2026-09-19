@@ -7,9 +7,10 @@ use bevy::prelude::*;
 use bevy::text::EditableText;
 
 use super::grid::{Drag, active_panel, panel_under_cursor, within_frames};
-use super::{FrameArea, Panel, SelectedPanel, ShowsSource};
-use crate::source::ViewLimits;
+use super::{FrameArea, Panel, SelectedPanel};
 use crate::source::hover::HoverProbe;
+use crate::source::{ShowsSource, ViewLimits};
+use crate::widgets::BlocksFrameInput;
 
 /// Whether a text field currently owns the keyboard.
 ///
@@ -149,13 +150,6 @@ pub fn toggle_slice_grid(
         grid.0 = !grid.0;
     }
 }
-
-/// Marks interactive chrome that swallows pointer input before a frame sees it.
-///
-/// Needed because chrome can overlap the grid — the sidebar's drag handle
-/// straddles its own edge — so position alone cannot decide who gets the drag.
-#[derive(Component, Clone, Default)]
-pub struct BlocksFrameInput;
 
 /// Whether the pointer is over chrome that takes input before a frame sees it.
 ///

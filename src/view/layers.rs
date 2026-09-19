@@ -30,9 +30,9 @@ use bevy::picking::Pickable;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureFormat};
 
+use super::Panel;
 use super::grid::{MAX_LAYERS, camera_order};
-use super::{Panel, ShowsSource};
-use crate::source::DataSource;
+use crate::source::{DataSource, ShowsSource};
 
 /// A camera drawing one extra source over a frame.
 #[derive(Component, Clone, Copy, Debug)]

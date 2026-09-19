@@ -15,14 +15,14 @@ use bevy_ui_widgets::{Activate, SliderRange, SliderValue, ValueChange};
 use crate::app::schedule::{Boot, Stage};
 use crate::render::points::{DEFAULT_POINT_PX, MAX_POINT_PX, MIN_POINT_PX, SourcePointSize};
 use crate::render::settings::SourceOpacity;
-use crate::source::DataSource;
 use crate::source::stack::{SliceGrid, SliceStack};
+use crate::source::{DataSource, ShowsSource};
 use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
-use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
+use crate::view::SelectedPanel;
 use crate::widgets::{
-    Icon, SectionLevel, button_icon, button_text, caption, spawn_accordion, spawn_menu,
-    spawn_slider,
+    BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, caption, spawn_accordion,
+    spawn_menu, spawn_slider,
 };
 
 /// The opacity slider runs 0..100, so its built-in readout is a percentage.

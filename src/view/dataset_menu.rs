@@ -35,11 +35,12 @@ use bevy_ui_widgets::{Activate, MenuAction, MenuEvent, ScrollArea};
 use super::grid::MAX_LAYERS;
 use super::layers::{stacked_sources, unit_mismatch};
 use super::overlay::{ChoiceAction, PanelTitle, SourceChoice};
-use super::{BlocksFrameInput, FrameLayers, LayerOf, MAX_PANELS, Panel, ShowsSource};
+use super::{FrameLayers, LayerOf, MAX_PANELS, Panel};
 use crate::catalog::Catalogs;
-use crate::source::{DataSource, SourceUrl};
+use crate::source::{DataSource, ShowsSource, SourceUrl};
 use crate::widgets::{
-    MENU_WIDTH, button_text, field_well, matches_search, spawn_search_field, truncate_to_width,
+    BlocksFrameInput, MENU_WIDTH, button_text, field_well, matches_search, spawn_search_field,
+    truncate_to_width,
 };
 
 /// Where a picker puts what is chosen from it.

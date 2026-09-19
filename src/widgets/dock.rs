@@ -15,9 +15,9 @@ use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::theme::ThemeBackgroundColor;
 use bevy_feathers::tokens;
 
+use super::BlocksFrameInput;
 use crate::app::prefs::Preferences;
 use crate::app::schedule::{Boot, Stage};
-use crate::view::BlocksFrameInput;
 
 /// How thick a dock's drag handle is.
 pub const HANDLE_PX: f32 = 6.0;

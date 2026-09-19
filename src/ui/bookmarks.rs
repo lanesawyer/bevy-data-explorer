@@ -25,11 +25,12 @@ use crate::app::theme::Palette;
 use crate::bookmark::codec::{from_text, to_line};
 use crate::bookmark::store::{FileDialog, SavedBookmarks};
 use crate::bookmark::{BookmarkNotice, local_addresses, open_shared, restore, save_current};
-use crate::source::DataSource;
+use crate::source::{DataSource, ShowsSource};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
-use crate::view::{BlocksFrameInput, Panel, ShowsSource};
+use crate::view::Panel;
 use crate::widgets::{
-    Icon, SectionLevel, button_icon, button_text, caption, field_well, spawn_accordion,
+    BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, caption, field_well,
+    spawn_accordion,
 };
 
 /// After the sections that act on a frame: this acts on all of them.

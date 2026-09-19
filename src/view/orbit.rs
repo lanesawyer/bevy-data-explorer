@@ -19,11 +19,10 @@ use bevy::prelude::*;
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_ui_widgets::Activate;
 
-use super::input::BlocksFrameInput;
-use super::{Panel, ShowsSource, View};
-use crate::source::DataSource;
+use super::{Panel, View};
 use crate::source::volume::SourceVolume;
-use crate::widgets::{Icon, button_icon};
+use crate::source::{DataSource, ShowsSource};
+use crate::widgets::{BlocksFrameInput, Icon, button_icon};
 
 /// Radians turned per logical pixel dragged.
 const TURN_PER_PX: f32 = 0.008;

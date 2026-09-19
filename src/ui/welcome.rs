@@ -25,8 +25,8 @@ use crate::catalog::bkp;
 use crate::catalog::examples::{EXAMPLES, Example};
 use crate::ui::addsource::spawn_custom_section;
 use crate::ui::help::{AUTHOR, LICENSE, LICENSE_URL, REPOSITORY};
-use crate::view::{BlocksFrameInput, FrameArea, Panel};
-use crate::widgets::{Icon, button_text, link_button};
+use crate::view::{FrameArea, Panel};
+use crate::widgets::{BlocksFrameInput, Icon, button_text, link_button};
 
 /// The empty-state panel itself.
 #[derive(Component, Clone, Default)]

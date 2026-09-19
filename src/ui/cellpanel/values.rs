@@ -19,8 +19,9 @@ use bevy_feathers::display::label_dim;
 
 use super::tree::{TreeCheckbox, TreeCount, Unveil, spawn_tree_body};
 use super::{MAX_VALUE_ROWS, SMALL_PX, ValueCheckbox, ValueCount, spawn_value_row};
+use crate::source::ShowsSource;
 use crate::source::properties::{CellProperties, CellProperty, PropertyKind};
-use crate::view::{SelectedPanel, ShowsSource};
+use crate::view::SelectedPanel;
 use crate::widgets::{matches_search, scroll_list, spawn_search_field};
 
 /// Fewest values a property has before it offers a search. Below this the

@@ -8,11 +8,11 @@ use super::snapshot::{
 };
 use crate::render::points::SourcePointSize;
 use crate::render::settings::SourceOpacity;
-use crate::source::SourceUrl;
 use crate::source::channels::SourceChannels;
 use crate::source::properties::{CellProperties, FilteredPoints, PropertyState, Provenance};
 use crate::source::stack::{SliceGrid, SliceStack};
-use crate::view::{FrameArea, FrameLayers, LayerOpacity, Orbit, SelectedPanel, ShowsSource};
+use crate::source::{ShowsSource, SourceUrl};
+use crate::view::{FrameArea, FrameLayers, LayerOpacity, Orbit, SelectedPanel};
 use crate::view::{Panel, View};
 
 /// The address a dataset is saved under.
