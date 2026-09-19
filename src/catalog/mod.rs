@@ -47,8 +47,15 @@ pub struct Entry {
     pub cells: Option<CellService>,
 }
 
-/// How many cells hold each value, by column id and then by code.
-pub type CellCounts = Vec<(String, Vec<(u16, u64)>)>;
+/// How the cells of a dataset are distributed across its properties.
+#[derive(Debug, Default)]
+pub struct CellCounts {
+    /// How many cells hold each value, by column id and then by code.
+    pub values: Vec<(String, Vec<(u16, u64)>)>,
+    /// Each numeric property's histogram, by property id, in the buckets it
+    /// already has.
+    pub histograms: Vec<(String, Vec<u32>)>,
+}
 
 /// A service that knows a dataset's cells better than its files do: what its
 /// codes are called, which color each is drawn in, which properties are worth
@@ -59,9 +66,11 @@ pub trait DescribeCells: Send + Sync + 'static {
     /// since there would be nothing to read.
     fn describe(&self, columns: CellColumns) -> BoxFuture<'static, Result<CellProperties, String>>;
 
-    /// How many cells hold each value of each categorical property. Asked
-    /// separately because it is far slower, and the labels are worth showing
-    /// before it answers.
+    /// How many cells hold each value of each categorical property, and fall
+    /// in each bucket of each numeric one, among the cells the other
+    /// properties' filters admit. Asked separately because it is far slower,
+    /// and the labels are worth showing before it answers; and asked again
+    /// whenever the filters change.
     fn count(&self, properties: &CellProperties) -> BoxFuture<'static, Result<CellCounts, String>>;
 
     /// Whether this service knows the genes the dataset measured. The genes
@@ -221,6 +230,7 @@ impl Plugin for CatalogPlugin {
                 name_sources,
                 cells::ask,
                 cells::take_answers,
+                cells::recount,
                 genes::offer,
                 genes::search,
                 genes::add,

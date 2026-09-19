@@ -565,14 +565,18 @@ impl CellProperties {
                 .map(|(_, values)| palette_of(&values))
                 .unwrap_or_default(),
             ramp: self.ramp(),
-            filters: self
-                .properties
-                .iter()
-                .filter(|property| property.restricts())
-                .map(CellProperty::restriction)
-                .collect(),
+            filters: self.filters(),
             draw_filtered: false,
         }
+    }
+
+    /// The columns that restrict which points are drawn, and how.
+    pub fn filters(&self) -> Vec<(Column, Restriction)> {
+        self.properties
+            .iter()
+            .filter(|property| property.restricts())
+            .map(CellProperty::restriction)
+            .collect()
     }
 }
 

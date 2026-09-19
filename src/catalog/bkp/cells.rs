@@ -99,7 +99,7 @@ impl DescribeCells for BkpCells {
             let histograms = join_all(
                 numeric
                     .iter()
-                    .map(|(id, extent)| histogram(&endpoint, &filter, id, *extent)),
+                    .map(|(id, extent)| histogram(&endpoint, &filter, id, *extent, &Value::Null)),
             )
             .await;
             let histograms: HashMap<String, Vec<u32>> = numeric
@@ -174,14 +174,21 @@ impl DescribeCells for BkpCells {
             // Cells not expressing the gene hold no value and are not counted,
             // so the histogram is of the cells that do. Counting them in would
             // flatten every other bar under one at zero.
-            let histogram =
-                match histogram(&endpoint, &filter, &gene.index.to_string(), extent).await {
-                    Ok(histogram) => histogram,
-                    Err(e) => {
-                        warn!("BKP: no histogram for {}: {e}", gene.symbol);
-                        Vec::new()
-                    }
-                };
+            let histogram = match histogram(
+                &endpoint,
+                &filter,
+                &gene.index.to_string(),
+                extent,
+                &Value::Null,
+            )
+            .await
+            {
+                Ok(histogram) => histogram,
+                Err(e) => {
+                    warn!("BKP: no histogram for {}: {e}", gene.symbol);
+                    Vec::new()
+                }
+            };
             Ok(CellProperty {
                 id: gene.id,
                 name: gene.symbol,
@@ -195,41 +202,127 @@ impl DescribeCells for BkpCells {
     fn count(&self, properties: &CellProperties) -> BoxFuture<'static, Result<CellCounts, String>> {
         let endpoint = self.endpoint.clone();
         let filter = self.dataset_filter();
+        let groups: Vec<Option<Value>> = properties.properties.iter().map(cell_filter).collect();
+        // Values are counted under every filter, their own property's too, so
+        // a value left unticked counts none and a partly ticked tree node
+        // counts what is ticked under it. A range is counted under every
+        // filter but its own, so its histogram keeps the shape outside it.
+        let filters_for = |index: usize, own: bool| {
+            let applied: Vec<&Value> = groups
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| own || *other != index)
+                .filter_map(|(_, group)| group.as_ref())
+                .collect();
+            json!(applied)
+        };
         // Counts come back keyed by label, so each column takes its labels
         // along to turn them back into codes.
-        let wanted: Vec<(String, HashMap<String, u16>)> = properties
-            .properties
-            .iter()
-            .flat_map(CellProperty::columns)
-            .map(|(column, values)| {
+        let mut columns: Vec<(String, HashMap<String, u16>, Value)> = Vec::new();
+        let mut ranges: Vec<(String, String, (f32, f32), Value)> = Vec::new();
+        for (index, property) in properties.properties.iter().enumerate() {
+            if let Some(range) = property.range() {
+                // Genes are counted by their index, cell columns by their id.
+                let field = property
+                    .gene
+                    .map_or_else(|| property.id.clone(), |gene| gene.to_string());
+                ranges.push((
+                    property.id.clone(),
+                    field,
+                    (range.low, range.high),
+                    filters_for(index, false),
+                ));
+            }
+            for (column, values) in property.columns() {
                 let codes = values
                     .iter()
                     .map(|value| (value.label.clone(), value.code))
                     .collect();
-                (column.to_string(), codes)
-            })
-            .collect();
+                columns.push((column.to_string(), codes, filters_for(index, true)));
+            }
+        }
         Box::pin(async move {
-            let counted = join_all(
-                wanted
-                    .iter()
-                    .map(|(id, codes)| counts(&endpoint, &filter, id, codes)),
-            )
-            .await;
-            let mut found = Vec::new();
+            let (counted, histograms) =
+                futures::future::join(
+                    join_all(columns.iter().map(|(id, codes, filters)| {
+                        counts(&endpoint, &filter, id, codes, filters)
+                    })),
+                    join_all(ranges.iter().map(|(_, field, extent, filters)| {
+                        histogram(&endpoint, &filter, field, *extent, filters)
+                    })),
+                )
+                .await;
+            let mut found = CellCounts::default();
             let mut last_error = None;
-            for ((id, _), result) in wanted.into_iter().zip(counted) {
+            for ((id, _, _), result) in columns.into_iter().zip(counted) {
                 match result {
-                    Ok(counts) => found.push((id, counts)),
+                    Ok(counts) => found.values.push((id, counts)),
+                    Err(e) => last_error = Some(e),
+                }
+            }
+            for ((id, _, _, _), result) in ranges.into_iter().zip(histograms) {
+                match result {
+                    Ok(histogram) => found.histograms.push((id, histogram)),
                     Err(e) => last_error = Some(e),
                 }
             }
             match last_error {
-                Some(e) if found.is_empty() => Err(e),
+                Some(e) if found.values.is_empty() && found.histograms.is_empty() => Err(e),
                 _ => Ok(found),
             }
         })
     }
+}
+
+/// A property's filter as the counting queries take it: the conditions any
+/// one of which admits a cell, or nothing if it admits every cell.
+///
+/// Values are named by label rather than code. A tree names each ticked node
+/// at its own level, which is far fewer conditions than the finest codes
+/// those ticks admit.
+fn cell_filter(property: &CellProperty) -> Option<Value> {
+    if !property.restricts() {
+        return None;
+    }
+    let condition = |field: &str, operator: &str, value: String| {
+        let kind = if property.gene.is_some() {
+            "GENE"
+        } else {
+            "METADATA"
+        };
+        json!({ "type": kind, "field": field, "operator": operator, "value": value })
+    };
+    let conditions: Vec<Value> = match &property.kind {
+        PropertyKind::Categorical(values) => values
+            .iter()
+            .filter(|value| value.selected)
+            .map(|value| condition(&property.id, "EQ", value.label.clone()))
+            .collect(),
+        PropertyKind::Tree(tree) => tree
+            .nodes
+            .iter()
+            .filter(|node| node.value.selected)
+            .filter_map(|node| {
+                let level = tree.levels.get(node.level)?;
+                Some(condition(&level.id, "EQ", node.value.label.clone()))
+            })
+            .collect(),
+        PropertyKind::Numeric(range) => {
+            // Ranges here leave out their high end, and the one on screen
+            // keeps it.
+            let to = f64::from(range.to);
+            let past = to + (to.abs() * 1e-6).max(1e-9);
+            let field = property
+                .gene
+                .map_or_else(|| property.id.clone(), |index| index.to_string());
+            vec![condition(
+                &field,
+                "BETWEEN",
+                format!("[{},{past}]", range.from),
+            )]
+        }
+    };
+    Some(json!(conditions))
 }
 
 /// Ask one GraphQL question and take its `data`.
@@ -455,8 +548,10 @@ fn prefixes(text: &str) -> Vec<String> {
     prefixes
 }
 
-const RANGE_COUNTS: &str = "query($filter: DatasetFilter!, $field: String!, $range: [String]!) {
-  cellRangeCounts(datasetFilter: $filter, groupBy: { field: $field, range: $range }) {
+const RANGE_COUNTS: &str = "query($filter: DatasetFilter!, $field: String!, $range: [String]!,
+                                $filters: [[CellFilterInput!]]) {
+  cellRangeCounts(datasetFilter: $filter, groupBy: { field: $field, range: $range },
+                  filters: $filters) {
     count
     properties { value }
   }
@@ -474,12 +569,14 @@ struct Tuple {
     value: Option<String>,
 }
 
-/// Counts in [`BUCKETS`] equal buckets across `extent`.
+/// Counts in [`BUCKETS`] equal buckets across `extent`, of the cells
+/// `filters` admit, as [`counts`] takes them.
 async fn histogram(
     endpoint: &str,
     filter: &Value,
     field: &str,
     extent: (f32, f32),
+    filters: &Value,
 ) -> Result<Vec<u32>, String> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -492,7 +589,7 @@ async fn histogram(
         .windows(2)
         .map(|pair| format!("[{},{}]", pair[0], pair[1]))
         .collect();
-    let variables = json!({ "filter": filter, "field": field, "range": range });
+    let variables = json!({ "filter": filter, "field": field, "range": range, "filters": filters });
     let data: Data = ask(endpoint, RANGE_COUNTS, variables).await?;
     Ok(bin(&edges, &data.cell_range_counts))
 }
@@ -542,19 +639,23 @@ fn bin(edges: &[f64], counted: &[Counted]) -> Vec<u32> {
     buckets
 }
 
-const COUNTS: &str = "query($filter: DatasetFilter!, $field: String!) {
-  cellCounts(datasetFilter: $filter, groupBy: [$field]) {
+const COUNTS: &str = "query($filter: DatasetFilter!, $field: String!,
+                          $filters: [[CellFilterInput!]]) {
+  cellCounts(datasetFilter: $filter, groupBy: [$field], filters: $filters) {
     count
     properties { value }
   }
 }";
 
-/// How many cells hold each value of one categorical column, by code.
+/// How many cells hold each value of one categorical column, by code, among
+/// the cells `filters` admit: every one of its groups, and any condition in a
+/// group.
 async fn counts(
     endpoint: &str,
     filter: &Value,
     field: &str,
     codes: &HashMap<String, u16>,
+    filters: &Value,
 ) -> Result<Vec<(u16, u64)>, String> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -562,7 +663,7 @@ async fn counts(
         cell_counts: Vec<Counted>,
     }
 
-    let variables = json!({ "filter": filter, "field": field });
+    let variables = json!({ "filter": filter, "field": field, "filters": filters });
     let data: Data = ask(endpoint, COUNTS, variables).await?;
     Ok(data
         .cell_counts
@@ -862,7 +963,7 @@ fn parse_color(text: &str) -> Option<Color> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::source::properties::{CellColumn, Column};
+    use crate::source::properties::{CellColumn, Column, RangeEnd};
 
     fn column(id: &str, numeric: bool) -> CellColumn {
         CellColumn {
@@ -1121,10 +1222,102 @@ mod tests {
 
         let counts = crate::app::net::block_on(cells.count(&properties)).unwrap();
         let braak: u64 = counts
+            .values
             .iter()
             .find(|(id, _)| id == "E4E313ECEDC2194BBE")
             .map(|(_, counts)| counts.iter().map(|(_, count)| count).sum())
             .unwrap();
         assert_eq!(braak, 686_439);
+        let aged = |counts: &CellCounts| -> u32 {
+            counts
+                .histograms
+                .iter()
+                .find(|(id, _)| id == "2E8980E6E33AECF44C")
+                .map(|(_, histogram)| histogram.iter().sum())
+                .unwrap()
+        };
+        assert_eq!(aged(&counts), 686_439);
+
+        // Ticking one Braak stage narrows every count and histogram to that
+        // stage's cells, Braak's own counts included.
+        let mut properties = properties;
+        let braak = properties
+            .properties
+            .iter_mut()
+            .find(|property| property.id == "E4E313ECEDC2194BBE")
+            .unwrap();
+        let PropertyKind::Categorical(values) = &mut braak.kind else {
+            panic!("Braak is categorical");
+        };
+        values[0].selected = true;
+        let (label, code) = (values[0].label.clone(), values[0].code);
+        let counts = crate::app::net::block_on(cells.count(&properties)).unwrap();
+        let total = |column: &str| -> u64 {
+            counts
+                .values
+                .iter()
+                .find(|(id, _)| id == column)
+                .map(|(_, counts)| counts.iter().map(|(_, count)| count).sum())
+                .unwrap()
+        };
+        let stage = values_counted(&counts, "E4E313ECEDC2194BBE", code);
+        assert!(stage > 0 && stage < 686_439, "{label} holds {stage}");
+        assert_eq!(total("E4E313ECEDC2194BBE"), stage);
+        assert_eq!(total("CCN20260701_LEVEL_1"), stage);
+        assert_eq!(u64::from(aged(&counts)), stage);
+    }
+
+    fn values_counted(counts: &CellCounts, column: &str, code: u16) -> u64 {
+        counts
+            .values
+            .iter()
+            .find(|(id, _)| id == column)
+            .and_then(|(_, counts)| counts.iter().find(|(found, _)| *found == code))
+            .map_or(0, |(_, count)| *count)
+    }
+
+    #[test]
+    fn a_filter_names_values_by_label_and_ticked_nodes_at_their_level() {
+        let mut properties = described();
+        assert!(
+            properties
+                .properties
+                .iter()
+                .all(|p| cell_filter(p).is_none())
+        );
+
+        let tree = properties.properties[0].tree_mut().unwrap();
+        let neurons = tree.children(None).next().unwrap();
+        tree.set(neurons, true);
+        assert_eq!(
+            cell_filter(&properties.properties[0]),
+            Some(json!([
+                { "type": "METADATA", "field": "LEVEL_0", "operator": "EQ", "value": "Neurons" }
+            ]))
+        );
+
+        let cps = properties.properties[2].range_mut().unwrap();
+        cps.set_end(RangeEnd::To, 0.5);
+        let filter = cell_filter(&properties.properties[2]).unwrap();
+        let range = filter[0]["value"].as_str().unwrap();
+        assert!(range.starts_with("[0,0.5000"), "{range} keeps its high end");
+        assert_eq!(filter[0]["operator"], "BETWEEN");
+    }
+
+    #[test]
+    fn a_gene_filters_by_its_index() {
+        let property = CellProperty {
+            id: "ENSG00000128683".into(),
+            name: "GAD1".into(),
+            shown: true,
+            kind: PropertyKind::Numeric(NumericRange {
+                from: 1.0,
+                ..NumericRange::full(0.0, 4.0, Vec::new())
+            }),
+            gene: Some(11618),
+        };
+        let filter = cell_filter(&property).unwrap();
+        assert_eq!(filter[0]["type"], "GENE");
+        assert_eq!(filter[0]["field"], "11618");
     }
 }

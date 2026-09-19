@@ -82,6 +82,13 @@ fn bar_color(range: &NumericRange, bucket: usize, ramp: Option<&Ramp>, palette: 
     }
 }
 
+/// A bar's height, against the tallest in its histogram.
+fn bar_height(range: &NumericRange, bucket: usize) -> Val {
+    let peak = range.histogram.iter().copied().max().unwrap_or(1).max(1);
+    let count = range.histogram.get(bucket).copied().unwrap_or(0);
+    Val::Px((count as f32 / peak as f32).max(0.02) * HISTOGRAM_PX)
+}
+
 /// Where a handle sits on its rail: a percentage along, and a pixel nudge back
 /// so both ends stay on the rail without depending on its measured width.
 fn handle_placement(fraction: f32) -> (f32, f32) {
@@ -99,19 +106,15 @@ pub fn spawn_range_control(
     ramp: Option<&Ramp>,
     palette: &Palette,
 ) -> Entity {
-    let peak = range.histogram.iter().copied().max().unwrap_or(1).max(1);
-    let bars: Vec<Entity> = range
-        .histogram
-        .iter()
-        .enumerate()
-        .map(|(bucket, count)| {
-            let height = (*count as f32 / peak as f32).max(0.02) * HISTOGRAM_PX;
+    let bars: Vec<Entity> = (0..range.histogram.len())
+        .map(|bucket| {
+            let height = bar_height(range, bucket);
             commands
                 .spawn_scene(bsn! {
                     RangeBar { property: { property }, bucket: { bucket } }
                     Node {
                         flex_grow: { 1.0_f32 },
-                        height: { Val::Px(height) },
+                        height: { height },
                         margin: { UiRect::horizontal(Val::Px(0.5)) },
                     }
                     BackgroundColor({ bar_color(range, bucket, ramp, palette) })
@@ -303,7 +306,10 @@ pub fn update_range_controls(
     sources: Query<&CellProperties>,
     mut fills: Query<(&RangeFill, &mut Node), (Without<RangeHandle>, Without<RangeBar>)>,
     mut handles: Query<(&RangeHandle, &mut Node), (Without<RangeFill>, Without<RangeBar>)>,
-    mut bars: Query<(&RangeBar, &mut BackgroundColor), (Without<RangeFill>, Without<RangeHandle>)>,
+    mut bars: Query<
+        (&RangeBar, &mut BackgroundColor, &mut Node),
+        (Without<RangeFill>, Without<RangeHandle>),
+    >,
     readouts: Query<(Entity, &RangeReadout)>,
     mut texts: Query<&mut Text>,
 ) {
@@ -345,7 +351,9 @@ pub fn update_range_controls(
     }
 
     let ramp = properties.ramp();
-    for (bar, mut color) in &mut bars {
+    // Bars are redrawn as well as recolored: a histogram is counted again
+    // among the cells the other filters admit whenever they change.
+    for (bar, mut color, mut node) in &mut bars {
         let Some(range) = range_of(bar.property) else {
             continue;
         };
@@ -355,6 +363,10 @@ pub fn update_range_controls(
         let wanted = bar_color(range, bar.bucket, ramp, &palette);
         if color.0 != wanted {
             color.0 = wanted;
+        }
+        let height = bar_height(range, bar.bucket);
+        if node.height != height {
+            node.height = height;
         }
     }
 

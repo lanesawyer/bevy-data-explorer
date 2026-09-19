@@ -8,33 +8,54 @@
 //! properties to show — answers in a fraction of a second and replaces the
 //! placeholders the format started with. The second, how many cells hold each
 //! value, takes seconds, so it is written into the properties already on show
-//! rather than holding them back.
+//! rather than holding them back. It is asked again whenever the filters
+//! change, since each property is counted among the cells the others admit,
+//! and whenever a gene is added, whose histogram has to be counted the same
+//! way.
 
 use bevy::prelude::*;
 
 use super::{Catalogs, CellCounts, CellService, Entry};
 use crate::app::net::{Fetching, fetching};
 use crate::source::SourceUrl;
-use crate::source::properties::{CellColumns, CellProperties, Provenance};
+use crate::source::properties::{
+    CellColumns, CellProperties, CellProperty, Column, Provenance, Restriction,
+};
 
-/// A question in flight to the service describing a source's cells.
+/// How long the filters must hold still before they are counted under.
+/// Dragging a range changes them every frame, and each change is a round of
+/// queries taking seconds.
+const SETTLE_SECS: f32 = 0.4;
+
+/// The labels in flight from the service describing a source's cells.
 #[derive(Component)]
-pub enum Describing {
-    Labels {
-        service: CellService,
-        catalog: String,
-        reading: Fetching<Result<CellProperties, String>>,
-    },
-    Counts {
-        catalog: String,
-        reading: Fetching<Result<CellCounts, String>>,
-    },
+pub struct Describing {
+    service: CellService,
+    catalog: String,
+    reading: Fetching<Result<CellProperties, String>>,
 }
 
 /// Marks a source whose properties wait on no service any more, whether one
 /// answered, failed, or there was none to ask.
 #[derive(Component)]
 pub struct Described;
+
+/// Keeps a described source's counts in step with its filters.
+#[derive(Component)]
+pub struct Counting {
+    service: CellService,
+    catalog: String,
+    /// The properties and filters last counted under, or nothing before the
+    /// first count.
+    asked: Option<Counted>,
+    /// How long the properties or filters have differed from `asked`.
+    waited: f32,
+    /// The latest count. Replacing it drops, and so cancels, the one before.
+    reading: Option<Fetching<Result<CellCounts, String>>>,
+}
+
+/// What a count depends on: which properties there are, and how they filter.
+type Counted = (Vec<String>, Vec<(Column, Restriction)>);
 
 /// Start describing each source a catalog has a service for.
 pub fn ask(
@@ -56,7 +77,7 @@ pub fn ask(
             )) => {
                 info!("asking {catalog} about the cells of {}", url.0);
                 properties.provenance = Provenance::Fetching(catalog.to_string());
-                commands.entity(entity).insert(Describing::Labels {
+                commands.entity(entity).insert(Describing {
                     service: service.clone(),
                     catalog: catalog.to_string(),
                     reading: fetching(service.0.describe(columns.clone())),
@@ -70,73 +91,98 @@ pub fn ask(
     }
 }
 
-/// Take in whatever the services have answered.
+/// Take in whatever labels the services have answered, and start counting.
 pub fn take_answers(
     mut commands: Commands,
     mut sources: Query<(Entity, &mut Describing, &mut CellProperties)>,
 ) {
     for (entity, mut describing, mut properties) in &mut sources {
-        let next = match &mut *describing {
-            Describing::Labels {
-                service,
-                catalog,
-                reading,
-            } => {
-                let Some(result) = reading.take() else {
-                    continue;
-                };
-                match result {
-                    Ok(mut described) => {
-                        info!(
-                            "{catalog} described {} cell properties",
-                            described.properties.len()
-                        );
-                        described.provenance = Provenance::Service(catalog.clone());
-                        let counting = fetching(service.0.count(&described));
-                        *properties = described;
-                        Some(Describing::Counts {
-                            catalog: catalog.clone(),
-                            reading: counting,
-                        })
-                    }
-                    Err(error) => {
-                        warn!("{catalog}: could not describe cells: {error}");
-                        properties.provenance = Provenance::Unavailable {
-                            service: catalog.clone(),
-                            error,
-                        };
-                        None
-                    }
-                }
-            }
-            Describing::Counts { catalog, reading } => {
-                let Some(result) = reading.take() else {
-                    continue;
-                };
-                match result {
-                    Ok(counts) => {
-                        info!("{catalog} counted cells for {} properties", counts.len());
-                        apply_counts(&mut properties, counts);
-                    }
-                    Err(error) => warn!("{catalog}: could not count cells: {error}"),
-                }
-                None
-            }
+        let Some(result) = describing.reading.take() else {
+            continue;
         };
-        match next {
-            Some(next) => *describing = next,
-            None => {
-                commands
-                    .entity(entity)
-                    .remove::<Describing>()
-                    .insert(Described);
+        let catalog = describing.catalog.clone();
+        let mut source = commands.entity(entity);
+        match result {
+            Ok(mut described) => {
+                info!(
+                    "{catalog} described {} cell properties",
+                    described.properties.len()
+                );
+                described.provenance = Provenance::Service(catalog.clone());
+                *properties = described;
+                source.insert(Counting {
+                    service: describing.service.clone(),
+                    catalog,
+                    asked: None,
+                    waited: 0.0,
+                    reading: None,
+                });
             }
+            Err(error) => {
+                warn!("{catalog}: could not describe cells: {error}");
+                properties.provenance = Provenance::Unavailable {
+                    service: catalog,
+                    error,
+                };
+            }
+        }
+        source.remove::<Describing>().insert(Described);
+    }
+}
+
+/// Count each source's cells once described, and again once its filters
+/// change and settle; take in whatever counts have landed.
+pub fn recount(time: Res<Time>, mut sources: Query<(&mut Counting, &mut CellProperties)>) {
+    for (mut counting, mut properties) in &mut sources {
+        let wanted = (
+            properties
+                .properties
+                .iter()
+                .map(|property| property.id.clone())
+                .collect(),
+            properties.filters(),
+        );
+        if counting.asked.as_ref() == Some(&wanted) {
+            counting.waited = 0.0;
+        } else {
+            counting.waited += time.delta_secs();
+            if counting.asked.is_none() || counting.waited >= SETTLE_SECS {
+                counting.reading = Some(fetching(counting.service.0.count(&properties)));
+                counting.asked = Some(wanted);
+                counting.waited = 0.0;
+            }
+        }
+
+        let Some(result) = counting.reading.as_mut().and_then(Fetching::take) else {
+            continue;
+        };
+        counting.reading = None;
+        match result {
+            Ok(counts) => {
+                debug!(
+                    "{} counted cells for {} properties",
+                    counting.catalog,
+                    counts.values.len() + counts.histograms.len()
+                );
+                apply_counts(&mut properties, counts);
+            }
+            Err(error) => warn!("{}: could not count cells: {error}", counting.catalog),
         }
     }
 }
 
 fn apply_counts(properties: &mut CellProperties, counts: CellCounts) {
-    for (column, counted) in counts {
+    for (id, histogram) in counts.histograms {
+        let range = properties
+            .properties
+            .iter_mut()
+            .find(|property| property.id == id)
+            .and_then(CellProperty::range_mut);
+        if let Some(range) = range {
+            range.histogram = histogram;
+        }
+    }
+    for (column, counted) in counts.values {
         for value in properties
             .properties
             .iter_mut()
@@ -155,7 +201,7 @@ fn apply_counts(properties: &mut CellProperties, counts: CellCounts) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::source::properties::{CellProperty, PropertyKind, PropertyValue};
+    use crate::source::properties::{PropertyKind, PropertyValue};
 
     #[test]
     fn counts_land_on_the_values_they_name() {
@@ -179,10 +225,13 @@ mod tests {
         }]);
         apply_counts(
             &mut properties,
-            vec![
-                ("braak".into(), vec![(1, 20)]),
-                ("missing".into(), vec![(0, 5)]),
-            ],
+            CellCounts {
+                values: vec![
+                    ("braak".into(), vec![(1, 20)]),
+                    ("missing".into(), vec![(0, 5)]),
+                ],
+                histograms: Vec::new(),
+            },
         );
         let counts: Vec<Option<u64>> = properties.properties[0]
             .values()

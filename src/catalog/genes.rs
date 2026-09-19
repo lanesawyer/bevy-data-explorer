@@ -12,7 +12,7 @@
 
 use bevy::prelude::*;
 
-use super::cells::{Described, Describing};
+use super::cells::Described;
 use super::{Catalogs, CellService, Entry};
 use crate::app::net::{Fetching, fetching};
 use crate::source::SourceUrl;
@@ -45,19 +45,9 @@ pub struct GeneReads {
 pub fn offer(
     mut commands: Commands,
     catalogs: Res<Catalogs>,
-    sources: Query<
-        (Entity, &SourceUrl, Option<&Describing>),
-        (
-            With<ReadsGenes>,
-            Or<(With<Described>, With<Describing>)>,
-            Without<GeneService>,
-        ),
-    >,
+    sources: Query<(Entity, &SourceUrl), (With<ReadsGenes>, With<Described>, Without<GeneService>)>,
 ) {
-    for (entity, url, describing) in &sources {
-        if matches!(describing, Some(Describing::Labels { .. })) {
-            continue;
-        }
+    for (entity, url) in &sources {
         let service = match catalogs.find(&url.0) {
             Some((
                 _,
