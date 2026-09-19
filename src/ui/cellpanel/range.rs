@@ -8,17 +8,25 @@
 //!
 //! Buckets outside the chosen span are dimmed rather than hidden, so the shape
 //! of the whole distribution stays visible while a slice of it is picked.
+//!
+//! Either end is dragged by its thumb, and may be dragged past the other to
+//! pivot around it. Dragging anywhere else on the track slides the whole span,
+//! and clicking a bar narrows the span to that bucket.
 
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::ui::UiGlobalTransform;
-use bevy_feathers::display::label_dim;
-use bevy_feathers::font_styles::InheritableFont;
-use bevy_feathers::theme::ThemeBackgroundColor;
+use bevy::window::SystemCursorIcon;
+use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
+use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
+use bevy_feathers::tokens;
 
+use super::SMALL_PX;
 use crate::app::theme::{Palette, token};
+use crate::source::compact_count;
 use crate::source::properties::{CellProperties, NumericRange, Ramp, RangeEnd};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
+use crate::widgets::hold_drag_cursor;
 
 /// Height of the histogram drawn above a numeric range.
 const HISTOGRAM_PX: f32 = 44.0;
@@ -60,11 +68,43 @@ pub struct RangeFill {
     pub property: usize,
 }
 
+/// How many cells the span admits, beside the readout.
+#[derive(Component, Clone, Default)]
+pub struct RangeCount {
+    pub property: usize,
+}
+
 /// One bar of a numeric range's histogram.
 #[derive(Component, Clone, Default)]
 pub struct RangeBar {
     pub property: usize,
     pub bucket: usize,
+}
+
+/// The full-height column a bar stands in, clicked to pick its bucket.
+///
+/// Clicked rather than the bar itself, which may be only a pixel or two high.
+#[derive(Component, Clone, Default)]
+pub struct RangeBucket {
+    pub property: usize,
+    pub bucket: usize,
+}
+
+/// What a press on a numeric range is dragging, until the button is released.
+///
+/// Held by property index rather than by entity: the panel may rebuild
+/// mid-drag, and an entity would be left pointing at something despawned.
+#[derive(Clone, Copy)]
+pub enum RangeDrag {
+    /// One end, which may change as it is dragged past the other.
+    End { property: usize, end: RangeEnd },
+    /// The whole span, from where it started and where along the track it was
+    /// grabbed.
+    Span {
+        property: usize,
+        from: f32,
+        grabbed: f32,
+    },
 }
 
 /// Buckets inside the chosen span are drawn lit, the rest dimmed, so the whole
@@ -73,8 +113,7 @@ pub struct RangeBar {
 /// While points are colored by this property the lit buckets take the colors
 /// those points are drawn in, which makes the histogram its legend.
 fn bar_color(range: &NumericRange, bucket: usize, ramp: Option<&Ramp>, palette: &Palette) -> Color {
-    let centre = (bucket as f32 + 0.5) / range.histogram.len().max(1) as f32;
-    let value = range.value_at(centre);
+    let value = range.bucket_centre(bucket);
     match ramp {
         _ if !range.admits(value) => palette.bar_dim,
         Some(ramp) => ramp.gradient.sample(ramp.fraction_of(value)),
@@ -87,6 +126,21 @@ fn bar_height(range: &NumericRange, bucket: usize) -> Val {
     let peak = range.histogram.iter().copied().max().unwrap_or(1).max(1);
     let count = range.histogram.get(bucket).copied().unwrap_or(0);
     Val::Px((count as f32 / peak as f32).max(0.02) * HISTOGRAM_PX)
+}
+
+/// The readout's text: the span's ends.
+fn span_text(range: &NumericRange) -> String {
+    format!("{:.2} - {:.2}", range.from, range.to)
+}
+
+/// The count's text: the cells inside the span, and of how many when the span
+/// leaves some out. Blank until the histogram has anything in it.
+fn count_text(range: &NumericRange) -> String {
+    match range.counts() {
+        (_, 0) => String::new(),
+        (inside, total) if inside == total => compact_count(total),
+        (inside, total) => format!("{} of {}", compact_count(inside), compact_count(total)),
+    }
 }
 
 /// Where a handle sits on its rail: a percentage along, and a pixel nudge back
@@ -111,13 +165,26 @@ pub fn spawn_range_control(
             let height = bar_height(range, bucket);
             commands
                 .spawn_scene(bsn! {
-                    RangeBar { property: { property }, bucket: { bucket } }
+                    RangeBucket { property: { property }, bucket: { bucket } }
+                    BlocksFrameInput
+                    EntityCursor::System({ SystemCursorIcon::Pointer })
                     Node {
                         flex_grow: { 1.0_f32 },
-                        height: { height },
+                        flex_basis: { Val::ZERO },
+                        height: { Val::Percent(100.0) },
+                        align_items: { AlignItems::End },
                         margin: { UiRect::horizontal(Val::Px(0.5)) },
                     }
-                    BackgroundColor({ bar_color(range, bucket, ramp, palette) })
+                    Children [(
+                        RangeBar { property: { property }, bucket: { bucket } }
+                        // Its column takes the click, however short the bar.
+                        template_value(Pickable::IGNORE)
+                        Node {
+                            width: { Val::Percent(100.0) },
+                            height: { height },
+                        }
+                        BackgroundColor({ bar_color(range, bucket, ramp, palette) })
+                    )]
                 })
                 .id()
         })
@@ -138,6 +205,7 @@ pub fn spawn_range_control(
         .spawn_scene(bsn! {
             RangeTrack { property: { property } }
             BlocksFrameInput
+            EntityCursor::System({ SystemCursorIcon::Grab })
             Node {
                 width: { Val::Percent(100.0) },
                 height: { Val::Px(RANGE_THUMB_PX) },
@@ -158,8 +226,11 @@ pub fn spawn_range_control(
                 border_radius: { BorderRadius::all(Val::Px(RANGE_TRACK_PX * 0.5)) },
             }
             ThemeBackgroundColor({ token::TRACK })
+            // The track takes the press, wherever along it, to slide the span.
+            template_value(Pickable::IGNORE)
             Children [(
                 RangeFill { property: { property } }
+                template_value(Pickable::IGNORE)
                 Node {
                     position_type: { PositionType::Absolute },
                     left: { Val::Percent(from * 100.0) },
@@ -178,6 +249,7 @@ pub fn spawn_range_control(
                 // A thumb, not a button. It is grabbed from the picking
                 // hover state, so it only needs to be pickable.
                 BlocksFrameInput
+                EntityCursor::System({ SystemCursorIcon::EwResize })
                 RangeHandle { property: { property }, end: { end } }
                 Node {
                     position_type: { PositionType::Absolute },
@@ -195,13 +267,31 @@ pub fn spawn_range_control(
         commands.entity(track).add_child(handle);
     }
 
+    // Deliberately not marked for rebuilding: these hang inside a
+    // sub-section that is, and despawning is recursive.
+    let span = span_text(range);
+    let count = count_text(range);
     let readout = commands
         .spawn_scene(bsn! {
-            // Deliberately not marked for rebuilding: it hangs inside a
-            // sub-section that is, and despawning is recursive.
-            RangeReadout { property: { property } }
-            label_dim(format!("{:.2} - {:.2}", range.from, range.to))
-            InheritableFont { font_size: { 11.0f32 } }
+            Node {
+                width: { Val::Percent(100.0) },
+                justify_content: { JustifyContent::SpaceBetween },
+                column_gap: { Val::Px(8.0) },
+            }
+            Children [
+                (
+                    RangeReadout { property: { property } }
+                    Text({ span })
+                    TextFont { font_size: { FontSize::Px(SMALL_PX) } }
+                    ThemeTextColor({ tokens::TEXT_DIM })
+                ),
+                (
+                    RangeCount { property: { property } }
+                    Text({ count })
+                    TextFont { font_size: { FontSize::Px(SMALL_PX) } }
+                    ThemeTextColor({ tokens::TEXT_DIM })
+                ),
+            ]
         })
         .id();
 
@@ -220,63 +310,54 @@ pub fn spawn_range_control(
     column
 }
 
-/// Drag either end of a numeric range.
+fn range_mut(properties: &mut CellProperties, property: usize) -> Option<&mut NumericRange> {
+    properties
+        .properties
+        .get_mut(property)
+        .and_then(|property| property.range_mut())
+}
+
+/// Drag either end of a numeric range, slide its span, or pick a bucket.
 ///
-/// The value comes from where the pointer sits along the track rather than
-/// from accumulated deltas, so a fast drag cannot fall behind the cursor.
+/// Values come from where the pointer sits along the track rather than from
+/// accumulated deltas, so a fast drag cannot fall behind the cursor.
 pub fn drag_range_handles(
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     hover: Res<HoverMap>,
     handles: Query<&RangeHandle>,
+    buckets: Query<&RangeBucket>,
     tracks: Query<(&RangeTrack, &ComputedNode, &UiGlobalTransform)>,
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     mut sources: Query<&mut CellProperties>,
-    mut dragging: Local<Option<(usize, RangeEnd)>>,
+    mut dragging: Local<Option<RangeDrag>>,
+    mut held: Local<bool>,
+    cursor: Option<ResMut<OverrideCursor>>,
 ) {
     if !mouse.pressed(MouseButton::Left) {
         *dragging = None;
+        hold_drag_cursor(false, &mut held, cursor, SystemCursorIcon::Default);
         return;
     }
-
-    if dragging.is_none() {
-        // Grabbed on the way down and held until release, so the pointer may
-        // leave the handle without dropping the drag. Remembered by which end
-        // of which property it is rather than by entity: the panel may rebuild
-        // mid-drag, and an entity would be left pointing at something despawned.
-        let grabbed = hover
-            .values()
-            .flat_map(|hits| hits.keys())
-            .find_map(|entity| handles.get(*entity).ok());
-        let Some(handle) = grabbed else {
-            return;
-        };
-        *dragging = Some((handle.property, handle.end));
-    }
-    let Some((property, end)) = *dragging else {
-        return;
-    };
 
     let Ok(window) = windows.single() else { return };
-    let Some(cursor) = window.cursor_position() else {
+    let Some(pointer) = window.cursor_position() else {
         return;
     };
-
-    let Some((_, node, transform)) = tracks
-        .iter()
-        .find(|(track, _, _)| track.property == property)
-    else {
-        return;
+    // How far along a property's track the pointer is, as a fraction.
+    let along = |property: usize| {
+        let (_, node, transform) = tracks
+            .iter()
+            .find(|(track, _, _)| track.property == property)?;
+        let scale = node.inverse_scale_factor();
+        let width = node.size().x * scale;
+        if width <= 0.0 {
+            return None;
+        }
+        let left = transform.translation.x * scale - width * 0.5;
+        Some(((pointer.x - left) / width).clamp(0.0, 1.0))
     };
-    let scale = node.inverse_scale_factor();
-    let width = node.size().x * scale;
-    if width <= 0.0 {
-        return;
-    }
-    let left = transform.translation.x * scale - width * 0.5;
-    let fraction = ((cursor.x - left) / width).clamp(0.0, 1.0);
-
     let Some(mut properties) = selected
         .0
         .and_then(|panel| panels.get(panel).ok())
@@ -284,13 +365,71 @@ pub fn drag_range_handles(
     else {
         return;
     };
-    if let Some(range) = properties
-        .properties
-        .get_mut(property)
-        .and_then(|property| property.range_mut())
-    {
-        let value = range.value_at(fraction);
-        range.set_end(end, value);
+
+    if mouse.just_pressed(MouseButton::Left) {
+        // Grabbed on the way down and held until release, so the pointer may
+        // leave what it grabbed without dropping the drag.
+        let hovered: Vec<Entity> = hover
+            .values()
+            .flat_map(|hits| hits.keys().copied())
+            .collect();
+        if let Some(handle) = hovered.iter().find_map(|entity| handles.get(*entity).ok()) {
+            *dragging = Some(RangeDrag::End {
+                property: handle.property,
+                end: handle.end,
+            });
+        } else if let Some(bucket) = hovered.iter().find_map(|entity| buckets.get(*entity).ok()) {
+            if let Some(range) = range_mut(&mut properties, bucket.property) {
+                let (from, to) = range.bucket_span(bucket.bucket);
+                range.from = from;
+                range.to = to;
+            }
+            return;
+        } else if let Some((track, _, _)) =
+            hovered.iter().find_map(|entity| tracks.get(*entity).ok())
+            && let Some(grabbed) = along(track.property)
+            && let Some(range) = range_mut(&mut properties, track.property)
+        {
+            *dragging = Some(RangeDrag::Span {
+                property: track.property,
+                from: range.from,
+                grabbed,
+            });
+        }
+    }
+    let Some(drag) = *dragging else {
+        return;
+    };
+    let icon = match drag {
+        RangeDrag::End { .. } => SystemCursorIcon::EwResize,
+        RangeDrag::Span { .. } => SystemCursorIcon::Grabbing,
+    };
+    hold_drag_cursor(true, &mut held, cursor, icon);
+
+    match drag {
+        RangeDrag::End { property, end } => {
+            let (Some(fraction), Some(range)) =
+                (along(property), range_mut(&mut properties, property))
+            else {
+                return;
+            };
+            let value = range.value_at(fraction);
+            let end = range.drag_end(end, value);
+            *dragging = Some(RangeDrag::End { property, end });
+        }
+        RangeDrag::Span {
+            property,
+            from,
+            grabbed,
+        } => {
+            let (Some(fraction), Some(range)) =
+                (along(property), range_mut(&mut properties, property))
+            else {
+                return;
+            };
+            let moved = (fraction - grabbed) * (range.high - range.low);
+            range.slide_to(from + moved);
+        }
     }
 }
 
@@ -311,6 +450,7 @@ pub fn update_range_controls(
         (Without<RangeFill>, Without<RangeHandle>),
     >,
     readouts: Query<(Entity, &RangeReadout)>,
+    counts: Query<(Entity, &RangeCount)>,
     mut texts: Query<&mut Text>,
 ) {
     let Some(properties) = selected
@@ -375,7 +515,19 @@ pub fn update_range_controls(
             continue;
         };
         if let Ok(mut text) = texts.get_mut(entity) {
-            let wanted = format!("{:.2} - {:.2}", range.from, range.to);
+            let wanted = span_text(range);
+            if text.0 != wanted {
+                text.0 = wanted;
+            }
+        }
+    }
+
+    for (entity, count) in &counts {
+        let Some(range) = range_of(count.property) else {
+            continue;
+        };
+        if let Ok(mut text) = texts.get_mut(entity) {
+            let wanted = count_text(range);
             if text.0 != wanted {
                 text.0 = wanted;
             }

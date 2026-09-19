@@ -160,7 +160,7 @@ fn hold_dock_cursor<D: Dock>(
 /// it starts — so for its length the cursor is held through Feathers' own
 /// override. Written only as a drag starts and ends, so docks do not clear
 /// each other's.
-fn hold_drag_cursor(
+pub fn hold_drag_cursor(
     dragging: bool,
     held: &mut bool,
     cursor: Option<ResMut<OverrideCursor>>,

@@ -87,12 +87,80 @@ impl NumericRange {
     }
 
     /// Move one end, keeping it on its own side of the other.
+    #[cfg(test)]
     pub fn set_end(&mut self, end: RangeEnd, value: f32) {
         let value = value.clamp(self.low, self.high);
         match end {
             RangeEnd::From => self.from = value.min(self.to),
             RangeEnd::To => self.to = value.max(self.from),
         }
+    }
+
+    /// Move one end as a drag does, letting it pass the other.
+    ///
+    /// Crossing swaps the ends: the one left behind stays put as the new
+    /// other end, and the returned end is the one now under the pointer, so a
+    /// drag can pivot around a value and carry on past it.
+    pub fn drag_end(&mut self, end: RangeEnd, value: f32) -> RangeEnd {
+        let value = value.clamp(self.low, self.high);
+        match end {
+            RangeEnd::From if value > self.to => {
+                self.from = self.to;
+                self.to = value;
+                RangeEnd::To
+            }
+            RangeEnd::To if value < self.from => {
+                self.to = self.from;
+                self.from = value;
+                RangeEnd::From
+            }
+            RangeEnd::From => {
+                self.from = value;
+                end
+            }
+            RangeEnd::To => {
+                self.to = value;
+                end
+            }
+        }
+    }
+
+    /// Move the whole span so it starts at `from`, keeping its width and
+    /// stopping at either edge of the data.
+    pub fn slide_to(&mut self, from: f32) {
+        let width = self.to - self.from;
+        self.from = from.clamp(self.low, self.high - width);
+        self.to = self.from + width;
+    }
+
+    /// The values one histogram bucket covers.
+    pub fn bucket_span(&self, bucket: usize) -> (f32, f32) {
+        let buckets = self.histogram.len().max(1) as f32;
+        (
+            self.value_at(bucket as f32 / buckets),
+            self.value_at((bucket + 1) as f32 / buckets),
+        )
+    }
+
+    /// The value at the middle of a histogram bucket, which is what decides
+    /// whether the bucket counts as inside the span.
+    pub fn bucket_centre(&self, bucket: usize) -> f32 {
+        let (start, end) = self.bucket_span(bucket);
+        (start + end) * 0.5
+    }
+
+    /// Cells in the buckets the span admits, and in the whole histogram.
+    ///
+    /// Counted by bucket, so it is as fine as the histogram and no finer.
+    pub fn counts(&self) -> (u64, u64) {
+        self.histogram
+            .iter()
+            .enumerate()
+            .fold((0, 0), |(inside, total), (bucket, &count)| {
+                let count = u64::from(count);
+                let admitted = self.admits(self.bucket_centre(bucket));
+                (inside + if admitted { count } else { 0 }, total + count)
+            })
     }
 }
 
@@ -1088,21 +1156,6 @@ mod tests {
     }
 
     #[test]
-    fn the_ends_of_a_range_cannot_cross() {
-        // Dragging one past the other would otherwise admit nothing at all,
-        // with no way to tell from the control why.
-        let mut range = NumericRange::full(0.0, 10.0, vec![1]);
-        range.set_end(RangeEnd::From, 8.0);
-        range.set_end(RangeEnd::To, 3.0);
-        assert!(range.from <= range.to);
-
-        range.set_end(RangeEnd::To, 20.0);
-        assert_eq!(range.to, 10.0, "an end may not leave the data's extent");
-        range.set_end(RangeEnd::From, -5.0);
-        assert_eq!(range.from, 0.0);
-    }
-
-    #[test]
     fn an_end_can_be_dragged_continuously_across_the_range() {
         // A drag sets the end from where the pointer is, so successive
         // positions must keep moving it rather than sticking after the first.
@@ -1110,11 +1163,55 @@ mod tests {
         let mut last = range.to;
         for step in (0..=20).rev() {
             let fraction = step as f32 / 20.0;
-            range.set_end(RangeEnd::To, range.value_at(fraction));
+            range.drag_end(RangeEnd::To, range.value_at(fraction));
             assert!(range.to <= last, "the end stopped following the pointer");
             last = range.to;
         }
         assert_eq!(range.to, range.from);
+    }
+
+    #[test]
+    fn a_dragged_end_swaps_with_the_other_when_it_crosses() {
+        let mut range = NumericRange::full(0.0, 10.0, vec![1]);
+        range.set_end(RangeEnd::From, 4.0);
+        range.set_end(RangeEnd::To, 6.0);
+
+        let now = range.drag_end(RangeEnd::From, 8.0);
+        assert_eq!(now, RangeEnd::To, "the pointer now holds the upper end");
+        assert_eq!((range.from, range.to), (6.0, 8.0));
+
+        let now = range.drag_end(now, 2.0);
+        assert_eq!(now, RangeEnd::From);
+        assert_eq!((range.from, range.to), (2.0, 6.0));
+
+        assert_eq!(range.drag_end(RangeEnd::From, -3.0), RangeEnd::From);
+        assert_eq!(range.from, 0.0, "an end may not leave the data's extent");
+    }
+
+    #[test]
+    fn a_span_slides_whole_and_stops_at_the_edges() {
+        let mut range = NumericRange::full(0.0, 10.0, vec![1]);
+        range.set_end(RangeEnd::From, 2.0);
+        range.set_end(RangeEnd::To, 5.0);
+
+        range.slide_to(4.0);
+        assert_eq!((range.from, range.to), (4.0, 7.0));
+        range.slide_to(9.0);
+        assert_eq!((range.from, range.to), (7.0, 10.0));
+        range.slide_to(-2.0);
+        assert_eq!((range.from, range.to), (0.0, 3.0));
+    }
+
+    #[test]
+    fn a_bucket_spans_its_share_of_the_extent_and_counts_when_picked() {
+        let mut range = NumericRange::full(0.0, 8.0, vec![5, 3, 2, 7]);
+        assert_eq!(range.bucket_span(1), (2.0, 4.0));
+        assert_eq!(range.counts(), (17, 17));
+
+        let (from, to) = range.bucket_span(1);
+        range.from = from;
+        range.to = to;
+        assert_eq!(range.counts(), (3, 17), "only the picked bucket is inside");
     }
 
     #[test]

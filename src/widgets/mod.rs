@@ -28,7 +28,7 @@ mod dock;
 mod icons;
 mod selectable;
 
-pub use dock::{AddDock, Dock, DockEdge, HANDLE_PX, ResetDockSizes, dock_handle};
+pub use dock::{AddDock, Dock, DockEdge, HANDLE_PX, ResetDockSizes, dock_handle, hold_drag_cursor};
 pub use icons::{Icon, button_icon, icon_text};
 pub use selectable::{SelectableText, has_selection};
 
