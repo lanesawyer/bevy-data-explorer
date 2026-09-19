@@ -2,7 +2,8 @@
 //!
 //! Offered only by sources carrying a [`GeneSearch`], which a catalog gives
 //! those whose service knows their genes and whose files hold expression. A
-//! gene is found by typing the start of its symbol and added by picking it
+//! gene is found by typing the start of its symbol into the same search field
+//! the cell properties and the dataset picker use, and added by picking it
 //! from what that finds. Each gene added becomes a sub-section like a numeric
 //! cell property's — a histogram with a range to filter by, and a button to
 //! color by it along the gradient — built from the cell panel's own parts, so
@@ -12,7 +13,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use bevy::text::EditableText;
-use bevy_feathers::controls::{FeathersButton, FeathersTextInput, FeathersTextInputContainer};
+use bevy_feathers::controls::FeathersButton;
 use bevy_feathers::display::label_dim;
 use bevy_ui_widgets::Activate;
 
@@ -26,6 +27,7 @@ use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
 use crate::widgets::{
     Accordion, Icon, SectionLevel, button_text, field_well, spawn_accordion, spawn_header_button,
+    spawn_search_field,
 };
 
 /// Under the cell properties, whose numeric controls these are, and above the
@@ -88,19 +90,8 @@ pub fn spawn_gene_panel(mut commands: Commands, content: Query<Entity, With<Side
         });
     commands.entity(parent).add_child(accordion.section);
 
-    let field = commands
-        .spawn_scene(bsn! {
-            @FeathersTextInput
-            GeneQueryInput
-        })
-        .id();
-    let entry = commands
-        .spawn_scene(bsn! {
-            @FeathersTextInputContainer
-            BlocksFrameInput
-        })
-        .id();
-    commands.entity(entry).add_child(field);
+    let search = spawn_search_field(&mut commands, "Search genes, such as Gad1");
+    commands.entity(search.field).insert(GeneQueryInput);
 
     let body = commands
         .spawn_scene(bsn! {
@@ -112,18 +103,8 @@ pub fn spawn_gene_panel(mut commands: Commands, content: Query<Entity, With<Side
         })
         .id();
     // The field would not show against the pane's body on its own.
-    let well = commands
-        .spawn_scene(bsn! {
-            field_well()
-            Children [
-                (
-                    label_dim("Search by symbol, such as Gad1")
-                    TextFont { font_size: { FontSize::Px(SMALL_PX) } }
-                ),
-            ]
-        })
-        .id();
-    commands.entity(well).add_child(entry);
+    let well = commands.spawn_scene(field_well()).id();
+    commands.entity(well).add_child(search.entry);
     let status = commands
         .spawn_scene(bsn! {
             GeneStatus

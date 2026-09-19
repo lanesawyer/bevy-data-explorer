@@ -29,18 +29,21 @@ use bevy_ui_widgets::{Activate, ValueChange};
 
 pub mod range;
 pub mod tree;
+pub mod values;
 pub mod visibility;
 
 use crate::app::schedule::{Boot, Stage};
+use crate::catalog::cells::Described;
 use crate::source::properties::{
-    CellProperties, CellProperty, PropertyKind, PropertyState, PropertyValue, Provenance,
+    CellColumns, CellProperties, CellProperty, PropertyKind, PropertyState, PropertyValue,
+    Provenance,
 };
 use crate::source::{DataSource, compact_count};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
 use crate::widgets::{
     Accordion, Icon, SectionLevel, button_text, spawn_accordion, spawn_header_button,
-    spawn_icon_menu, spawn_menu,
+    spawn_icon_menu, spawn_menu, spawn_skeleton,
 };
 
 /// The section itself, hidden for sources with no properties to show.
@@ -92,10 +95,15 @@ pub struct ValueCount {
 /// Below the view configuration, which applies to every source.
 const SECTION_ORDER: u32 = 20;
 
-/// The most values listed under one property. A whole-brain taxonomy has
-/// thousands of clusters, and a checkbox apiece makes the sidebar crawl while
-/// being too long to find anything in; its coarser levels are the way in.
+/// The most values listed under one property at once. A whole-brain taxonomy
+/// has thousands of clusters, and a checkbox apiece makes the sidebar crawl;
+/// its coarser levels, or a search, are the way in.
 pub const MAX_VALUE_ROWS: usize = 300;
+
+/// Placeholder rows shown while the properties are on their way, about as
+/// tall as the sub-sections that replace them.
+const SKELETON_ROWS: usize = 4;
+const SKELETON_ROW_PX: f32 = 26.0;
 
 /// Size of the small print: counts, and the note under a truncated list.
 pub const SMALL_PX: f32 = 11.0;
@@ -136,12 +144,17 @@ pub fn rebuild_cell_panel(
     palette: Res<crate::app::theme::Palette>,
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
-    sources: Query<(&DataSource, &CellProperties)>,
+    sources: Query<(
+        &DataSource,
+        &CellProperties,
+        Has<CellColumns>,
+        Has<Described>,
+    )>,
     body: Query<Entity, With<CellPanelBody>>,
     mut section: Query<&mut Node, With<CellPanel>>,
     existing: Query<Entity, With<CellPanelContent>>,
     open: Res<OpenSections>,
-    mut shown: Local<Option<(Entity, Vec<String>, Provenance)>>,
+    mut shown: Local<Option<(Entity, Vec<String>, Provenance, bool)>>,
 ) {
     let Ok(body) = body.single() else { return };
 
@@ -161,10 +174,15 @@ pub fn rebuild_cell_panel(
         }
     }
 
-    let Some((entity, (_, properties))) = source else {
+    let Some((entity, (_, properties, has_columns, described))) = source else {
         *shown = None;
         return;
     };
+
+    // Still to be read, or read from the files while a service is asked for
+    // the real labels. What the files say would be shown for a moment and then
+    // swapped out, so placeholders stand in until the answer is final.
+    let loading = properties.state == PropertyState::Pending || (has_columns && !described);
 
     // Rebuilt only when something visible changed: which source, what it is
     // colored by, and which values are ticked.
@@ -183,6 +201,7 @@ pub fn rebuild_cell_panel(
             .map(|(_, property)| property.id.clone())
             .collect(),
         properties.provenance.clone(),
+        loading,
     );
     if shown.as_ref() == Some(&fingerprint) {
         return;
@@ -204,14 +223,17 @@ pub fn rebuild_cell_panel(
         commands.entity(body).add_child(message);
         return;
     }
+    if loading {
+        let skeleton = spawn_skeleton(&mut commands, SKELETON_ROWS, SKELETON_ROW_PX);
+        commands.entity(skeleton).insert(CellPanelContent);
+        commands.entity(body).add_child(skeleton);
+        return;
+    }
     if properties.cell_properties().next().is_none() {
         let message = commands
             .spawn_scene(bsn! {
                 CellPanelContent
-                label_dim(match properties.state {
-                    PropertyState::Pending => "Loading properties...",
-                    _ => "No properties for this dataset.",
-                })
+                label_dim("No properties for this dataset.")
                 InheritableFont { font_size: { 11.0f32 } }
             })
             .id();
@@ -265,36 +287,9 @@ pub fn rebuild_cell_panel(
         }
 
         let rows = match &property.kind {
-            PropertyKind::Categorical(values) => {
-                let mut rows: Vec<Entity> = values
-                    .iter()
-                    .take(MAX_VALUE_ROWS)
-                    .enumerate()
-                    .map(|(position, value)| {
-                        spawn_value_row(
-                            &mut commands,
-                            value,
-                            value.selected,
-                            ValueCheckbox {
-                                property: index,
-                                value: position,
-                            },
-                            ValueCount {
-                                property: index,
-                                value: position,
-                            },
-                        )
-                    })
-                    .collect();
-                if values.len() > MAX_VALUE_ROWS {
-                    rows.push(spawn_more_note(
-                        &mut commands,
-                        values.len() - MAX_VALUE_ROWS,
-                    ));
-                }
-                rows
+            PropertyKind::Categorical(_) | PropertyKind::Tree(_) => {
+                values::spawn_values(&mut commands, index, property)
             }
-            PropertyKind::Tree(_) => vec![tree::spawn_tree_body(&mut commands, index)],
             PropertyKind::Numeric(range) => {
                 vec![range::spawn_range_control(
                     &mut commands,
@@ -372,9 +367,9 @@ pub fn spawn_value_row(
         .id()
 }
 
-/// The note under a list cut short at [`MAX_VALUE_ROWS`].
+/// The note under a branch cut short at [`MAX_VALUE_ROWS`].
 pub fn spawn_more_note(commands: &mut Commands, more: usize) -> Entity {
-    let note = format!("and {more} more not listed");
+    let note = format!("and {more} more; search to find them");
     commands
         .spawn_scene(bsn! {
             label_dim(note)
@@ -665,6 +660,7 @@ impl Plugin for CellPanelPlugin {
                 Update,
                 (
                     rebuild_cell_panel,
+                    values::sync_value_lists,
                     visibility::rebuild_visibility_menu,
                     tree::sync_branches,
                 )

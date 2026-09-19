@@ -715,7 +715,6 @@ impl Plugin for OverlayPlugin {
                     rebuild_source_menus,
                     super::dataset_menu::clear_closed_searches,
                     super::dataset_menu::rebuild_dataset_lists,
-                    super::dataset_menu::sync_search_hints,
                 )
                     .chain()
                     .in_set(Stage::Chrome),

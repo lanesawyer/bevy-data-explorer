@@ -26,11 +26,17 @@ use bevy_ui_widgets::{Slider, SliderPrecision, TrackClick};
 
 mod dock;
 mod icons;
+mod scroll;
+mod search;
 mod selectable;
+mod skeleton;
 
 pub use dock::{AddDock, Dock, DockEdge, HANDLE_PX, ResetDockSizes, dock_handle, hold_drag_cursor};
 pub use icons::{Icon, button_icon, icon_text};
+pub use scroll::scroll_list;
+pub use search::{matches_search, spawn_search_field};
 pub use selectable::{SelectableText, has_selection};
+pub use skeleton::spawn_skeleton;
 
 use crate::app::schedule::Stage;
 use crate::view::BlocksFrameInput;
@@ -837,6 +843,8 @@ impl Plugin for WidgetsPlugin {
             .add_observer(on_menu_button)
             .add_observer(toggle_accordions)
             .add_observer(on_link_pressed)
+            .add_observer(scroll::on_list_scroll)
+            .add_observer(search::on_clear_search)
             .add_systems(
                 Update,
                 (
@@ -845,6 +853,8 @@ impl Plugin for WidgetsPlugin {
                     dismiss_menus,
                     release_focus_from_closed_menus,
                     position_menus,
+                    search::sync_search_hints,
+                    skeleton::pulse_skeletons,
                 )
                     .chain()
                     .in_set(Stage::ControlsPlace),

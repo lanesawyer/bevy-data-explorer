@@ -27,8 +27,7 @@ use bevy::prelude::*;
 use bevy::text::EditableText;
 use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::{
-    FeathersMenu, FeathersMenuButton, FeathersMenuItem, FeathersMenuPopup, FeathersTextInput,
-    FeathersTextInputContainer,
+    FeathersMenu, FeathersMenuButton, FeathersMenuItem, FeathersMenuPopup,
 };
 use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
@@ -40,7 +39,9 @@ use super::overlay::{ChoiceAction, PanelTitle, SourceChoice};
 use super::{BlocksFrameInput, FrameLayers, LayerOf, MAX_PANELS, Panel, ShowsSource};
 use crate::catalog::Catalogs;
 use crate::source::{DataSource, SourceUrl};
-use crate::widgets::{MENU_WIDTH, button_text, field_well, truncate_to_width};
+use crate::widgets::{
+    MENU_WIDTH, button_text, field_well, matches_search, spawn_search_field, truncate_to_width,
+};
 
 /// Where a picker puts what is chosen from it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -81,21 +82,6 @@ impl Default for DatasetSearch {
     fn default() -> Self {
         DatasetSearch {
             picker: Entity::PLACEHOLDER,
-        }
-    }
-}
-
-/// Stands in for the placeholder text Bevy's field does not have yet, shown
-/// only while the field is empty.
-#[derive(Component, Clone)]
-pub struct SearchHint {
-    field: Entity,
-}
-
-impl Default for SearchHint {
-    fn default() -> Self {
-        SearchHint {
-            field: Entity::PLACEHOLDER,
         }
     }
 }
@@ -170,32 +156,10 @@ pub fn spawn_dataset_picker(commands: &mut Commands, target: PickerTarget) -> En
         })
         .id();
 
-    // Spawned apart and parented by hand, as the URL field is: Feathers'
-    // container is a scene of its own, and the hint has to know the field.
-    let field = commands
-        .spawn_scene(bsn! {
-            @FeathersTextInput
-            DatasetSearch { picker: { picker } }
-        })
-        .id();
-    let hint = commands
-        .spawn_scene(bsn! {
-            label_dim("Search datasets")
-            SearchHint { field: { field } }
-            Node {
-                position_type: { PositionType::Absolute },
-                left: { Val::Px(6.0) },
-            }
-            template_value(Pickable::IGNORE)
-        })
-        .id();
-    let entry = commands
-        .spawn_scene(bsn! {
-            @FeathersTextInputContainer
-            Node { flex_grow: { 0.0_f32 } }
-        })
-        .id();
-    commands.entity(entry).add_children(&[field, hint]);
+    let search = spawn_search_field(commands, "Search datasets");
+    commands
+        .entity(search.field)
+        .insert(DatasetSearch { picker });
 
     let list = commands
         .spawn_scene(bsn! {
@@ -211,20 +175,9 @@ pub fn spawn_dataset_picker(commands: &mut Commands, target: PickerTarget) -> En
 
     // The field would not show against the menu on its own.
     let well = commands.spawn_scene(field_well()).id();
-    commands.entity(well).add_child(entry);
+    commands.entity(well).add_child(search.entry);
     commands.entity(picker).add_children(&[well, list]);
     picker
-}
-
-/// Whether every word of `query` appears somewhere in `fields`, ignoring case.
-///
-/// Words rather than the whole query, so "zarr mouse" finds a dataset whose
-/// kind says one and whose name says the other.
-pub fn matches_search(query: &str, fields: &[&str]) -> bool {
-    let haystack = fields.join(" ").to_lowercase();
-    query
-        .split_whitespace()
-        .all(|word| haystack.contains(&word.to_lowercase()))
 }
 
 /// Everything a list is built from. Rebuilt when any of it changes.
@@ -483,22 +436,6 @@ fn item(commands: &mut Commands, name: &str, note: &str, choice: SourceChoice) -
         .id()
 }
 
-/// Show the hint only while its field is empty.
-pub fn sync_search_hints(
-    fields: Query<&EditableText, With<DatasetSearch>>,
-    mut hints: Query<(&SearchHint, &mut Node)>,
-) {
-    for (hint, mut node) in &mut hints {
-        let empty = fields
-            .get(hint.field)
-            .is_ok_and(|text| text.value().to_string().is_empty());
-        let wanted = if empty { Display::Flex } else { Display::None };
-        if node.display != wanted {
-            node.display = wanted;
-        }
-    }
-}
-
 /// Start each frame's dropdown afresh: once closed, whatever was typed into it is
 /// cleared, so the next time it opens it lists everything.
 pub fn clear_closed_searches(
@@ -582,24 +519,5 @@ pub fn on_search_key(
             });
         }
         _ => {}
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_empty_search_lists_everything() {
-        assert!(matches_search("", &["Anything", "at all"]));
-        assert!(matches_search("   ", &["Anything"]));
-    }
-
-    #[test]
-    fn every_word_has_to_appear_but_not_in_the_same_field() {
-        let fields = ["SEA-AD slide", "Deep Zoom image", "https://store/a.dzi"];
-        assert!(matches_search("deep sea", &fields));
-        assert!(matches_search("DZI", &fields));
-        assert!(!matches_search("deep zarr", &fields));
     }
 }

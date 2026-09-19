@@ -90,6 +90,12 @@ pub struct ColorLevelButton {
 #[derive(Component)]
 pub struct Unveil(u8);
 
+impl Unveil {
+    pub fn new() -> Self {
+        Unveil(2)
+    }
+}
+
 /// Fill a tree's color menu with one choice per level.
 pub fn fill_color_menu(
     commands: &mut Commands,
@@ -298,7 +304,7 @@ pub fn sync_branches(
         commands
             .entity(entity)
             .add_children(&rows)
-            .insert((Visibility::Hidden, Unveil(2)));
+            .insert((Visibility::Hidden, Unveil::new()));
     }
 }
 
