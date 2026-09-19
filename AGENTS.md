@@ -38,22 +38,33 @@ depends on something arriving asynchronously waits there, the way cell filters
 wait for `Described`. See `.agents/skills/add-bookmark-setting`, and
 `.agents/skills/add-ui-control` for the controls that set these.
 
-The tree is layered, and the layers only point one way:
+The tree is layered, and each layer imports only from those above it in this
+list:
 
     source/    the vocabulary every format and frame is written against
+    render/    the point pipeline both point-cloud formats draw through
     formats/   the readers, one plugin each
     catalog/   lists of datasets to offer: the examples, BKP, and so on
-    render/    the point pipeline both point-cloud formats draw through
-    view/      the frame grid: grid, camera, chrome, requests, input, overlay
     widgets/   generic controls, used by both view and ui
+    view/      the frame grid: grid, camera, chrome, requests, input, overlay
     bookmark/  saving what is on screen, and restoring it
     ui/        the docks and the controls inside them
-    app/       the shell: window, task pool, theme, schedule
     cli.rs     the command line
     main.rs    parse arguments, register what they name, run
 
-`src/source` imports nothing from above it. Keep it that way: it is what lets
-a frame point at any dataset without naming a format.
+`app/` is in two halves. Its submodules — `net` (the async runtime reads go
+through), `schedule` (the stages), `theme`, `prefs` and `logs` — are the
+ground floor: every layer but `source` imports them, and they import nothing
+but `source`. `app/mod.rs` is the shell on top: it builds the window and task
+pool and adds every layer's plugin, so it imports all of them. Keep the
+submodules free of anything above `source`; a submodule that needs `view` or
+`ui` belongs in that layer instead.
+
+`src/source` imports nothing else from the crate. Keep it that way: it is what
+lets a frame point at any dataset without naming a format. Something a format
+and a frame both need, such as `ShowsSource`, lives there rather than in
+`view`, and a keyboard shortcut that acts on a source belongs in
+`view/input.rs`, not in the format that reads it.
 
 Frames point at a source entity rather than naming a format. Every streamer is
 a component of the source entity it serves, and selects panels with
