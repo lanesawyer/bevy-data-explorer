@@ -35,7 +35,7 @@ pub struct NodePoints {
 
 impl NodePoints {
     /// The point nearest `target` within `limit` squared units, as an offset
-    /// into this node and its value in the coloured-by column.
+    /// into this node and its value in the colored-by column.
     ///
     /// Shared with the sectioned streamer, which differs only in having to move
     /// the target into each slide's own coordinates first.
@@ -75,7 +75,7 @@ pub enum NodeOutcome {
     Failed(String),
 }
 
-/// Fetch a node's points, the column they are coloured by, and any columns the
+/// Fetch a node's points, the column they are colored by, and any columns the
 /// filters restrict.
 ///
 /// Filtered-out points are dropped here rather than hidden later, so they cost
@@ -87,7 +87,7 @@ pub async fn load_node(
 ) -> Result<(Vec<[f32; 2]>, Vec<u16>), String> {
     let mut positions = decode_positions(&fetch(&cloud.positions_url(node)).await?, node.count)?;
 
-    let mut categories = match &selection.colour_by {
+    let mut categories = match &selection.color_by {
         Some(column) => {
             let bytes = fetch(&cloud.column_url(column, node)).await?;
             decode_categories(&bytes, node.count)?
@@ -225,7 +225,7 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
         }
     }
 
-    /// Build what finished reads delivered, coloured as `selection` says,
+    /// Build what finished reads delivered, colored as `selection` says,
     /// spawning each node with points through `spawn`, and return the reads
     /// that failed.
     pub fn collect(
@@ -328,7 +328,7 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
     /// Start every node again, keeping what is on screen until the new set is
     /// built.
     ///
-    /// Colouring and filtering decide what a node's vertices are, and the raw
+    /// Coloring and filtering decide what a node's vertices are, and the raw
     /// columns are not kept once a node is built, so changing either means
     /// loading them afresh. Despawning them here is what made the cloud blink
     /// away for as long as that took; instead they are handed to
@@ -437,7 +437,7 @@ async fn fetch(url: &str) -> Result<Vec<u8>, String> {
     crate::app::net::fetch(url).await
 }
 
-/// Build a node's mesh, colouring each point by its category in the colours
+/// Build a node's mesh, coloring each point by its category in the colors
 /// `selection` gives them.
 ///
 /// Each point is a quad for the point shader to size; see
@@ -445,17 +445,17 @@ async fn fetch(url: &str) -> Result<Vec<u8>, String> {
 pub fn build_mesh(positions: &[[f32; 2]], categories: &[u16], selection: &CellSelection) -> Mesh {
     let points: Vec<Vec2> = positions.iter().map(|p| Vec2::new(p[0], p[1])).collect();
 
-    let coloured = categories.len() == positions.len();
-    let colours: Vec<[f32; 4]> = if coloured {
-        categories.iter().map(|c| selection.colour(*c)).collect()
+    let colored = categories.len() == positions.len();
+    let colors: Vec<[f32; 4]> = if colored {
+        categories.iter().map(|c| selection.color(*c)).collect()
     } else {
         vec![[0.8, 0.85, 0.9, 1.0]; positions.len()]
     };
 
     // Each vertex carries its point's category so that hovering one can enlarge
-    // the rest sharing it. Without a colour-by column there are no groups to
+    // the rest sharing it. Without a color-by column there are no groups to
     // pick out, and the mesh says so by carrying none.
-    build_point_mesh(&points, &colours, if coloured { categories } else { &[] })
+    build_point_mesh(&points, &colors, if colored { categories } else { &[] })
 }
 
 #[cfg(test)]
@@ -523,11 +523,11 @@ mod tests {
     }
 
     #[test]
-    fn categories_get_distinguishable_colours() {
+    fn categories_get_distinguishable_colors() {
         // Adjacent label indices are unrelated, so they must not look alike.
         let selection = CellSelection::default();
-        let a = selection.colour(0);
-        let b = selection.colour(1);
+        let a = selection.color(0);
+        let b = selection.color(1);
         let distance: f32 = (0..3).map(|i| (a[i] - b[i]).abs()).sum();
         assert!(distance > 0.2, "neighbouring categories look too similar");
         assert_eq!(a[3], 1.0);
@@ -556,13 +556,13 @@ mod tests {
     }
 
     #[test]
-    fn a_publisher_colour_is_the_one_drawn() {
+    fn a_publisher_color_is_the_one_drawn() {
         let selection = CellSelection {
             palette: vec![[1.0, 0.0, 0.0, 1.0]],
             ..default()
         };
-        assert_eq!(selection.colour(0), [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(selection.color(0), [1.0, 0.0, 0.0, 1.0]);
         // A code past the palette falls back rather than going unpainted.
-        assert_eq!(selection.colour(1), CellSelection::default().colour(1));
+        assert_eq!(selection.color(1), CellSelection::default().color(1));
     }
 }

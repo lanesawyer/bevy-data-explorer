@@ -1,6 +1,6 @@
 //! A tree property's body — its nodes nested under one another with a
-//! checkbox each — and the menu its header's colour button opens, of the
-//! levels it can colour by.
+//! checkbox each — and the menu its header's color button opens, of the
+//! levels it can color by.
 //!
 //! Only the roots are built with the section. A node's children are spawned
 //! when it is expanded and despawned when it is collapsed, because a
@@ -77,9 +77,9 @@ pub struct TreePartial {
     pub node: usize,
 }
 
-/// The button that colours points by one level of a tree.
+/// The button that colors points by one level of a tree.
 #[derive(Component, Clone, Default)]
-pub struct ColourLevelButton {
+pub struct ColorLevelButton {
     pub property: usize,
     pub level: usize,
 }
@@ -90,13 +90,13 @@ pub struct ColourLevelButton {
 #[derive(Component)]
 pub struct Unveil(u8);
 
-/// Fill a tree's colour menu with one choice per level.
-pub fn fill_colour_menu(
+/// Fill a tree's color menu with one choice per level.
+pub fn fill_color_menu(
     commands: &mut Commands,
     menu: Entity,
     property: usize,
     tree: &Tree,
-    colouring: bool,
+    coloring: bool,
 ) {
     let heading = commands
         .spawn_scene(bsn! {
@@ -113,10 +113,10 @@ pub fn fill_colour_menu(
                     @caption: { bsn_list![button_text(name)] }
                 }
                 BlocksFrameInput
-                ColourLevelButton { property: { property }, level: { level } }
+                ColorLevelButton { property: { property }, level: { level } }
             })
             .id();
-        if colouring && tree.colour_level == level {
+        if coloring && tree.color_level == level {
             commands.entity(button).insert(ButtonVariant::Primary);
         }
         commands.entity(menu).add_child(button);
@@ -331,7 +331,7 @@ pub fn update_tree_controls(
     mut partials: Query<(&TreePartial, &mut Node)>,
     toggles: Query<(&TreeToggle, &Children)>,
     mut glyphs: Query<&mut Text, Without<TreeCount>>,
-    mut levels: Query<(&ColourLevelButton, &mut ButtonVariant)>,
+    mut levels: Query<(&ColorLevelButton, &mut ButtonVariant)>,
 ) {
     let Some(properties) = selected_properties(&selected, &panels, &sources) else {
         return;
@@ -393,9 +393,9 @@ pub fn update_tree_controls(
     }
 
     for (button, mut variant) in &mut levels {
-        let colouring = properties.colour_by == Some(button.property)
-            && tree_of(button.property).is_some_and(|tree| tree.colour_level == button.level);
-        variant.set_if_neq(if colouring {
+        let coloring = properties.color_by == Some(button.property)
+            && tree_of(button.property).is_some_and(|tree| tree.color_level == button.level);
+        variant.set_if_neq(if coloring {
             ButtonVariant::Primary
         } else {
             ButtonVariant::Normal
@@ -456,10 +456,10 @@ pub fn on_node_toggled(
     }
 }
 
-/// Colour points by the level whose button was pressed.
-pub fn on_colour_level(
+/// Color points by the level whose button was pressed.
+pub fn on_color_level(
     activate: On<Activate>,
-    buttons: Query<&ColourLevelButton>,
+    buttons: Query<&ColorLevelButton>,
     mut menus: Query<&mut Menu>,
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
@@ -486,12 +486,12 @@ pub fn on_colour_level(
     else {
         return;
     };
-    tree.colour_level = button.level;
+    tree.color_level = button.level;
     let name = tree
         .levels
         .get(button.level)
         .map(|level| level.name.clone());
-    properties.colour_by = Some(button.property);
+    properties.color_by = Some(button.property);
     if let Some(name) = name {
         info!("coloring by {name}");
     }

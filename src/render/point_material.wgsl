@@ -7,7 +7,7 @@
 // touching the mesh.
 //
 // The same trick carries the highlight: a vertex knows the value its point is
-// coloured by, and the uniform names one of those values to draw large. Hovering
+// colored by, and the uniform names one of those values to draw large. Hovering
 // a cell therefore enlarges every other cell sharing its value without a single
 // vertex being rewritten.
 
@@ -23,7 +23,7 @@ struct PointSettings {
     highlight: u32,
     // How much larger, as a multiple of `size`.
     highlight_scale: f32,
-    // Multiplies every point's colour, carrying the transparency setting.
+    // Multiplies every point's color, carrying the transparency setting.
     tint: vec4<f32>,
 };
 

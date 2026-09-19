@@ -13,10 +13,10 @@
 //! Where the frame drew nothing, the picture is transparent. The window's own
 //! alpha channel cannot say that — with HDR on it carries brightness rather
 //! than opacity, which is why Bevy's own saver discards it — so this keys out
-//! the colour the frame clears to instead. Everything else is written fully
-//! opaque. A colour key cuts hard edges: a point drawn half over the
+//! the color the frame clears to instead. Everything else is written fully
+//! opaque. A color key cuts hard edges: a point drawn half over the
 //! background keeps a little of it, so an edge can carry a dark fringe, and
-//! data that happens to be exactly the background colour goes with it.
+//! data that happens to be exactly the background color goes with it.
 //!
 //! Capture is asynchronous: the shot is taken at the end of a frame and arrives
 //! some frames later. The chrome therefore has to be hidden before the shot and
@@ -242,7 +242,7 @@ pub fn drive_capture(
             let rect = (viewport.physical_position, viewport.physical_size);
             let path = picture_path(&name);
             // Read now rather than in the task: what is keyed out has to be the
-            // colour the frame was clearing to when the shot was taken,
+            // color the frame was clearing to when the shot was taken,
             // whatever the theme does afterwards.
             let background = palette.frame_bg;
 
@@ -409,7 +409,7 @@ fn save_cropped(
     Ok(path)
 }
 
-/// A frame's clear colour as the bytes a screenshot of it comes back as.
+/// A frame's clear color as the bytes a screenshot of it comes back as.
 fn background_bytes(background: Color) -> [u8; 3] {
     let srgb = background.to_srgba();
     [srgb.red, srgb.green, srgb.blue].map(|channel| (channel * 255.0).round() as u8)
@@ -417,7 +417,7 @@ fn background_bytes(background: Color) -> [u8; 3] {
 
 /// Whether a pixel is background, within a channel of it.
 ///
-/// A channel of slack rather than an exact match: the colour is written by the
+/// A channel of slack rather than an exact match: the color is written by the
 /// GPU and read back through a surface format of its choosing, and a rounding
 /// difference of one would otherwise leave the whole background opaque.
 fn is_background(pixel: [u8; 4], background: [u8; 3]) -> bool {
@@ -485,8 +485,8 @@ mod tests {
     }
 
     #[test]
-    fn the_colour_a_frame_clears_to_is_what_gets_keyed_out() {
-        // Measured from a real capture: the clear colour comes back as these
+    fn the_color_a_frame_clears_to_is_what_gets_keyed_out() {
+        // Measured from a real capture: the clear color comes back as these
         // bytes. If the background ever changes, this is what says so.
         assert_eq!(
             background_bytes(crate::app::theme::Palette::dark().frame_bg),

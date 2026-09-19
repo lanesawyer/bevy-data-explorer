@@ -7,7 +7,7 @@
 //! The look comes from Feathers' own containers — a pane for a section of the
 //! dock, a group for a section inside one — and only the collapsing is ours,
 //! since Feathers has no container that collapses. Anything drawn on a
-//! section therefore names a Feathers token and not a colour, so the light
+//! section therefore names a Feathers token and not a color, so the light
 //! theme turns it over along with everything else.
 
 use bevy::input_focus::InputFocus;
@@ -667,9 +667,9 @@ pub fn spawn_slider(
 /// A button's caption, painted from the button's own text token.
 ///
 /// Feathers' `label` carries `ThemeTextColor(TEXT_MAIN)` on the text itself,
-/// and a colour named directly on a span beats the one a button propagates to
+/// and a color named directly on a span beats the one a button propagates to
 /// it. In the dark theme both are pale so nothing looked wrong; in the light
-/// one the window's text colour is dark, and every button wore dark text over a
+/// one the window's text color is dark, and every button wore dark text over a
 /// background that had stayed dark. Naming the button token on the caption is
 /// what puts it back — and what the theme repaints when it changes.
 pub fn button_text(text: impl Into<String>) -> impl Scene {

@@ -43,22 +43,22 @@ pub fn dark() -> ThemeProps {
 /// A first cut at a light theme, turned over from the dark one.
 ///
 /// Feathers supplies no light palette, and a theme is a set of relationships
-/// rather than a list of colours: a near-neutral token's job is to sit a
+/// rather than a list of colors: a near-neutral token's job is to sit a
 /// certain distance from the background, and flipping its lightness in OKLCH
 /// keeps that distance while swapping which side it is on.
 ///
-/// Two kinds of token are left alone. A colour that carries meaning — the
-/// accent, the axis colours — means the same thing in either theme, and a hue
+/// Two kinds of token are left alone. A color that carries meaning — the
+/// accent, the axis colors — means the same thing in either theme, and a hue
 /// that shifted with the theme would stop being a signal. And text that sits on
-/// one of those colours has to stay where it is, or it would turn dark over a
+/// one of those colors has to stay where it is, or it would turn dark over a
 /// background that never moved.
 ///
 /// This is a starting point to look at and adjust, not a designed palette.
 pub fn light() -> ThemeProps {
     let mut theme = dark();
-    for (name, colour) in &mut theme.color {
+    for (name, color) in &mut theme.color {
         if !STAYS_PUT.contains(name) {
-            *colour = flip(*colour);
+            *color = flip(*color);
         }
     }
     theme
@@ -86,13 +86,13 @@ const STAYS_PUT: [bevy_feathers::theme::ThemeToken; 6] = {
     ]
 };
 
-/// How saturated a colour may be and still count as neutral chrome.
+/// How saturated a color may be and still count as neutral chrome.
 const NEUTRAL_CHROMA: f32 = 0.03;
 
-fn flip(colour: Color) -> Color {
-    let oklch = Oklcha::from(colour);
+fn flip(color: Color) -> Color {
+    let oklch = Oklcha::from(color);
     if oklch.chroma > NEUTRAL_CHROMA {
-        return colour;
+        return color;
     }
     Color::from(Oklcha {
         lightness: 1.0 - oklch.lightness,
@@ -100,12 +100,12 @@ fn flip(colour: Color) -> Color {
     })
 }
 
-/// The colours this app names for itself, which Feathers has no token for.
+/// The colors this app names for itself, which Feathers has no token for.
 ///
 /// Two ways out of here, from one definition. The ones on controls that are
 /// spawned once go into the theme as tokens, and Feathers repaints them when
 /// the theme changes like any of its own. The ones chosen while running — the
-/// colour of a histogram bar depends on whether the span admits it, a status
+/// color of a histogram bar depends on whether the span admits it, a status
 /// line on whether it went well — are read from the [`Palette`] resource at the
 /// moment they are decided.
 pub mod token {
@@ -126,7 +126,7 @@ pub mod token {
     pub const LOADING: ThemeToken = ThemeToken::new_static("explorer.loading");
 }
 
-/// Every colour the app names that is not a Feathers token.
+/// Every color the app names that is not a Feathers token.
 #[derive(Resource, Clone, Copy)]
 pub struct Palette {
     /// What a frame clears to where it has drawn nothing. Read by the cameras,
@@ -182,7 +182,7 @@ impl Palette {
     }
 
     /// The light counterpart, by the same rule the theme itself follows: the
-    /// near-neutrals turn over and the colours that mean something stay put.
+    /// near-neutrals turn over and the colors that mean something stay put.
     ///
     /// The overlay is the one that cannot simply flip. It is a panel over
     /// imagery rather than over the window, so in light mode it is a pale wash
@@ -209,10 +209,10 @@ impl Palette {
         }
     }
 
-    /// Hand the colours that sit on controls to the theme, so that Feathers
+    /// Hand the colors that sit on controls to the theme, so that Feathers
     /// repaints them along with its own.
     fn into_theme(self, theme: &mut ThemeProps) {
-        for (name, colour) in [
+        for (name, color) in [
             (token::OVERLAY_BG, self.overlay_bg),
             (token::OVERLAY_TEXT, self.overlay_text),
             (token::OVERLAY_DIM, self.overlay_dim),
@@ -222,7 +222,7 @@ impl Palette {
             (token::THUMB, self.thumb),
             (token::LOADING, self.fill),
         ] {
-            theme.color.insert(name, colour);
+            theme.color.insert(name, color);
         }
     }
 }
@@ -294,7 +294,7 @@ fn follow_window_theme(
 ///
 /// Feathers repaints everything carrying a theme token when [`UiTheme`]
 /// changes, so swapping the resource is the whole of applying a theme — for
-/// controls that take their colours from tokens. Colours written as literals
+/// controls that take their colors from tokens. Colors written as literals
 /// are not reached, which is why the frames stay dark.
 fn apply_theme(mut commands: Commands, mode: Res<ThemeMode>, mut theme: ResMut<UiTheme>) {
     if !mode.is_changed() {
@@ -340,8 +340,8 @@ impl Plugin for ThemePlugin {
 mod tests {
     use super::*;
 
-    fn lightness(colour: Color) -> f32 {
-        Oklcha::from(colour).lightness
+    fn lightness(color: Color) -> f32 {
+        Oklcha::from(color).lightness
     }
 
     #[test]
@@ -366,10 +366,10 @@ mod tests {
     }
 
     #[test]
-    fn colours_that_mean_something_do_not_move() {
+    fn colors_that_mean_something_do_not_move() {
         use bevy_feathers::{palette, tokens};
         let light = light();
-        // The accent is the selection colour; it says "this one" in either
+        // The accent is the selection color; it says "this one" in either
         // theme, and a hue that moved with the theme would stop saying it.
         assert_eq!(light.color[&tokens::BUTTON_PRIMARY_BG], palette::ACCENT);
     }
@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn the_palette_reaches_the_theme() {
         // Controls spawned once are repainted by Feathers, which can only do it
-        // for colours the theme knows about.
+        // for colors the theme knows about.
         let palette = Palette::light();
         let mut props = light();
         palette.into_theme(&mut props);

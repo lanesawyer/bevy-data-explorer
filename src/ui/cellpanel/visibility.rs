@@ -5,7 +5,7 @@
 //! usefully hold, and the ones worth looking at differ per question, so which
 //! of them are listed is the user's to choose.
 //!
-//! The property points are coloured by cannot be hidden, so its box is drawn
+//! The property points are colored by cannot be hidden, so its box is drawn
 //! unavailable rather than left to bounce back when the source refuses it.
 //!
 //! Hiding does not rebuild the section. Every property keeps its sub-section
@@ -135,7 +135,7 @@ pub fn on_show_toggled(
     };
     // The box's own `Checked` is left to the sync below, which reads it back
     // from the property rather than from what was clicked: the source refuses to
-    // hide the one it is coloured by.
+    // hide the one it is colored by.
     properties.set_shown(checkbox.property, change.value);
     if let Some(property) = properties.properties.get(checkbox.property) {
         info!(
@@ -147,7 +147,7 @@ pub fn on_show_toggled(
 }
 
 /// Keep the menu's ticks and the sub-sections matching which properties are
-/// listed, and the coloured-by box unavailable.
+/// listed, and the colored-by box unavailable.
 pub fn update_property_visibility(
     mut commands: Commands,
     selected: Res<SelectedPanel>,
@@ -184,9 +184,9 @@ pub fn update_property_visibility(
                 commands.entity(entity).remove::<Checked>();
             }
         }
-        // Colouring is what holds a property on screen, so its box offers
-        // nothing to click until something else is coloured by.
-        let locked = properties.colour_by == Some(checkbox.property);
+        // Coloring is what holds a property on screen, so its box offers
+        // nothing to click until something else is colored by.
+        let locked = properties.color_by == Some(checkbox.property);
         if locked != disabled {
             if locked {
                 commands.entity(entity).insert(InteractionDisabled);

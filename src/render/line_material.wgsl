@@ -15,7 +15,7 @@ struct LineSettings {
     min_stroke_px: f32,
     // The shortest a dash is drawn, in device pixels.
     min_dash_px: f32,
-    // Multiplies every line's colour, carrying the transparency setting.
+    // Multiplies every line's color, carrying the transparency setting.
     tint: vec4<f32>,
 };
 

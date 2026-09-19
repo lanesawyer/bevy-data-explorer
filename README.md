@@ -58,8 +58,8 @@ theme starts; pressing the button stops it following, since a theme changing
 back under you is worse than not following at all. Feathers ships only a dark
 theme, so the light one is made by turning the dark one over: near-neutral
 tokens have their OKLCH lightness flipped, which keeps each one the same
-distance from the background, while colours that carry meaning — the accent,
-the axis colours — and the white label text on them stay where they are. It is
+distance from the background, while colors that carry meaning — the accent,
+the axis colors — and the white label text on them stay where they are. It is
 a starting point rather than a designed palette. Text is the part worth
 knowing about: a button keeps its pale label, because the button under it keeps
 its dark background, while a menu item's and a text field's turn over with
@@ -67,19 +67,19 @@ theirs. Getting that wrong writes white on white.
 
 Everything the app paints follows it, frames included: what a frame clears to,
 the translucent panel its header sits on, the rules between cells, the outline
-round the selected one, the range controls and the status lines. The colours
+round the selected one, the range controls and the status lines. The colors
 this app names for itself that Feathers has no token for live in one `Palette`,
 and leave it two ways — as theme tokens for controls that are spawned once, so
-Feathers repaints them, and as a resource read where a colour is chosen while
+Feathers repaints them, and as a resource read where a color is chosen while
 running, such as a histogram bucket inside or outside the chosen span. What does
-not follow is the data: a dataset's own category colours mean what the dataset
+not follow is the data: a dataset's own category colors mean what the dataset
 says they mean in either theme.
 
 `F12`, or the log button (a scroll) beside the theme one, opens a panel across the
 bottom holding the last few hundred log records — the same ones that go to the
 terminal, kept in memory by a `tracing` layer. It takes its height off the frame
 grid rather than covering it, newest line first, warnings and errors in their
-own colours. Drag its top edge to make it taller, up to three quarters of the
+own colors. Drag its top edge to make it taller, up to three quarters of the
 window; it opens at 240px again each run. The **copy** button puts the whole log on the clipboard, which is
 the point of the panel: a log someone can read is useful, a log they can paste
 into a message is what actually comes back.
@@ -99,14 +99,14 @@ once it has any, and the section's header carries a control naming how many are
 applied across all of them; a numeric one draws a histogram of its distribution with a
 two-ended control under it, so a span is chosen against the shape of the data
 rather than blind. Buckets outside the chosen span are dimmed rather than
-hidden, keeping the whole distribution in view. The button in a sub-section's header colours points by
+hidden, keeping the whole distribution in view. The button in a sub-section's header colors points by
 that property; the checkboxes inside filter points down to the values still
 ticked, and excluded points are dropped as a node is built rather than hidden
 afterwards, so they cost no vertices.
 
 The properties themselves are a plain component on the source entity, so
 nothing that reads them knows where they came from. A format builds them from
-the dataset's own column list — real names and identifiers, so colouring works
+the dataset's own column list — real names and identifiers, so coloring works
 against live data, with placeholder value labels, since the files hold codes
 and not what they stand for.
 
@@ -114,9 +114,9 @@ A catalog entry can name a service that knows better, and a source whose
 address a catalog lists is described by it however it was opened. The Brain
 Knowledge Platform does this for every dataset it lists: its GraphQL API gives
 the properties the portal shows and in what order, which of them are levels of
-one taxonomy, the property the portal colours
-by first, each value's label and colour, and each numeric column's extent and
-histogram. Points are then drawn in the platform's colours, and each value
+one taxonomy, the property the portal colors
+by first, each value's label and color, and each numeric column's extent and
+histogram. Points are then drawn in the platform's colors, and each value
 carries a swatch. How many cells hold each value takes the API seconds to
 count, so the counts are asked for once the labels are showing and written in
 beside them when they land. A dataset any catalog lists also takes the catalog's
@@ -132,15 +132,15 @@ ticking every child of a node ticks the node, and unticking one child of a
 ticked node splits the tick among its siblings — so what is admitted is always
 what the boxes show, and a dot marks a collapsed node with ticks inside it. It
 all reduces to a set of codes in the finest level's column, which is the only
-column the streamers read to filter. The colour button in a tree's header opens
-a menu of its levels, and the one chosen is what the points are coloured by.
+column the streamers read to filter. The color button in a tree's header opens
+a menu of its levels, and the one chosen is what the points are colored by.
 
 Numeric properties are offered only when a service gives their extent and
 histogram. A categorical placeholder invents only the labels, over codes that
 are the dataset's own; a numeric one would have to invent the bounds and the
 whole histogram, and a span chosen against that filters by numbers that came
-from nowhere. Points are coloured by code, so a numeric property filters but
-does not colour.
+from nowhere. Points are colored by code, so a numeric property filters but
+does not color.
 
 The sidebar holds accordions. They are generic containers — a title, an open
 flag, and whatever children a caller hangs off the body — because which
@@ -151,9 +151,9 @@ dataset and carries a transparency slider. With no frame selected it says so
 and shows nothing else — a slider with nothing to act on invites a drag that
 changes nothing.
 
-A dataset that mixes channels into colour — a multichannel image, where each
-channel is painted in its own colour and the colours added — also gets a row
-per channel there: its colour, a box to show or hide it, and a brightness
+A dataset that mixes channels into color — a multichannel image, where each
+channel is painted in its own color and the colors added — also gets a row
+per channel there: its color, a box to show or hide it, and a brightness
 slider. Brightness is a percentage of how the dataset publishes the channel,
 since a raw intensity window like 0–1377 out of 65535 means nothing at a
 glance: 100 is as published, 200 reaches full brightness at half the
@@ -167,7 +167,7 @@ beside the heading puts every channel back, sliders included.
 Every change is instant, because channels are mixed on the GPU rather than
 when a tile is read. A tile keeps each channel's intensity as it was stored —
 half floats, four channels to each layer of an array texture, up to sixteen —
-and its shader paints each channel in its colour by as much as its intensity
+and its shader paints each channel in its color by as much as its intensity
 reaches through its window, from a small uniform. Showing, hiding or
 brightening a channel rewrites that uniform on each resident tile and nothing
 is read again, so a slider can be dragged and watched. It used to mean reading
@@ -205,7 +205,7 @@ uniform: the point size control costs nothing to drag and never rebuilds a
 mesh. Sizing is offered only for sources that advertise it, so an image never
 shows a control that means nothing to it.
 
-Fading dims the colour rather than lowering alpha. Alpha compounds with
+Fading dims the color rather than lowering alpha. Alpha compounds with
 overdraw — a dense point cloud stacks dozens of points on a single pixel, and
 `1 - (1 - a)^n` is already 99% by eight layers, so the sectioned data looked
 untouched until the slider was near zero. Dimming fades a layer uniformly
@@ -297,7 +297,7 @@ a window screenshot, at the size it is on screen, with that frame's chrome
 hidden for the shot so the header, its buttons and the selection outline are not
 burnt into it. Where the frame drew nothing the picture is transparent: the
 window's own alpha carries brightness rather than opacity when HDR is on, so the
-colour the frame clears to is keyed out instead — which cuts hard, leaving a
+color the frame clears to is keyed out instead — which cuts hard, leaving a
 dark fringe on antialiased edges. Files go to `screenshots/`, named after the
 dataset and the moment, and the frame says where its last one went. The encode
 runs on a task, since several megapixels of PNG is enough work to freeze the
@@ -368,12 +368,12 @@ Hovering a frame shows what is under the pointer in its bottom corner. The
 sections and point-cloud panels name the cell — Scatterbrain gives a point no
 id of its own, so its address is the octree node plus its offset within that
 node's columns, and for a sectioned dataset the slice as well — along with its
-value in whatever property the points are coloured by. The image has no cells
+value in whatever property the points are colored by. The image has no cells
 to name, so it reports the place instead: the full-resolution pixel, the
 pyramid level being drawn, and the tile that covers it.
 
 Hovering also **enlarges every other cell sharing that value**, which is what
-turns a colour into something you can trace through a dense cloud. It costs no
+turns a color into something you can trace through a dense cloud. It costs no
 geometry: each vertex already had room to carry its point's category alongside
 its corner, so the highlight is a uniform naming one category and the shader
 draws those points larger. Nothing is rebuilt, refetched or re-uploaded beyond
@@ -426,7 +426,7 @@ so one dataset can be faint over one frame and fully shown in another.
 
 The cost is an image per layer the size of its frame — four bytes a pixel, so
 about 8 MB for a 2000 × 1000 cell — resized with the frame, and nothing drawn at
-all for a layer at zero. The image holds colour already multiplied by its
+all for a layer at zero. The image holds color already multiplied by its
 coverage and is laid over as if it did not, so a soft edge on a layer comes out
 slightly darker than it would drawn straight onto the frame; tiles are opaque
 and do not show it.
@@ -684,7 +684,7 @@ only rewrites transforms and visibility — nothing is refetched.
 Not an SVG renderer. Annotation tools export regions as polygons in the pixel
 space of the slide they were drawn on, with labels in attributes of their own
 (`structure-label`, `region-label`), and that is what is read: `polygon`,
-`polyline`, `line`, `rect` and straight-segment `path`s, their stroke colour,
+`polyline`, `line`, `rect` and straight-segment `path`s, their stroke color,
 width and dash, and every `*-label` attribute. Fills, filters and text are not
 drawn; an outline with a fill and no stroke is outlined in its fill, since it
 would otherwise be an annotation nobody can see. A `viewBox` is scaled into the
@@ -747,7 +747,7 @@ measuring against it, and are worth knowing before changing them:
 
 ### Interoperability notes
 
-- OME-NGFF specifies omero channel colours as six bare hex digits, and
+- OME-NGFF specifies omero channel colors as six bare hex digits, and
   `ome_zarr_metadata` enforces that. Real converters write `#RRGGBB`, and
   sometimes the CSS shorthand `#0df`. Both are normalised rather than rejected.
 - An axis is a name, a type and a unit. The reference v2 image also writes a
@@ -790,7 +790,7 @@ measuring against it, and are worth knowing before changing them:
   a region wide enough for both, at a coarser level. It is drawn as a
   maximum-intensity projection only. Layers are not drawn over a 3D frame,
   and it answers no hover.
-- Point colouring is fixed to the first categorical column; the others are
+- Point coloring is fixed to the first categorical column; the others are
   parsed but not yet selectable.
 
 ## Continuous integration

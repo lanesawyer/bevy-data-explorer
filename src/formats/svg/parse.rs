@@ -32,7 +32,7 @@ pub struct Shape {
     pub points: Vec<[f32; 2]>,
     pub closed: bool,
     /// Straight RGBA.
-    pub colour: [f32; 4],
+    pub color: [f32; 4],
     pub width: f32,
     /// Length of a dash, or zero for a solid line.
     pub dash: f32,
@@ -128,7 +128,7 @@ impl Default for Inherited {
         Inherited {
             stroke: None,
             // SVG fills black when nothing says otherwise.
-            fill: Some(Paint::Colour([0.0, 0.0, 0.0])),
+            fill: Some(Paint::Color([0.0, 0.0, 0.0])),
             width: 1.0,
             dash: 0.0,
             stroke_opacity: 1.0,
@@ -142,7 +142,7 @@ impl Default for Inherited {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Paint {
     None,
-    Colour([f32; 3]),
+    Color([f32; 3]),
 }
 
 /// Maps document user units onto the declared size.
@@ -493,12 +493,12 @@ fn paint(value: &str) -> Option<Paint> {
             .collect::<Option<_>>()?;
         let channel = |high: u8, low: u8| f32::from(high * 16 + low) / 255.0;
         return match digits.as_slice() {
-            [r, g, b] => Some(Paint::Colour([
+            [r, g, b] => Some(Paint::Color([
                 channel(*r, *r),
                 channel(*g, *g),
                 channel(*b, *b),
             ])),
-            [r1, r2, g1, g2, b1, b2] => Some(Paint::Colour([
+            [r1, r2, g1, g2, b1, b2] => Some(Paint::Color([
                 channel(*r1, *r2),
                 channel(*g1, *g2),
                 channel(*b1, *b2),
@@ -523,7 +523,7 @@ fn paint(value: &str) -> Option<Paint> {
             })
             .collect::<Option<_>>()?;
         return match channels.as_slice() {
-            [r, g, b] => Some(Paint::Colour([*r, *g, *b])),
+            [r, g, b] => Some(Paint::Color([*r, *g, *b])),
             _ => None,
         };
     }
@@ -541,7 +541,7 @@ fn paint(value: &str) -> Option<Paint> {
         "gray" | "grey" => [0.5, 0.5, 0.5],
         _ => return None,
     };
-    Some(Paint::Colour(named))
+    Some(Paint::Color(named))
 }
 
 fn shape(
@@ -554,8 +554,8 @@ fn shape(
     // An outline with no stroke is drawn in its fill instead: a region filled
     // and not stroked would otherwise be an annotation nobody can see.
     let (rgb, opacity) = match (style.stroke, style.fill) {
-        (Some(Paint::Colour(rgb)), _) => (rgb, style.stroke_opacity),
-        (_, Some(Paint::Colour(rgb))) => (rgb, 1.0),
+        (Some(Paint::Color(rgb)), _) => (rgb, style.stroke_opacity),
+        (_, Some(Paint::Color(rgb))) => (rgb, 1.0),
         _ => return None,
     };
     let labels = attributes
@@ -569,7 +569,7 @@ fn shape(
             .map(|point| viewport.map(point))
             .collect(),
         closed,
-        colour: [rgb[0], rgb[1], rgb[2], opacity * style.opacity],
+        color: [rgb[0], rgb[1], rgb[2], opacity * style.opacity],
         width: viewport.length(style.width),
         dash: viewport.length(style.dash),
         labels,
@@ -622,12 +622,12 @@ mod tests {
         assert_eq!(solid.width, 10.0);
         assert_eq!(solid.dash, 0.0);
         let expected = [149.0 / 255.0, 179.0 / 255.0, 215.0 / 255.0, 1.0];
-        for (got, want) in solid.colour.iter().zip(expected) {
+        for (got, want) in solid.color.iter().zip(expected) {
             assert!((got - want).abs() < 1e-6);
         }
 
         let dashed = &svg.shapes[1];
-        assert_eq!(dashed.colour, [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(dashed.color, [0.0, 0.0, 0.0, 1.0]);
         assert_eq!(dashed.dash, 40.0);
     }
 
@@ -679,17 +679,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(svg.shapes.len(), 1);
-        assert_eq!(svg.shapes[0].colour, [0.0, 1.0, 0.0, 1.0]);
+        assert_eq!(svg.shapes[0].color, [0.0, 1.0, 0.0, 1.0]);
     }
 
     #[test]
-    fn colours_are_read_in_the_forms_exports_write() {
-        assert_eq!(paint("#fff"), Some(Paint::Colour([1.0, 1.0, 1.0])));
-        assert_eq!(paint("#000000"), Some(Paint::Colour([0.0, 0.0, 0.0])));
-        assert_eq!(
-            paint("rgb(255, 0, 0)"),
-            Some(Paint::Colour([1.0, 0.0, 0.0]))
-        );
+    fn colors_are_read_in_the_forms_exports_write() {
+        assert_eq!(paint("#fff"), Some(Paint::Color([1.0, 1.0, 1.0])));
+        assert_eq!(paint("#000000"), Some(Paint::Color([0.0, 0.0, 0.0])));
+        assert_eq!(paint("rgb(255, 0, 0)"), Some(Paint::Color([1.0, 0.0, 0.0])));
         assert_eq!(paint("none"), Some(Paint::None));
         assert_eq!(paint("url(#gradient)"), None);
     }
@@ -705,7 +702,7 @@ mod tests {
         let outer = Shape {
             points: vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]],
             closed: true,
-            colour: [1.0; 4],
+            color: [1.0; 4],
             width: 1.0,
             dash: 0.0,
             labels: Vec::new(),

@@ -4,8 +4,8 @@
 //! naming them. The platform holds the rest, keyed by the same column ids:
 //!
 //! - `getDisplayProperty` — which properties the portal shows, in what order,
-//!   which are levels of one taxonomy, and which one it colours by first;
-//! - `cellProperties` — each code's label, colour and place in its list;
+//!   which are levels of one taxonomy, and which one it colors by first;
+//! - `cellProperties` — each code's label, color and place in its list;
 //! - `numericProperties` — the extent of each numeric column;
 //! - `cellRangeCounts` and `cellCounts` — how many cells fall in each bucket of
 //!   a numeric column, and hold each value of a categorical one.
@@ -532,7 +532,7 @@ fn build(
             value: PropertyValue {
                 code,
                 label: index.value,
-                colour: record.color.as_deref().and_then(parse_colour),
+                color: record.color.as_deref().and_then(parse_color),
                 count: None,
                 selected: false,
             },
@@ -641,7 +641,7 @@ fn build(
 
     let mut described = CellProperties::ready(properties);
     if let Some(default) = display.default_color_by {
-        described.colour_by_id(&default.reference_id);
+        described.color_by_id(&default.reference_id);
     }
     described
 }
@@ -741,12 +741,12 @@ fn tree_of(
             })
             .collect(),
         nodes,
-        colour_level: 0,
+        color_level: 0,
     }
 }
 
-/// A colour as the platform writes it: `#rrggbb`, in either case.
-fn parse_colour(text: &str) -> Option<Color> {
+/// A color as the platform writes it: `#rrggbb`, in either case.
+fn parse_color(text: &str) -> Option<Color> {
     Srgba::hex(text.trim()).ok().map(Color::from)
 }
 
@@ -871,7 +871,7 @@ mod tests {
     }
 
     #[test]
-    fn values_carry_the_platforms_labels_colours_and_order() {
+    fn values_carry_the_platforms_labels_colors_and_order() {
         let properties = described();
         let braak = &properties.properties[1];
         let labels: Vec<(&str, u16)> = braak
@@ -881,23 +881,23 @@ mod tests {
             .collect();
         assert_eq!(labels, [("Braak 0", 5), ("Braak IV", 3)]);
         assert_eq!(
-            braak.values()[1].colour,
+            braak.values()[1].color,
             Some(Color::from(Srgba::hex("d52221").unwrap()))
         );
-        // A value with no colour of its own falls back to the default palette.
+        // A value with no color of its own falls back to the default palette.
         let tree = properties.properties[0].tree().unwrap();
-        assert_eq!(tree.nodes[0].value.colour, None);
+        assert_eq!(tree.nodes[0].value.color, None);
     }
 
     #[test]
-    fn colouring_starts_where_the_portal_says() {
+    fn coloring_starts_where_the_portal_says() {
         let properties = described();
         assert_eq!(
-            properties.selection().colour_by.as_deref(),
+            properties.selection().color_by.as_deref(),
             Some("LEVEL_1"),
             "the portal's default, not the first listed"
         );
-        // And draws in the platform's colours.
+        // And draws in the platform's colors.
         let palette = properties.selection().palette;
         let d1 = Color::from(Srgba::hex("1655F2").unwrap()).to_linear();
         assert_eq!(palette[15], [d1.red, d1.green, d1.blue, 1.0]);
@@ -956,7 +956,7 @@ mod tests {
         let properties = crate::app::net::block_on(cells.describe(columns)).unwrap();
         assert_eq!(properties.properties.len(), 3);
         assert_eq!(
-            properties.selection().colour_by.as_deref(),
+            properties.selection().color_by.as_deref(),
             Some("CCN20260701_LEVEL_1")
         );
         let age = properties

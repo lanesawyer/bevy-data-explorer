@@ -322,7 +322,7 @@ pub fn rebuild_log_lines(
         .into_iter()
         .rev()
         .map(|record| {
-            let colour = match record.level {
+            let color = match record.level {
                 bevy::log::Level::ERROR => palette.problem,
                 bevy::log::Level::WARN => palette.caution,
                 _ => dim,
@@ -333,7 +333,7 @@ pub fn rebuild_log_lines(
                     LogLine
                     Text({ line })
                     TextFont { font_size: { FontSize::Px(11.0) } }
-                    TextColor({ colour })
+                    TextColor({ color })
                 })
                 .id()
         })

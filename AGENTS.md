@@ -21,7 +21,7 @@ catalog only lists names and URLs, listed asynchronously; opening an entry goes
 through `discover` like any typed URL, so a catalog never names a format.
 
 An entry may also carry a `CellService` (`DescribeCells`) that knows the
-dataset's cells better than its files: labels, colours, counts.
+dataset's cells better than its files: labels, colors, counts.
 `catalog/cells.rs` matches a source's `SourceUrl` to its entry and replaces the
 format's placeholder `CellProperties` with the service's answer. Formats hand
 the service a `CellColumns` rather than their own types. Giving a new catalog

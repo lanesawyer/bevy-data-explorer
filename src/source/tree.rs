@@ -29,7 +29,7 @@ pub struct TreeNode {
     pub level: usize,
     /// Index into [`Tree::nodes`] of the node a level up, if there is one.
     pub parent: Option<usize>,
-    /// Its code in its level's column, label, colour, count, and whether this
+    /// Its code in its level's column, label, color, count, and whether this
     /// node itself is ticked.
     pub value: PropertyValue,
 }
@@ -39,8 +39,8 @@ pub struct Tree {
     pub levels: Vec<TreeLevel>,
     /// Siblings in the order they are listed.
     pub nodes: Vec<TreeNode>,
-    /// The level points are coloured by when this tree colours them.
-    pub colour_level: usize,
+    /// The level points are colored by when this tree colors them.
+    pub color_level: usize,
 }
 
 impl Tree {
@@ -187,7 +187,7 @@ pub mod tests {
             value: PropertyValue {
                 code,
                 label: format!("{level}.{code}"),
-                colour: None,
+                color: None,
                 count: None,
                 selected: false,
             },
@@ -214,7 +214,7 @@ pub mod tests {
                 node(1, Some(0), 11),
                 node(1, Some(1), 12),
             ],
-            colour_level: 0,
+            color_level: 0,
         }
     }
 

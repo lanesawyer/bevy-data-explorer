@@ -35,7 +35,7 @@ pub const ATTRIBUTE_LINE_OFFSET: MeshVertexAttribute =
 pub const ATTRIBUTE_LINE_STYLE: MeshVertexAttribute =
     MeshVertexAttribute::new("Vertex_LineStyle", 0x9c0d_7e22, VertexFormat::Float32x3);
 
-/// Colour, as bytes.
+/// Color, as bytes.
 pub const ATTRIBUTE_LINE_COLOR: MeshVertexAttribute =
     MeshVertexAttribute::new("Vertex_LineColor", 0x9c0d_7e23, VertexFormat::Unorm8x4);
 
@@ -56,7 +56,7 @@ pub struct LineMaterial {
 pub struct LineSettings {
     pub min_stroke_px: f32,
     pub min_dash_px: f32,
-    /// Multiplies every line's colour, carrying the transparency setting.
+    /// Multiplies every line's color, carrying the transparency setting.
     ///
     /// Unlike points this lowers alpha rather than dimming: an outline barely
     /// overdraws itself, and dimming one over a pale slide would darken it
@@ -126,7 +126,7 @@ impl Plugin for LineRenderPlugin {
 pub struct Stroke<'a> {
     pub points: &'a [Vec2],
     pub closed: bool,
-    pub colour: [f32; 4],
+    pub color: [f32; 4],
     pub width: f32,
     /// World length of a dash, or zero for a solid line.
     pub dash: f32,
@@ -141,14 +141,14 @@ const TRIANGLES: [u32; 6] = [0, 1, 2, 0, 2, 3];
 /// so that a later stroke draws over an earlier one.
 pub fn build_line_mesh<'a>(strokes: impl IntoIterator<Item = Stroke<'a>>) -> Mesh {
     let mut positions = Vec::new();
-    let mut colours = Vec::new();
+    let mut colors = Vec::new();
     let mut offsets = Vec::new();
     let mut styles = Vec::new();
     let mut indices = Vec::new();
 
     for stroke in strokes {
-        let colour = stroke
-            .colour
+        let color = stroke
+            .color
             .map(|channel| (channel.clamp(0.0, 1.0) * 255.0) as u8);
         let closing = stroke
             .closed
@@ -175,7 +175,7 @@ pub fn build_line_mesh<'a>(strokes: impl IntoIterator<Item = Stroke<'a>>) -> Mes
                     (to, along + length)
                 };
                 positions.push([point.x, point.y, 0.0]);
-                colours.push(colour);
+                colors.push(color);
                 offsets.push((normal * side + tangent * end).to_array());
                 styles.push([distance, stroke.width, stroke.dash]);
             }
@@ -191,7 +191,7 @@ pub fn build_line_mesh<'a>(strokes: impl IntoIterator<Item = Stroke<'a>>) -> Mes
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_attribute(
         ATTRIBUTE_LINE_COLOR,
-        VertexAttributeValues::Unorm8x4(colours),
+        VertexAttributeValues::Unorm8x4(colors),
     );
     mesh.insert_attribute(ATTRIBUTE_LINE_OFFSET, offsets);
     mesh.insert_attribute(ATTRIBUTE_LINE_STYLE, styles);
@@ -216,7 +216,7 @@ mod tests {
         Stroke {
             points,
             closed,
-            colour: [1.0; 4],
+            color: [1.0; 4],
             width: 2.0,
             dash: 0.0,
         }

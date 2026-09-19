@@ -71,10 +71,10 @@ pub enum LoadStatus {
 }
 
 impl LoadStatus {
-    /// What the status line shows, and in what colour. An empty message hides
+    /// What the status line shows, and in what color. An empty message hides
     /// the line rather than leaving a gap under the field.
     ///
-    /// The colours are handed in rather than named here: which red stands out
+    /// The colors are handed in rather than named here: which red stands out
     /// depends on what it is standing out against, and that is the theme's
     /// business.
     pub fn message(&self, palette: &Palette) -> (String, Color) {
@@ -382,14 +382,14 @@ pub fn sync_custom_status(
     mut labels: Query<(&mut Text, &mut TextColor, &mut Node), With<CustomStatus>>,
     buttons: Query<Entity, With<LoadCustomButton>>,
 ) {
-    // The theme repaints what it knows about; this line is coloured by what it
+    // The theme repaints what it knows about; this line is colored by what it
     // has to say, so it is repainted here instead.
     if !load.is_changed() && !palette.is_changed() {
         return;
     }
 
-    let (message, colour) = load.status.message(&palette);
-    for (mut text, mut text_colour, mut node) in &mut labels {
+    let (message, color) = load.status.message(&palette);
+    for (mut text, mut text_color, mut node) in &mut labels {
         let wanted = if message.is_empty() {
             Display::None
         } else {
@@ -401,8 +401,8 @@ pub fn sync_custom_status(
         if text.0 != message {
             text.0 = message.clone();
         }
-        if text_colour.0 != colour {
-            text_colour.0 = colour;
+        if text_color.0 != color {
+            text_color.0 = color;
         }
     }
 
@@ -451,26 +451,25 @@ mod tests {
     }
 
     #[test]
-    fn a_failure_is_shown_in_its_own_colour() {
+    fn a_failure_is_shown_in_its_own_color() {
         let palette = Palette::dark();
-        let (message, colour) =
+        let (message, color) =
             LoadStatus::Failed("could not recognise it".into()).message(&palette);
         assert_eq!(message, "could not recognise it");
-        assert_eq!(colour, palette.problem);
+        assert_eq!(color, palette.problem);
         assert_ne!(palette.problem, palette.progress);
     }
 
     #[test]
     fn progress_and_success_name_what_they_are_about() {
         let palette = Palette::dark();
-        let (loading, colour) =
-            LoadStatus::Loading("https://store/x.json".into()).message(&palette);
+        let (loading, color) = LoadStatus::Loading("https://store/x.json".into()).message(&palette);
         assert!(loading.contains("https://store/x.json"));
-        assert_eq!(colour, palette.progress);
+        assert_eq!(color, palette.progress);
 
-        let (loaded, colour) = LoadStatus::Loaded("Sections".into()).message(&palette);
+        let (loaded, color) = LoadStatus::Loaded("Sections".into()).message(&palette);
         assert!(loaded.contains("Sections"));
-        assert_eq!(colour, palette.progress);
+        assert_eq!(color, palette.progress);
     }
 
     #[test]

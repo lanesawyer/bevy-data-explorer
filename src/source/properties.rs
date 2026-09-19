@@ -3,11 +3,11 @@
 //! A source advertises properties by carrying [`CellProperties`]. Nothing here
 //! knows where they came from: a format fills them in from the dataset's own
 //! metadata, and a service that knows the dataset — the catalog it was listed
-//! in — can replace them with real labels, colours and counts without the
+//! in — can replace them with real labels, colors and counts without the
 //! sidebar or the streamers changing, because both read the component rather
 //! than the source of it. [`Provenance`] records which of those it was.
 //!
-//! Each property offers two things: colouring points by it, and filtering
+//! Each property offers two things: coloring points by it, and filtering
 //! points down to a chosen set of its values.
 
 use std::collections::HashSet;
@@ -22,9 +22,9 @@ pub struct PropertyValue {
     /// The code stored in the dataset's column for this value.
     pub code: u16,
     pub label: String,
-    /// The colour the dataset's publisher gives this value, if it gives one.
-    /// Values without one are coloured by [`default_colour`].
-    pub colour: Option<Color>,
+    /// The color the dataset's publisher gives this value, if it gives one.
+    /// Values without one are colored by [`default_color`].
+    pub color: Option<Color>,
     /// How many cells in the whole dataset hold this value, once known.
     pub count: Option<u64>,
     /// Whether this value has been picked out as a filter.
@@ -169,9 +169,9 @@ impl CellProperty {
         }
     }
 
-    /// Whether points can be coloured by this property. They are coloured by
+    /// Whether points can be colored by this property. They are colored by
     /// code, and a numeric column holds none.
-    pub fn colours(&self) -> bool {
+    pub fn colors(&self) -> bool {
         !matches!(self.kind, PropertyKind::Numeric(_))
     }
 
@@ -197,15 +197,15 @@ impl CellProperty {
         }
     }
 
-    /// The column points are coloured by when this property colours them,
+    /// The column points are colored by when this property colors them,
     /// and the values in it.
-    pub fn colour_column(&self) -> Option<(&str, Vec<&PropertyValue>)> {
+    pub fn color_column(&self) -> Option<(&str, Vec<&PropertyValue>)> {
         match &self.kind {
             PropertyKind::Categorical(values) => Some((self.id.as_str(), values.iter().collect())),
-            PropertyKind::Tree(tree) => tree.levels.get(tree.colour_level).map(|level| {
+            PropertyKind::Tree(tree) => tree.levels.get(tree.color_level).map(|level| {
                 (
                     level.id.as_str(),
-                    tree.level_values(tree.colour_level).collect(),
+                    tree.level_values(tree.color_level).collect(),
                 )
             }),
             PropertyKind::Numeric(_) => None,
@@ -352,36 +352,36 @@ pub struct CellColumn {
 #[derive(Component, Debug, Clone, Default)]
 pub struct CellProperties {
     pub properties: Vec<CellProperty>,
-    /// Index into `properties` of the one points are coloured by.
-    pub colour_by: Option<usize>,
+    /// Index into `properties` of the one points are colored by.
+    pub color_by: Option<usize>,
     pub state: PropertyState,
     pub provenance: Provenance,
 }
 
 impl CellProperties {
-    /// Colouring starts on the first listed property that can colour.
+    /// Coloring starts on the first listed property that can color.
     pub fn ready(properties: Vec<CellProperty>) -> Self {
-        let colour_by = properties
+        let color_by = properties
             .iter()
-            .position(|property| property.shown && property.colours());
+            .position(|property| property.shown && property.colors());
         CellProperties {
             properties,
-            colour_by,
+            color_by,
             state: PropertyState::Ready,
             provenance: Provenance::Files,
         }
     }
 
-    /// Colour by the column with this id, if a property that can colour
+    /// Color by the column with this id, if a property that can color
     /// holds it: a categorical property, or one level of a tree.
-    pub fn colour_by_id(&mut self, id: &str) {
+    pub fn color_by_id(&mut self, id: &str) {
         for (index, property) in self.properties.iter_mut().enumerate() {
             let found = match &mut property.kind {
                 PropertyKind::Categorical(_) => property.id == id,
                 PropertyKind::Tree(tree) => {
                     match tree.levels.iter().position(|level| level.id == id) {
                         Some(level) => {
-                            tree.colour_level = level;
+                            tree.color_level = level;
                             true
                         }
                         None => false,
@@ -390,7 +390,7 @@ impl CellProperties {
                 PropertyKind::Numeric(_) => false,
             };
             if found {
-                self.colour_by = Some(index);
+                self.color_by = Some(index);
                 property.shown = true;
                 return;
             }
@@ -403,26 +403,26 @@ impl CellProperties {
         self.properties.iter().map(CellProperty::applied).sum()
     }
 
-    /// How to name a code of the column points are currently coloured by: the
+    /// How to name a code of the column points are currently colored by: the
     /// property's name, and the label for that value.
     ///
     /// A code with no label — the files hold codes, and not every dataset has a
     /// service naming them — names itself rather than showing nothing.
-    pub fn colour_label(&self, code: u16) -> (String, String) {
-        let Some(property) = self.colour_by.and_then(|index| self.properties.get(index)) else {
+    pub fn color_label(&self, code: u16) -> (String, String) {
+        let Some(property) = self.color_by.and_then(|index| self.properties.get(index)) else {
             return ("value".into(), code.to_string());
         };
-        let label = property.colour_column().and_then(|(_, values)| {
+        let label = property.color_column().and_then(|(_, values)| {
             values
                 .iter()
                 .find(|value| value.code == code)
                 .map(|value| value.label.clone())
         });
-        // A tree is named by the level colouring, which is what the colour says.
+        // A tree is named by the level coloring, which is what the color says.
         let name = match property.tree() {
             Some(tree) => tree
                 .levels
-                .get(tree.colour_level)
+                .get(tree.color_level)
                 .map_or_else(|| property.name.clone(), |level| level.name.clone()),
             None => property.name.clone(),
         };
@@ -438,12 +438,12 @@ impl CellProperties {
     /// List or hide one property in the panel.
     ///
     /// Hiding drops that property's filters, so nothing goes on excluding points
-    /// with no control on screen to say why. The property points are coloured by
-    /// cannot be hidden at all: it is what the colours on screen mean, and
+    /// with no control on screen to say why. The property points are colored by
+    /// cannot be hidden at all: it is what the colors on screen mean, and
     /// hiding it would take away the only control that says which property they
     /// came from.
     pub fn set_shown(&mut self, index: usize, shown: bool) {
-        if !shown && self.colour_by == Some(index) {
+        if !shown && self.color_by == Some(index) {
             return;
         }
         let Some(property) = self.properties.get_mut(index) else {
@@ -455,20 +455,20 @@ impl CellProperties {
         }
     }
 
-    /// What the streamers need in order to draw: the column to colour by and
-    /// the colours of its codes, and the columns that restrict which points
+    /// What the streamers need in order to draw: the column to color by and
+    /// the colors of its codes, and the columns that restrict which points
     /// are drawn at all.
     ///
     /// Properties that exclude nothing are left out, so an untouched panel
     /// costs no extra fetching.
     pub fn selection(&self) -> CellSelection {
-        let colouring = self
-            .colour_by
+        let coloring = self
+            .color_by
             .and_then(|index| self.properties.get(index))
-            .and_then(CellProperty::colour_column);
+            .and_then(CellProperty::color_column);
         CellSelection {
-            colour_by: colouring.as_ref().map(|(column, _)| column.to_string()),
-            palette: colouring
+            color_by: coloring.as_ref().map(|(column, _)| column.to_string()),
+            palette: coloring
                 .map(|(_, values)| palette_of(&values))
                 .unwrap_or_default(),
             filters: self
@@ -481,30 +481,30 @@ impl CellProperties {
     }
 }
 
-/// A repeating categorical palette, for values nobody has chosen a colour for.
+/// A repeating categorical palette, for values nobody has chosen a color for.
 /// Codes are label indices with no inherent order, so hues are spread by a
 /// golden-ratio step to keep neighbouring codes visually distinct.
-pub fn default_colour(code: u16) -> Color {
+pub fn default_color(code: u16) -> Color {
     let hue = (f32::from(code) * 137.507_76) % 360.0;
     Color::hsl(hue, 0.72, 0.62)
 }
 
 impl PropertyValue {
-    /// The colour points holding this value are drawn in.
+    /// The color points holding this value are drawn in.
     pub fn swatch(&self) -> Color {
-        self.colour.unwrap_or_else(|| default_colour(self.code))
+        self.color.unwrap_or_else(|| default_color(self.code))
     }
 }
 
-/// Linear colours indexed by code, or nothing when no value carries a colour of
+/// Linear colors indexed by code, or nothing when no value carries a color of
 /// its own and the default palette says it all.
 fn palette_of(values: &[&PropertyValue]) -> Vec<[f32; 4]> {
-    if values.iter().all(|value| value.colour.is_none()) {
+    if values.iter().all(|value| value.color.is_none()) {
         return Vec::new();
     }
     let len = values.iter().map(|value| usize::from(value.code) + 1).max();
     let mut palette: Vec<[f32; 4]> = (0..len.unwrap_or(0))
-        .map(|code| linear(default_colour(code as u16)))
+        .map(|code| linear(default_color(code as u16)))
         .collect();
     for value in values {
         palette[usize::from(value.code)] = linear(value.swatch());
@@ -512,9 +512,9 @@ fn palette_of(values: &[&PropertyValue]) -> Vec<[f32; 4]> {
     palette
 }
 
-fn linear(colour: Color) -> [f32; 4] {
-    let colour = colour.to_linear();
-    [colour.red, colour.green, colour.blue, 1.0]
+fn linear(color: Color) -> [f32; 4] {
+    let color = color.to_linear();
+    [color.red, color.green, color.blue, 1.0]
 }
 
 /// The part of [`CellProperties`] that affects what is drawn.
@@ -523,20 +523,20 @@ fn linear(colour: Color) -> [f32; 4] {
 /// again, so it holds only what changes the result.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CellSelection {
-    pub colour_by: Option<String>,
-    /// Linear colour per code of `colour_by`. Empty, or too short for a code,
-    /// means that code takes [`default_colour`].
+    pub color_by: Option<String>,
+    /// Linear color per code of `color_by`. Empty, or too short for a code,
+    /// means that code takes [`default_color`].
     pub palette: Vec<[f32; 4]>,
     pub filters: Vec<(String, Restriction)>,
 }
 
 impl CellSelection {
-    /// The linear colour a point with this code is drawn in.
-    pub fn colour(&self, code: u16) -> [f32; 4] {
+    /// The linear color a point with this code is drawn in.
+    pub fn color(&self, code: u16) -> [f32; 4] {
         self.palette
             .get(usize::from(code))
             .copied()
-            .unwrap_or_else(|| linear(default_colour(code)))
+            .unwrap_or_else(|| linear(default_color(code)))
     }
 
     /// Whether a point survives the filters, given its value in each filtered
@@ -564,7 +564,7 @@ mod tests {
                     .map(|code| PropertyValue {
                         code: *code,
                         label: format!("value {code}"),
-                        colour: None,
+                        color: None,
                         count: None,
                         selected: false,
                     })
@@ -652,16 +652,16 @@ mod tests {
     }
 
     #[test]
-    fn colouring_defaults_to_the_first_property() {
+    fn coloring_defaults_to_the_first_property() {
         let properties = CellProperties::ready(vec![categorical("class", &[0])]);
-        assert_eq!(properties.selection().colour_by.as_deref(), Some("class"));
+        assert_eq!(properties.selection().color_by.as_deref(), Some("class"));
     }
 
     #[test]
-    fn a_source_with_no_properties_colours_by_nothing() {
+    fn a_source_with_no_properties_colors_by_nothing() {
         let properties = CellProperties::ready(Vec::new());
-        assert_eq!(properties.colour_by, None);
-        assert_eq!(properties.selection().colour_by, None);
+        assert_eq!(properties.color_by, None);
+        assert_eq!(properties.selection().color_by, None);
     }
 
     #[test]
@@ -765,27 +765,27 @@ mod tests {
     }
 
     #[test]
-    fn the_coloured_property_cannot_be_hidden() {
-        // The colours on screen mean whatever this property says they mean, so
-        // it stays listed until something else is coloured by.
+    fn the_colored_property_cannot_be_hidden() {
+        // The colors on screen mean whatever this property says they mean, so
+        // it stays listed until something else is colored by.
         let mut properties = CellProperties::ready(vec![
             categorical("class", &[0, 1]),
             categorical("region", &[7, 8]),
         ]);
-        assert_eq!(properties.colour_by, Some(0));
+        assert_eq!(properties.color_by, Some(0));
 
         properties.set_shown(0, false);
         assert!(properties.properties[0].shown);
-        assert_eq!(properties.selection().colour_by.as_deref(), Some("class"));
+        assert_eq!(properties.selection().color_by.as_deref(), Some("class"));
 
-        // Colouring by something else releases it.
-        properties.colour_by = Some(1);
+        // Coloring by something else releases it.
+        properties.color_by = Some(1);
         properties.set_shown(0, false);
         assert!(!properties.properties[0].shown);
     }
 
     #[test]
-    fn hiding_every_other_property_leaves_the_coloured_one_listed() {
+    fn hiding_every_other_property_leaves_the_colored_one_listed() {
         let mut properties = CellProperties::ready(vec![
             categorical("class", &[0, 1]),
             categorical("region", &[7, 8]),
@@ -805,7 +805,7 @@ mod tests {
     #[test]
     fn listing_a_property_again_leaves_the_rest_of_the_panel_alone() {
         // The menu edits the ticks and nothing else: showing one back does not
-        // take colouring from the property that has it.
+        // take coloring from the property that has it.
         let mut properties = CellProperties::ready(vec![
             categorical("class", &[0, 1]),
             categorical("region", &[7, 8]),
@@ -813,16 +813,16 @@ mod tests {
         properties.set_shown(1, false);
         properties.set_shown(1, true);
         assert!(properties.properties[1].shown);
-        assert_eq!(properties.colour_by, Some(0));
+        assert_eq!(properties.color_by, Some(0));
         assert_eq!(properties.applied(), 0);
     }
 
     #[test]
-    fn colouring_starts_on_the_first_listed_property() {
+    fn coloring_starts_on_the_first_listed_property() {
         let mut hidden = categorical("class", &[0, 1]);
         hidden.shown = false;
         let properties = CellProperties::ready(vec![hidden, categorical("region", &[7, 8])]);
-        assert_eq!(properties.selection().colour_by.as_deref(), Some("region"));
+        assert_eq!(properties.selection().color_by.as_deref(), Some("region"));
     }
 
     #[test]

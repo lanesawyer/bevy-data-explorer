@@ -145,7 +145,7 @@ impl TileStreamer {
         self.channels
             .iter()
             .map(|channel| MixChannel {
-                colour: channel.color,
+                color: channel.color,
                 window: (channel.start / scale, channel.end / scale),
                 shown: channel.active,
             })

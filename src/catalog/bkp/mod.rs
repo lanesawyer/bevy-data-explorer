@@ -8,7 +8,7 @@
 //! beyond the words shown beside it.
 //!
 //! Every entry also carries the platform's own description of the dataset's
-//! cells, from [`cells`], so a BKP dataset shows the labels, colours and counts
+//! cells, from [`cells`], so a BKP dataset shows the labels, colors and counts
 //! the portal does rather than the codes its files hold.
 
 pub mod cells;

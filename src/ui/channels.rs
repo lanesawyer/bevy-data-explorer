@@ -1,5 +1,5 @@
 //! Channel controls in View configuration: for each channel the selected
-//! source mixes into colour, whether it is shown and how bright.
+//! source mixes into color, whether it is shown and how bright.
 //!
 //! Nothing here knows it is driving an image. The rows read and write
 //! [`SourceChannels`] on the selected source, the way the paging control reads
@@ -149,8 +149,8 @@ pub fn rebuild_channel_rows(
 
     for (index, channel) in channels.channels.iter().enumerate() {
         let caption = format!("{} ({})", channel.label, index + 1);
-        let [r, g, b] = channel.colour;
-        // The channel's own colour, not a theme's: it is what the channel is
+        let [r, g, b] = channel.color;
+        // The channel's own color, not a theme's: it is what the channel is
         // painted in, and means the same in either theme.
         let swatch = commands
             .spawn((

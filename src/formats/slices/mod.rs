@@ -94,7 +94,7 @@ pub struct SliceStreamer {
     /// The source entity this streamer serves.
     pub source: Entity,
     cloud: Arc<Scatterbrain>,
-    /// What to colour by and what to filter out, mirrored from the source's
+    /// What to color by and what to filter out, mirrored from the source's
     /// properties so that workers can be handed a copy.
     pub selection: CellSelection,
     pub mode: SliceMode,
@@ -604,9 +604,9 @@ pub fn evict_slice_nodes(mut commands: Commands, mut streamers: Query<&mut Slice
     }
 }
 
-/// Rebuild when this source's colouring or filters change.
+/// Rebuild when this source's coloring or filters change.
 ///
-/// Colouring and filtering both decide what the vertices are, and the raw
+/// Coloring and filtering both decide what the vertices are, and the raw
 /// columns are not kept after a node is built, so a change means loading those
 /// nodes again. The same trade the image panel makes for its channels.
 ///
@@ -763,7 +763,7 @@ fn describe(
         ),
     );
     if let Some(code) = hit.category {
-        let (property, label) = properties.colour_label(code);
+        let (property, label) = properties.color_label(code);
         info = info.row(property, label);
     }
 
@@ -789,9 +789,9 @@ fn report_status(
             continue;
         };
         let cloud = streamer.cloud();
-        let colour = streamer
+        let color = streamer
             .selection
-            .colour_by
+            .color_by
             .as_ref()
             .and_then(|name| {
                 cloud
@@ -829,7 +829,7 @@ fn report_status(
             cloud.slides.len(),
             showing,
             streamer.nodes.status(),
-            colour,
+            color,
         );
     }
 }

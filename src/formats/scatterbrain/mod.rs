@@ -313,7 +313,7 @@ impl Scatterbrain {
         self.column_url(&self.spatial_column, node)
     }
 
-    /// Categorical columns available for colouring, i.e. everything but the
+    /// Categorical columns available for coloring, i.e. everything but the
     /// coordinates.
     pub fn category_columns(&self) -> Vec<&PointAttribute> {
         self.attributes
@@ -488,7 +488,7 @@ pub fn decode_categories(bytes: &[u8], expected: u64) -> Result<Vec<u16>, String
 /// Whether the placeholder offers the numeric columns as properties.
 ///
 /// Off. A categorical placeholder invents only the *labels* — the column, its
-/// codes and the points they colour are the dataset's own, so the control does
+/// codes and the points they color are the dataset's own, so the control does
 /// something real. A numeric one invents the bounds and the whole histogram,
 /// which makes the control a picture of nothing: a span chosen against it
 /// filters by numbers that came from here rather than from the data.
@@ -500,7 +500,7 @@ const PLACEHOLDER_RANGES: bool = false;
 
 /// Stand-in properties built from a Scatterbrain's own categorical columns.
 ///
-/// The column names and identifiers are real, so colouring by a property works
+/// The column names and identifiers are real, so coloring by a property works
 /// against the live data. The value labels are placeholders: the files store
 /// codes, and the names behind them come from whichever service knows the
 /// dataset. A catalog that has one replaces these (see
@@ -522,7 +522,7 @@ pub fn placeholder_properties(
                     .map(|code| PropertyValue {
                         code: code as u16,
                         label: format!("{} {code}", column.description),
-                        colour: None,
+                        color: None,
                         count: None,
                         selected: false,
                     })
@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn the_placeholder_uses_the_datasets_own_columns() {
-        // Colouring has to work against live data, so the ids must be real
+        // Coloring has to work against live data, so the ids must be real
         // column identifiers even while the labels and counts are invented.
         let cloud =
             Scatterbrain::parse(include_str!("../../../testdata/scatterbrain_cells.json")).unwrap();

@@ -2,7 +2,7 @@
 //!
 //! Offered only by sources that advertise [`CellProperties`], so an image never
 //! shows it. Each property becomes a sub-section: the button in its header
-//! colours points by that property, and the checkboxes inside filter points
+//! colors points by that property, and the checkboxes inside filter points
 //! down to the values still ticked.
 //!
 //! Which properties are listed is chosen from the section's own menu, in
@@ -12,7 +12,7 @@
 //! a lookup that fills them in later — over HTTP, from whatever service knows
 //! the labels — needs no cooperation from this module.
 //!
-//! Each value shows the colour its points are drawn in and, once a service has
+//! Each value shows the color its points are drawn in and, once a service has
 //! counted them, how many cells hold it.
 
 use bevy::prelude::*;
@@ -56,9 +56,9 @@ pub struct CellPanelMenu;
 #[derive(Component, Clone, Default)]
 pub struct CellPanelContent;
 
-/// The button that colours points by a property.
+/// The button that colors points by a property.
 #[derive(Component, Clone, Default)]
-pub struct ColourByButton {
+pub struct ColorByButton {
     pub property: usize,
 }
 
@@ -164,9 +164,9 @@ pub fn rebuild_cell_panel(
     };
 
     // Rebuilt only when something visible changed: which source, what it is
-    // coloured by, and which values are ticked.
+    // colored by, and which values are ticked.
     // Only what the sections are built from. Everything a property's controls
-    // display — ticks, the colour choice, range ends — is written onto the
+    // display — ticks, the color choice, range ends — is written onto the
     // existing entities instead, because rebuilding respawns every checkbox and
     // Feathers draws a checkbox's mark before its styling system has had a
     // frame to hide it, which reads as every box flashing ticked.
@@ -219,7 +219,7 @@ pub fn rebuild_cell_panel(
 
     let mut sections = Vec::with_capacity(properties.properties.len());
     for (index, property) in properties.properties.iter().enumerate() {
-        let colouring = properties.colour_by == Some(index);
+        let coloring = properties.color_by == Some(index);
         // Sub-sections start closed, since a property can have many values and
         // all of them open at once would bury the rest of the sidebar. One the
         // user opened stays open across a rebuild.
@@ -236,23 +236,23 @@ pub fn rebuild_cell_panel(
             .entity(sub.section)
             .insert((CellPanelContent, PropertySection { property: index }));
 
-        // Clearing sits to the left of the colour control, as it does on the
+        // Clearing sits to the left of the color control, as it does on the
         // section's own header. It hides itself when there is nothing to clear.
         let clear = spawn_header_button(&mut commands, sub.header, Icon::FilterX);
         commands
             .entity(clear)
             .insert(ClearPropertyButton { property: index });
 
-        // Points are coloured by code, and a numeric column has none. A tree
-        // colours by one of its levels, so its button opens a menu of them.
+        // Points are colored by code, and a numeric column has none. A tree
+        // colors by one of its levels, so its button opens a menu of them.
         let button = if let Some(tree) = property.tree() {
             let (button, menu) = spawn_icon_menu(&mut commands, sub.header, Icon::Palette, true);
             // The popup is a root of its own, not under the section, so a
             // rebuild has to be told to take it too.
             commands.entity(menu).insert(CellPanelContent);
-            tree::fill_colour_menu(&mut commands, menu, index, tree, colouring);
+            tree::fill_color_menu(&mut commands, menu, index, tree, coloring);
             Some(button)
-        } else if property.colours() {
+        } else if property.colors() {
             Some(spawn_header_button(
                 &mut commands,
                 sub.header,
@@ -264,8 +264,8 @@ pub fn rebuild_cell_panel(
         if let Some(button) = button {
             commands
                 .entity(button)
-                .insert(ColourByButton { property: index });
-            if colouring {
+                .insert(ColorByButton { property: index });
+            if coloring {
                 commands.entity(button).insert(ButtonVariant::Primary);
             }
         }
@@ -316,7 +316,7 @@ pub fn rebuild_cell_panel(
     commands.entity(body).add_children(&sections);
 }
 
-/// One value's row: its checkbox, captioned with the colour its points are
+/// One value's row: its checkbox, captioned with the color its points are
 /// drawn in and its label, and the count of cells holding it.
 ///
 /// `checkbox` and `count` mark the two for whatever keeps them in sync.
@@ -341,7 +341,7 @@ pub fn spawn_value_row(
                             flex_shrink: { 0.0_f32 },
                             border_radius: { BorderRadius::all(Val::Px(2.0)) },
                         }
-                        // The value's own colour, not a theme's: it is what
+                        // The value's own color, not a theme's: it is what
                         // its points are painted in.
                         BackgroundColor({ swatch })
                     ),
@@ -388,11 +388,11 @@ pub fn spawn_more_note(commands: &mut Commands, more: usize) -> Entity {
         .id()
 }
 
-/// Colour points by the property whose header button was pressed. A tree's
-/// button only opens its menu of levels; choosing one colours.
-pub fn on_colour_by(
+/// Color points by the property whose header button was pressed. A tree's
+/// button only opens its menu of levels; choosing one colors.
+pub fn on_color_by(
     activate: On<Activate>,
-    buttons: Query<&ColourByButton>,
+    buttons: Query<&ColorByButton>,
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     mut sources: Query<&mut CellProperties>,
@@ -410,11 +410,11 @@ pub fn on_colour_by(
     if !properties
         .properties
         .get(button.property)
-        .is_some_and(|property| property.colours() && property.tree().is_none())
+        .is_some_and(|property| property.colors() && property.tree().is_none())
     {
         return;
     }
-    properties.colour_by = Some(button.property);
+    properties.color_by = Some(button.property);
     if let Some(property) = properties.properties.get(button.property) {
         info!("coloring by {}", property.name);
     }
@@ -580,7 +580,7 @@ pub fn update_clear_buttons(
     }
 }
 
-/// Keep each checkbox and colour control matching its property, without
+/// Keep each checkbox and color control matching its property, without
 /// respawning them.
 ///
 /// Ticking a box used to rebuild the whole section. Beyond being wasteful, a
@@ -592,7 +592,7 @@ pub fn update_property_controls(
     panels: Query<&ShowsSource>,
     sources: Query<&CellProperties>,
     boxes: Query<(Entity, &ValueCheckbox, Has<Checked>)>,
-    mut colours: Query<(&ColourByButton, &mut ButtonVariant)>,
+    mut colors: Query<(&ColorByButton, &mut ButtonVariant)>,
     mut counts: Query<(&ValueCount, &mut Text)>,
 ) {
     let Some(properties) = selected
@@ -634,9 +634,9 @@ pub fn update_property_controls(
         }
     }
 
-    // The one property colouring the points is the one whose palette is lit.
-    for (button, mut variant) in &mut colours {
-        let wanted = if properties.colour_by == Some(button.property) {
+    // The one property coloring the points is the one whose palette is lit.
+    for (button, mut variant) in &mut colors {
+        let wanted = if properties.color_by == Some(button.property) {
             ButtonVariant::Primary
         } else {
             ButtonVariant::Normal
@@ -644,7 +644,7 @@ pub fn update_property_controls(
         variant.set_if_neq(wanted);
     }
 }
-/// The sidebar section that filters and colours a point cloud by its cell
+/// The sidebar section that filters and colors a point cloud by its cell
 /// properties.
 pub struct CellPanelPlugin;
 
@@ -652,10 +652,10 @@ impl Plugin for CellPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<OpenSections>()
             .init_resource::<tree::OpenBranches>()
-            .add_observer(on_colour_by)
+            .add_observer(on_color_by)
             .add_observer(tree::on_toggle)
             .add_observer(tree::on_node_toggled)
-            .add_observer(tree::on_colour_level)
+            .add_observer(tree::on_color_level)
             .add_observer(on_value_toggled)
             .add_observer(on_clear_property)
             .add_observer(on_clear_all)

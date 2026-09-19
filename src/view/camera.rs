@@ -137,7 +137,7 @@ pub fn clear_when_empty(
     for mut camera in &mut cameras {
         let clearing = !matches!(camera.clear_color, ClearColorConfig::None);
         // Repainted when the theme changes as well as when the grid empties:
-        // the colour it clears to is not the same in both themes.
+        // the color it clears to is not the same in both themes.
         if clearing == empty && !palette.is_changed() {
             continue;
         }
@@ -152,7 +152,7 @@ pub fn clear_when_empty(
 /// Repaint what the frames clear to when the theme changes.
 ///
 /// Only cell 0 clears, and which cell that is can change, so this writes every
-/// camera's colour rather than tracking the one that happens to hold the job.
+/// camera's color rather than tracking the one that happens to hold the job.
 pub fn follow_theme(palette: Res<Palette>, mut panels: Query<(&Panel, &mut Camera)>) {
     if !palette.is_changed() {
         return;

@@ -180,9 +180,9 @@ pub(crate) fn parse_ome(
     Ok((multiscales, fields.omero))
 }
 
-/// Rewrite omero channel colours into the form the spec mandates.
+/// Rewrite omero channel colors into the form the spec mandates.
 ///
-/// OME-NGFF defines the colour as six bare hex digits, and the metadata crate
+/// OME-NGFF defines the color as six bare hex digits, and the metadata crate
 /// enforces that. Real converters are looser: both reference images here write
 /// a leading `#`, and one uses the three-digit CSS shorthand (`#0df`). Rejecting
 /// those would mean refusing to open working datasets over a cosmetic
@@ -322,7 +322,7 @@ mod tests {
 
         let omero = omero.expect("the reference image declares omero channels");
         assert_eq!(omero.channels.len(), 3);
-        // Channel colours drive the composite, so check they survive parsing.
+        // Channel colors drive the composite, so check they survive parsing.
         assert_eq!(
             (
                 omero.channels[0].color.r,
@@ -338,7 +338,7 @@ mod tests {
     fn parses_the_v2_root_attributes() {
         // A Zarr v2 store keeps its attributes in `.zattrs`, with the OME
         // fields at the top level rather than under `ome`. Saved from the
-        // reference v2 image, which is what the axis and colour quirks below
+        // reference v2 image, which is what the axis and color quirks below
         // were found in.
         let attrs: serde_json::Value =
             serde_json::from_str(include_str!("../../../testdata/root_zarr_v2.json")).unwrap();
@@ -448,7 +448,7 @@ mod tests {
     #[test]
     fn a_manifest_carrying_v2_attributes_parses() {
         // The manifests written alongside these conversions add fields of their
-        // own — the Zarr version, the array shapes, a colour listing — none of
+        // own — the Zarr version, the array shapes, a color listing — none of
         // which the viewer reads. They must not stop the OME fields being
         // found.
         let manifest: Manifest = serde_json::from_str(
@@ -480,7 +480,7 @@ mod tests {
     }
 
     #[test]
-    fn normalises_the_colour_forms_real_converters_emit() {
+    fn normalises_the_color_forms_real_converters_emit() {
         // Both reference images prefix with `#`, which the spec does not allow.
         assert_eq!(canonical_hex("#FF0000").unwrap(), "FF0000");
         assert_eq!(canonical_hex("FF0000").unwrap(), "FF0000");
@@ -492,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn a_hash_prefixed_colour_still_opens_the_image() {
+    fn a_hash_prefixed_color_still_opens_the_image() {
         let mut attrs = serde_json::json!({
             "ome": {
                 "version": "0.5",

@@ -37,14 +37,14 @@ struct VolumeSettings {
 @group(2) @binding(4) var detail_sampler: sampler;
 @group(2) @binding(5) var<uniform> channels: ChannelMix;
 
-// A sample's channels mixed into colour, as a tile would paint them. A 3D
+// A sample's channels mixed into color, as a tile would paint them. A 3D
 // texture holds four channels, so a volume mixes at most four.
 fn mixed(texel: vec4<f32>) -> vec3<f32> {
-    var colour = vec3<f32>(0.0);
+    var color = vec3<f32>(0.0);
     for (var index = 0u; index < min(channels.count, 4u); index++) {
-        colour += contribution(channels.colours[index], channels.windows[index], texel[index]);
+        color += contribution(channels.colors[index], channels.windows[index], texel[index]);
     }
-    return srgb_to_linear(min(colour, vec3<f32>(1.0)));
+    return srgb_to_linear(min(color, vec3<f32>(1.0)));
 }
 
 // Where a point lies in a box as texture coordinates. Texture rows run down
@@ -91,7 +91,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Covers what is behind it by as much as it is bright, so dark tissue lets
     // the frame show through and the brightest signal hides it. Premultiplied:
-    // the colour already carries its coverage.
+    // the color already carries its coverage.
     let coverage = max(max(brightest.r, brightest.g), brightest.b);
     if coverage <= 0.0 {
         discard;

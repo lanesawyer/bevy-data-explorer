@@ -69,7 +69,7 @@ pub struct RangeBar {
 
 /// Buckets inside the chosen span are drawn lit, the rest dimmed, so the whole
 /// distribution stays visible while part of it is picked.
-fn bar_colour(inside: bool, palette: &Palette) -> Color {
+fn bar_color(inside: bool, palette: &Palette) -> Color {
     if inside {
         palette.fill
     } else {
@@ -112,7 +112,7 @@ pub(super) fn spawn_range_control(
                         height: { Val::Px(height) },
                         margin: { UiRect::horizontal(Val::Px(0.5)) },
                     }
-                    BackgroundColor({ bar_colour(inside, palette) })
+                    BackgroundColor({ bar_color(inside, palette) })
                 })
                 .id()
         })
@@ -342,14 +342,14 @@ pub fn update_range_controls(
         node.margin.left = Val::Px(nudge);
     }
 
-    for (bar, mut colour) in &mut bars {
+    for (bar, mut color) in &mut bars {
         let Some(range) = range_of(bar.property) else {
             continue;
         };
         let centre = (bar.bucket as f32 + 0.5) / range.histogram.len().max(1) as f32;
-        let wanted = bar_colour(range.admits(range.value_at(centre)), &palette);
-        if colour.0 != wanted {
-            colour.0 = wanted;
+        let wanted = bar_color(range.admits(range.value_at(centre)), &palette);
+        if color.0 != wanted {
+            color.0 = wanted;
         }
     }
 

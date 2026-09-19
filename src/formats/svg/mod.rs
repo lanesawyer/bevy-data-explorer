@@ -66,7 +66,7 @@ fn build_outlines(
                 .map(|(shape, points)| Stroke {
                     points,
                     closed: shape.closed,
-                    colour: shape.colour,
+                    color: shape.color,
                     width: shape.width,
                     dash: shape.dash,
                 }),

@@ -1,7 +1,7 @@
 //! Icons, drawn as glyphs from the Lucide icon font.
 //!
 //! A font rather than images: glyphs are rasterised at the physical size, so
-//! they stay sharp at any scale factor, and they take the text colour a button
+//! they stay sharp at any scale factor, and they take the text color a button
 //! propagates, so hover, disabled and the light theme repaint them for free.
 //! Feathers' own three icons are Lucide drawings, so the two sets match.
 //!
@@ -105,7 +105,7 @@ impl Icon {
     }
 }
 
-/// An icon with no colour of its own, for a caller to name one.
+/// An icon with no color of its own, for a caller to name one.
 ///
 /// `PropagateOver` for the same reason Feathers' `label` carries it: a button's
 /// `InheritableFont` propagates Fira Sans to the text under it, which has no

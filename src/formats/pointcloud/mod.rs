@@ -31,7 +31,7 @@ const SUBDIVIDE_PX: f32 = 420.0;
 /// region; nodes beyond it are simply not requested.
 ///
 /// Each point is a quad so it can be given a size: four vertices of position,
-/// packed colour and corner, or [`crate::render::points::BYTES_PER_POINT`].
+/// packed color and corner, or [`crate::render::points::BYTES_PER_POINT`].
 pub const DEFAULT_POINT_BUDGET: usize = 3_000_000;
 
 #[derive(Component)]
@@ -47,7 +47,7 @@ pub struct Hit {
     /// node name is the only identifier this format gives a point.
     pub index: usize,
     pub position: Vec2,
-    /// Its value in the column the cloud is coloured by, if any.
+    /// Its value in the column the cloud is colored by, if any.
     pub category: Option<u16>,
 }
 
@@ -61,7 +61,7 @@ pub struct PointStreamer {
     /// The source entity this streamer serves.
     pub source: Entity,
     cloud: Arc<Scatterbrain>,
-    /// What to colour by and what to filter out, mirrored from the source's
+    /// What to color by and what to filter out, mirrored from the source's
     /// properties so that workers can be handed a copy.
     pub selection: CellSelection,
     /// Which slide this panel draws. Single-cloud datasets have only one.
@@ -206,7 +206,7 @@ fn select_for(
     streamer.nodes.want(wanted);
 }
 
-/// Fetch the coordinates and colour column for nodes that are not loaded yet.
+/// Fetch the coordinates and color column for nodes that are not loaded yet.
 pub fn spawn_node_tasks(mut streamers: Query<&mut PointStreamer>) {
     for mut streamer in &mut streamers {
         let cloud = streamer.cloud.clone();
@@ -293,9 +293,9 @@ pub fn evict_nodes(mut commands: Commands, mut streamers: Query<&mut PointStream
     }
 }
 
-/// Rebuild when this source's colouring or filters change.
+/// Rebuild when this source's coloring or filters change.
 ///
-/// Colouring and filtering both decide what the vertices are, and the raw
+/// Coloring and filtering both decide what the vertices are, and the raw
 /// columns are not kept after a node is built, so a change means loading those
 /// nodes again. The same trade the image panel makes for its channels.
 ///
@@ -440,7 +440,7 @@ fn describe(
     let mut info = HoverInfo::titled(format!("{}#{}", node.name, hit.index));
 
     if let Some(code) = hit.category {
-        let (property, label) = properties.colour_label(code);
+        let (property, label) = properties.color_label(code);
         info = info.row(property, label);
     }
 
@@ -471,9 +471,9 @@ fn report_for(streamer: &PointStreamer, sources: &mut Query<&mut SourceStatus>) 
         return;
     };
     let cloud = streamer.cloud();
-    let colour = streamer
+    let color = streamer
         .selection
-        .colour_by
+        .color_by
         .as_ref()
         .and_then(|name| {
             cloud
@@ -493,7 +493,7 @@ fn report_for(streamer: &PointStreamer, sources: &mut Query<&mut SourceStatus>) 
         cloud.max_depth(),
         streamer.deepest,
         streamer.nodes.status(),
-        colour,
+        color,
     );
 }
 
@@ -615,7 +615,7 @@ mod tests {
     }
 
     #[test]
-    fn hovering_picks_the_nearest_point_and_the_value_it_is_coloured_by() {
+    fn hovering_picks_the_nearest_point_and_the_value_it_is_colored_by() {
         let cloud = cloud();
         let (cx, cy) = slide_of(&cloud).bounds.centre();
         let streamer = resident(&[[cx, cy], [cx + 100.0, cy]], &[3, 9]);
@@ -684,7 +684,7 @@ mod tests {
     }
 
     #[test]
-    fn an_uncoloured_cloud_still_identifies_what_is_under_the_pointer() {
+    fn an_uncolored_cloud_still_identifies_what_is_under_the_pointer() {
         let cloud = cloud();
         let (cx, cy) = slide_of(&cloud).bounds.centre();
         let streamer = resident(&[[cx, cy]], &[]);
@@ -720,7 +720,7 @@ mod tests {
             kind: PropertyKind::Categorical(vec![PropertyValue {
                 code: 2,
                 label: "L2/3 IT".into(),
-                colour: None,
+                color: None,
                 count: None,
                 selected: false,
             }]),

@@ -1,4 +1,4 @@
-//! Drawing data kept as separate channels, mixed into colour on the GPU.
+//! Drawing data kept as separate channels, mixed into color on the GPU.
 //!
 //! An image's channels used to be composited into RGBA as each tile was read,
 //! which baked in which channels were shown and how bright: changing either
@@ -30,17 +30,17 @@ pub const VOLUME_CHANNELS: usize = 4;
 /// One channel as the mix needs it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MixChannel {
-    pub colour: [f32; 3],
+    pub color: [f32; 3],
     /// Window over the stored intensities: where it starts to show, and where
-    /// it reaches full colour.
+    /// it reaches full color.
     pub window: (f32, f32),
     pub shown: bool,
 }
 
-/// How channels are mixed into colour, as the shaders read it.
+/// How channels are mixed into color, as the shaders read it.
 #[derive(Clone, Copy, Debug, ShaderType)]
 pub struct ChannelMix {
-    pub colours: [Vec4; MAX_CHANNELS],
+    pub colors: [Vec4; MAX_CHANNELS],
     pub windows: [Vec4; MAX_CHANNELS],
     pub count: u32,
     pub tint: Vec4,
@@ -49,7 +49,7 @@ pub struct ChannelMix {
 impl Default for ChannelMix {
     fn default() -> Self {
         ChannelMix {
-            colours: [Vec4::ZERO; MAX_CHANNELS],
+            colors: [Vec4::ZERO; MAX_CHANNELS],
             windows: [Vec4::ZERO; MAX_CHANNELS],
             count: 0,
             tint: Vec4::ONE,
@@ -61,11 +61,11 @@ impl ChannelMix {
     /// Mix `channels`, keeping the tint this mix already has — that belongs
     /// to the source's transparency, not to its channels.
     pub fn set_channels(&mut self, channels: &[MixChannel]) {
-        self.colours = [Vec4::ZERO; MAX_CHANNELS];
+        self.colors = [Vec4::ZERO; MAX_CHANNELS];
         self.windows = [Vec4::ZERO; MAX_CHANNELS];
         for (index, channel) in channels.iter().take(MAX_CHANNELS).enumerate() {
-            let [r, g, b] = channel.colour;
-            self.colours[index] = Vec4::new(r, g, b, if channel.shown { 1.0 } else { 0.0 });
+            let [r, g, b] = channel.color;
+            self.colors[index] = Vec4::new(r, g, b, if channel.shown { 1.0 } else { 0.0 });
             self.windows[index] = Vec4::new(channel.window.0, channel.window.1, 0.0, 0.0);
         }
         self.count = channels.len().min(MAX_CHANNELS) as u32;
@@ -168,7 +168,7 @@ mod tests {
 
     fn channel(shown: bool) -> MixChannel {
         MixChannel {
-            colour: [1.0, 0.5, 0.0],
+            color: [1.0, 0.5, 0.0],
             window: (0.0, 0.25),
             shown,
         }
@@ -178,8 +178,8 @@ mod tests {
     fn a_hidden_channel_is_kept_but_painted_in_nothing() {
         let mix = ChannelMix::of(&[channel(true), channel(false)]);
         assert_eq!(mix.count, 2);
-        assert_eq!(mix.colours[0].w, 1.0);
-        assert_eq!(mix.colours[1].w, 0.0);
+        assert_eq!(mix.colors[0].w, 1.0);
+        assert_eq!(mix.colors[1].w, 0.0);
         // Its window is still there for when it is shown again.
         assert_eq!(mix.windows[1].y, 0.25);
     }

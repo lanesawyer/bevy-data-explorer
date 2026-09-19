@@ -7,7 +7,7 @@
 //! and the line in `main` that registers it.
 //!
 //! An entry may also name a service that knows the dataset's cells better than
-//! its files do — their labels, colours and counts. Whichever way the dataset
+//! its files do — their labels, colors and counts. Whichever way the dataset
 //! was then opened, [`cells`] finds its entry by address and asks. Datasets no
 //! catalog vouches for, the built-in examples among them, keep what their files
 //! say.
@@ -49,7 +49,7 @@ pub struct Entry {
 pub type CellCounts = Vec<(String, Vec<(u16, u64)>)>;
 
 /// A service that knows a dataset's cells better than its files do: what its
-/// codes are called, which colour each is drawn in, which properties are worth
+/// codes are called, which color each is drawn in, which properties are worth
 /// showing and in what order, and how many cells hold each value.
 pub trait DescribeCells: Send + Sync + 'static {
     /// Properties for the columns the files hold. A column the service does

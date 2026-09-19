@@ -1,6 +1,6 @@
-//! Sources drawn by mixing channels into colour, and how each channel is shown.
+//! Sources drawn by mixing channels into color, and how each channel is shown.
 //!
-//! A multichannel image paints each channel in a colour of its own and adds
+//! A multichannel image paints each channel in a color of its own and adds
 //! them up. Which are shown and how bright is what someone looking at it most
 //! often wants to change, and nothing about that is particular to one format:
 //! the sidebar's controls and the frame's number keys both write
@@ -18,9 +18,9 @@ pub const MAX_GAIN: f32 = 4.0;
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChannelSetting {
     pub label: String,
-    /// The colour it is painted in, as the dataset says. Data colour, so it is
+    /// The color it is painted in, as the dataset says. Data color, so it is
     /// not themed.
-    pub colour: [f32; 3],
+    pub color: [f32; 3],
     pub shown: bool,
     /// How bright, as a multiple of the dataset's own display window: 1 is as
     /// published, 2 reaches full brightness at half the intensity.
@@ -28,10 +28,10 @@ pub struct ChannelSetting {
 }
 
 impl ChannelSetting {
-    pub fn new(label: impl Into<String>, colour: [f32; 3], shown: bool) -> Self {
+    pub fn new(label: impl Into<String>, color: [f32; 3], shown: bool) -> Self {
         ChannelSetting {
             label: label.into(),
-            colour,
+            color,
             shown,
             gain: 1.0,
         }
@@ -53,7 +53,7 @@ impl ChannelSetting {
     }
 }
 
-/// The channels a source mixes into colour, and how the dataset published
+/// The channels a source mixes into color, and how the dataset published
 /// them, which is what a reset goes back to.
 #[derive(Component, Clone, Debug, PartialEq, Default)]
 pub struct SourceChannels {

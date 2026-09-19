@@ -21,7 +21,7 @@ use bevy::shader::ShaderRef;
 use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dKey, Material2dPlugin};
 
 /// Which corner of its point's quad a vertex is, and the value the point is
-/// coloured by, packed into one word.
+/// colored by, packed into one word.
 ///
 /// The corner needs two bits and the category sixteen, and a vertex stride has
 /// to be a multiple of four, so the two ride together for nothing. Keeping them
@@ -34,7 +34,7 @@ use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dKey, Material2dPlug
 pub const ATTRIBUTE_CORNER: MeshVertexAttribute =
     MeshVertexAttribute::new("Vertex_Corner", 0x9c0d_7e11, VertexFormat::Uint32);
 
-/// Packed into a vertex when the points are not coloured by anything, so no
+/// Packed into a vertex when the points are not colored by anything, so no
 /// category can match the highlight.
 const NO_CATEGORY: u16 = u16::MAX;
 
@@ -48,7 +48,7 @@ pub const HIGHLIGHT_NONE: u32 = u32::MAX;
 /// that it does not swamp what is around it.
 pub const HIGHLIGHT_SCALE: f32 = 2.6;
 
-/// Point colour, as bytes rather than floats for the same reason. The shader
+/// Point color, as bytes rather than floats for the same reason. The shader
 /// still receives it normalised to a `vec4<f32>`.
 pub const ATTRIBUTE_POINT_COLOR: MeshVertexAttribute =
     MeshVertexAttribute::new("Vertex_PointColor", 0x9c0d_7e12, VertexFormat::Unorm8x4);
@@ -77,7 +77,7 @@ pub struct PointSettings {
     /// upload per node.
     pub highlight: u32,
     pub highlight_scale: f32,
-    /// Multiplies every point's colour, carrying the transparency setting.
+    /// Multiplies every point's color, carrying the transparency setting.
     pub tint: Vec4,
 }
 
@@ -150,7 +150,7 @@ impl Default for SourcePointSize {
 /// The category currently drawn large, across every frame showing this source.
 ///
 /// Set from what the pointer is over, so hovering one cell picks out every
-/// other cell sharing its value of whatever the points are coloured by.
+/// other cell sharing its value of whatever the points are colored by.
 #[derive(Component, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SourceHighlight(pub Option<u16>);
 
@@ -183,24 +183,24 @@ fn pack_corner(corner: u32, category: u16) -> u32 {
 
 /// Build a mesh of quads, one per point.
 ///
-/// `categories` carries the value each point is coloured by, so that hovering
-/// one can enlarge the rest sharing it. Empty when the points are not coloured
+/// `categories` carries the value each point is colored by, so that hovering
+/// one can enlarge the rest sharing it. Empty when the points are not colored
 /// by anything, in which case nothing can be highlighted.
-pub fn build_point_mesh(positions: &[Vec2], colours: &[[f32; 4]], categories: &[u16]) -> Mesh {
-    let count = positions.len().min(colours.len());
+pub fn build_point_mesh(positions: &[Vec2], colors: &[[f32; 4]], categories: &[u16]) -> Mesh {
+    let count = positions.len().min(colors.len());
     let mut vertices = Vec::with_capacity(count * 4);
-    let mut colour_data = Vec::with_capacity(count * 4);
+    let mut color_data = Vec::with_capacity(count * 4);
     let mut corners = Vec::with_capacity(count * 4);
     let mut indices = Vec::with_capacity(count * 6);
 
-    for (index, (point, colour)) in positions.iter().zip(colours).enumerate() {
+    for (index, (point, color)) in positions.iter().zip(colors).enumerate() {
         // World y is negated for display, matching every other source.
         let centre = [point.x, -point.y, 0.0];
-        let packed = colour.map(|channel| (channel.clamp(0.0, 1.0) * 255.0) as u8);
+        let packed = color.map(|channel| (channel.clamp(0.0, 1.0) * 255.0) as u8);
         let category = categories.get(index).copied().unwrap_or(NO_CATEGORY);
         for corner in CORNERS {
             vertices.push(centre);
-            colour_data.push(packed);
+            color_data.push(packed);
             corners.push(pack_corner(corner, category));
         }
         let base = (index * 4) as u32;
@@ -214,7 +214,7 @@ pub fn build_point_mesh(positions: &[Vec2], colours: &[[f32; 4]], categories: &[
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
     mesh.insert_attribute(
         ATTRIBUTE_POINT_COLOR,
-        VertexAttributeValues::Unorm8x4(colour_data),
+        VertexAttributeValues::Unorm8x4(color_data),
     );
     mesh.insert_attribute(ATTRIBUTE_CORNER, VertexAttributeValues::Uint32(corners));
     mesh.insert_indices(Indices::U32(indices));
@@ -222,7 +222,7 @@ pub fn build_point_mesh(positions: &[Vec2], colours: &[[f32; 4]], categories: &[
 }
 
 /// Bytes of vertex data a point costs: four vertices of position, packed
-/// colour and packed corner.
+/// color and packed corner.
 pub const BYTES_PER_POINT: usize = 4 * (12 + 4 + 4);
 
 /// Vertex memory a budget of `points` implies, for reporting.
@@ -266,8 +266,8 @@ mod tests {
     }
 
     #[test]
-    fn uncoloured_points_cannot_match_a_highlight() {
-        // Without a colour-by column every point would otherwise pack category
+    fn uncolored_points_cannot_match_a_highlight() {
+        // Without a color-by column every point would otherwise pack category
         // zero and the whole cloud would swell together.
         let mesh = build_point_mesh(&[Vec2::ZERO], &[[1.0; 4]], &[]);
         let Some(VertexAttributeValues::Uint32(packed)) = mesh.attribute(ATTRIBUTE_CORNER) else {
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn packing_the_attributes_cut_what_a_point_costs() {
-        // Floats for colour and corner cost 144 bytes a point, which put the
+        // Floats for color and corner cost 144 bytes a point, which put the
         // budget needed to show every slice at once out of reach.
         // A vertex stride must be a multiple of four, which is what left room
         // to carry the category alongside the corner for nothing.

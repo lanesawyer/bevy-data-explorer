@@ -467,7 +467,7 @@ pub enum TileSource<'a> {
 ///
 /// Four channels to a texel, as half floats of the intensity over the
 /// dataset's [`sample_scale`]; channels beyond four go into further layers.
-/// Mixing them into colour on the GPU is what makes showing, hiding and
+/// Mixing them into color on the GPU is what makes showing, hiding and
 /// brightening a channel instant: nothing baked has to be read again.
 pub struct ChannelSamples {
     pub width: u32,
@@ -785,7 +785,7 @@ fn build_channels(
     count: usize,
     array: &SharedArray,
 ) -> Vec<Channel> {
-    // Fallbacks when a channel carries no colour: grey for a single channel,
+    // Fallbacks when a channel carries no color: grey for a single channel,
     // then the usual RGB assignment.
     const FALLBACK: [[f32; 3]; 6] = [
         [1.0, 0.0, 0.0],

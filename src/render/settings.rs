@@ -31,7 +31,7 @@ impl Default for SourceOpacity {
 
 /// The tint that fades geometry to `opacity`.
 ///
-/// Fading dims the colour rather than lowering alpha, because alpha compounds
+/// Fading dims the color rather than lowering alpha, because alpha compounds
 /// with overdraw. A dense point cloud stacks dozens of points on a pixel, and
 /// `1 - (1 - a)^n` reaches 99% by eight layers, so an alpha of 0.5 left the
 /// sections looking untouched and nothing appeared to happen until roughly 0.1.
@@ -60,7 +60,7 @@ fn apply_opacity(
 ) {
     for (source, opacity) in &sources {
         // New geometry already draws at full opacity, and leaving it alone
-        // leaves its own colour alone.
+        // leaves its own color alone.
         let fresh = |added: bool| added && opacity.0 < 1.0;
         let layer = RenderLayers::layer(source.layer);
         let tint = fade_tint(opacity.0);
@@ -141,7 +141,7 @@ fn apply_line_opacity(
 /// on the source's own layer, and its volume, on the volume's.
 ///
 /// Dims, as every other fade here does, by the tint the shaders multiply the
-/// mixed colour by. Mixing owns the rest of the uniform, so only the tint is
+/// mixed color by. Mixing owns the rest of the uniform, so only the tint is
 /// written.
 fn apply_channel_opacity(
     sources: Query<(&DataSource, Ref<SourceOpacity>, Option<&SourceVolume>)>,
@@ -199,13 +199,13 @@ impl Plugin for SourceSettingsPlugin {
 mod tests {
     use super::*;
 
-    fn brightness(colour: Color) -> f32 {
-        colour.to_srgba().red
+    fn brightness(color: Color) -> f32 {
+        color.to_srgba().red
     }
 
     #[test]
-    fn full_opacity_leaves_the_colour_untouched() {
-        // The tint multiplies the source colour, so white is a no-op.
+    fn full_opacity_leaves_the_color_untouched() {
+        // The tint multiplies the source color, so white is a no-op.
         assert_eq!(brightness(fade_tint(1.0)), 1.0);
         assert_eq!(fade_tint(1.0).alpha(), 1.0);
     }

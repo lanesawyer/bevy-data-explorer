@@ -4,7 +4,7 @@
 //! whether it was opened from the dropdown, a typed URL or the command line.
 //! One opened before its catalog has finished listing waits for it.
 //!
-//! Two questions are asked in turn. The first — labels, colours, which
+//! Two questions are asked in turn. The first — labels, colors, which
 //! properties to show — answers in a fraction of a second and replaces the
 //! placeholders the format started with. The second, how many cells hold each
 //! value, takes seconds, so it is written into the properties already on show
@@ -169,7 +169,7 @@ mod tests {
                     .map(|code| PropertyValue {
                         code,
                         label: format!("Braak {code}"),
-                        colour: None,
+                        color: None,
                         count: None,
                         selected: false,
                     })
