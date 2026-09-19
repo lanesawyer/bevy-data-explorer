@@ -10,6 +10,7 @@ use bevy::window::PresentMode;
 
 pub mod logs;
 pub mod net;
+pub mod prefs;
 pub mod schedule;
 pub mod theme;
 
@@ -47,6 +48,7 @@ impl Plugin for ExplorerPlugin {
         schedule::configure(app);
 
         app.add_plugins(bevy_feathers::FeathersPlugins)
+            .add_plugins(prefs::PreferencesPlugin)
             .add_plugins(theme::ThemePlugin)
             .add_plugins(crate::render::points::PointRenderPlugin)
             .add_plugins(crate::render::lines::LineRenderPlugin)

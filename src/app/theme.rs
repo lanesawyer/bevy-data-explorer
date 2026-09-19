@@ -9,12 +9,14 @@
 //! Following the desktop stops the moment the button is pressed. A preference
 //! read from elsewhere is a good default and a bad override: having the theme
 //! change back under you because the desktop said so is worse than not
-//! following it at all.
+//! following it at all. The choice is remembered in [`Preferences`] until the
+//! settings screen hands the theme back to the desktop.
 
 use bevy::prelude::*;
 use bevy::window::{WindowTheme, WindowThemeChanged};
 use bevy_feathers::theme::{ThemeProps, UiTheme};
 
+use crate::app::prefs::{Preferences, ThemeChoice};
 use crate::app::schedule::Stage;
 
 /// Widen the button state tokens.
@@ -254,12 +256,41 @@ impl ThemeMode {
 
     /// Switch by hand, which is also what stops the desktop switching back.
     pub fn toggle(&mut self) {
-        self.mode = if self.is_dark() {
+        self.choose(if self.is_dark() {
             WindowTheme::Light
         } else {
             WindowTheme::Dark
-        };
+        });
+    }
+
+    /// Wear `mode` from now on, whatever the desktop says.
+    pub fn choose(&mut self, mode: WindowTheme) {
+        self.mode = mode;
         self.chosen = true;
+    }
+
+    /// Whether the theme was picked by hand rather than taken from the desktop.
+    pub fn chosen(&self) -> bool {
+        self.chosen
+    }
+
+    /// Hand the theme back to the desktop, taking whatever it prefers now.
+    pub fn follow_desktop(&mut self, desktop: Option<WindowTheme>) {
+        self.chosen = false;
+        self.mode = desktop.unwrap_or(WindowTheme::Dark);
+    }
+
+    fn remembered(choice: Option<ThemeChoice>) -> Self {
+        match choice {
+            Some(choice) => ThemeMode {
+                mode: match choice {
+                    ThemeChoice::Dark => WindowTheme::Dark,
+                    ThemeChoice::Light => WindowTheme::Light,
+                },
+                chosen: true,
+            },
+            None => ThemeMode::default(),
+        }
     }
 
     fn follow(&mut self, mode: WindowTheme) {
@@ -290,6 +321,21 @@ fn follow_window_theme(
     }
 }
 
+/// Remember a theme picked by hand, and forget it once handed back.
+fn remember_theme(mode: Res<ThemeMode>, mut prefs: ResMut<Preferences>) {
+    if !mode.is_changed() {
+        return;
+    }
+    let choice = mode.chosen.then_some(if mode.is_dark() {
+        ThemeChoice::Dark
+    } else {
+        ThemeChoice::Light
+    });
+    if prefs.theme != choice {
+        prefs.theme = choice;
+    }
+}
+
 /// Put the chosen theme in place.
 ///
 /// Feathers repaints everything carrying a theme token when [`UiTheme`]
@@ -312,9 +358,13 @@ pub struct ThemePlugin;
 
 impl Plugin for ThemePlugin {
     fn build(&self, app: &mut App) {
-        let mode = ThemeMode::default();
+        let mode = ThemeMode::remembered(
+            app.world()
+                .get_resource::<Preferences>()
+                .and_then(|prefs| prefs.theme),
+        );
         let palette = Palette::of(&mode);
-        let mut props = dark();
+        let mut props = if mode.is_dark() { dark() } else { light() };
         palette.into_theme(&mut props);
 
         app.insert_resource(mode)
@@ -325,7 +375,7 @@ impl Plugin for ThemePlugin {
             // frame it happened.
             .add_systems(
                 Update,
-                (follow_window_theme, apply_theme)
+                (follow_window_theme, apply_theme, remember_theme)
                     .chain()
                     .in_set(Stage::ControlsApply),
             )

@@ -12,6 +12,7 @@ pub mod help;
 pub mod inspector;
 pub mod layers;
 pub mod logpanel;
+pub mod settings;
 pub mod sidebar;
 pub mod viewconfig;
 pub mod welcome;
@@ -37,6 +38,7 @@ impl Plugin for UiPlugin {
             welcome::WelcomePlugin,
             logpanel::LogPanelPlugin,
             help::HelpPlugin,
+            settings::SettingsPlugin,
         ));
     }
 }

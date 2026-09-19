@@ -39,6 +39,7 @@ pub enum Icon {
     FilterX,
     FolderOpen,
     Info,
+    Monitor,
     Moon,
     Palette,
     PanelLeftClose,
@@ -46,6 +47,7 @@ pub enum Icon {
     Pencil,
     RotateCcw,
     ScrollText,
+    Settings,
     Square,
     Sun,
     Trash,
@@ -54,7 +56,7 @@ pub enum Icon {
 
 impl Icon {
     #[cfg(test)]
-    const ALL: [Icon; 29] = [
+    const ALL: [Icon; 31] = [
         Icon::BookmarkPlus,
         Icon::Bug,
         Icon::Camera,
@@ -73,6 +75,7 @@ impl Icon {
         Icon::FilterX,
         Icon::FolderOpen,
         Icon::Info,
+        Icon::Monitor,
         Icon::Moon,
         Icon::Palette,
         Icon::PanelLeftClose,
@@ -80,6 +83,7 @@ impl Icon {
         Icon::Pencil,
         Icon::RotateCcw,
         Icon::ScrollText,
+        Icon::Settings,
         Icon::Square,
         Icon::Sun,
         Icon::Trash,
@@ -108,6 +112,7 @@ impl Icon {
             Icon::FilterX => "\u{e3b5}",
             Icon::FolderOpen => "\u{e247}",
             Icon::Info => "\u{e0f9}",
+            Icon::Monitor => "\u{e11d}",
             Icon::Moon => "\u{e11e}",
             Icon::Palette => "\u{e1dd}",
             Icon::PanelLeftClose => "\u{e21c}",
@@ -115,6 +120,7 @@ impl Icon {
             Icon::Pencil => "\u{e1f9}",
             Icon::RotateCcw => "\u{e148}",
             Icon::ScrollText => "\u{e45f}",
+            Icon::Settings => "\u{e154}",
             Icon::Square => "\u{e167}",
             Icon::Sun => "\u{e178}",
             Icon::Trash => "\u{e18e}",

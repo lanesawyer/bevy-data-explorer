@@ -27,7 +27,7 @@ use bevy_ui_widgets::{Slider, SliderPrecision, TrackClick};
 mod dock;
 mod icons;
 
-pub use dock::{AddDock, Dock, DockEdge, HANDLE_PX, dock_handle};
+pub use dock::{AddDock, Dock, DockEdge, HANDLE_PX, ResetDockSizes, dock_handle};
 pub use icons::{Icon, button_icon, icon_text};
 
 use crate::app::schedule::Stage;

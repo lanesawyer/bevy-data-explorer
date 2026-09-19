@@ -4,7 +4,8 @@
 //! The sidebar, the inspector and the log panel each size themselves their own
 //! way — one collapses to a ribbon, the others never shrink past a minimum —
 //! but grabbing the edge, following the pointer and holding the cursor through
-//! the drag are the same for all three, and live here.
+//! the drag are the same for all three, and live here. So does remembering
+//! the size each was dragged to, in the user's preferences.
 
 use bevy::ecs::component::Mutable;
 use bevy::prelude::*;
@@ -14,7 +15,8 @@ use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::theme::ThemeBackgroundColor;
 use bevy_feathers::tokens;
 
-use crate::app::schedule::Stage;
+use crate::app::prefs::Preferences;
+use crate::app::schedule::{Boot, Stage};
 use crate::view::BlocksFrameInput;
 
 /// How thick a dock's drag handle is.
@@ -61,6 +63,16 @@ pub trait Dock: Resource + Component<Mutability = Mutable> + FromWorld {
     /// Marks this dock's handle among every dock's.
     type Handle: Component;
     const EDGE: DockEdge;
+    /// Names the dock's size in the preferences file. Changing it forgets
+    /// every size saved under the old one.
+    const KEY: &'static str;
+    const DEFAULT_SIZE: f32;
+
+    /// The size it was dragged to, across its edge.
+    fn size(&self) -> f32;
+    /// Take a size from somewhere other than a drag: a saved preference, which
+    /// may have been edited by hand, or a reset.
+    fn set_size(&mut self, size: f32);
 
     /// Size the dock for a drag reaching `reach` in from its edge, in a window
     /// `span` across that way.
@@ -163,19 +175,72 @@ fn hold_drag_cursor(
     }
 }
 
+/// Put every dock back at its default size.
+#[derive(Event)]
+pub struct ResetDockSizes;
+
+/// Open the dock at the size it was left at last time.
+fn restore_dock_size<D: Dock>(mut dock: ResMut<D>, prefs: Res<Preferences>) {
+    if !prefs.remember_layout {
+        return;
+    }
+    if let Some(&size) = prefs.docks.get(D::KEY)
+        && size.is_finite()
+    {
+        dock.set_size(size);
+    }
+}
+
+/// Note the dock's size whenever it changes, or once remembering is turned on.
+///
+/// A dock at its default is left out, so a later change to the default still
+/// reaches anyone who never dragged it.
+fn remember_dock_size<D: Dock>(dock: Res<D>, mut prefs: ResMut<Preferences>) {
+    if !prefs.remember_layout || !(dock.is_changed() || prefs.is_changed()) {
+        return;
+    }
+    let size = dock.size();
+    if size == D::DEFAULT_SIZE {
+        if prefs.docks.contains_key(D::KEY) {
+            prefs.docks.remove(D::KEY);
+        }
+    } else if prefs.docks.get(D::KEY) != Some(&size) {
+        prefs.docks.insert(D::KEY.to_string(), size);
+    }
+}
+
+fn reset_dock_size<D: Dock>(
+    _reset: On<ResetDockSizes>,
+    mut dock: ResMut<D>,
+    mut prefs: ResMut<Preferences>,
+) {
+    dock.set_size(D::DEFAULT_SIZE);
+    if prefs.docks.contains_key(D::KEY) {
+        prefs.docks.remove(D::KEY);
+    }
+}
+
 pub trait AddDock {
-    /// Register a dock: its resource, and the systems that drag it.
+    /// Register a dock: its resource, the systems that drag it, and the ones
+    /// that remember how big it was left.
     fn add_dock<D: Dock>(&mut self) -> &mut Self;
 }
 
 impl AddDock for App {
     fn add_dock<D: Dock>(&mut self) -> &mut Self {
-        self.init_resource::<D>().add_systems(
-            Update,
-            (drag_dock::<D>, hold_dock_cursor::<D>)
-                .chain()
-                .in_set(Stage::DockInput),
-        )
+        self.init_resource::<D>()
+            .add_observer(reset_dock_size::<D>)
+            .add_systems(Startup, restore_dock_size::<D>.in_set(Boot::Window))
+            .add_systems(
+                Update,
+                (
+                    drag_dock::<D>,
+                    hold_dock_cursor::<D>,
+                    remember_dock_size::<D>,
+                )
+                    .chain()
+                    .in_set(Stage::DockInput),
+            )
     }
 }
 

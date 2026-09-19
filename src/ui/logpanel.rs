@@ -74,6 +74,16 @@ impl LogPanel {
 impl Dock for LogPanel {
     type Handle = LogPanelHandle;
     const EDGE: DockEdge = DockEdge::Bottom;
+    const KEY: &'static str = "log";
+    const DEFAULT_SIZE: f32 = HEIGHT_PX;
+
+    fn size(&self) -> f32 {
+        self.height
+    }
+
+    fn set_size(&mut self, size: f32) {
+        self.height = size.max(MIN_PX);
+    }
 
     fn drag_to(&mut self, reach: f32, span: f32) {
         self.height = LogPanel::height_for_drag(reach, span);

@@ -20,6 +20,7 @@ use crate::source::{DataSource, SourceStatus};
 use crate::view::{BlocksFrameInput, FrameArea, PanelRequest, SelectedPanel, ShowsSource};
 use crate::widgets::{AddDock, Dock, DockEdge, HANDLE_PX, Icon, button_icon, dock_handle};
 
+const WIDTH_PX: f32 = 300.0;
 const MIN_PX: f32 = 200.0;
 const MAX_FRACTION: f32 = 0.5;
 
@@ -32,7 +33,7 @@ pub struct Inspector {
 impl Default for Inspector {
     fn default() -> Self {
         Inspector {
-            width: 300.0,
+            width: WIDTH_PX,
             open: false,
         }
     }
@@ -64,6 +65,16 @@ impl Inspector {
 impl Dock for Inspector {
     type Handle = InspectorHandle;
     const EDGE: DockEdge = DockEdge::Right;
+    const KEY: &'static str = "inspector";
+    const DEFAULT_SIZE: f32 = WIDTH_PX;
+
+    fn size(&self) -> f32 {
+        self.width
+    }
+
+    fn set_size(&mut self, size: f32) {
+        self.width = size.max(MIN_PX);
+    }
 
     fn drag_to(&mut self, reach: f32, span: f32) {
         self.width = Inspector::width_for_drag(reach, span);

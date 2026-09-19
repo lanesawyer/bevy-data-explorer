@@ -24,6 +24,9 @@ use crate::widgets::{
 
 /// Width when collapsed. Enough for the short title and the toggle beneath it.
 const RIBBON_PX: f32 = 52.0;
+/// Expanded width until it is dragged. Room for a section's controls and a
+/// dataset name beside them without either wrapping.
+const WIDTH_PX: f32 = 360.0;
 /// Narrowest useful expanded width.
 const MIN_PX: f32 = 220.0;
 /// The sidebar never takes more than this fraction of the window.
@@ -45,7 +48,7 @@ pub struct Sidebar {
 impl Default for Sidebar {
     fn default() -> Self {
         Sidebar {
-            width: 320.0,
+            width: WIDTH_PX,
             collapsed: false,
         }
     }
@@ -88,6 +91,17 @@ impl Sidebar {
 impl Dock for Sidebar {
     type Handle = SidebarHandle;
     const EDGE: DockEdge = DockEdge::Left;
+    const KEY: &'static str = "sidebar";
+    const DEFAULT_SIZE: f32 = WIDTH_PX;
+
+    /// The expanded width, collapsed or not: collapsing is not a size.
+    fn size(&self) -> f32 {
+        self.width
+    }
+
+    fn set_size(&mut self, size: f32) {
+        self.width = size.max(MIN_PX);
+    }
 
     fn drag_to(&mut self, reach: f32, span: f32) {
         match Sidebar::width_for_drag(reach, span) {
@@ -246,6 +260,23 @@ fn spawn_sidebar(mut commands: Commands) {
                     }
                     Node { column_gap: { Val::Px(6.0) } }
                     ThemeButton
+                    BlocksFrameInput
+                )]
+            ),
+            (
+                Node {
+                    width: { Val::Percent(100.0) },
+                    align_items: { AlignItems::Center },
+                }
+                Children [(
+                    @FeathersToolButton {
+                        @caption: { bsn_list![
+                            button_icon(Icon::Settings),
+                            (button_text("Settings") SidebarLabel),
+                        ] }
+                    }
+                    Node { column_gap: { Val::Px(6.0) } }
+                    crate::ui::settings::SettingsToggle
                     BlocksFrameInput
                 )]
             ),
