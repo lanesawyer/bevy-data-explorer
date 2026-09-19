@@ -840,7 +840,7 @@ among them.
 
 The windowed smoke run is not in CI. It needs a GPU and a display to prove
 anything, and a run that cannot fail for the reasons that matter is a run that
-teaches you to ignore it. It stays a local step, as `CLAUDE.md` describes.
+teaches you to ignore it. It stays a local step, as `AGENTS.md` describes.
 
 Clippy is not in CI either, for now: the tree has around forty-five warnings,
 mostly argument counts on systems and complex query types, and turning it on

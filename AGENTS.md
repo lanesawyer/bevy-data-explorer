@@ -27,6 +27,7 @@ format's placeholder `CellProperties` with the service's answer. Formats hand
 the service a `CellColumns` rather than their own types. Giving a new catalog
 real cell properties means implementing `DescribeCells` for it, as
 `catalog/bkp/cells.rs` does. It never means touching a format or the panel.
+See `.agents/skills/add-catalog`.
 
 A bookmark (`src/bookmark/`) saves intent, not entities: addresses, labels,
 column ids and codes, restored through `discover` and the frame spawners like
@@ -34,7 +35,8 @@ anything opened by hand. A new per-source setting worth keeping goes in
 `SourceState` as an `Option` (absent means "leave alone"), is read in
 `capture.rs` and written back in `apply_pending_settings`. Anything that
 depends on something arriving asynchronously waits there, the way cell filters
-wait for `Described`.
+wait for `Described`. See `.agents/skills/add-bookmark-setting`, and
+`.agents/skills/add-ui-control` for the controls that set these.
 
 The tree is layered, and the layers only point one way:
 
