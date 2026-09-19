@@ -61,7 +61,7 @@ pub struct SearchField {
 /// Spawn a search field reading `hint` while empty.
 ///
 /// A field sitting straight in a pane or a menu needs setting in a
-/// [`super::field_well`] to be seen; one in a group does not.
+/// [`super::field_well()`] to be seen; one in a group does not.
 pub fn spawn_search_field(commands: &mut Commands, hint: impl Into<String>) -> SearchField {
     let hint = hint.into();
     // Spawned apart and parented by hand: Feathers' container is a scene of

@@ -23,9 +23,10 @@ when something has already gone wrong.
 
 ## Step 2: Build it from the shared widgets
 
-Use Feathers controls and the helpers in `src/widgets/mod.rs`:
-`spawn_accordion`, `spawn_menu`, `spawn_icon_menu`, `spawn_slider`,
-`button_icon`, `button_text`, `caption`, `link_button`.
+Use Feathers controls and the helpers `src/widgets/` exports, one widget to a
+file: `spawn_accordion`, `spawn_menu`, `spawn_icon_menu`, `spawn_slider`,
+`button_icon`, `button_text`, `caption`, `link_button`. A new generic widget
+gets a file of its own there, re-exported from `widgets/mod.rs`.
 
 - **Sliders** come from `spawn_slider`, never raw `FeathersSlider`. It adds
   the `SliderPrecision` that Feathers leaves out, without which the slider
