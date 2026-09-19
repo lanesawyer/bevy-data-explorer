@@ -35,6 +35,12 @@ pub enum Stage {
     /// is the only window in which the area means "the whole window", which is
     /// why the reset is a stage of its own rather than the first dock's job.
     DockReserve,
+    /// A bookmark being restored opens its datasets and, once they are all
+    /// open, lays out its frames. After `DockReserve` because a restored view
+    /// is fitted to the cell the docks leave it; before `Frames` so the frames
+    /// it spawns are renumbered, and one of them made to clear the window, in
+    /// the same frame rather than drawing a frame late.
+    Restore,
     /// Frames are opened, closed and renumbered.
     Frames,
     /// Chrome that exists per frame is spawned or despawned to match. After
@@ -115,6 +121,7 @@ pub fn configure(app: &mut App) {
             Stage::DockInput,
             Stage::FrameArea,
             Stage::DockReserve,
+            Stage::Restore,
             Stage::Frames,
             Stage::FrameChrome,
             Stage::Viewports,

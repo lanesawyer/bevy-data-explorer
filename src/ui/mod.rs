@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 
 pub mod addsource;
+pub mod bookmarks;
 pub mod cellpanel;
 pub mod channels;
 pub mod help;
@@ -29,6 +30,7 @@ impl Plugin for UiPlugin {
             channels::ChannelControlsPlugin,
             layers::LayersPlugin,
             addsource::AddSourcePlugin,
+            bookmarks::BookmarksPlugin,
             cellpanel::CellPanelPlugin,
             welcome::WelcomePlugin,
             logpanel::LogPanelPlugin,

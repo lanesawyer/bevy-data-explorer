@@ -55,6 +55,7 @@ impl Plugin for ExplorerPlugin {
             .add_plugins(crate::render::settings::SourceSettingsPlugin)
             .add_plugins(crate::view::ViewPlugin)
             .add_plugins(crate::widgets::WidgetsPlugin)
+            .add_plugins(crate::bookmark::BookmarkPlugin)
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, maximize_window.in_set(schedule::Boot::Window));
     }

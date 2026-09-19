@@ -8,6 +8,7 @@
 //! in more detail as you zoom.
 
 mod app;
+mod bookmark;
 mod catalog;
 mod cli;
 mod formats;
@@ -26,6 +27,7 @@ use catalog::AppCatalogs;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cli::Args::parse();
     let opened = args.open()?;
+    let bookmark = args.bookmark()?;
     let settings = args.load_settings();
 
     let mut app = App::new();
@@ -61,6 +63,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if as_layer {
             source.insert(view::OpensAsLayer);
         }
+    }
+
+    // Restored once the window is up, through the same reads the sidebar's
+    // bookmarks take, so it replaces whatever the flags above opened.
+    if let Some(bookmark) = bookmark {
+        app.insert_resource(bookmark::restore::Restoring::new(bookmark));
     }
 
     app.run();

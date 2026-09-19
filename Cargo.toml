@@ -48,6 +48,13 @@ url = "2.5.8"
 quick-xml = { version = "0.41", features = ["serialize"] }
 # Hands the help screen's links to the system browser.
 open = "5"
+# A bookmark shared as text is its JSON deflated and base64'd onto one line, so
+# a chat client cannot rewrap it. Both are already in the tree.
+base64 = "0.22"
+flate2 = "1"
+# The save and open dialogs a bookmark is exported and imported through. The
+# xdg portal on Linux, so no GTK is pulled in.
+rfd = "0.17"
 
 [lints.rust]
 unsafe_code = "forbid"

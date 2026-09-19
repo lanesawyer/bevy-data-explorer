@@ -21,18 +21,22 @@ const SIZE: f32 = 15.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Icon {
+    BookmarkPlus,
     Bug,
     Camera,
     ChevronDown,
     ChevronRight,
     ChevronUp,
     CircleHelp,
+    ClipboardPaste,
     Copy,
     CopyPlus,
     Cube,
+    Download,
     Ellipsis,
     ExternalLink,
     FilterX,
+    FolderOpen,
     Info,
     Moon,
     Palette,
@@ -48,19 +52,23 @@ pub enum Icon {
 
 impl Icon {
     #[cfg(test)]
-    const ALL: [Icon; 23] = [
+    const ALL: [Icon; 27] = [
+        Icon::BookmarkPlus,
         Icon::Bug,
         Icon::Camera,
         Icon::ChevronDown,
         Icon::ChevronRight,
         Icon::ChevronUp,
         Icon::CircleHelp,
+        Icon::ClipboardPaste,
         Icon::Copy,
         Icon::CopyPlus,
         Icon::Cube,
+        Icon::Download,
         Icon::Ellipsis,
         Icon::ExternalLink,
         Icon::FilterX,
+        Icon::FolderOpen,
         Icon::Info,
         Icon::Moon,
         Icon::Palette,
@@ -78,18 +86,22 @@ impl Icon {
     /// compared against and written into a `Text` directly.
     pub fn glyph(self) -> &'static str {
         match self {
+            Icon::BookmarkPlus => "\u{e23d}",
             Icon::Bug => "\u{e20c}",
             Icon::Camera => "\u{e064}",
             Icon::ChevronDown => "\u{e06d}",
             Icon::ChevronRight => "\u{e06f}",
             Icon::ChevronUp => "\u{e070}",
             Icon::CircleHelp => "\u{e082}",
+            Icon::ClipboardPaste => "\u{e3e8}",
             Icon::Copy => "\u{e09e}",
             Icon::CopyPlus => "\u{e3fd}",
             Icon::Cube => "\u{e061}",
+            Icon::Download => "\u{e0b2}",
             Icon::Ellipsis => "\u{e0b6}",
             Icon::ExternalLink => "\u{e0b9}",
             Icon::FilterX => "\u{e3b5}",
+            Icon::FolderOpen => "\u{e247}",
             Icon::Info => "\u{e0f9}",
             Icon::Moon => "\u{e11e}",
             Icon::Palette => "\u{e1dd}",

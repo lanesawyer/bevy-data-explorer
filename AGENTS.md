@@ -28,6 +28,14 @@ the service a `CellColumns` rather than their own types. Giving a new catalog
 real cell properties means implementing `DescribeCells` for it, as
 `catalog/bkp/cells.rs` does. It never means touching a format or the panel.
 
+A bookmark (`src/bookmark/`) saves intent, not entities: addresses, labels,
+column ids and codes, restored through `discover` and the frame spawners like
+anything opened by hand. A new per-source setting worth keeping goes in
+`SourceState` as an `Option` (absent means "leave alone"), is read in
+`capture.rs` and written back in `apply_pending_settings`. Anything that
+depends on something arriving asynchronously waits there, the way cell filters
+wait for `Described`.
+
 The tree is layered, and the layers only point one way:
 
     source/    the vocabulary every format and frame is written against
@@ -36,6 +44,7 @@ The tree is layered, and the layers only point one way:
     render/    the point pipeline both point-cloud formats draw through
     view/      the frame grid: grid, camera, chrome, requests, input, overlay
     widgets/   generic controls, used by both view and ui
+    bookmark/  saving what is on screen, and restoring it
     ui/        the docks and the controls inside them
     app/       the shell: window, task pool, theme, schedule
     cli.rs     the command line

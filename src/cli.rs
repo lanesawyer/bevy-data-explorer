@@ -55,6 +55,11 @@ pub struct Args {
     #[arg(long)]
     pub layer: Vec<String>,
 
+    /// A bookmark to open: a file exported from the sidebar, or a shared line
+    /// starting `bde1:`. Its frames replace any the other flags open.
+    #[arg(long)]
+    pub bookmark: Option<String>,
+
     /// Maximum points held on the GPU for the point cloud.
     #[arg(long, default_value_t = crate::formats::pointcloud::DEFAULT_POINT_BUDGET)]
     pub point_budget: usize,
@@ -74,6 +79,24 @@ impl Args {
             point_budget: self.point_budget,
             slice_budget: self.slice_budget,
         }
+    }
+}
+
+impl Args {
+    /// The bookmark named, read now so a bad one fails here rather than in a
+    /// window that opens empty.
+    pub fn bookmark(&self) -> Result<Option<crate::bookmark::snapshot::Bookmark>, String> {
+        let Some(named) = self.bookmark.as_deref() else {
+            return Ok(None);
+        };
+        let text = if std::path::Path::new(named).is_file() {
+            std::fs::read_to_string(named).map_err(|e| format!("reading {named}: {e}"))?
+        } else {
+            named.to_string()
+        };
+        let bookmark = crate::bookmark::codec::from_text(&text)?;
+        println!("opening bookmark {}", bookmark.name);
+        Ok(Some(bookmark))
     }
 }
 

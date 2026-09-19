@@ -36,6 +36,7 @@ cargo run --release -- --z 3 <source>        # pick a z slice
 cargo run --release -- --cache-mb 1024       # a larger tile cache
 cargo run --release -- --point-budget 8000000
 cargo run --release -- slide.dzi --layer annotation.svg   # draw one over the other
+cargo run --release -- --bookmark saved.json # a bookmark, as a file or a bde1: line
 ```
 
 Use `--release`. Tile decoding is real work and a debug build makes it obvious.
@@ -448,6 +449,41 @@ structure and region first, then the pixel.
 
 A stack holds at most eight datasets, which is the band of camera orders each
 cell is given.
+
+## Bookmarks
+
+The **Bookmarks** section of the sidebar saves what is on screen to come back
+to, or to send to someone. A bookmark holds every frame in grid order: the
+dataset it shows, its view (or its 3D orbit), and the layers over it at their
+opacities. For each dataset it also holds the slice showing, whether sections
+are in a grid, opacity, point size, each channel's visibility and gain, what
+points are colored by, and every cell filter. It leaves out app preferences
+such as the theme and the sidebar's width. A bookmark someone sends you should
+not change those.
+
+Saved bookmarks are one JSON file each, in
+`$XDG_DATA_HOME/bevy-data-explorer/bookmarks` (or `~/.local/share/...`).
+Choose one in the list to restore it. The buttons beside it copy it to the
+clipboard as a single `bde1:` line, export it through a save dialog, or delete
+it. **Paste** and **Import…** take either form back, add it to the list and
+open it. `--bookmark` does the same from the command line.
+
+A bookmark is not a dump of the ECS. Frames point at source entities and
+sources hold streamers and render layers, none of which means anything in
+another process. So a bookmark names things as a person would: datasets by
+address, channels by label, cell filters by column and code. Restoring replays
+it through the same paths opening a dataset by hand takes. Every address is
+read at once, and a dataset already open is reused. The frames replace what is
+on screen only once every read has landed or failed. Cell filters wait until
+the catalog's service has replaced the format's placeholder properties, since
+filters set any earlier would be thrown away with the placeholders.
+
+Views are saved as the world they showed rather than as a zoom factor, and
+fitted into whatever cell they are restored into. A smaller window therefore
+shows the same region instead of a smaller piece of it. Anything that no longer
+matches — an address that fails, a channel or property the dataset dropped —
+is skipped and reported, and the rest is restored. A bookmark naming local
+files says so in the list, because it will not open on anyone else's machine.
 
 ## Releases
 
