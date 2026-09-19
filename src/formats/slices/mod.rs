@@ -23,12 +23,14 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 
 use crate::app::schedule::Stage;
-use crate::formats::scatterbrain::nodes::{NodeCache, NodeOutcome, PICK_PX, load_node, pick_reach};
+use crate::formats::scatterbrain::nodes::{
+    NODE_Z, NodeCache, NodeOutcome, PICK_PX, load_node, pick_reach, spawn_node,
+};
 use crate::formats::scatterbrain::{Rect, Scatterbrain};
 use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::ViewLimits;
 use crate::source::hover::{HoverInfo, HoverProbe};
-use crate::source::properties::{CellProperties, CellSelection, Shade};
+use crate::source::properties::{CellProperties, CellSelection, FilteredPoints, Shade};
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::{self, DataSource, SourceBusy, SourceExtent, SourceStatus};
 use crate::view::ShowsSource;
@@ -425,7 +427,7 @@ pub fn spawn_slice_tasks(mut streamers: Query<&mut SliceStreamer>) {
             fetching(async move {
                 let node = &cloud.slides[key.slide].nodes[key.node];
                 match load_node(&cloud, node, &selection).await {
-                    Ok((positions, shades)) => NodeOutcome::Ready(positions, shades),
+                    Ok(loaded) => NodeOutcome::Ready(loaded),
                     Err(e) => NodeOutcome::Failed(e),
                 }
             })
@@ -451,21 +453,24 @@ pub fn collect_slice_tasks(
             .collect();
         let swapping = streamer.nodes.swapping();
         let streamer = &mut *streamer;
-        let failed = streamer.nodes.collect(&streamer.selection, |key, mesh| {
+        let failed = streamer.nodes.collect(&streamer.selection, |key, built| {
             let (offset, visible) = placed[key.slide];
-            commands
-                .spawn((
-                    Mesh2d(meshes.add(mesh)),
-                    MeshMaterial2d(materials.add(PointMaterial::default())),
-                    Transform::from_translation(offset.extend(0.0)),
+            spawn_node(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                built,
+                layer,
+                (
+                    Transform::from_translation(offset.extend(NODE_Z)),
                     RenderLayers::layer(layer),
                     SliceNodeTag,
                     // Held back while the selection it replaces is still on
                     // screen: showing each node as it arrived would draw the
                     // new picture half-built over the old one.
                     visibility_of(!swapping && visible),
-                ))
-                .id()
+                ),
+            )
         });
         for (key, e) in failed {
             warn!(
@@ -529,7 +534,7 @@ pub fn apply_slice_layout(
             let Ok((mut transform, mut visibility)) = nodes.get_mut(entity) else {
                 continue;
             };
-            let offset = streamer.offset(slide).extend(0.0);
+            let offset = streamer.offset(slide).extend(NODE_Z);
             if transform.translation != offset {
                 transform.translation = offset;
             }
@@ -603,7 +608,8 @@ pub fn evict_slice_nodes(mut commands: Commands, mut streamers: Query<&mut Slice
     }
 }
 
-/// Rebuild when this source's coloring or filters change.
+/// Rebuild when this source's coloring or filters change, or how it draws
+/// what the filters leave out.
 ///
 /// Coloring and filtering both decide what the vertices are, and the raw
 /// columns are not kept after a node is built, so a change means loading those
@@ -614,10 +620,13 @@ pub fn evict_slice_nodes(mut commands: Commands, mut streamers: Query<&mut Slice
 /// exists.
 fn apply_selection(
     mut commands: Commands,
-    mut streamers: Query<(&CellProperties, &mut SliceStreamer), Changed<CellProperties>>,
+    mut streamers: Query<
+        (&CellProperties, Option<&FilteredPoints>, &mut SliceStreamer),
+        Or<(Changed<CellProperties>, Changed<FilteredPoints>)>,
+    >,
 ) {
-    for (properties, mut streamer) in &mut streamers {
-        let selection = properties.selection();
+    for (properties, filtered, mut streamer) in &mut streamers {
+        let selection = properties.selection().with_filtered(filtered);
         if streamer.selection != selection {
             streamer.selection = selection;
             streamer.nodes.retire(&mut commands);
@@ -833,7 +842,7 @@ fn report_status(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::formats::scatterbrain::nodes::Shades;
+    use crate::formats::scatterbrain::nodes::{LoadedNode, Shades};
 
     fn sectioned() -> Arc<Scatterbrain> {
         Arc::new(
@@ -852,7 +861,11 @@ mod tests {
     fn resident(streamer: &mut SliceStreamer, slide: usize, point: [f32; 2], category: u16) {
         streamer.nodes.landed(
             SliceNode { slide, node: 0 },
-            NodeOutcome::Ready(vec![point], Shades::Codes(vec![category])),
+            NodeOutcome::Ready(LoadedNode {
+                positions: vec![point],
+                shades: Shades::Codes(vec![category]),
+                muted: Vec::new(),
+            }),
         );
     }
 

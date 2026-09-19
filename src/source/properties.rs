@@ -14,6 +14,7 @@
 use std::collections::HashSet;
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 pub use super::gradient::Gradient;
 pub use super::tree::{Tree, TreeLevel, TreeNode};
@@ -570,6 +571,7 @@ impl CellProperties {
                 .filter(|property| property.restricts())
                 .map(CellProperty::restriction)
                 .collect(),
+            draw_filtered: false,
         }
     }
 }
@@ -687,6 +689,65 @@ impl Ramp {
     }
 }
 
+/// The light gray filtered-out points are drawn in unless the user picks
+/// another.
+pub const FILTERED_GRAY: Color = Color::srgb(0.88, 0.88, 0.88);
+
+/// What becomes of the points a source's filters leave out: drawn beneath the
+/// rest in `color`, or not drawn at all.
+///
+/// On the source rather than in [`CellProperties`], which a service replaces
+/// wholesale when it describes the cells.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct FilteredPoints {
+    pub shown: bool,
+    pub color: Color,
+}
+
+impl Default for FilteredPoints {
+    fn default() -> Self {
+        FilteredPoints {
+            shown: true,
+            color: FILTERED_GRAY,
+        }
+    }
+}
+
+impl FilteredPoints {
+    pub fn saved(&self) -> SavedFiltered {
+        let color = self.color.to_srgba();
+        SavedFiltered {
+            shown: self.shown,
+            color: [color.red, color.green, color.blue],
+        }
+    }
+}
+
+/// [`FilteredPoints`] as the preferences and bookmarks write it, its color in
+/// sRGB.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+pub struct SavedFiltered {
+    pub shown: bool,
+    pub color: [f32; 3],
+}
+
+impl Default for SavedFiltered {
+    fn default() -> Self {
+        FilteredPoints::default().saved()
+    }
+}
+
+impl SavedFiltered {
+    /// Clamped, since a file edited by hand can say anything.
+    pub fn restored(&self) -> FilteredPoints {
+        let [r, g, b] = self.color.map(|channel| channel.clamp(0.0, 1.0));
+        FilteredPoints {
+            shown: self.shown,
+            color: Color::srgb(r, g, b),
+        }
+    }
+}
+
 /// The linear color of a point with no value to color it by.
 pub const MISSING: [f32; 4] = [0.8, 0.85, 0.9, 1.0];
 
@@ -703,6 +764,11 @@ pub struct CellSelection {
     /// Set when `color_by` is numeric, and how its values are colored.
     pub ramp: Option<Ramp>,
     pub filters: Vec<(Column, Restriction)>,
+    /// Whether points the filters leave out are drawn beneath the rest rather
+    /// than dropped. Only set while something is filtered, so turning it on
+    /// with no filters rebuilds nothing. Their color is not here: it is a
+    /// uniform, so picking one rebuilds nothing either.
+    pub draw_filtered: bool,
 }
 
 /// Where a column of per-cell values is read from.
@@ -726,6 +792,13 @@ impl Column {
 }
 
 impl CellSelection {
+    /// Draw filtered-out points as `filtered` says, if the source says at all.
+    pub fn with_filtered(mut self, filtered: Option<&FilteredPoints>) -> Self {
+        self.draw_filtered =
+            filtered.is_some_and(|filtered| filtered.shown) && !self.filters.is_empty();
+        self
+    }
+
     /// The linear color a point with this code is drawn in.
     pub fn color(&self, code: u16) -> [f32; 4] {
         self.palette
@@ -1070,6 +1143,39 @@ mod tests {
         assert!(selection.admits(&[0.0, 0.8]));
         assert!(!selection.admits(&[1.0, 0.8]), "excluded class");
         assert!(!selection.admits(&[0.0, 0.2]), "below the range");
+    }
+
+    #[test]
+    fn filtered_out_points_are_muted_only_while_something_is_filtered() {
+        let mut properties = CellProperties::ready(vec![categorical("class", &[0, 1])]);
+        let shown = FilteredPoints::default();
+        // Nothing filtered: turning it on must not rebuild.
+        assert!(
+            !properties
+                .selection()
+                .with_filtered(Some(&shown))
+                .draw_filtered
+        );
+
+        pick(&mut properties.properties[0], 0);
+        let selection = properties.selection();
+        assert!(selection.clone().with_filtered(Some(&shown)).draw_filtered);
+        let hidden = FilteredPoints {
+            shown: false,
+            ..shown
+        };
+        assert!(!selection.clone().with_filtered(Some(&hidden)).draw_filtered);
+        assert!(!selection.with_filtered(None).draw_filtered);
+    }
+
+    #[test]
+    fn a_saved_filtered_color_is_clamped() {
+        let saved = SavedFiltered {
+            shown: true,
+            color: [2.0, -1.0, 0.5],
+        };
+        let color = saved.restored().color.to_srgba();
+        assert_eq!((color.red, color.green, color.blue), (1.0, 0.0, 0.5));
     }
 
     #[test]

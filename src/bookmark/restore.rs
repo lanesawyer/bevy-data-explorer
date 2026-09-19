@@ -362,6 +362,9 @@ pub fn apply_pending_settings(
         if let (Some(size), Some(mut current)) = (state.point_size.take(), point_size) {
             current.0 = clamp_point_size(size);
         }
+        if let Some(filtered) = state.filtered.take() {
+            commands.entity(entity).insert(filtered.restored());
+        }
         if let Some(opacity) = state.opacity.take() {
             commands
                 .entity(entity)

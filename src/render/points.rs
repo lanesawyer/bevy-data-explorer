@@ -147,6 +147,11 @@ impl Default for SourcePointSize {
     }
 }
 
+/// Marks the mesh of a node's filtered-out points, whose color is the tint
+/// rather than anything in its vertices.
+#[derive(Component)]
+pub struct MutedPoints;
+
 /// The category currently drawn large, across every frame showing this source.
 ///
 /// Set from what the pointer is over, so hovering one cell picks out every

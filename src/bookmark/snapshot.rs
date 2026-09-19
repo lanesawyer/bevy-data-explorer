@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::render::points::{MAX_POINT_PX, MIN_POINT_PX};
 use crate::source::channels::{MAX_GAIN, SourceChannels};
 use crate::source::genes::Gene;
-use crate::source::properties::{CellProperties, PropertyKind};
+use crate::source::properties::{CellProperties, PropertyKind, SavedFiltered};
 use crate::source::stack::SliceStack;
 
 /// The format a bookmark is written in. Raised whenever a field changes
@@ -49,6 +49,9 @@ pub struct SourceState {
     pub opacity: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub point_size: Option<f32>,
+    /// Whether points the filters leave out are drawn, and in what color.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filtered: Option<SavedFiltered>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub channels: Vec<ChannelState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

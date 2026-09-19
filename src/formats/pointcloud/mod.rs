@@ -15,11 +15,13 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 
 use crate::app::schedule::Stage;
-use crate::formats::scatterbrain::nodes::{NodeCache, NodeOutcome, PICK_PX, load_node, pick_reach};
+use crate::formats::scatterbrain::nodes::{
+    NODE_Z, NodeCache, NodeOutcome, PICK_PX, load_node, pick_reach, spawn_node,
+};
 use crate::formats::scatterbrain::{Rect, Scatterbrain, Slide};
 use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::hover::{HoverInfo, HoverProbe};
-use crate::source::properties::{CellProperties, CellSelection, Shade};
+use crate::source::properties::{CellProperties, CellSelection, FilteredPoints, Shade};
 use crate::source::{self, DataSource, SourceBusy, SourceExtent, SourceStatus};
 use crate::view::ShowsSource;
 
@@ -217,7 +219,7 @@ pub fn spawn_node_tasks(mut streamers: Query<&mut PointStreamer>) {
             fetching(async move {
                 let node = &cloud.slides[slide].nodes[index];
                 match load_node(&cloud, node, &selection).await {
-                    Ok((positions, shades)) => NodeOutcome::Ready(positions, shades),
+                    Ok(loaded) => NodeOutcome::Ready(loaded),
                     Err(e) => NodeOutcome::Failed(e),
                 }
             })
@@ -246,17 +248,20 @@ pub fn collect_node_tasks(
             Visibility::Inherited
         };
         let streamer = &mut *streamer;
-        let failed = streamer.nodes.collect(&streamer.selection, |_, mesh| {
-            commands
-                .spawn((
-                    Mesh2d(meshes.add(mesh)),
-                    MeshMaterial2d(materials.add(PointMaterial::default())),
-                    Transform::default(),
+        let failed = streamer.nodes.collect(&streamer.selection, |_, built| {
+            spawn_node(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                built,
+                layer,
+                (
+                    Transform::from_xyz(0.0, 0.0, NODE_Z),
                     RenderLayers::layer(layer),
                     PointNode,
                     visibility,
-                ))
-                .id()
+                ),
+            )
         });
         for (index, e) in failed {
             warn!("point node {}: {e}", streamer.slide().nodes[index].name);
@@ -292,7 +297,8 @@ pub fn evict_nodes(mut commands: Commands, mut streamers: Query<&mut PointStream
     }
 }
 
-/// Rebuild when this source's coloring or filters change.
+/// Rebuild when this source's coloring or filters change, or how it draws
+/// what the filters leave out.
 ///
 /// Coloring and filtering both decide what the vertices are, and the raw
 /// columns are not kept after a node is built, so a change means loading those
@@ -303,10 +309,13 @@ pub fn evict_nodes(mut commands: Commands, mut streamers: Query<&mut PointStream
 /// exists.
 fn apply_selection(
     mut commands: Commands,
-    mut streamers: Query<(&CellProperties, &mut PointStreamer), Changed<CellProperties>>,
+    mut streamers: Query<
+        (&CellProperties, Option<&FilteredPoints>, &mut PointStreamer),
+        Or<(Changed<CellProperties>, Changed<FilteredPoints>)>,
+    >,
 ) {
-    for (properties, mut streamer) in &mut streamers {
-        let selection = properties.selection();
+    for (properties, filtered, mut streamer) in &mut streamers {
+        let selection = properties.selection().with_filtered(filtered);
         if streamer.selection != selection {
             streamer.selection = selection;
             streamer.nodes.retire(&mut commands);
@@ -496,7 +505,7 @@ fn report_for(streamer: &PointStreamer, sources: &mut Query<&mut SourceStatus>) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::formats::scatterbrain::nodes::Shades;
+    use crate::formats::scatterbrain::nodes::{LoadedNode, Shades};
 
     fn cloud() -> Scatterbrain {
         Scatterbrain::parse(include_str!("../../../testdata/scatterbrain.json")).unwrap()
@@ -599,7 +608,11 @@ mod tests {
         let mut streamer = PointStreamer::new(Arc::new(cloud()), Entity::PLACEHOLDER);
         streamer.nodes.landed(
             0,
-            NodeOutcome::Ready(points.to_vec(), Shades::Codes(categories.to_vec())),
+            NodeOutcome::Ready(LoadedNode {
+                positions: points.to_vec(),
+                shades: Shades::Codes(categories.to_vec()),
+                muted: Vec::new(),
+            }),
         );
         streamer
     }

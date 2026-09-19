@@ -1,5 +1,5 @@
 //! What the user has told the app to remember between sessions: how big they
-//! dragged each dock, and the theme they picked.
+//! dragged each dock, the theme they picked, and how point clouds open.
 //!
 //! One JSON file in the XDG config folder, read once at startup and written a
 //! moment after the last change, so a drag across the window is one write
@@ -13,6 +13,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::app::schedule::Stage;
+use crate::source::properties::{FilteredPoints, SavedFiltered};
 
 /// How long the preferences must sit still before they are written.
 const SAVE_AFTER_SECS: f32 = 0.5;
@@ -49,6 +50,10 @@ pub struct Preferences {
     pub docks: BTreeMap<String, f32>,
     /// The theme picked by hand; none while it follows the desktop.
     pub theme: Option<ThemeChoice>,
+    /// How a point cloud opens drawing the points its filters leave out;
+    /// none while it follows the built-in default, so a change to that
+    /// reaches anyone who never changed theirs.
+    pub filtered_points: Option<SavedFiltered>,
 }
 
 impl Default for Preferences {
@@ -57,11 +62,17 @@ impl Default for Preferences {
             remember_layout: true,
             docks: BTreeMap::new(),
             theme: None,
+            filtered_points: None,
         }
     }
 }
 
 impl Preferences {
+    pub fn filtered_points(&self) -> FilteredPoints {
+        self.filtered_points
+            .map_or_else(FilteredPoints::default, |saved| saved.restored())
+    }
+
     pub fn load(path: &Path) -> Self {
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
@@ -154,5 +165,17 @@ mod tests {
         assert!(partial.remember_layout);
         assert_eq!(partial.theme, Some(ThemeChoice::Dark));
         assert!(serde_json::from_str::<Preferences>("{ nope").is_err());
+    }
+
+    #[test]
+    fn point_clouds_follow_the_built_in_default_until_changed() {
+        let fresh: Preferences = serde_json::from_str("{}").unwrap();
+        assert_eq!(fresh.filtered_points, None);
+        assert_eq!(fresh.filtered_points(), FilteredPoints::default());
+
+        let changed: Preferences =
+            serde_json::from_str(r#"{"filtered_points":{"shown":false,"color":[0.5,0.5,0.5]}}"#)
+                .unwrap();
+        assert!(!changed.filtered_points().shown);
     }
 }

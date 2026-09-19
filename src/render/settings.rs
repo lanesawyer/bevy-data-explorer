@@ -13,9 +13,10 @@ use bevy::prelude::*;
 use crate::app::schedule::Stage;
 use crate::render::channels::ChannelTileMaterial;
 use crate::render::lines::LineMaterial;
-use crate::render::points::{PointMaterial, SourceHighlight, SourcePointSize};
+use crate::render::points::{MutedPoints, PointMaterial, SourceHighlight, SourcePointSize};
 use crate::render::volume::VolumeMaterial;
 use crate::source::DataSource;
+use crate::source::properties::FilteredPoints;
 use crate::source::volume::SourceVolume;
 
 /// How opaque a source's geometry is drawn, on its own entity so that two
@@ -81,33 +82,43 @@ fn apply_opacity(
     }
 }
 
-/// Push a source's point size, fade and highlight into the materials drawing it.
+/// Push a source's point size, fade and highlight into the materials drawing
+/// it, and the color of its filtered-out points into theirs.
 fn apply_point_settings(
     sources: Query<(
         &DataSource,
         Ref<SourcePointSize>,
         Option<Ref<SourceOpacity>>,
         Option<Ref<SourceHighlight>>,
+        Option<Ref<FilteredPoints>>,
     )>,
-    meshes: Query<(&RenderLayers, Ref<MeshMaterial2d<PointMaterial>>)>,
+    meshes: Query<(
+        &RenderLayers,
+        Ref<MeshMaterial2d<PointMaterial>>,
+        Has<MutedPoints>,
+    )>,
     mut materials: ResMut<Assets<PointMaterial>>,
 ) {
-    for (source, size, opacity, highlight) in &sources {
+    for (source, size, opacity, highlight, filtered) in &sources {
         let changed = size.is_changed()
             || opacity.as_ref().is_some_and(DetectChanges::is_changed)
-            || highlight.as_ref().is_some_and(DetectChanges::is_changed);
+            || highlight.as_ref().is_some_and(DetectChanges::is_changed)
+            || filtered.as_ref().is_some_and(DetectChanges::is_changed);
         let layer = RenderLayers::layer(source.layer);
         let tint = fade_uniform(opacity.map_or(1.0, |o| o.0));
+        let muted = filtered.map_or(Vec4::ONE, |filtered| {
+            tint * filtered.color.to_linear().to_vec4()
+        });
         let highlight = highlight.map_or(crate::render::points::HIGHLIGHT_NONE, |h| h.uniform());
 
-        for (layers, material) in &meshes {
+        for (layers, material, is_muted) in &meshes {
             if *layers == layer
                 && (changed || material.is_added())
                 && let Some(mut material) = materials.get_mut(&material.0)
             {
                 material.settings.size = size.0;
                 material.settings.highlight = highlight;
-                material.settings.tint = tint;
+                material.settings.tint = if is_muted { muted } else { tint };
             }
         }
     }

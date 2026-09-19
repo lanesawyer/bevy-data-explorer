@@ -5,7 +5,7 @@
 //! same ways: its sidebar button, its own X, Escape, or a click outside it.
 
 use bevy::prelude::*;
-use bevy::ui::{Checked, FocusPolicy, Interaction};
+use bevy::ui::{Checked, FocusPolicy, Interaction, InteractionDisabled};
 use bevy::window::WindowTheme;
 use bevy_feathers::controls::{
     ButtonVariant, FeathersButton, FeathersCheckbox, FeathersToolButton,
@@ -20,6 +20,7 @@ use bevy_ui_widgets::{Activate, ValueChange};
 use crate::app::prefs::{Preferences, PreferencesFile};
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::ThemeMode;
+use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::view::BlocksFrameInput;
 use crate::widgets::{Icon, ResetDockSizes, button_icon, button_text};
 
@@ -77,6 +78,9 @@ fn theme_option(
 
 #[derive(Component, Clone, Default)]
 pub struct ResetLayoutButton;
+
+#[derive(Component, Clone, Default)]
+pub struct ResetPointCloudButton;
 
 pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
     let saved_in = format!("Saved in {}", file.0.display());
@@ -137,6 +141,12 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
                         ),
                     ]
                 ),
+                // A subtitle, so it is drawn closer to the title than the
+                // panel's gap would put it.
+                (
+                    label_dim(saved_in)
+                    Node { margin: { UiRect::top(Val::Px(-6.0)) } }
+                ),
                 (
                     label("Layout")
                     TextFont { font_size: { FontSize::Px(15.0) } }
@@ -180,8 +190,27 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
                 ),
                 label_dim("System follows your operating system's light or dark setting."),
                 (
-                    label_dim(saved_in)
-                    Node { margin: { UiRect::top(Val::Px(8.0)) } }
+                    label("Point clouds")
+                    TextFont { font_size: { FontSize::Px(15.0) } }
+                    Node { margin: { UiRect::top(Val::Px(6.0)) } }
+                ),
+                filtered_controls(FilteredTarget::Default),
+                label_dim(
+                    "How a point cloud opens. Change one already open in its view \
+                     configuration."
+                ),
+                (
+                    Node { align_items: { AlignItems::Start } }
+                    Children [(
+                        @FeathersButton {
+                            @caption: { bsn_list![
+                                button_icon(Icon::RotateCcw),
+                                button_text("Reset point cloud defaults"),
+                            ] }
+                        }
+                        Node { column_gap: { Val::Px(6.0) } }
+                        ResetPointCloudButton
+                    )]
                 ),
             ]
         })
@@ -239,6 +268,18 @@ pub fn on_reset_layout(
     }
 }
 
+/// Back to following the built-in default. Point clouds already open keep
+/// what they have, as they do for any change here.
+pub fn on_reset_point_cloud(
+    activate: On<Activate>,
+    buttons: Query<(), With<ResetPointCloudButton>>,
+    mut prefs: ResMut<Preferences>,
+) {
+    if buttons.contains(activate.entity) && prefs.filtered_points.is_some() {
+        prefs.filtered_points = None;
+    }
+}
+
 /// Forgetting the sizes as well as no longer noting them, so turning this off
 /// is enough for the next launch to open at the defaults.
 pub fn on_remember_layout(
@@ -285,7 +326,17 @@ pub fn sync_settings(
     mode: Res<ThemeMode>,
     remember: Query<(Entity, Has<Checked>), With<RememberLayoutBox>>,
     mut options: Query<(&ThemeOption, &mut ButtonVariant)>,
+    resets: Query<(Entity, Has<InteractionDisabled>), With<ResetPointCloudButton>>,
 ) {
+    // Nothing to reset while the default is already followed.
+    let customized = prefs.filtered_points.is_some();
+    for (entity, disabled) in &resets {
+        if customized && disabled {
+            commands.entity(entity).remove::<InteractionDisabled>();
+        } else if !customized && !disabled {
+            commands.entity(entity).insert(InteractionDisabled);
+        }
+    }
     for (entity, checked) in &remember {
         if prefs.remember_layout && !checked {
             commands.entity(entity).insert(Checked);
@@ -310,6 +361,7 @@ impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_settings_toggle)
             .add_observer(on_reset_layout)
+            .add_observer(on_reset_point_cloud)
             .add_observer(on_remember_layout)
             .add_observer(on_theme_option)
             .add_systems(Update, close_on_escape.in_set(Stage::ControlsRead))

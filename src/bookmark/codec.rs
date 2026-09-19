@@ -78,6 +78,10 @@ mod tests {
             sources: vec![SourceState {
                 url: "https://example.com/a.zarr/".into(),
                 slice: Some(40),
+                filtered: Some(crate::source::properties::SavedFiltered {
+                    shown: false,
+                    color: [0.25, 0.25, 0.25],
+                }),
                 ..Default::default()
             }],
             frames: vec![FrameState {

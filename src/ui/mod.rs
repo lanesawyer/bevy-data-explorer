@@ -7,6 +7,7 @@ pub mod addsource;
 pub mod bookmarks;
 pub mod cellpanel;
 pub mod channels;
+pub mod filtered;
 pub mod genes;
 pub mod help;
 pub mod inspector;
@@ -30,6 +31,7 @@ impl Plugin for UiPlugin {
             inspector::InspectorPlugin,
             viewconfig::ViewConfigPlugin,
             channels::ChannelControlsPlugin,
+            filtered::FilteredControlsPlugin,
             layers::LayersPlugin,
             addsource::AddSourcePlugin,
             bookmarks::BookmarksPlugin,

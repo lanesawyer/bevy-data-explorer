@@ -9,10 +9,11 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
+use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 
 use crate::app::net::Fetching;
-use crate::render::points::build_point_mesh;
+use crate::render::points::{MutedPoints, PointMaterial, build_point_mesh};
 use crate::source::properties::{CellSelection, MISSING, Shade};
 
 use super::{Node, Rect, Scatterbrain, decode_categories, decode_floats, decode_positions};
@@ -110,21 +111,73 @@ pub fn pick_reach(target: Vec2, radius: f32) -> Rect {
     }
 }
 
+/// Where a node's own points sit in depth.
+///
+/// Its filtered-out points sit on a child back at zero, so every node's are
+/// drawn beneath every node's kept ones. Frames see nothing below zero.
+pub const NODE_Z: f32 = 0.5;
+
+/// A node's points as read: those the filters admit, with what they are
+/// colored by, and the positions of those they leave out.
+#[derive(Default)]
+pub struct LoadedNode {
+    pub positions: Vec<[f32; 2]>,
+    pub shades: Shades,
+    /// Empty unless the selection draws filtered-out points.
+    pub muted: Vec<[f32; 2]>,
+}
+
 pub enum NodeOutcome {
-    Ready(Vec<[f32; 2]>, Shades),
+    Ready(LoadedNode),
     Failed(String),
+}
+
+/// A node's meshes: its points, and those the filters left out. Either may be
+/// missing, as a node with no points of that kind gets no mesh for them.
+pub struct NodeMeshes {
+    pub points: Option<Mesh>,
+    pub muted: Option<Mesh>,
+}
+
+/// Spawn a node as `node`, with its points on it and the ones the filters left
+/// out on a child beneath them.
+pub fn spawn_node(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<PointMaterial>,
+    built: NodeMeshes,
+    layer: usize,
+    node: impl Bundle,
+) -> Entity {
+    let mut entity = commands.spawn(node);
+    if let Some(mesh) = built.points {
+        entity.insert((
+            Mesh2d(meshes.add(mesh)),
+            MeshMaterial2d(materials.add(PointMaterial::default())),
+        ));
+    }
+    if let Some(mesh) = built.muted {
+        entity.with_child((
+            Mesh2d(meshes.add(mesh)),
+            MeshMaterial2d(materials.add(PointMaterial::default())),
+            Transform::from_xyz(0.0, 0.0, -NODE_Z),
+            RenderLayers::layer(layer),
+            MutedPoints,
+        ));
+    }
+    entity.id()
 }
 
 /// Fetch a node's points, the column they are colored by, and any columns the
 /// filters restrict.
 ///
 /// Filtered-out points are dropped here rather than hidden later, so they cost
-/// no vertices and no budget.
+/// no vertices and no budget, unless the selection draws them muted.
 pub async fn load_node(
     cloud: &Scatterbrain,
     node: &Node,
     selection: &CellSelection,
-) -> Result<(Vec<[f32; 2]>, Shades), String> {
+) -> Result<LoadedNode, String> {
     let mut positions = decode_positions(&fetch(&cloud.positions_url(node)).await?, node.count)?;
 
     let colored = match &selection.color_by {
@@ -140,7 +193,11 @@ pub async fn load_node(
     };
 
     if selection.filters.is_empty() {
-        return Ok((positions, shades));
+        return Ok(LoadedNode {
+            positions,
+            shades,
+            muted: Vec::new(),
+        });
     }
 
     // A column is decoded to whatever its restriction compares against: codes
@@ -172,13 +229,27 @@ pub async fn load_node(
         keep.push(selection.admits(&values));
     }
 
+    let muted = if selection.draw_filtered {
+        positions
+            .iter()
+            .zip(&keep)
+            .filter(|(_, kept)| !**kept)
+            .map(|(point, _)| *point)
+            .collect()
+    } else {
+        Vec::new()
+    };
     let mut index = 0;
     positions.retain(|_| {
         index += 1;
         keep[index - 1]
     });
     shades.retain(&keep);
-    Ok((positions, shades))
+    Ok(LoadedNode {
+        positions,
+        shades,
+        muted,
+    })
 }
 
 /// Node reads in flight at once, per source.
@@ -273,7 +344,7 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
     pub fn collect(
         &mut self,
         selection: &CellSelection,
-        mut spawn: impl FnMut(K, Mesh) -> Entity,
+        mut spawn: impl FnMut(K, NodeMeshes) -> Entity,
     ) -> Vec<(K, String)> {
         let mut finished = Vec::new();
         for (key, slot) in &mut self.slots {
@@ -297,7 +368,7 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
         key: K,
         outcome: NodeOutcome,
         selection: &CellSelection,
-        spawn: impl FnOnce(K, Mesh) -> Entity,
+        spawn: impl FnOnce(K, NodeMeshes) -> Entity,
     ) -> Option<(K, String)> {
         let mut failed = None;
         let slot = match outcome {
@@ -306,10 +377,23 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
             // mesh allocator skips allocating a zero-length vertex buffer while
             // still copying into it, which it reports as a use-after-free for
             // as long as the node stays resident.
-            NodeOutcome::Ready(positions, _) if positions.is_empty() => Slot::Empty,
-            NodeOutcome::Ready(positions, shades) => {
-                let points = positions.len();
-                let entity = spawn(key, build_mesh(&positions, &shades, selection));
+            NodeOutcome::Ready(loaded)
+                if loaded.positions.is_empty() && loaded.muted.is_empty() =>
+            {
+                Slot::Empty
+            }
+            NodeOutcome::Ready(LoadedNode {
+                positions,
+                shades,
+                muted,
+            }) => {
+                let points = positions.len() + muted.len();
+                let built = NodeMeshes {
+                    points: (!positions.is_empty())
+                        .then(|| build_mesh(&positions, &shades, selection)),
+                    muted: (!muted.is_empty()).then(|| build_muted_mesh(&muted)),
+                };
+                let entity = spawn(key, built);
                 self.resident_points += points;
                 Slot::Ready {
                     entity,
@@ -501,6 +585,14 @@ pub fn build_mesh(positions: &[[f32; 2]], shades: &Shades, selection: &CellSelec
     build_point_mesh(&points, &colors, categories)
 }
 
+/// Build the mesh of a node's filtered-out points: white, for the material to
+/// tint whatever color is picked, and in no category, so a hover never picks
+/// them out.
+fn build_muted_mesh(positions: &[[f32; 2]]) -> Mesh {
+    let points: Vec<Vec2> = positions.iter().map(|p| Vec2::new(p[0], p[1])).collect();
+    build_point_mesh(&points, &vec![[1.0; 4]; points.len()], &[])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -513,7 +605,10 @@ mod tests {
         for index in &asked[..built] {
             cache.landed(
                 *index,
-                NodeOutcome::Ready(vec![[0.0, 0.0]], Shades::default()),
+                NodeOutcome::Ready(LoadedNode {
+                    positions: vec![[0.0, 0.0]],
+                    ..default()
+                }),
             );
         }
         cache
@@ -551,9 +646,25 @@ mod tests {
     fn a_node_the_filter_emptied_counts_as_arrived() {
         // Nothing is spawned for it, so the swap has nothing to wait for.
         let mut cache = staged(&[0, 1], 1);
-        cache.landed(1, NodeOutcome::Ready(Vec::new(), Shades::default()));
+        cache.landed(1, NodeOutcome::Ready(LoadedNode::default()));
         assert!(cache.generation_ready());
         assert_eq!(cache.loaded(), 2);
+    }
+
+    #[test]
+    fn a_node_of_only_filtered_out_points_is_still_drawn() {
+        // Muted points are drawn, so a node the filters emptied of everything
+        // else still has something to show, and costs its vertices.
+        let mut cache = staged(&[0], 0);
+        cache.landed(
+            0,
+            NodeOutcome::Ready(LoadedNode {
+                muted: vec![[0.0, 0.0], [1.0, 1.0]],
+                ..default()
+            }),
+        );
+        assert_eq!(cache.ready().count(), 1);
+        assert_eq!(cache.resident_points, 2);
     }
 
     #[test]

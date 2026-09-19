@@ -10,7 +10,7 @@ use crate::render::points::SourcePointSize;
 use crate::render::settings::SourceOpacity;
 use crate::source::SourceUrl;
 use crate::source::channels::SourceChannels;
-use crate::source::properties::{CellProperties, PropertyState, Provenance};
+use crate::source::properties::{CellProperties, FilteredPoints, PropertyState, Provenance};
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::view::{FrameArea, FrameLayers, LayerOpacity, Orbit, SelectedPanel, ShowsSource};
 use crate::view::{Panel, View};
@@ -151,6 +151,7 @@ fn source_state(source: EntityRef, url: String) -> SourceState {
         slice_grid: source.get::<SliceGrid>().map(|grid| grid.0),
         opacity: source.get::<SourceOpacity>().map(|opacity| opacity.0),
         point_size: source.get::<SourcePointSize>().map(|size| size.0),
+        filtered: source.get::<FilteredPoints>().map(FilteredPoints::saved),
         channels: source
             .get::<SourceChannels>()
             .map(channels_of)

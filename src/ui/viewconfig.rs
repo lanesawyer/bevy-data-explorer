@@ -18,6 +18,7 @@ use crate::render::points::{DEFAULT_POINT_PX, MAX_POINT_PX, MIN_POINT_PX, Source
 use crate::render::settings::SourceOpacity;
 use crate::source::DataSource;
 use crate::source::stack::{SliceGrid, SliceStack};
+use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
 use crate::widgets::{
@@ -40,7 +41,7 @@ pub struct OpacitySlider;
 #[derive(Component, Clone, Default)]
 pub struct PointSizeSlider;
 
-/// The row holding the point size control, hidden for sources without one.
+/// The rows holding the point controls, hidden for sources without points.
 #[derive(Component, Clone, Default)]
 pub struct PointSizeRow;
 
@@ -168,6 +169,12 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     commands
         .entity(size_slider)
         .insert((PointSizeSlider, PointSizeRow));
+    let filtered = commands
+        .spawn_scene(bsn! {
+            PointSizeRow
+            filtered_controls(FilteredTarget::Selected)
+        })
+        .id();
 
     // Paging sits with the rest of what a frame shows. The control knows
     // nothing about images: it reads the stack off the source, which is a
@@ -208,6 +215,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         slider,
         size_label,
         size_slider,
+        filtered,
         slice_label,
         slice_slider,
         grid_box,
