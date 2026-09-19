@@ -6,22 +6,23 @@
 //! rebuilt when the selection moves.
 
 use bevy::prelude::*;
-use bevy_feathers::controls::FeathersToolButton;
+use bevy::ui::Checked;
+use bevy_feathers::controls::{FeathersCheckbox, FeathersToolButton};
 use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::ThemeTextColor;
-use bevy_ui_widgets::Activate;
-use bevy_ui_widgets::{SliderRange, SliderValue};
+use bevy_ui_widgets::{Activate, SliderRange, SliderValue, ValueChange};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::render::points::{DEFAULT_POINT_PX, MAX_POINT_PX, MIN_POINT_PX, SourcePointSize};
 use crate::render::settings::SourceOpacity;
 use crate::source::DataSource;
-use crate::source::stack::SliceStack;
+use crate::source::stack::{SliceGrid, SliceStack};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
-use crate::view::{SelectedPanel, ShowsSource};
+use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
 use crate::widgets::{
-    Icon, SectionLevel, button_icon, caption, spawn_accordion, spawn_menu, spawn_slider,
+    Icon, SectionLevel, button_icon, button_text, caption, spawn_accordion, spawn_menu,
+    spawn_slider,
 };
 
 /// The opacity slider runs 0..100, so its built-in readout is a percentage.
@@ -58,6 +59,11 @@ pub struct SliceRow;
 /// The line naming which slice is showing.
 #[derive(Component, Clone, Default)]
 pub struct SliceReadout;
+
+/// The box that shows every slice of a stack at once, for a stack that can be
+/// laid out that way.
+#[derive(Component, Clone, Default)]
+pub struct SliceGridBox;
 
 /// A control that acts on the selected frame, and so has nothing to act on
 /// while none is selected.
@@ -181,6 +187,17 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     commands
         .entity(slice_slider)
         .insert((SliceSlider, SliceRow));
+    // Beside the paging it undoes: a step from the grid shows one slice, and
+    // this is the way back.
+    let grid_box = commands
+        .spawn_scene(bsn! {
+            @FeathersCheckbox {
+                @caption: { bsn_list![button_text("Show every slice")] }
+            }
+            BlocksFrameInput
+            SliceGridBox
+        })
+        .id();
 
     // Last, since how many rows it holds depends on the dataset.
     let channels = crate::ui::channels::spawn_channel_section(&mut commands);
@@ -193,8 +210,56 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         size_slider,
         slice_label,
         slice_slider,
+        grid_box,
         channels,
     ]);
+}
+
+/// Show the grid box for a stack that can be laid out every slice at once,
+/// ticked as the selected source is.
+pub fn sync_slice_grid(
+    mut commands: Commands,
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    grids: Query<&SliceGrid>,
+    mut boxes: Query<(Entity, &mut Node, Has<Checked>), With<SliceGridBox>>,
+) {
+    let grid =
+        crate::view::selected_source(&selected, &panels).and_then(|source| grids.get(source).ok());
+    for (entity, mut node, checked) in &mut boxes {
+        let display = if grid.is_some() {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != display {
+            node.display = display;
+        }
+        let Some(grid) = grid else { continue };
+        if grid.0 && !checked {
+            commands.entity(entity).insert(Checked);
+        } else if !grid.0 && checked {
+            commands.entity(entity).remove::<Checked>();
+        }
+    }
+}
+
+/// Write a tick of the grid box through to the selected source.
+pub fn on_slice_grid_toggled(
+    change: On<ValueChange<bool>>,
+    boxes: Query<(), With<SliceGridBox>>,
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    mut grids: Query<&mut SliceGrid>,
+) {
+    if !boxes.contains(change.source) {
+        return;
+    }
+    if let Some(source) = crate::view::selected_source(&selected, &panels)
+        && let Ok(mut grid) = grids.get_mut(source)
+    {
+        grid.set_if_neq(SliceGrid(change.value));
+    }
 }
 
 /// Point the paging control at the selected source's stack, and write it back.
@@ -365,10 +430,16 @@ pub struct ViewConfigPlugin;
 impl Plugin for ViewConfigPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_layout_button)
+            .add_observer(on_slice_grid_toggled)
             .add_systems(Update, rebuild_layout_menu.in_set(Stage::ControlsBuild))
             .add_systems(
                 Update,
-                (sync_opacity_slider, sync_point_size, sync_slice_slider)
+                (
+                    sync_opacity_slider,
+                    sync_point_size,
+                    sync_slice_slider,
+                    sync_slice_grid,
+                )
                     .chain()
                     .in_set(Stage::ControlsPlace),
             )
@@ -545,7 +616,7 @@ fn action_button(
             @FeathersToolButton {
                 @caption: { bsn_list![button_icon(icon)] }
             }
-            crate::view::BlocksFrameInput
+            BlocksFrameInput
             LayoutButton { panel: { panel }, action: { action } }
         })
         .id()

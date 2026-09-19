@@ -11,7 +11,9 @@
 //!
 //! Which slice the single mode shows is the source's [`SliceStack`], as it is
 //! for a volumetric image, so the frame's paging keys and the sidebar's slider
-//! step through sections without knowing they are not an image.
+//! step through sections without knowing they are not an image. Which mode it
+//! is in is the source's [`SliceGrid`], which the `G` key and the sidebar's
+//! checkbox both switch.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -27,7 +29,7 @@ use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::ViewLimits;
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::properties::{CellProperties, CellSelection};
-use crate::source::stack::SliceStack;
+use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::{self, DataSource, SourceBusy, SourceExtent, SourceStatus};
 use crate::view::ShowsSource;
 
@@ -273,56 +275,53 @@ impl SliceStreamer {
     }
 }
 
-/// `G` switches layout.
-pub fn slice_controls(
-    keys: Res<ButtonInput<KeyCode>>,
-    typing: Res<crate::view::TextEntryFocused>,
-    selected: Res<crate::view::SelectedPanel>,
-    panels: Query<&ShowsSource>,
-    mut streamers: Query<&mut SliceStreamer>,
-) {
-    if typing.0 || !keys.just_pressed(KeyCode::KeyG) {
-        return;
-    }
-    // The selected frame's sections and no other: two sectioned datasets open
-    // at once are switched one at a time, and the outline says which.
-    let Some(source) = crate::view::selected_source(&selected, &panels) else {
-        return;
-    };
-    if let Ok(mut streamer) = streamers.get_mut(source) {
-        streamer.mode = match streamer.mode {
-            SliceMode::Grid => SliceMode::Single,
-            SliceMode::Single => SliceMode::Grid,
-        };
-        streamer.refit = true;
-        info!(
-            "sections: {}",
-            match streamer.mode {
-                SliceMode::Grid => "showing every slice".to_string(),
-                SliceMode::Single => format!("showing slice {}", streamer.current + 1),
-            }
-        );
-    }
-}
-
 /// Show whichever slice the source's stack is on.
 ///
 /// Stepping in grid mode would be invisible, so a move there switches to the
 /// single slice it moved to.
 pub fn follow_slice_stack(
-    mut streamers: Query<(&SliceStack, &mut SliceStreamer), Changed<SliceStack>>,
+    mut streamers: Query<
+        (&SliceStack, Option<&mut SliceGrid>, &mut SliceStreamer),
+        Changed<SliceStack>,
+    >,
 ) {
-    for (stack, mut streamer) in &mut streamers {
+    for (stack, grid, mut streamer) in &mut streamers {
         let wanted = stack.current as usize;
         if streamer.current == wanted {
             continue;
         }
         streamer.current = wanted;
-        if streamer.mode == SliceMode::Grid {
-            streamer.mode = SliceMode::Single;
-            streamer.refit = true;
+        if let Some(mut grid) = grid
+            && grid.0
+        {
+            grid.0 = false;
         }
         info!("sections: showing {}", stack.label());
+    }
+}
+
+/// Lay the sections out as the source's [`SliceGrid`] says.
+pub fn follow_slice_grid(
+    mut streamers: Query<(&SliceGrid, &mut SliceStreamer), Changed<SliceGrid>>,
+) {
+    for (grid, mut streamer) in &mut streamers {
+        let wanted = if grid.0 {
+            SliceMode::Grid
+        } else {
+            SliceMode::Single
+        };
+        if streamer.mode == wanted {
+            continue;
+        }
+        streamer.mode = wanted;
+        streamer.refit = true;
+        info!(
+            "sections: {}",
+            match wanted {
+                SliceMode::Grid => "showing every slice".to_string(),
+                SliceMode::Single => format!("showing slice {}", streamer.current + 1),
+            }
+        );
     }
 }
 
@@ -636,8 +635,8 @@ impl Plugin for SlicesSystems {
             Update,
             (
                 apply_selection,
-                slice_controls,
                 follow_slice_stack,
+                follow_slice_grid,
                 select_slice_nodes,
                 spawn_slice_tasks,
                 collect_slice_tasks,
@@ -696,7 +695,7 @@ pub fn spawn_source(world: &mut World, cloud: Arc<Scatterbrain>, budget: usize) 
     // nothing to page with.
     let stack = SliceStack::new(cloud.slides.len() as u64);
     if stack.count > 1 {
-        world.entity_mut(source).insert(stack);
+        world.entity_mut(source).insert((stack, SliceGrid(true)));
     }
 
     let mut streamer = SliceStreamer::new(cloud, source);
@@ -823,8 +822,7 @@ fn report_status(
             "{} points in {} slices\n\
          {}\n\
          {}\n\
-         colour by  {}\n\
-         G grid/single · arrows or [ ] step slices",
+         colour by  {}",
             cloud.total_points(),
             cloud.slides.len(),
             showing,

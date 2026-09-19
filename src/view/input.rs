@@ -130,6 +130,25 @@ pub fn page_slice_stack(
     }
 }
 
+/// `G` shows every slice of the selected frame's stack at once, or one at a
+/// time, for a stack that can be laid out either way.
+pub fn toggle_slice_grid(
+    keys: Res<ButtonInput<KeyCode>>,
+    typing: Res<TextEntryFocused>,
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    mut grids: Query<&mut crate::source::stack::SliceGrid>,
+) {
+    if typing.0 || !keys.just_pressed(KeyCode::KeyG) {
+        return;
+    }
+    if let Some(source) = super::selected_source(&selected, &panels)
+        && let Ok(mut grid) = grids.get_mut(source)
+    {
+        grid.0 = !grid.0;
+    }
+}
+
 /// Marks interactive chrome that swallows pointer input before a frame sees it.
 ///
 /// Needed because chrome can overlap the grid — the sidebar's drag handle

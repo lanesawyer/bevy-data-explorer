@@ -538,7 +538,9 @@ specimens open side by side are paged one at a time. Nothing in the sidebar
 knows an image is what it is paging: the stack is a component on the source,
 the way a point size is, and any format that has one can offer it. A sectioned
 point cloud does, so its sections page the same way, and a step from the grid
-shows the slice it stepped to. A stack opens on its middle
+shows the slice it stepped to. Whether it shows every section at once is a
+second component beside the stack, which `G` and the **Show every slice** box
+under the slider both switch. A stack opens on its middle
 slice, since the first section of a block is usually empty and opening on it
 reads as a dataset that failed to load; `--z` names one instead.
 

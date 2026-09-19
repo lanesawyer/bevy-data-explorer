@@ -39,7 +39,10 @@ use chrome::{
     update_selection_border,
 };
 use grid::clear_color_for;
-use input::{page_slice_stack, panel_controls, probe_hover, reset_selected_view, track_text_focus};
+use input::{
+    page_slice_stack, panel_controls, probe_hover, reset_selected_view, toggle_slice_grid,
+    track_text_focus,
+};
 use requests::apply_panel_requests;
 
 // The grid's vocabulary, kept importable from `view` itself so that what a
@@ -240,7 +243,10 @@ impl Plugin for ViewPlugin {
             // Paging writes through to the source it pages, which is what every
             // other control does in this stage — and being here is what has the
             // new slice streaming the same frame it was asked for.
-            .add_systems(Update, page_slice_stack.in_set(Stage::ControlsApply))
+            .add_systems(
+                Update,
+                (page_slice_stack, toggle_slice_grid).in_set(Stage::ControlsApply),
+            )
             .add_systems(Update, probe_hover.in_set(Stage::HoverProbe))
             // After the sources, which is when each says whether it is fetching.
             .add_systems(Update, loading::update_loading_bars.in_set(Stage::Overlay))

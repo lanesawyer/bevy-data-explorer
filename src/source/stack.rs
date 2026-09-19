@@ -64,6 +64,15 @@ impl SliceStack {
     }
 }
 
+/// A stack that can also be laid out with every slice at once, and whether it
+/// is.
+///
+/// Sectioned point clouds offer it; a volumetric image does not, since its
+/// slices all sit in one place. Carried beside [`SliceStack`] so the frame's
+/// `G` key and the sidebar's checkbox switch it without knowing the format.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SliceGrid(pub bool);
+
 #[cfg(test)]
 mod tests {
     use super::*;
