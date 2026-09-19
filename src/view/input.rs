@@ -22,10 +22,11 @@ use crate::source::hover::HoverProbe;
 #[derive(Resource, Default)]
 pub struct TextEntryFocused(pub bool);
 
-/// Record whether what has focus is something being typed into.
+/// Record whether what has focus is something being typed into. Text that
+/// can only be selected is not.
 pub fn track_text_focus(
     focus: Res<InputFocus>,
-    editable: Query<(), With<EditableText>>,
+    editable: Query<(), (With<EditableText>, Without<crate::widgets::SelectableText>)>,
     mut captured: ResMut<TextEntryFocused>,
 ) {
     let wanted = focus.get().is_some_and(|entity| editable.contains(entity));

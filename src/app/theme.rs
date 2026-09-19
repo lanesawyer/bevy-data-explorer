@@ -147,10 +147,8 @@ pub struct Palette {
     /// A histogram bucket outside the chosen span: dimmed rather than hidden,
     /// so the shape of the whole distribution stays visible.
     pub bar_dim: Color,
-    /// A line reporting progress, one reporting something worth noticing, and
-    /// one reporting that something went wrong.
+    /// A line reporting progress, and one reporting that something went wrong.
     pub progress: Color,
-    pub caution: Color,
     pub problem: Color,
 }
 
@@ -178,7 +176,6 @@ impl Palette {
             thumb: Color::srgb(0.85, 0.89, 0.95),
             bar_dim: Color::srgb(0.22, 0.25, 0.31),
             progress: Color::srgb(0.70, 0.76, 0.85),
-            caution: Color::srgb(0.95, 0.76, 0.36),
             problem: Color::srgb(0.95, 0.48, 0.45),
         }
     }
@@ -206,7 +203,6 @@ impl Palette {
             progress: flip(dark.progress),
             // Amber and red mean the same thing in either theme, darkened to
             // hold their own against a pale background.
-            caution: Color::srgb(0.60, 0.40, 0.05),
             problem: Color::srgb(0.72, 0.16, 0.14),
         }
     }

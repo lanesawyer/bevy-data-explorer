@@ -17,6 +17,7 @@
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::log::BoxedLayer;
 use bevy::log::tracing::field::{Field, Visit};
@@ -32,6 +33,8 @@ pub const MAX_RECORDS: usize = 500;
 /// One line of the log.
 #[derive(Clone)]
 pub struct LogRecord {
+    /// When it was logged.
+    pub time: SystemTime,
     pub level: Level,
     /// The module that logged it, which is what says whether a warning is ours.
     pub target: String,
@@ -41,8 +44,30 @@ pub struct LogRecord {
 impl LogRecord {
     /// The line as it reads in the panel and in a copied report.
     pub fn line(&self) -> String {
-        format!("{:<5} {}  {}", self.level, self.target, self.message)
+        format!(
+            "{} {:<5} {}  {}",
+            clock(self.time),
+            self.level,
+            self.target,
+            self.message
+        )
     }
+}
+
+/// The time of day, to the millisecond, in UTC: what the terminal's log shows,
+/// so a line in a pasted report can be found in it.
+fn clock(time: SystemTime) -> String {
+    let millis = time
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis());
+    let of_day = millis % 86_400_000;
+    format!(
+        "{:02}:{:02}:{:02}.{:03}Z",
+        of_day / 3_600_000,
+        of_day / 60_000 % 60,
+        of_day / 1000 % 60,
+        of_day % 1000
+    )
 }
 
 #[derive(Default)]
@@ -160,6 +185,7 @@ impl<S: Subscriber> Layer<S> for TailLayer {
         };
         let metadata = event.metadata();
         self.0.push(LogRecord {
+            time: SystemTime::now(),
             level: *metadata.level(),
             target: visitor
                 .target
@@ -186,6 +212,7 @@ mod tests {
 
     fn record(message: &str) -> LogRecord {
         LogRecord {
+            time: SystemTime::now(),
             level: Level::INFO,
             target: "test".into(),
             message: message.into(),
@@ -216,6 +243,21 @@ mod tests {
         tail.push(record("y"));
         assert_eq!(tail.written(), before + 1);
         assert_eq!(tail.recent(usize::MAX).len(), MAX_RECORDS);
+    }
+
+    #[test]
+    fn a_line_starts_with_its_time_of_day_in_utc() {
+        let time = UNIX_EPOCH + std::time::Duration::from_millis(1_758_300_468_453);
+        assert_eq!(clock(time), "16:47:48.453Z");
+        let line = LogRecord {
+            time,
+            ..record("hello")
+        }
+        .line();
+        assert!(
+            line.starts_with("16:47:48.453Z INFO  test  hello"),
+            "{line}"
+        );
     }
 
     #[test]

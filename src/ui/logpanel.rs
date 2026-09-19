@@ -7,27 +7,32 @@
 //! explaining it is being read.
 //!
 //! The point of it is the **copy** button. A log a user can read is useful; a
-//! log they can paste into a message is what actually comes back.
+//! log they can paste into a message is what actually comes back. The text can
+//! also be selected, for copying just the lines that matter.
 //!
-//! The lines are rebuilt only when something has been logged, because the panel
-//! holds a few hundred text entities and a viewer streaming tiles logs nothing
-//! most frames.
+//! The text is rewritten only when something has been logged, since a viewer
+//! streaming tiles logs nothing most frames, and not while part of it is
+//! selected, which a rewrite would throw away. Being one selectable block, it
+//! is one color: the level at the start of each line is what marks a warning.
 
 use bevy::input::ButtonInput;
 use bevy::prelude::*;
+use bevy::text::EditableText;
 use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
-use bevy_feathers::theme::{ThemeBackgroundColor, UiTheme};
+use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::logs::LogTail;
 use crate::app::schedule::{Boot, Stage};
-use crate::app::theme::Palette;
 use crate::view::{BlocksFrameInput, FrameArea, TextEntryFocused};
-use crate::widgets::{AddDock, Dock, DockEdge, HANDLE_PX, Icon, button_icon, dock_handle};
+use crate::widgets::{
+    AddDock, Dock, DockEdge, HANDLE_PX, Icon, SelectableText, button_icon, dock_handle,
+    has_selection,
+};
 
 /// Height the panel opens at, before anyone has dragged it.
 const HEIGHT_PX: f32 = 240.0;
@@ -101,13 +106,13 @@ fn max_height(window_height: f32) -> f32 {
 #[derive(Component, Clone, Default)]
 pub struct LogPanelRoot;
 
-/// The scrolling body the lines are built into.
+/// The scrolling body the log's text sits in.
 #[derive(Component, Clone, Default)]
 pub struct LogPanelBody;
 
-/// One line of the log.
+/// The log's text, selectable.
 #[derive(Component, Clone, Default)]
-pub struct LogLine;
+pub struct LogText;
 
 /// Opens and closes the panel.
 #[derive(Component, Clone, Default)]
@@ -186,6 +191,18 @@ pub fn spawn_log_panel(mut commands: Commands) {
             }
         })
         .id();
+
+    let text = commands
+        .spawn_scene(bsn! {
+            LogText
+            SelectableText
+            EditableText { allow_newlines: true, cursor_width: 0.0 }
+            TextFont { font_size: { FontSize::Px(11.0) } }
+            ThemeTextColor({ tokens::TEXT_DIM })
+            Node { width: { Val::Percent(100.0) }, flex_shrink: { 0.0_f32 } }
+        })
+        .id();
+    commands.entity(body).add_child(text);
 
     commands.entity(root).add_children(&[header, body]);
 
@@ -300,55 +317,33 @@ pub fn place_log_panel(
     }
 }
 
-/// Rebuild the lines when the log has moved.
+/// Rewrite the text when the log has moved.
 pub fn rebuild_log_lines(
-    mut commands: Commands,
     mut panel: ResMut<LogPanel>,
     tail: Res<LogTail>,
-    palette: Res<Palette>,
-    theme: Res<UiTheme>,
-    body: Query<Entity, With<LogPanelBody>>,
-    existing: Query<Entity, With<LogLine>>,
+    mut texts: Query<&mut EditableText, With<LogText>>,
 ) {
-    let Ok(body) = body.single() else { return };
+    let Ok(mut text) = texts.single_mut() else {
+        return;
+    };
     let written = tail.written();
-    // Nothing is built while it is closed: the log goes on filling up and the
+    // Nothing is written while it is closed: the log goes on filling up and the
     // panel catches up the moment it is opened.
-    if !panel.open || (panel.shown == written && !palette.is_changed()) {
+    if !panel.open || panel.shown == written || has_selection(&text) {
         return;
     }
     panel.shown = written;
 
-    for entity in &existing {
-        commands.entity(entity).despawn();
-    }
-
-    let dim = theme.color(&tokens::TEXT_DIM);
     // Newest first. A log panel is opened to see what just happened, and the
     // newest line at the bottom of a scroll area is the one line nobody sees.
     // The copied report stays in the order things happened.
-    let lines: Vec<Entity> = tail
+    let lines: Vec<String> = tail
         .recent(SHOWN_LINES)
         .into_iter()
         .rev()
-        .map(|record| {
-            let color = match record.level {
-                bevy::log::Level::ERROR => palette.problem,
-                bevy::log::Level::WARN => palette.caution,
-                _ => dim,
-            };
-            let line = record.line();
-            commands
-                .spawn_scene(bsn! {
-                    LogLine
-                    Text({ line })
-                    TextFont { font_size: { FontSize::Px(11.0) } }
-                    TextColor({ color })
-                })
-                .id()
-        })
+        .map(|record| record.line())
         .collect();
-    commands.entity(body).add_children(&lines);
+    text.editor_mut().set_text(&lines.join("\n"));
 }
 
 /// Grey the copy button out when there is nothing to copy.

@@ -26,9 +26,11 @@ use bevy_ui_widgets::{Slider, SliderPrecision, TrackClick};
 
 mod dock;
 mod icons;
+mod selectable;
 
 pub use dock::{AddDock, Dock, DockEdge, HANDLE_PX, ResetDockSizes, dock_handle};
 pub use icons::{Icon, button_icon, icon_text};
+pub use selectable::{SelectableText, has_selection};
 
 use crate::app::schedule::Stage;
 use crate::view::BlocksFrameInput;
@@ -828,7 +830,7 @@ pub struct WidgetsPlugin;
 impl Plugin for WidgetsPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "assets/lucide.ttf");
-        app
+        app.add_plugins(selectable::SelectableTextPlugin)
             // Feathers' slider reports a value change but leaves writing it
             // back to the app; this observer is what closes that loop.
             .add_observer(bevy_ui_widgets::slider_self_update)
