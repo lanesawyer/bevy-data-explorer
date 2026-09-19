@@ -451,7 +451,8 @@ pub fn collect_slice_tasks(
             .map(|slide| (streamer.offset(slide), streamer.visible(slide)))
             .collect();
         let swapping = streamer.nodes.swapping();
-        let failed = streamer.nodes.collect(|key, mesh| {
+        let streamer = &mut *streamer;
+        let failed = streamer.nodes.collect(&streamer.selection, |key, mesh| {
             let (offset, visible) = placed[key.slide];
             commands
                 .spawn((
@@ -683,12 +684,13 @@ pub fn spawn_source(world: &mut World, cloud: Arc<Scatterbrain>, budget: usize) 
         // systems can write through a query rather than through commands.
         SourceHighlight::default(),
         HoverInfo::default(),
-        // Placeholder until a lookup service supplies the real value
+        // Placeholder until a catalog's service supplies the real value
         // labels; the column names and ids are the dataset's own.
         crate::formats::scatterbrain::placeholder_properties(
             &cloud.category_columns(),
             &cloud.numeric_columns(),
         ),
+        cloud.cell_columns(),
     ));
 
     // A dataset of one section has nothing to page through, and offers

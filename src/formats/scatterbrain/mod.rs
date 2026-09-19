@@ -22,7 +22,8 @@ pub mod nodes;
 use serde::Deserialize;
 
 use crate::source::properties::{
-    CellProperties, CellProperty, NumericRange, PropertyKind, PropertyValue,
+    CellColumn, CellColumns, CellProperties, CellProperty, NumericRange, PropertyKind,
+    PropertyValue,
 };
 
 /// Axis-aligned rectangle in dataset coordinates.
@@ -321,6 +322,23 @@ impl Scatterbrain {
             .collect()
     }
 
+    /// Every per-cell column but the coordinates, as a service is asked about
+    /// them.
+    pub fn cell_columns(&self) -> CellColumns {
+        let categorical = self.category_columns().into_iter().map(|a| (a, false));
+        let numeric = self.numeric_columns().into_iter().map(|a| (a, true));
+        CellColumns(
+            categorical
+                .chain(numeric)
+                .map(|(a, numeric)| CellColumn {
+                    id: a.name.clone(),
+                    name: a.description.clone(),
+                    numeric,
+                })
+                .collect(),
+        )
+    }
+
     /// Columns holding one float per point, such as confidence scores.
     ///
     /// The spatial column is also float, but holds a pair, which is what
@@ -483,11 +501,10 @@ const PLACEHOLDER_RANGES: bool = false;
 /// Stand-in properties built from a Scatterbrain's own categorical columns.
 ///
 /// The column names and identifiers are real, so colouring by a property works
-/// against the live data. The value labels are placeholders: the datasets store
-/// codes, and the names behind them come from a separate service that is not
-/// wired up yet. Replacing this with that lookup means writing
-/// [`CellProperties`] from wherever the answer arrives — nothing that reads it
-/// needs to change.
+/// against the live data. The value labels are placeholders: the files store
+/// codes, and the names behind them come from whichever service knows the
+/// dataset. A catalog that has one replaces these (see
+/// `catalog::cells`); a dataset no service knows keeps them.
 pub fn placeholder_properties(
     categorical: &[&PointAttribute],
     numeric: &[&PointAttribute],
@@ -505,6 +522,8 @@ pub fn placeholder_properties(
                     .map(|code| PropertyValue {
                         code: code as u16,
                         label: format!("{} {code}", column.description),
+                        colour: None,
+                        count: None,
                         selected: false,
                     })
                     .collect(),

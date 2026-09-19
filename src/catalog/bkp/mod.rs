@@ -6,11 +6,19 @@
 //! sectioned one for a dynamic grid. That is decided by reading the file, as
 //! with anything else, so nothing here depends on the visualization's type
 //! beyond the words shown beside it.
+//!
+//! Every entry also carries the platform's own description of the dataset's
+//! cells, from [`cells`], so a BKP dataset shows the labels, colours and counts
+//! the portal does rather than the codes its files hold.
+
+pub mod cells;
+
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use serde::Deserialize;
 
-use super::{Catalog, Entry};
+use super::{Catalog, CellService, Entry};
 
 pub const PRODUCTION: &str = "https://idf-api-prod.aibs-idk-prod.net/";
 
@@ -28,6 +36,10 @@ const QUERY: &str = "query($first: Int, $after: String) {
   bkpDatasets(first: $first, after: $after) {
     pageInfo { hasNextPage endCursor }
     nodes {
+      referenceId
+      projectReferenceId
+      dataCollectionReferenceId
+      version
       title
       shortTitle
       visualizations {
@@ -71,7 +83,7 @@ async fn list(endpoint: String) -> Result<Vec<Entry>, String> {
             "query": QUERY,
             "variables": { "first": PAGE, "after": after },
         });
-        let (page, next) = parse_page(&post(&endpoint, body.to_string()).await?)?;
+        let (page, next) = parse_page(&endpoint, &post(&endpoint, body.to_string()).await?)?;
         entries.extend(page);
         after = next;
         if after.is_none() {
@@ -140,6 +152,10 @@ struct PageInfo {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Dataset {
+    reference_id: String,
+    project_reference_id: String,
+    data_collection_reference_id: String,
+    version: String,
     title: String,
     short_title: String,
     visualizations: Vec<Visualization>,
@@ -154,7 +170,7 @@ struct Visualization {
 }
 
 /// One page's entries, and the cursor for the next page if there is one.
-fn parse_page(text: &str) -> Result<(Vec<Entry>, Option<String>), String> {
+fn parse_page(endpoint: &str, text: &str) -> Result<(Vec<Entry>, Option<String>), String> {
     let response: Response =
         serde_json::from_str(text).map_err(|e| format!("parsing BKP datasets: {e}"))?;
     if let Some(error) = response.errors.first() {
@@ -168,6 +184,13 @@ fn parse_page(text: &str) -> Result<(Vec<Entry>, Option<String>), String> {
     let mut entries = Vec::new();
     for dataset in connection.nodes {
         let several = dataset.visualizations.len() > 1;
+        let cells = CellService(Arc::new(cells::BkpCells {
+            endpoint: endpoint.to_string(),
+            dataset: dataset.reference_id,
+            project: dataset.project_reference_id,
+            collection: dataset.data_collection_reference_id,
+            version: dataset.version,
+        }));
         for visualization in dataset.visualizations {
             let Some(url) = visualization.url else {
                 continue;
@@ -182,6 +205,7 @@ fn parse_page(text: &str) -> Result<(Vec<Entry>, Option<String>), String> {
                 kind: describe(&visualization.typename).to_string(),
                 url,
                 keywords: format!("{} {}", dataset.title, visualization.title),
+                cells: Some(cells.clone()),
             });
         }
     }
@@ -210,10 +234,12 @@ mod tests {
     const PAGE_TEXT: &str = r#"{"data":{"bkpDatasets":{
         "pageInfo":{"hasNextPage":true,"endCursor":"NDk="},
         "nodes":[
-          {"title":"SEA-AD Caudate Head snRNA-seq Atlas","shortTitle":"SEA-AD CaH",
+          {"referenceId":"DATA","projectReferenceId":"PROJ","dataCollectionReferenceId":"COLL",
+           "version":"v0","title":"SEA-AD Caudate Head snRNA-seq Atlas","shortTitle":"SEA-AD CaH",
            "visualizations":[{"__typename":"Umap","title":"SEA-AD CaH UMAP",
              "url":"https://store/A/ScatterBrain.json"}]},
-          {"title":"Two views","shortTitle":"Both",
+          {"referenceId":"DATB","projectReferenceId":"PROJ","dataCollectionReferenceId":"COLL",
+           "version":"v1","title":"Two views","shortTitle":"Both",
            "visualizations":[
              {"__typename":"DynamicGrid","title":"Grid","url":"https://store/B/ScatterBrain.json"},
              {"__typename":"Umap","title":"UMAP","url":"https://store/C/ScatterBrain.json"}]}
@@ -221,26 +247,27 @@ mod tests {
 
     #[test]
     fn every_visualization_is_an_entry() {
-        let (entries, next) = parse_page(PAGE_TEXT).unwrap();
+        let (entries, next) = parse_page(PRODUCTION, PAGE_TEXT).unwrap();
         assert_eq!(next.as_deref(), Some("NDk="));
         let names: Vec<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
         assert_eq!(names, ["SEA-AD CaH", "Both · Grid", "Both · UMAP"]);
         assert_eq!(entries[0].kind, "UMAP");
         assert!(entries[0].keywords.contains("Caudate Head"));
         assert_eq!(entries[1].url, "https://store/B/ScatterBrain.json");
+        assert!(entries.iter().all(|entry| entry.cells.is_some()));
     }
 
     #[test]
     fn the_last_page_has_no_cursor_to_follow() {
         let text = PAGE_TEXT.replace("\"hasNextPage\":true", "\"hasNextPage\":false");
-        assert_eq!(parse_page(&text).unwrap().1, None);
+        assert_eq!(parse_page(PRODUCTION, &text).unwrap().1, None);
     }
 
     #[test]
     fn an_error_from_the_api_is_reported_rather_than_listed_as_nothing() {
         let text = r#"{"errors":[{"message":"The maximum allowed items per page were exceeded."}],
                        "data":{"bkpDatasets":null}}"#;
-        let error = parse_page(text).err().unwrap();
+        let error = parse_page(PRODUCTION, text).err().unwrap();
         assert!(error.contains("maximum allowed items"));
     }
 

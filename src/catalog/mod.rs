@@ -6,19 +6,30 @@
 //! a format nothing about catalogs: adding either touches only its own module
 //! and the line in `main` that registers it.
 //!
+//! An entry may also name a service that knows the dataset's cells better than
+//! its files do — their labels, colours and counts. Whichever way the dataset
+//! was then opened, [`cells`] finds its entry by address and asks. Datasets no
+//! catalog vouches for, the built-in examples among them, keep what their files
+//! say.
+//!
 //! Catalogs are listed asynchronously. The built-in examples answer at once;
 //! one read over the network lands whenever it does. Each keeps its own slot,
 //! in registration order, so a slow catalog never reorders one listed before
 //! it, and a failed one costs only its own entries.
 
 pub mod bkp;
+pub mod cells;
 pub mod examples;
+
+use std::sync::Arc;
 
 use bevy::prelude::*;
 use futures::future::BoxFuture;
 
 use crate::app::net::{Fetching, fetching};
 use crate::app::schedule::Stage;
+use crate::source::properties::{CellColumns, CellProperties};
+use crate::source::{DataSource, SourceUrl};
 
 /// One dataset a catalog offers.
 #[derive(Clone, Debug)]
@@ -30,6 +41,36 @@ pub struct Entry {
     /// Further words to find it by, such as the full title a short name
     /// abbreviates.
     pub keywords: String,
+    /// Who to ask about its cells, if anyone knows more than the files.
+    pub cells: Option<CellService>,
+}
+
+/// How many cells hold each value, by property id and then by code.
+pub type CellCounts = Vec<(String, Vec<(u16, u64)>)>;
+
+/// A service that knows a dataset's cells better than its files do: what its
+/// codes are called, which colour each is drawn in, which properties are worth
+/// showing and in what order, and how many cells hold each value.
+pub trait DescribeCells: Send + Sync + 'static {
+    /// Properties for the columns the files hold. A column the service does
+    /// not know is left out or hidden; one the files lack is never offered,
+    /// since there would be nothing to read.
+    fn describe(&self, columns: CellColumns) -> BoxFuture<'static, Result<CellProperties, String>>;
+
+    /// How many cells hold each value of each categorical property. Asked
+    /// separately because it is far slower, and the labels are worth showing
+    /// before it answers.
+    fn count(&self, properties: &CellProperties) -> BoxFuture<'static, Result<CellCounts, String>>;
+}
+
+/// A shared [`DescribeCells`], cheap to clone onto every entry it serves.
+#[derive(Clone)]
+pub struct CellService(pub Arc<dyn DescribeCells>);
+
+impl std::fmt::Debug for CellService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CellService")
+    }
 }
 
 /// Somewhere datasets are listed.
@@ -81,6 +122,22 @@ impl Catalogs {
     /// a list rebuilt from these can tell from this alone that it is stale.
     pub fn len(&self) -> usize {
         self.slots.iter().map(|slot| slot.entries.len()).sum()
+    }
+
+    /// The entry listed at `url`, with the name of the catalog listing it.
+    pub fn find(&self, url: &str) -> Option<(&str, &Entry)> {
+        self.slots.iter().find_map(|slot| {
+            slot.entries
+                .iter()
+                .find(|entry| entry.url == url)
+                .map(|entry| (slot.name.as_str(), entry))
+        })
+    }
+
+    /// Whether any catalog has yet to answer, so an address found in none of
+    /// them may still turn up.
+    pub fn listing(&self) -> bool {
+        self.slots.iter().any(|slot| slot.listing.is_some())
     }
 
     /// Every entry not open yet, with the name of the catalog it came from.
@@ -139,13 +196,45 @@ pub struct CatalogPlugin;
 
 impl Plugin for CatalogPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Catalogs>()
-            .add_systems(Update, take_listings.in_set(Stage::Catalogs));
+        app.init_resource::<Catalogs>().add_systems(
+            Update,
+            (take_listings, name_sources, cells::ask, cells::take_answers)
+                .chain()
+                .in_set(Stage::Catalogs),
+        );
+    }
+}
+
+/// Marks a source whose name no catalog has left to settle.
+#[derive(Component)]
+pub struct Named;
+
+/// Name each source a catalog lists the way the catalog does.
+///
+/// A format can only name a dataset from its address, which for a Scatterbrain
+/// file is a reference id; the catalog it came from has the title people know
+/// it by.
+fn name_sources(
+    mut commands: Commands,
+    catalogs: Res<Catalogs>,
+    mut sources: Query<(Entity, &SourceUrl, &mut DataSource), Without<Named>>,
+) {
+    for (entity, url, mut source) in &mut sources {
+        match catalogs.find(&url.0) {
+            Some((_, entry)) => {
+                if source.name != entry.name {
+                    source.name = entry.name.clone();
+                }
+            }
+            None if catalogs.listing() => continue,
+            None => {}
+        }
+        commands.entity(entity).insert(Named);
     }
 }
 
 fn take_listings(mut catalogs: ResMut<Catalogs>) {
-    if catalogs.slots.iter().any(|slot| slot.listing.is_some()) {
+    if catalogs.listing() {
         catalogs.take_listings();
     }
 }
@@ -171,6 +260,7 @@ mod tests {
                     kind: String::new(),
                     url: url.to_string(),
                     keywords: String::new(),
+                    cells: None,
                 })
                 .collect();
             Box::pin(async move { Ok(entries) })
@@ -179,7 +269,7 @@ mod tests {
 
     fn listed(catalogs: &mut Catalogs) {
         let started = Instant::now();
-        while catalogs.slots.iter().any(|slot| slot.listing.is_some()) {
+        while catalogs.listing() {
             assert!(started.elapsed() < Duration::from_secs(2));
             catalogs.take_listings();
             std::thread::sleep(Duration::from_millis(5));
@@ -203,5 +293,18 @@ mod tests {
         let (id, name, _) = catalogs.unopened(&[]).last().unwrap();
         assert_eq!(name, "second");
         assert_eq!(catalogs.get(id).unwrap().url, "c");
+    }
+
+    #[test]
+    fn an_address_is_found_in_whichever_catalog_lists_it() {
+        let mut catalogs = Catalogs::default();
+        catalogs.add(Fixed("first", vec!["a"]));
+        catalogs.add(Fixed("second", vec!["c"]));
+        assert!(catalogs.listing());
+        listed(&mut catalogs);
+
+        assert!(!catalogs.listing());
+        assert_eq!(catalogs.find("c").map(|(name, _)| name), Some("second"));
+        assert!(catalogs.find("z").is_none());
     }
 }

@@ -1,10 +1,11 @@
 //! Categorical properties of a point cloud's cells.
 //!
 //! A source advertises properties by carrying [`CellProperties`]. Nothing here
-//! knows where they came from: they are filled in from the dataset's own
-//! metadata today, and an HTTP lookup against a separate service can replace
-//! that without the sidebar or the streamers changing, because both read the
-//! component rather than the source of it.
+//! knows where they came from: a format fills them in from the dataset's own
+//! metadata, and a service that knows the dataset — the catalog it was listed
+//! in — can replace them with real labels, colours and counts without the
+//! sidebar or the streamers changing, because both read the component rather
+//! than the source of it. [`Provenance`] records which of those it was.
 //!
 //! Each property offers two things: colouring points by it, and filtering
 //! points down to a chosen set of its values.
@@ -19,6 +20,11 @@ pub struct PropertyValue {
     /// The code stored in the dataset's column for this value.
     pub code: u16,
     pub label: String,
+    /// The colour the dataset's publisher gives this value, if it gives one.
+    /// Values without one are coloured by [`default_colour`].
+    pub colour: Option<Color>,
+    /// How many cells in the whole dataset hold this value, once known.
+    pub count: Option<u64>,
     /// Whether this value has been picked out as a filter.
     ///
     /// Nothing picked means the property filters nothing and every point is
@@ -155,6 +161,10 @@ impl CellProperty {
         }
     }
 
+    pub fn is_categorical(&self) -> bool {
+        matches!(self.kind, PropertyKind::Categorical(_))
+    }
+
     pub fn values(&self) -> &[PropertyValue] {
         match &self.kind {
             PropertyKind::Categorical(values) => values,
@@ -230,6 +240,36 @@ pub enum PropertyState {
     Failed(String),
 }
 
+/// Where a source's properties came from, so the panel can say whether its
+/// labels are the publisher's or stand-ins.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum Provenance {
+    /// Read from the dataset's own files, which hold codes but not their names.
+    #[default]
+    Files,
+    /// A service is being asked; what is shown meanwhile is from the files.
+    Fetching(String),
+    /// Supplied by the named service.
+    Service(String),
+    /// The named service was asked and failed, so the files' version stands.
+    Unavailable { service: String, error: String },
+}
+
+/// The columns a dataset holds for its cells, as its own files describe them.
+///
+/// What a service is asked to describe. It knows more about the dataset than
+/// the files do, but only the files say which columns can actually be read.
+#[derive(Component, Debug, Clone, Default)]
+pub struct CellColumns(pub Vec<CellColumn>);
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CellColumn {
+    pub id: String,
+    pub name: String,
+    /// One float per cell rather than one categorical code.
+    pub numeric: bool,
+}
+
 /// The properties a source offers, and what is currently being done with them.
 #[derive(Component, Debug, Clone, Default)]
 pub struct CellProperties {
@@ -237,23 +277,36 @@ pub struct CellProperties {
     /// Index into `properties` of the one points are coloured by.
     pub colour_by: Option<usize>,
     pub state: PropertyState,
+    pub provenance: Provenance,
 }
 
 impl CellProperties {
+    /// Colouring starts on the first listed categorical property: points are
+    /// coloured by code, and a numeric column holds none.
     pub fn ready(properties: Vec<CellProperty>) -> Self {
-        let colour_by = properties.iter().position(|property| property.shown);
+        let colour_by = properties
+            .iter()
+            .position(|property| property.shown && property.is_categorical());
         CellProperties {
             properties,
             colour_by,
             state: PropertyState::Ready,
+            provenance: Provenance::Files,
         }
     }
 
-    /// What the streamers need in order to draw: the column to colour by, and
-    /// the columns that restrict which points are drawn at all.
-    ///
-    /// Properties that exclude nothing are left out, so an untouched panel
-    /// costs no extra fetching.
+    /// Colour by the property with this id, if it is one that can colour.
+    pub fn colour_by_id(&mut self, id: &str) {
+        if let Some(index) = self
+            .properties
+            .iter()
+            .position(|property| property.id == id && property.is_categorical())
+        {
+            self.colour_by = Some(index);
+            self.properties[index].shown = true;
+        }
+    }
+
     /// Total filters applied across every property, for the control that
     /// clears them.
     pub fn applied(&self) -> usize {
@@ -263,9 +316,8 @@ impl CellProperties {
     /// How to name a code of the column points are currently coloured by: the
     /// property's name, and the label for that value.
     ///
-    /// Datasets store codes and the names behind them come from a service that
-    /// is not wired up yet, so a code with no label names itself rather than
-    /// showing nothing.
+    /// A code with no label — the files hold codes, and not every dataset has a
+    /// service naming them — names itself rather than showing nothing.
     pub fn colour_label(&self, code: u16) -> (String, String) {
         let Some(property) = self.colour_by.and_then(|index| self.properties.get(index)) else {
             return ("value".into(), code.to_string());
@@ -309,12 +361,17 @@ impl CellProperties {
         }
     }
 
+    /// What the streamers need in order to draw: the column to colour by and
+    /// the colours of its codes, and the columns that restrict which points
+    /// are drawn at all.
+    ///
+    /// Properties that exclude nothing are left out, so an untouched panel
+    /// costs no extra fetching.
     pub fn selection(&self) -> CellSelection {
+        let colouring = self.colour_by.and_then(|index| self.properties.get(index));
         CellSelection {
-            colour_by: self
-                .colour_by
-                .and_then(|index| self.properties.get(index))
-                .map(|property| property.id.clone()),
+            colour_by: colouring.map(|property| property.id.clone()),
+            palette: colouring.map(palette_of).unwrap_or_default(),
             filters: self
                 .properties
                 .iter()
@@ -325,6 +382,43 @@ impl CellProperties {
     }
 }
 
+/// A repeating categorical palette, for values nobody has chosen a colour for.
+/// Codes are label indices with no inherent order, so hues are spread by a
+/// golden-ratio step to keep neighbouring codes visually distinct.
+pub fn default_colour(code: u16) -> Color {
+    let hue = (f32::from(code) * 137.507_76) % 360.0;
+    Color::hsl(hue, 0.72, 0.62)
+}
+
+impl PropertyValue {
+    /// The colour points holding this value are drawn in.
+    pub fn swatch(&self) -> Color {
+        self.colour.unwrap_or_else(|| default_colour(self.code))
+    }
+}
+
+/// Linear colours indexed by code, or nothing when no value carries a colour of
+/// its own and the default palette says it all.
+fn palette_of(property: &CellProperty) -> Vec<[f32; 4]> {
+    let values = property.values();
+    if values.iter().all(|value| value.colour.is_none()) {
+        return Vec::new();
+    }
+    let len = values.iter().map(|value| usize::from(value.code) + 1).max();
+    let mut palette: Vec<[f32; 4]> = (0..len.unwrap_or(0))
+        .map(|code| linear(default_colour(code as u16)))
+        .collect();
+    for value in values {
+        palette[usize::from(value.code)] = linear(value.swatch());
+    }
+    palette
+}
+
+fn linear(colour: Color) -> [f32; 4] {
+    let colour = colour.to_linear();
+    [colour.red, colour.green, colour.blue, 1.0]
+}
+
 /// The part of [`CellProperties`] that affects what is drawn.
 ///
 /// Compared between frames to decide whether resident points have to be built
@@ -332,10 +426,21 @@ impl CellProperties {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CellSelection {
     pub colour_by: Option<String>,
+    /// Linear colour per code of `colour_by`. Empty, or too short for a code,
+    /// means that code takes [`default_colour`].
+    pub palette: Vec<[f32; 4]>,
     pub filters: Vec<(String, Restriction)>,
 }
 
 impl CellSelection {
+    /// The linear colour a point with this code is drawn in.
+    pub fn colour(&self, code: u16) -> [f32; 4] {
+        self.palette
+            .get(usize::from(code))
+            .copied()
+            .unwrap_or_else(|| linear(default_colour(code)))
+    }
+
     /// Whether a point survives the filters, given its value in each filtered
     /// column in the same order as `filters`.
     pub fn admits(&self, values: &[f32]) -> bool {
@@ -361,6 +466,8 @@ mod tests {
                     .map(|code| PropertyValue {
                         code: *code,
                         label: format!("value {code}"),
+                        colour: None,
+                        count: None,
                         selected: false,
                     })
                     .collect(),

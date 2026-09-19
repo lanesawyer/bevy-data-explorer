@@ -246,7 +246,8 @@ pub fn collect_node_tasks(
         } else {
             Visibility::Inherited
         };
-        let failed = streamer.nodes.collect(|_, mesh| {
+        let streamer = &mut *streamer;
+        let failed = streamer.nodes.collect(&streamer.selection, |_, mesh| {
             commands
                 .spawn((
                     Mesh2d(meshes.add(mesh)),
@@ -375,12 +376,13 @@ pub fn spawn_source(
         // and so can leave them untouched when nothing has changed.
         SourceHighlight::default(),
         HoverInfo::default(),
-        // Placeholder until a lookup service supplies the real value
+        // Placeholder until a catalog's service supplies the real value
         // labels; the column names and ids are the dataset's own.
         crate::formats::scatterbrain::placeholder_properties(
             &cloud.category_columns(),
             &cloud.numeric_columns(),
         ),
+        cloud.cell_columns(),
     ));
 
     let mut streamer = PointStreamer::new(cloud, source);
@@ -718,6 +720,8 @@ mod tests {
             kind: PropertyKind::Categorical(vec![PropertyValue {
                 code: 2,
                 label: "L2/3 IT".into(),
+                colour: None,
+                count: None,
                 selected: false,
             }]),
         }]);

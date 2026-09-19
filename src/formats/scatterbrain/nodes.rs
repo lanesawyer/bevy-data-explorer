@@ -225,9 +225,14 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
         }
     }
 
-    /// Build what finished reads delivered, spawning each node with points
-    /// through `spawn`, and return the reads that failed.
-    pub fn collect(&mut self, mut spawn: impl FnMut(K, Mesh) -> Entity) -> Vec<(K, String)> {
+    /// Build what finished reads delivered, coloured as `selection` says,
+    /// spawning each node with points through `spawn`, and return the reads
+    /// that failed.
+    pub fn collect(
+        &mut self,
+        selection: &CellSelection,
+        mut spawn: impl FnMut(K, Mesh) -> Entity,
+    ) -> Vec<(K, String)> {
         let mut finished = Vec::new();
         for (key, slot) in &mut self.slots {
             if let Slot::Loading(task) = slot
@@ -240,7 +245,7 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
 
         finished
             .into_iter()
-            .filter_map(|(key, outcome)| self.land(key, outcome, &mut spawn))
+            .filter_map(|(key, outcome)| self.land(key, outcome, selection, &mut spawn))
             .collect()
     }
 
@@ -249,6 +254,7 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
         &mut self,
         key: K,
         outcome: NodeOutcome,
+        selection: &CellSelection,
         spawn: impl FnOnce(K, Mesh) -> Entity,
     ) -> Option<(K, String)> {
         let mut failed = None;
@@ -261,7 +267,7 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
             NodeOutcome::Ready(positions, _) if positions.is_empty() => Slot::Empty,
             NodeOutcome::Ready(positions, categories) => {
                 let points = positions.len();
-                let entity = spawn(key, build_mesh(&positions, &categories));
+                let entity = spawn(key, build_mesh(&positions, &categories, selection));
                 self.resident_points += points;
                 Slot::Ready {
                     entity,
@@ -285,7 +291,9 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
     /// is done with resident nodes.
     #[cfg(test)]
     pub fn landed(&mut self, key: K, outcome: NodeOutcome) {
-        self.land(key, outcome, |_, _| Entity::PLACEHOLDER);
+        self.land(key, outcome, &CellSelection::default(), |_, _| {
+            Entity::PLACEHOLDER
+        });
     }
 
     /// Drop resident nodes no longer wanted, deepest first, until the points
@@ -429,16 +437,17 @@ async fn fetch(url: &str) -> Result<Vec<u8>, String> {
     crate::app::net::fetch(url).await
 }
 
-/// Build a node's mesh, colouring each point by its category.
+/// Build a node's mesh, colouring each point by its category in the colours
+/// `selection` gives them.
 ///
 /// Each point is a quad for the point shader to size; see
 /// [`build_point_mesh`].
-pub fn build_mesh(positions: &[[f32; 2]], categories: &[u16]) -> Mesh {
+pub fn build_mesh(positions: &[[f32; 2]], categories: &[u16], selection: &CellSelection) -> Mesh {
     let points: Vec<Vec2> = positions.iter().map(|p| Vec2::new(p[0], p[1])).collect();
 
     let coloured = categories.len() == positions.len();
     let colours: Vec<[f32; 4]> = if coloured {
-        categories.iter().map(|c| category_colour(*c)).collect()
+        categories.iter().map(|c| selection.colour(*c)).collect()
     } else {
         vec![[0.8, 0.85, 0.9, 1.0]; positions.len()]
     };
@@ -447,15 +456,6 @@ pub fn build_mesh(positions: &[[f32; 2]], categories: &[u16]) -> Mesh {
     // the rest sharing it. Without a colour-by column there are no groups to
     // pick out, and the mesh says so by carrying none.
     build_point_mesh(&points, &colours, if coloured { categories } else { &[] })
-}
-
-/// A repeating categorical palette. Categories here are label indices with no
-/// inherent order, so hues are spread by a golden-ratio step to keep
-/// neighbouring indices visually distinct.
-pub fn category_colour(category: u16) -> [f32; 4] {
-    let hue = (f32::from(category) * 137.507_76) % 360.0;
-    let colour = Color::hsl(hue, 0.72, 0.62).to_linear();
-    [colour.red, colour.green, colour.blue, 1.0]
 }
 
 #[cfg(test)]
@@ -525,8 +525,9 @@ mod tests {
     #[test]
     fn categories_get_distinguishable_colours() {
         // Adjacent label indices are unrelated, so they must not look alike.
-        let a = category_colour(0);
-        let b = category_colour(1);
+        let selection = CellSelection::default();
+        let a = selection.colour(0);
+        let b = selection.colour(1);
         let distance: f32 = (0..3).map(|i| (a[i] - b[i]).abs()).sum();
         assert!(distance > 0.2, "neighbouring categories look too similar");
         assert_eq!(a[3], 1.0);
@@ -534,7 +535,7 @@ mod tests {
 
     #[test]
     fn a_mesh_without_categories_still_builds() {
-        let mesh = build_mesh(&[[0.0, 0.0], [1.0, 1.0]], &[]);
+        let mesh = build_mesh(&[[0.0, 0.0], [1.0, 1.0]], &[], &CellSelection::default());
         // Four vertices per point: each is drawn as a quad so that it can be
         // given a size.
         assert_eq!(mesh.count_vertices(), 8);
@@ -546,11 +547,22 @@ mod tests {
 
     #[test]
     fn meshes_flip_y_to_match_the_image_panel() {
-        let mesh = build_mesh(&[[2.0, 3.0]], &[]);
+        let mesh = build_mesh(&[[2.0, 3.0]], &[], &CellSelection::default());
         let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap();
         let bevy::mesh::VertexAttributeValues::Float32x3(values) = positions else {
             panic!("unexpected position format");
         };
         assert_eq!(values[0], [2.0, -3.0, 0.0]);
+    }
+
+    #[test]
+    fn a_publisher_colour_is_the_one_drawn() {
+        let selection = CellSelection {
+            palette: vec![[1.0, 0.0, 0.0, 1.0]],
+            ..default()
+        };
+        assert_eq!(selection.colour(0), [1.0, 0.0, 0.0, 1.0]);
+        // A code past the palette falls back rather than going unpainted.
+        assert_eq!(selection.colour(1), CellSelection::default().colour(1));
     }
 }

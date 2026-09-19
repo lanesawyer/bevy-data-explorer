@@ -11,20 +11,27 @@
 //! The section is rebuilt whenever the selected source's properties change, so
 //! a lookup that fills them in later — over HTTP, from whatever service knows
 //! the labels — needs no cooperation from this module.
+//!
+//! Each value shows the colour its points are drawn in and, once a service has
+//! counted them, how many cells hold it.
 
 use bevy::prelude::*;
 use bevy::ui::Checked;
 use bevy_feathers::controls::{ButtonVariant, FeathersCheckbox};
 use bevy_feathers::display::label_dim;
 use bevy_feathers::font_styles::InheritableFont;
+use bevy_feathers::theme::ThemeTextColor;
+use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ValueChange};
 
 pub mod range;
 pub mod visibility;
 
 use crate::app::schedule::{Boot, Stage};
-use crate::source::DataSource;
-use crate::source::properties::{CellProperties, CellProperty, PropertyKind, PropertyState};
+use crate::source::properties::{
+    CellProperties, CellProperty, PropertyKind, PropertyState, Provenance,
+};
+use crate::source::{DataSource, compact_count};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
 use crate::widgets::{
@@ -70,8 +77,23 @@ pub struct ValueCheckbox {
     pub value: usize,
 }
 
+/// The count beside one value, filled in once a service has counted it.
+#[derive(Component, Clone, Default)]
+pub struct ValueCount {
+    pub property: usize,
+    pub value: usize,
+}
+
 /// Below the view configuration, which applies to every source.
 const SECTION_ORDER: u32 = 20;
+
+/// The most values listed under one property. A whole-brain taxonomy has
+/// thousands of clusters, and a checkbox apiece makes the sidebar crawl while
+/// being too long to find anything in; its coarser levels are the way in.
+const MAX_VALUE_ROWS: usize = 300;
+
+/// Size of the small print: counts, and the note under a truncated list.
+const SMALL_PX: f32 = 11.0;
 
 pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
     let Ok(parent) = content.single() else { return };
@@ -114,7 +136,7 @@ pub fn rebuild_cell_panel(
     mut section: Query<&mut Node, With<CellPanel>>,
     existing: Query<Entity, With<CellPanelContent>>,
     open: Res<OpenSections>,
-    mut shown: Local<Option<(Entity, Vec<String>)>>,
+    mut shown: Local<Option<(Entity, Vec<String>, Provenance)>>,
 ) {
     let Ok(body) = body.single() else { return };
 
@@ -146,13 +168,17 @@ pub fn rebuild_cell_panel(
     // existing entities instead, because rebuilding respawns every checkbox and
     // Feathers draws a checkbox's mark before its styling system has had a
     // frame to hide it, which reads as every box flashing ticked.
-    let fingerprint: (Entity, Vec<String>) = (
+    //
+    // Where the labels came from is part of it: a service's answer can name
+    // the same columns as the placeholders it replaces, with other labels.
+    let fingerprint = (
         entity,
         properties
             .properties
             .iter()
             .map(|property| property.id.clone())
             .collect(),
+        properties.provenance.clone(),
     );
     if shown.as_ref() == Some(&fingerprint) {
         return;
@@ -215,35 +241,90 @@ pub fn rebuild_cell_panel(
             .entity(clear)
             .insert(ClearPropertyButton { property: index });
 
-        let button = spawn_header_button(&mut commands, sub.header, Icon::Palette);
-        commands
-            .entity(button)
-            .insert(ColourByButton { property: index });
-        if colouring {
-            commands.entity(button).insert(ButtonVariant::Primary);
+        // Points are coloured by code, and a numeric column has none.
+        if property.is_categorical() {
+            let button = spawn_header_button(&mut commands, sub.header, Icon::Palette);
+            commands
+                .entity(button)
+                .insert(ColourByButton { property: index });
+            if colouring {
+                commands.entity(button).insert(ButtonVariant::Primary);
+            }
         }
 
         let rows = match &property.kind {
-            PropertyKind::Categorical(values) => values
-                .iter()
-                .enumerate()
-                .map(|(position, value)| {
-                    let caption = value.label.clone();
-                    let row = commands
-                        .spawn_scene(bsn! {
-                            @FeathersCheckbox {
-                                @caption: { bsn_list![button_text(caption)] }
-                            }
-                            BlocksFrameInput
-                            ValueCheckbox { property: { index }, value: { position } }
-                        })
-                        .id();
-                    if value.selected {
-                        commands.entity(row).insert(Checked);
-                    }
-                    row
-                })
-                .collect(),
+            PropertyKind::Categorical(values) => {
+                let mut rows: Vec<Entity> = values
+                    .iter()
+                    .take(MAX_VALUE_ROWS)
+                    .enumerate()
+                    .map(|(position, value)| {
+                        let caption = value.label.clone();
+                        let swatch = value.swatch();
+                        let count = value.count.map(compact_count).unwrap_or_default();
+                        let checkbox = commands
+                            .spawn_scene(bsn! {
+                                @FeathersCheckbox {
+                                    @caption: { bsn_list![
+                                        (
+                                            Node {
+                                                width: { Val::Px(10.0) },
+                                                height: { Val::Px(10.0) },
+                                                flex_shrink: { 0.0_f32 },
+                                                border_radius: { BorderRadius::all(Val::Px(2.0)) },
+                                            }
+                                            // The value's own colour, not a theme's:
+                                            // it is what its points are painted in.
+                                            BackgroundColor({ swatch })
+                                        ),
+                                        button_text(caption),
+                                    ] }
+                                }
+                                Node { flex_shrink: { 1.0_f32 }, min_width: { Val::ZERO } }
+                                BlocksFrameInput
+                                ValueCheckbox { property: { index }, value: { position } }
+                            })
+                            .id();
+                        if value.selected {
+                            commands.entity(checkbox).insert(Checked);
+                        }
+                        let count = commands
+                            .spawn_scene(bsn! {
+                                Text({ count })
+                                TextFont { font_size: { FontSize::Px(SMALL_PX) } }
+                                ThemeTextColor({ tokens::TEXT_DIM })
+                                Node { flex_shrink: { 0.0_f32 } }
+                                ValueCount { property: { index }, value: { position } }
+                            })
+                            .id();
+                        commands
+                            .spawn(Node {
+                                width: Val::Percent(100.0),
+                                align_items: AlignItems::Center,
+                                justify_content: JustifyContent::SpaceBetween,
+                                column_gap: Val::Px(6.0),
+                                ..default()
+                            })
+                            .add_children(&[checkbox, count])
+                            .id()
+                    })
+                    .collect();
+                if values.len() > MAX_VALUE_ROWS {
+                    let more = format!(
+                        "and {} more; filter by a coarser level to reach them",
+                        values.len() - MAX_VALUE_ROWS
+                    );
+                    rows.push(
+                        commands
+                            .spawn_scene(bsn! {
+                                label_dim(more)
+                                TextFont { font_size: { FontSize::Px(SMALL_PX) } }
+                            })
+                            .id(),
+                    );
+                }
+                rows
+            }
             PropertyKind::Numeric(range) => {
                 vec![range::spawn_range_control(
                     &mut commands,
@@ -277,6 +358,13 @@ pub fn on_colour_by(
     else {
         return;
     };
+    if !properties
+        .properties
+        .get(button.property)
+        .is_some_and(CellProperty::is_categorical)
+    {
+        return;
+    }
     properties.colour_by = Some(button.property);
     if let Some(property) = properties.properties.get(button.property) {
         info!("colouring by {}", property.name);
@@ -399,16 +487,17 @@ pub fn on_clear_all(
     );
 }
 
-/// Show the clear controls only when they have something to clear, and keep
-/// the count on the section's own button.
+/// Show the clear controls only when they have something to clear.
+///
+/// Both are the icon alone. A count used to be written into the section's
+/// button, but into every `Text` under it — the icon's glyph among them, which
+/// then drew the words in the icon font as a row of unrelated icons.
 pub fn update_clear_buttons(
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     sources: Query<&CellProperties>,
     mut per_property: Query<(&ClearPropertyButton, &mut Node), Without<ClearAllButton>>,
-    mut clear_all: Query<(Entity, &mut Node), (With<ClearAllButton>, Without<ClearPropertyButton>)>,
-    children: Query<&Children>,
-    mut texts: Query<&mut Text>,
+    mut clear_all: Query<&mut Node, (With<ClearAllButton>, Without<ClearPropertyButton>)>,
 ) {
     let properties = selected
         .0
@@ -430,7 +519,7 @@ pub fn update_clear_buttons(
     }
 
     let total = properties.map_or(0, CellProperties::applied);
-    for (entity, mut node) in &mut clear_all {
+    for mut node in &mut clear_all {
         let wanted = if total > 0 {
             Display::Flex
         } else {
@@ -438,20 +527,6 @@ pub fn update_clear_buttons(
         };
         if node.display != wanted {
             node.display = wanted;
-        }
-        if total == 0 {
-            continue;
-        }
-        let label = format!(
-            "Clear {total} {}",
-            if total == 1 { "filter" } else { "filters" }
-        );
-        for child in children.iter_descendants(entity) {
-            if let Ok(mut text) = texts.get_mut(child)
-                && text.0 != label
-            {
-                text.0 = label.clone();
-            }
         }
     }
 }
@@ -469,6 +544,7 @@ pub fn update_property_controls(
     sources: Query<&CellProperties>,
     boxes: Query<(Entity, &ValueCheckbox, Has<Checked>)>,
     mut colours: Query<(&ColourByButton, &mut ButtonVariant)>,
+    mut counts: Query<(&ValueCount, &mut Text)>,
 ) {
     let Some(properties) = selected
         .0
@@ -491,6 +567,21 @@ pub fn update_property_controls(
             commands.entity(entity).insert(Checked);
         } else {
             commands.entity(entity).remove::<Checked>();
+        }
+    }
+
+    // Counts arrive seconds after the labels, and are written in rather than
+    // rebuilt for, for the same reason the ticks are.
+    for (count, mut text) in &mut counts {
+        let wanted = properties
+            .properties
+            .get(count.property)
+            .and_then(|property| property.values().get(count.value))
+            .and_then(|value| value.count)
+            .map(compact_count)
+            .unwrap_or_default();
+        if text.0 != wanted {
+            text.0 = wanted;
         }
     }
 

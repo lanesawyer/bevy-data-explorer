@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
-use bevy_ui_widgets::Activate;
+use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::ThemeMode;
@@ -196,11 +196,18 @@ fn spawn_sidebar(mut commands: Commands) {
             ),
             (
                 SidebarContent
+                // Takes whatever the title and footer leave and scrolls within
+                // it, so tall sections never push the footer off the window.
+                // The zero minimum is what lets it shrink below its contents.
+                ScrollArea
                 Node {
                     flex_direction: { FlexDirection::Column },
                     width: { Val::Percent(100.0) },
+                    flex_grow: { 1.0_f32 },
+                    flex_shrink: { 1.0_f32 },
+                    min_height: { Val::ZERO },
                     row_gap: { Val::Px(6.0) },
-                    overflow: { Overflow::clip() },
+                    overflow: { Overflow::scroll_y() },
                 }
             ),
             (

@@ -105,18 +105,31 @@ ticked, and excluded points are dropped as a node is built rather than hidden
 afterwards, so they cost no vertices.
 
 The properties themselves are a plain component on the source entity, so
-nothing that reads them knows where they came from. They are built from the
-dataset's own column list today — real names and identifiers, so colouring
-works against live data, with placeholder value labels. A lookup against
-whatever service knows the real ones replaces that by writing the same
-component.
+nothing that reads them knows where they came from. A format builds them from
+the dataset's own column list — real names and identifiers, so colouring works
+against live data, with placeholder value labels, since the files hold codes
+and not what they stand for.
 
-No numeric property is offered yet, so the range control above describes
-something you will not currently see. A categorical placeholder invents only
-the labels, over codes that are the dataset's own; a numeric one would have to
-invent the bounds and the whole histogram, and a span chosen against that
-filters by numbers that came from nowhere. The control, the filtering and their
-tests all stay — what is missing is the measurement, not the code.
+A catalog entry can name a service that knows better, and a source whose
+address a catalog lists is described by it however it was opened. The Brain
+Knowledge Platform does this for every dataset it lists: its GraphQL API gives
+the properties the portal shows and in what order, which of them are levels of
+one taxonomy (listed together, coarsest first), the property the portal colours
+by first, each value's label and colour, and each numeric column's extent and
+histogram. Points are then drawn in the platform's colours, and each value
+carries a swatch. How many cells hold each value takes the API seconds to
+count, so the counts are asked for once the labels are showing and written in
+beside them when they land. A dataset any catalog lists also takes the catalog's
+name for it in place of the reference id its address gives. The built-in
+examples keep what their files say about their cells, even where
+the platform also knows them, because no catalog vouches for their addresses.
+
+Numeric properties are offered only when a service gives their extent and
+histogram. A categorical placeholder invents only the labels, over codes that
+are the dataset's own; a numeric one would have to invent the bounds and the
+whole histogram, and a span chosen against that filters by numbers that came
+from nowhere. Points are coloured by code, so a numeric property filters but
+does not colour.
 
 The sidebar holds accordions. They are generic containers — a title, an open
 flag, and whatever children a caller hangs off the body — because which

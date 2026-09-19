@@ -20,6 +20,9 @@ impl Catalog for Examples {
                 kind: example.kind.to_string(),
                 url: example.url.to_string(),
                 keywords: String::new(),
+                // The examples are read for what their files hold, whoever
+                // else may know them.
+                cells: None,
             })
             .collect();
         Box::pin(async move { Ok(entries) })
