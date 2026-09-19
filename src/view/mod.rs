@@ -40,8 +40,8 @@ use chrome::{
 };
 use grid::clear_color_for;
 use input::{
-    page_slice_stack, panel_controls, probe_hover, reset_selected_view, toggle_slice_grid,
-    track_text_focus,
+    page_slice_stack, panel_controls, probe_hover, reset_selected_view, toggle_channels,
+    toggle_slice_grid, track_text_focus,
 };
 use requests::apply_panel_requests;
 
@@ -232,7 +232,7 @@ impl Plugin for ViewPlugin {
             // new slice streaming the same frame it was asked for.
             .add_systems(
                 Update,
-                (page_slice_stack, toggle_slice_grid).in_set(Stage::ControlsApply),
+                (page_slice_stack, toggle_slice_grid, toggle_channels).in_set(Stage::ControlsApply),
             )
             .add_systems(Update, probe_hover.in_set(Stage::HoverProbe))
             // After the sources, which is when each says whether it is fetching.

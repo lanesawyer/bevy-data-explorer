@@ -429,7 +429,6 @@ impl Plugin for ImageSystems {
                 collect_tile_tasks,
                 evict_tiles,
                 update_tile_visibility,
-                toggle_channels,
                 apply_channels,
                 volume::request_volumes,
                 volume::request_detail,
@@ -577,53 +576,6 @@ fn pixel_in(level: &dataset::Level, world: Vec2) -> Option<(u64, u64)> {
         return None;
     }
     Some((x as u64, y as u64))
-}
-
-/// Number keys toggle channels.
-///
-/// Written to the source's channel settings, the same place the sidebar's
-/// checkboxes write, so the two always agree; [`apply_channels`] turns either
-/// into what is drawn.
-fn toggle_channels(
-    keys: Res<ButtonInput<KeyCode>>,
-    typing: Res<crate::view::TextEntryFocused>,
-    selected: Res<crate::view::SelectedPanel>,
-    panels: Query<&ShowsSource>,
-    mut sources: Query<&mut SourceChannels, With<TileStreamer>>,
-) {
-    // A digit typed into a URL is a digit, not a channel.
-    if typing.0 {
-        return;
-    }
-    // The selected frame's image and no other. With two images open, a digit
-    // that reached both would toggle a channel on the one nobody was looking
-    // at, and there would be nothing on screen to say it had happened.
-    let Some(source) = crate::view::selected_source(&selected, &panels) else {
-        return;
-    };
-    const DIGITS: [KeyCode; 9] = [
-        KeyCode::Digit1,
-        KeyCode::Digit2,
-        KeyCode::Digit3,
-        KeyCode::Digit4,
-        KeyCode::Digit5,
-        KeyCode::Digit6,
-        KeyCode::Digit7,
-        KeyCode::Digit8,
-        KeyCode::Digit9,
-    ];
-    let Some(index) = DIGITS.iter().position(|key| keys.just_pressed(*key)) else {
-        return;
-    };
-    if let Ok(mut channels) = sources.get_mut(source)
-        && let Some(shown) = channels.toggle(index)
-    {
-        info!(
-            "{} the {} channel",
-            if shown { "showing" } else { "hiding" },
-            channels.channels[index].label
-        );
-    }
 }
 
 /// The channels to composite with: the dataset's own, as `settings` show them.

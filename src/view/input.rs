@@ -8,6 +8,7 @@ use bevy::text::EditableText;
 
 use super::grid::{Drag, active_panel, panel_under_cursor, within_frames};
 use super::{FrameArea, Panel, SelectedPanel};
+use crate::source::channels::SourceChannels;
 use crate::source::hover::HoverProbe;
 use crate::source::{ShowsSource, ViewLimits};
 use crate::widgets::BlocksFrameInput;
@@ -148,6 +149,53 @@ pub fn toggle_slice_grid(
         && let Ok(mut grid) = grids.get_mut(source)
     {
         grid.0 = !grid.0;
+    }
+}
+
+/// Number keys toggle channels.
+///
+/// Written to the source's channel settings, the same place the sidebar's
+/// checkboxes write, so the two always agree, and the source turns either
+/// into what is drawn.
+pub fn toggle_channels(
+    keys: Res<ButtonInput<KeyCode>>,
+    typing: Res<TextEntryFocused>,
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    mut sources: Query<&mut SourceChannels>,
+) {
+    // A digit typed into a URL is a digit, not a channel.
+    if typing.0 {
+        return;
+    }
+    // The selected frame's image and no other. With two images open, a digit
+    // that reached both would toggle a channel on the one nobody was looking
+    // at, and there would be nothing on screen to say it had happened.
+    let Some(source) = super::selected_source(&selected, &panels) else {
+        return;
+    };
+    const DIGITS: [KeyCode; 9] = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+    ];
+    let Some(index) = DIGITS.iter().position(|key| keys.just_pressed(*key)) else {
+        return;
+    };
+    if let Ok(mut channels) = sources.get_mut(source)
+        && let Some(shown) = channels.toggle(index)
+    {
+        info!(
+            "{} the {} channel",
+            if shown { "showing" } else { "hiding" },
+            channels.channels[index].label
+        );
     }
 }
 
