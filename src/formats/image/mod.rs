@@ -719,7 +719,7 @@ fn report_status(
         }
         let mut stacked = stacks
             .get(streamer.source)
-            .map(|stack| format!("{}, PgUp/PgDn to page\n", stack.label()))
+            .map(|stack| format!("{}\n", stack.label()))
             .unwrap_or_default();
         if let Some(line) = volumes
             .get(streamer.source)
@@ -735,23 +735,10 @@ fn report_status(
         let dataset = streamer.dataset();
         let level = &dataset.levels[streamer.active_level];
 
-        let channels = streamer
-            .channels
-            .iter()
-            .enumerate()
-            .map(|(i, c)| {
-                let mark = if c.active { '*' } else { ' ' };
-                format!("{}{}:{}", mark, i + 1, c.label)
-            })
-            .collect::<Vec<_>>()
-            .join("  ");
-
         status.0 = format!(
             "{stacked}\
          level {}/{}  ({} x {} px, {:.4} {}/px)\n\
-         {}\n\
-         channels  {}\n\
-         1-9 toggle channel",
+         {}",
             streamer.active_level,
             dataset.levels.len() - 1,
             level.width,
@@ -759,7 +746,6 @@ fn report_status(
             level.scale_x,
             dataset.unit,
             streamer.tiles.status(),
-            channels,
         );
     }
 }

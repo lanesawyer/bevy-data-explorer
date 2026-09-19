@@ -429,11 +429,10 @@ async fn fetch(url: &str) -> Result<Vec<u8>, String> {
     crate::app::net::fetch(url).await
 }
 
-/// Build a point-list mesh, colouring each point by its category.
+/// Build a node's mesh, colouring each point by its category.
 ///
-/// One vertex per point keeps a multi-million point cloud affordable; the
-/// trade-off is that the hardware draws each as a single pixel, so there is no
-/// point-size control without a custom shader.
+/// Each point is a quad for the point shader to size; see
+/// [`build_point_mesh`].
 pub fn build_mesh(positions: &[[f32; 2]], categories: &[u16]) -> Mesh {
     let points: Vec<Vec2> = positions.iter().map(|p| Vec2::new(p[0], p[1])).collect();
 
