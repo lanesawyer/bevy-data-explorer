@@ -34,7 +34,7 @@ use crate::formats::discover::{self, Discovered};
 use crate::formats::{LoadSettings, spawn_discovered};
 use crate::source::SourceUrl;
 use crate::view::{BlocksFrameInput, DatasetRequest, DatasetTarget, PendingShow};
-use crate::widgets::button_text;
+use crate::widgets::{button_text, field_well};
 
 /// The field a URL is typed into. On the inner text entity, which is the one
 /// holding the [`EditableText`], rather than on its container.
@@ -193,6 +193,13 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
                 row_gap: { Val::Px(4.0) },
                 margin: { UiRect::top(Val::Px(10.0)) },
             }
+        })
+        .id();
+    // The field and what it is for are set apart in a well, which is what
+    // lets the field show against the menu or the empty window around it.
+    let well = commands
+        .spawn_scene(bsn! {
+            field_well()
             Children [
                 (
                     label("Custom visualization")
@@ -254,7 +261,8 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
         })
         .id();
 
-    commands.entity(section).add_children(&[row, status]);
+    commands.entity(well).add_child(row);
+    commands.entity(section).add_children(&[well, status]);
     section
 }
 

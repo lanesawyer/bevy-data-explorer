@@ -40,7 +40,7 @@ use super::overlay::{ChoiceAction, PanelTitle, SourceChoice};
 use super::{BlocksFrameInput, FrameLayers, LayerOf, MAX_PANELS, Panel, ShowsSource};
 use crate::catalog::Catalogs;
 use crate::source::{DataSource, SourceUrl};
-use crate::widgets::{MENU_WIDTH, button_text, truncate_to_width};
+use crate::widgets::{MENU_WIDTH, button_text, field_well, truncate_to_width};
 
 /// Where a picker puts what is chosen from it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -209,7 +209,10 @@ pub fn spawn_dataset_picker(commands: &mut Commands, target: PickerTarget) -> En
         })
         .id();
 
-    commands.entity(picker).add_children(&[entry, list]);
+    // The field would not show against the menu on its own.
+    let well = commands.spawn_scene(field_well()).id();
+    commands.entity(well).add_child(entry);
+    commands.entity(picker).add_children(&[well, list]);
     picker
 }
 

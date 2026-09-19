@@ -18,7 +18,7 @@ use bevy_feathers::controls::{ButtonVariant, FeathersButton, FeathersSlider, Fea
 use bevy_feathers::display::{label, label_dim};
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::rounded_corners::RoundedCorners;
-use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
+use bevy_feathers::theme::{ThemeBackgroundColor, ThemeBorderColor, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
 use bevy_ui_widgets::ScrollArea;
@@ -88,6 +88,11 @@ impl Default for AccordionBody {
     }
 }
 
+/// The border drawn over a header, rounded to match it as the section opens and
+/// closes.
+#[derive(Component, Clone, Default)]
+pub struct AccordionOutline;
+
 /// The caret drawn in a header, which turns as the section opens.
 #[derive(Component, Clone, Default)]
 pub struct AccordionCaret;
@@ -126,16 +131,25 @@ pub fn spawn_accordion(
 
     // The two containers differ only in their tokens, but a scene is a type
     // rather than a value, so each level spawns its own. What is patched over
-    // them is the same: room for the controls at the end of a header, and a
-    // clip so a long title cannot push them out of it.
+    // them is the same:
+    //
+    // - No border or padding, so the toggle fills the header and its hover
+    //   reaches every edge. `update_accordions` makes room at the end once a
+    //   control is added there. The border is drawn over the toggle instead,
+    //   by an outline spawned after it: a toggle inside a border was placed
+    //   in whole physical pixels while the border was not, and at a
+    //   fractional scale factor the hover stopped a pixel short of it on the
+    //   right and bottom.
+    // - A clip, so a long title cannot push those controls out.
     let header = match level {
         SectionLevel::Pane => commands
             .spawn_scene(bsn! {
                 pane_header()
                 Node {
                     width: { Val::Percent(100.0) },
-                    padding: { UiRect::right(Val::Px(4.0)) },
+                    padding: { UiRect::ZERO },
                     column_gap: { Val::Px(4.0) },
+                    border: { UiRect::ZERO },
                     border_radius: { header_corners(open).to_border_radius(CORNER_PX) },
                     overflow: { Overflow::clip() },
                 }
@@ -147,8 +161,9 @@ pub fn spawn_accordion(
                 group_header()
                 Node {
                     width: { Val::Percent(100.0) },
-                    padding: { UiRect::right(Val::Px(4.0)) },
+                    padding: { UiRect::ZERO },
                     column_gap: { Val::Px(4.0) },
+                    border: { UiRect::ZERO },
                     border_radius: { header_corners(open).to_border_radius(CORNER_PX) },
                     overflow: { Overflow::clip() },
                 }
@@ -173,7 +188,11 @@ pub fn spawn_accordion(
                 flex_shrink: { 1.0_f32 },
                 min_width: { Val::Px(0.0) },
                 overflow: { Overflow::clip() },
-                height: { Val::Percent(100.0) },
+                // Stretched to the header's height rather than Feathers' row
+                // height, so the hover fills it top to bottom.
+                height: { Val::Auto },
+                align_self: { AlignSelf::Stretch },
+                border_radius: { header_corners(open).to_border_radius(CORNER_PX) },
                 align_items: { AlignItems::Center },
                 justify_content: { JustifyContent::Start },
                 column_gap: { Val::Px(6.0) },
@@ -200,11 +219,41 @@ pub fn spawn_accordion(
             ]
         })
         .id();
-    commands.entity(header).add_child(toggle);
+    // All round, where Feathers leaves the bottom open for the body to close:
+    // a closed section has no body showing. It stays when the section opens,
+    // as a rule under the header, since one that came and went changed the
+    // header's height and shifted everything under it on every toggle.
+    let border = match level {
+        SectionLevel::Pane => tokens::PANE_HEADER_BORDER,
+        SectionLevel::Group => tokens::GROUP_HEADER_BORDER,
+    };
+    let outline = commands
+        .spawn_scene(bsn! {
+            AccordionOutline
+            Node {
+                position_type: { PositionType::Absolute },
+                left: { Val::Px(0.0) },
+                right: { Val::Px(0.0) },
+                top: { Val::Px(0.0) },
+                bottom: { Val::Px(0.0) },
+                border: { UiRect::all(Val::Px(1.0)) },
+                border_radius: { header_corners(open).to_border_radius(CORNER_PX) },
+            }
+            ThemeBorderColor({ border })
+            template_value(Pickable::IGNORE)
+        })
+        .id();
+    commands.entity(header).add_children(&[toggle, outline]);
 
     let body = match level {
         SectionLevel::Pane => {
-            commands.spawn_scene(bsn! { pane_body() {body_patch(accordion, open)} })
+            commands.spawn_scene(bsn! {
+                pane_body()
+                {body_patch(accordion, open)}
+                // Feathers' pane body has no border of its own, which left an
+                // open pane's box without sides or a bottom under its header.
+                ThemeBorderColor({ tokens::PANE_HEADER_BORDER })
+            })
         }
         SectionLevel::Group => {
             commands.spawn_scene(bsn! { group_body() {body_patch(accordion, open)} })
@@ -537,6 +586,7 @@ fn body_patch(accordion: Entity, open: bool) -> impl Scene {
             display: { body_display(open) },
             width: { Val::Percent(100.0) },
             row_gap: { Val::Px(6.0) },
+            border: { UiRect::new(Val::Px(1.0), Val::Px(1.0), Val::Px(0.0), Val::Px(1.0)) },
             padding: { UiRect::new(
                 Val::Px(ACCORDION_INDENT),
                 Val::Px(2.0),
@@ -554,6 +604,17 @@ fn header_corners(open: bool) -> RoundedCorners {
         RoundedCorners::Top
     } else {
         RoundedCorners::All
+    }
+}
+
+/// Space kept at the end of a header, only once a control besides the toggle
+/// is in it. With none there the toggle runs to the edge, so its hover is even
+/// on both sides.
+fn header_padding(controls: usize) -> UiRect {
+    if controls > 0 {
+        UiRect::right(Val::Px(4.0))
+    } else {
+        UiRect::ZERO
     }
 }
 
@@ -590,7 +651,9 @@ pub fn toggle_accordions(
 pub fn update_accordions(
     accordions: Query<&Accordion>,
     mut bodies: Query<(&AccordionBody, &mut Node)>,
-    headers: Query<(&AccordionHeader, &ChildOf, &Children)>,
+    headers: Query<(Entity, &AccordionHeader, &ChildOf, &Children)>,
+    siblings: Query<&Children, Without<AccordionHeader>>,
+    outlines: Query<(), With<AccordionOutline>>,
     mut containers: Query<&mut Node, Without<AccordionBody>>,
     carets: Query<Entity, With<AccordionCaret>>,
     mut texts: Query<&mut Text>,
@@ -603,14 +666,30 @@ pub fn update_accordions(
         }
     }
 
-    for (header, parent, children) in &headers {
+    for (toggle, header, parent, children) in &headers {
         let open = accordions.get(header.accordion).is_ok_and(|a| a.open);
-        // The container the toggle sits in is what carries the container's
-        // corners; a closed section has no body under it to finish the box.
+        // The container, the toggle filling it and the outline over both all
+        // round the same corners; a closed section has no body under it to
+        // finish the box.
+        let corners = header_corners(open).to_border_radius(CORNER_PX);
+        let beside = siblings.get(parent.parent()).ok();
+        let outline = beside.and_then(|c| c.iter().find(|e| outlines.contains(*e)));
+        for entity in [Some(parent.parent()), Some(toggle), outline]
+            .into_iter()
+            .flatten()
+        {
+            if let Ok(mut node) = containers.get_mut(entity)
+                && node.border_radius != corners
+            {
+                node.border_radius = corners;
+            }
+        }
+        // Everything in the header but the toggle and its outline is a control.
+        let controls = beside.map_or(0, |c| c.len().saturating_sub(2));
         if let Ok(mut node) = containers.get_mut(parent.parent()) {
-            let wanted = header_corners(open).to_border_radius(CORNER_PX);
-            if node.border_radius != wanted {
-                node.border_radius = wanted;
+            let wanted = header_padding(controls);
+            if node.padding != wanted {
+                node.padding = wanted;
             }
         }
         for child in children.iter() {
@@ -677,6 +756,26 @@ pub fn button_text(text: impl Into<String>) -> impl Scene {
     bsn! {
         label(text)
         ThemeTextColor({ tokens::BUTTON_TEXT })
+    }
+}
+
+/// A box to set text fields in.
+///
+/// Feathers fills a field with the same grey as a pane's body and a menu, so
+/// a field placed straight in either could not be seen. It is drawn to sit in
+/// a group, a step lighter, and this is that group's body standing alone.
+pub fn field_well() -> impl Scene {
+    bsn! {
+        Node {
+            flex_direction: { FlexDirection::Column },
+            width: { Val::Percent(100.0) },
+            row_gap: { Val::Px(4.0) },
+            padding: { UiRect::all(Val::Px(6.0)) },
+            border: { UiRect::all(Val::Px(1.0)) },
+            border_radius: { BorderRadius::all(Val::Px(CORNER_PX)) },
+        }
+        ThemeBackgroundColor({ tokens::GROUP_BODY_BG })
+        ThemeBorderColor({ tokens::GROUP_BODY_BORDER })
     }
 }
 
@@ -802,6 +901,12 @@ mod tests {
         assert_eq!(open.top_left, Val::Px(CORNER_PX));
         assert_eq!(closed.bottom_left, Val::Px(CORNER_PX));
         assert_eq!(closed.top_left, Val::Px(CORNER_PX));
+    }
+
+    #[test]
+    fn a_header_with_only_its_toggle_leaves_no_gap_at_the_end() {
+        assert_eq!(header_padding(0), UiRect::ZERO);
+        assert_eq!(header_padding(1).right, Val::Px(4.0));
     }
 
     #[test]

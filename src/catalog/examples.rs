@@ -36,9 +36,11 @@ impl Catalog for Examples {
 /// dataset picker offers once something is already open.
 ///
 /// Every one of them is offered in both places. They differ in more than kind —
-/// a Zarr v2 store against a v3 one, a flat image against a stack of sections,
-/// a single cloud against a sectioned one — so picking one per kind to show
-/// would hide exactly the differences worth opening them for.
+/// a Zarr v2 store against a v3 one, a flat image against a stack of sections
+/// — so picking one per kind to show would hide exactly the differences worth
+/// opening them for. Scatterbrain files are not among them: every one worth
+/// showing is a Brain Knowledge Platform visualization, and those are offered
+/// from [`super::bkp::EXAMPLES`] where the platform describes their cells.
 pub struct Example {
     pub name: &'static str,
     /// What kind of dataset it is, in the words shown beside it.
@@ -46,26 +48,11 @@ pub struct Example {
     pub url: &'static str,
 }
 
-pub const EXAMPLES: [Example; 8] = [
+pub const EXAMPLES: [Example; 5] = [
     Example {
         name: "Epifluorescence whole slide",
         kind: "OME-Zarr image",
         url: "https://h301-scanning-802451596237-us-west-2.s3.us-west-2.amazonaws.com/2402091625/ome_zarr_conversion/1458501514.zarr/",
-    },
-    Example {
-        name: "Whole mouse brain cells",
-        kind: "Scatterbrain point cloud",
-        url: "https://d2o7sc91n904vd.cloudfront.net/wmb_tenx_01172024_stage-20240128193624/G4I4GFJXJB9ATZ3PTX1/ScatterBrain.json",
-    },
-    Example {
-        name: "Imputed genes, 53 sections",
-        kind: "Scatterbrain sections",
-        url: "https://d2o7sc91n904vd.cloudfront.net/bkppg-sfs-stage-wmb-imputed-genes-20240918212918/VFOFYPFQGRKUDQUZ3FF/ScatterBrain.json",
-    },
-    Example {
-        name: "SEA-AD mapped cells",
-        kind: "Scatterbrain point cloud",
-        url: "https://d2o7sc91n904vd.cloudfront.net/bkppg-sfs-stage-mjff-updates-03262025-20250403032833/839TIB6YQVFHZSGX401/ScatterBrain.json",
     },
     Example {
         name: "Epifluorescence, Zarr v2",

@@ -18,6 +18,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 
+use super::examples::Example;
 use super::{Catalog, CellService, Entry};
 
 pub const PRODUCTION: &str = "https://idf-api-prod.aibs-idk-prod.net/";
@@ -52,6 +53,51 @@ const QUERY: &str = "query($first: Int, $after: String) {
     }
   }
 }";
+
+/// Visualizations from the platform worth opening first, one or two of each
+/// kind it has: a UMAP, a coronal and a sagittal grid, and grids of sections.
+///
+/// Written at their production addresses, which are the ones the catalog
+/// lists, so each is matched to its entry and shows the platform's labels and
+/// colors — and, for the imputed genes, its gene search — once the listing
+/// lands.
+pub const EXAMPLES: [Example; 7] = [
+    Example {
+        name: "Whole mouse brain, 10x scRNA-seq",
+        kind: "UMAP",
+        url: "https://bkp-2d-visualizations.s3.amazonaws.com/wmb_tenx_02082024-20240220165404/G4I4GFJXJB9ATZ3PTX1/ScatterBrain.json",
+    },
+    Example {
+        name: "SEA-AD snRNA-seq, MTG and DLPFC",
+        kind: "UMAP",
+        url: "https://bkp-2d-visualizations.s3.amazonaws.com/bkppg-sfs-prod-sea-ad-tenx-updated-and-reingested-20250725-v2-20250728232258/98JE3Z1ILSDCIEMA6LQ/ScatterBrain.json",
+    },
+    Example {
+        name: "Developing mouse visual cortex",
+        kind: "UMAP",
+        url: "https://bkp-2d-visualizations.s3.amazonaws.com/bkppg-abca-prod-dev-mouse-051826-20260518194401/592FE9657CFF611153/ScatterBrain.json",
+    },
+    Example {
+        name: "Zhuang-ABCA-1 MERFISH",
+        kind: "Coronal grid",
+        url: "https://bkp-2d-visualizations.s3.amazonaws.com/zhuang1_01262024-20240216212536/MGA5LUTH4ETM859L5IM/ScatterBrain.json",
+    },
+    Example {
+        name: "Zhuang-ABCA-3 MERFISH",
+        kind: "Sagittal grid",
+        url: "https://bkp-2d-visualizations.s3.amazonaws.com/zhuang3_01262024-20240216223831/040LTKC6FZ4NDT2ADYB/ScatterBrain.json",
+    },
+    Example {
+        name: "MERFISH with imputed genes",
+        kind: "Grid of sections",
+        url: "https://bkp-2d-visualizations.s3.amazonaws.com/bkppg-sfs-prod-wmb-imputed-genes-20240926234907/6MT7UC6ETYECBWF50PK/ScatterBrain.json",
+    },
+    Example {
+        name: "Human basal ganglia spatial atlas",
+        kind: "Grid of sections",
+        url: "https://bkp-2d-visualizations.s3.amazonaws.com/bkppg-sfs-prod-hmba_bg_spatial_human_10012025-20251011165634/HZEYXSQOEDND2Q6M97M/ScatterBrain.json",
+    },
+];
 
 pub struct Bkp {
     endpoint: String,
@@ -269,6 +315,51 @@ mod tests {
                        "data":{"bkpDatasets":null}}"#;
         let error = parse_page(PRODUCTION, text).err().unwrap();
         assert!(error.contains("maximum allowed items"));
+    }
+
+    #[test]
+    fn the_examples_show_several_kinds_of_visualization() {
+        let mut kinds: Vec<&str> = EXAMPLES.iter().map(|example| example.kind).collect();
+        kinds.sort_unstable();
+        kinds.dedup();
+        assert!(kinds.len() >= 3, "{kinds:?}");
+    }
+
+    #[test]
+    fn no_example_is_offered_twice() {
+        let mut urls: Vec<&str> = EXAMPLES
+            .iter()
+            .chain(&super::super::examples::EXAMPLES)
+            .map(|example| example.url)
+            .collect();
+        let count = urls.len();
+        urls.sort_unstable();
+        urls.dedup();
+        assert_eq!(urls.len(), count);
+    }
+
+    #[test]
+    #[ignore = "reads every example from the live store"]
+    fn every_example_is_recognised() {
+        for example in &EXAMPLES {
+            let found = crate::app::net::block_on(crate::formats::discover::discover(example.url));
+            assert!(found.is_ok(), "{}: {}", example.name, found.err().unwrap());
+        }
+    }
+
+    #[test]
+    #[ignore = "reads the live BKP API"]
+    fn every_example_is_still_listed() {
+        // An example is a BKP dataset only while the catalog lists its exact
+        // address: that is what names it and describes its cells and genes. A
+        // re-ingest moves a visualization to a new address, and this is what
+        // notices.
+        let entries = crate::app::net::block_on(list(PRODUCTION.to_string())).unwrap();
+        for example in &EXAMPLES {
+            let entry = entries.iter().find(|entry| entry.url == example.url);
+            assert!(entry.is_some(), "{} is no longer listed", example.name);
+            assert!(entry.unwrap().cells.is_some());
+        }
     }
 
     #[test]

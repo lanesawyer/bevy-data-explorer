@@ -2,8 +2,9 @@
 //!
 //! Nothing is loaded at startup any more, so the frame area would otherwise be
 //! a cleared rectangle with no way into the app. This fills it: what the viewer
-//! is for, every dataset it knows the address of, the same URL field the
-//! sidebar carries, for anything else, and who made it.
+//! is for, every dataset it knows the address of — the Brain Knowledge
+//! Platform's beside the rest — the same URL field the sidebar carries, for
+//! anything else, and who made it.
 //!
 //! It is UI rather than frame chrome, but it is placed against
 //! [`FrameArea`] like the chrome is, so the docks take their space off it
@@ -20,7 +21,8 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::schedule::{Boot, Stage};
-use crate::catalog::examples::EXAMPLES;
+use crate::catalog::bkp;
+use crate::catalog::examples::{EXAMPLES, Example};
 use crate::ui::addsource::spawn_custom_section;
 use crate::ui::help::{AUTHOR, LICENSE, LICENSE_URL, REPOSITORY};
 use crate::view::{BlocksFrameInput, FrameArea, Panel};
@@ -30,15 +32,19 @@ use crate::widgets::{Icon, button_text, link_button};
 #[derive(Component, Clone, Default)]
 pub struct WelcomeScreen;
 
-/// A button that opens one of [`EXAMPLES`], by its position in that list.
+/// A button that opens an example, by its address.
 #[derive(Component, Clone, Default)]
 pub struct ExampleButton {
-    pub example: usize,
+    pub url: &'static str,
 }
 
 /// Width the prose and the controls are held to, so neither runs the width of a
 /// wide window.
 const COLUMN_PX: f32 = 520.0;
+
+/// Width of each column of examples. Two sit side by side in a wide frame
+/// area and wrap one under the other in a narrow one.
+const EXAMPLES_PX: f32 = 440.0;
 
 /// Above the frames, which is where it is drawn, but below the menus that open
 /// over everything.
@@ -100,23 +106,25 @@ pub fn spawn_welcome(mut commands: Commands) {
         })
         .id();
 
-    let heading = commands
+    // The platform's own visualizations lead, since they are what most people
+    // come to look at; the formats the viewer reads follow beside them.
+    let bkp = example_column(&mut commands, "Brain Knowledge Platform", &bkp::EXAMPLES);
+    let others = example_column(&mut commands, "Other examples", &EXAMPLES);
+    let columns = commands
         .spawn_scene(bsn! {
-            label("Open an example")
-            InheritableFont { font_size: { 13.0f32 } }
-            Node { margin: { UiRect::top(Val::Px(10.0)) } }
+            Node {
+                width: { Val::Percent(100.0) },
+                flex_wrap: { FlexWrap::Wrap },
+                justify_content: { JustifyContent::Center },
+                column_gap: { Val::Px(32.0) },
+                row_gap: { Val::Px(14.0) },
+                margin: { UiRect::top(Val::Px(10.0)) },
+            }
         })
         .id();
+    commands.entity(columns).add_children(&[bkp, others]);
 
-    let mut children = vec![title, blurb, heading];
-    for (index, example) in EXAMPLES.iter().enumerate() {
-        children.push(example_row(
-            &mut commands,
-            index,
-            example.name,
-            example.kind,
-        ));
-    }
+    let mut children = vec![title, blurb, columns];
 
     // The same field, button and status line the sidebar's Edit layout menu
     // carries: one dataset field spawned twice rather than two of them.
@@ -154,36 +162,78 @@ pub fn spawn_welcome(mut commands: Commands) {
     commands.entity(screen).add_children(&children);
 }
 
-/// One example: a button that opens it, and the kind of dataset it is.
-fn example_row(commands: &mut Commands, index: usize, name: &str, kind: &str) -> Entity {
-    let name = name.to_string();
-    let kind = kind.to_string();
-    commands
+/// A heading over a button for each of `examples`, with its kind beside it.
+///
+/// A grid rather than a row per example, so the kinds share one column sized
+/// to the longest of them, and every button in the list ends in the same
+/// place rather than wherever its own kind happens to start.
+fn example_column(commands: &mut Commands, heading: &str, examples: &[Example]) -> Entity {
+    let heading = heading.to_string();
+    let column = commands
         .spawn_scene(bsn! {
             Node {
-                width: { Val::Px(COLUMN_PX) },
+                width: { Val::Px(EXAMPLES_PX) },
+                display: { Display::Grid },
+                // The buttons take what the kinds leave, and may shrink to
+                // nothing rather than widening the column past its width.
+                grid_template_columns: { vec![
+                    GridTrack::minmax(MinTrackSizingFunction::Px(0.0), MaxTrackSizingFunction::Fraction(1.0)),
+                    GridTrack::auto(),
+                ] },
                 align_items: { AlignItems::Center },
                 column_gap: { Val::Px(10.0) },
+                row_gap: { Val::Px(6.0) },
             }
             Children [
                 (
-                    @FeathersButton {
-                        @variant: { ButtonVariant::Normal },
-                        @caption: { bsn_list![button_text(name)] }
+                    label(heading)
+                    InheritableFont { font_size: { 13.0f32 } }
+                    Node {
+                        grid_column: { GridPlacement::span(2) },
+                        margin: { UiRect::bottom(Val::Px(4.0)) },
                     }
-                    BlocksFrameInput
-                    ExampleButton { example: { index } }
-                    Node { flex_grow: { 1.0_f32 } }
-                ),
-                (
-                    label_dim(kind)
-                    InheritableFont { font_size: { 12.0f32 } }
-                    // The kind holds its width; the button beside it gives way.
-                    Node { flex_shrink: { 0.0_f32 } }
                 ),
             ]
         })
-        .id()
+        .id();
+    for example in examples {
+        let cells = example_cells(commands, example);
+        commands.entity(column).add_children(&cells);
+    }
+    column
+}
+
+/// One example: a button that opens it, and the kind of dataset it is.
+fn example_cells(commands: &mut Commands, example: &Example) -> [Entity; 2] {
+    let name = example.name.to_string();
+    let kind = example.kind.to_string();
+    let url = example.url;
+    let button = commands
+        .spawn_scene(bsn! {
+            @FeathersButton {
+                @variant: { ButtonVariant::Normal },
+                @caption: { bsn_list![(
+                    button_text(name)
+                    // A name too long for the button is clipped rather than
+                    // wrapped onto a second line over its edge.
+                    TextLayout { linebreak: { LineBreak::NoWrap } }
+                )] }
+            }
+            BlocksFrameInput
+            ExampleButton { url: { url } }
+            Node {
+                min_width: { Val::Px(0.0) },
+                overflow: { Overflow::clip() },
+            }
+        })
+        .id();
+    let kind = commands
+        .spawn_scene(bsn! {
+            label_dim(kind)
+            InheritableFont { font_size: { 12.0f32 } }
+        })
+        .id();
+    [button, kind]
 }
 
 /// Open the example whose button was pressed.
@@ -199,11 +249,8 @@ pub fn on_example_pressed(
     let Ok(button) = buttons.get(activate.entity) else {
         return;
     };
-    let Some(example) = EXAMPLES.get(button.example) else {
-        return;
-    };
     requests.write(crate::view::DatasetRequest {
-        url: example.url.to_string(),
+        url: button.url.to_string(),
         target: crate::view::DatasetTarget::NewFrame,
     });
 }
@@ -251,10 +298,15 @@ mod tests {
     #[test]
     fn every_kind_the_viewer_draws_is_offered() {
         // An empty window should leave nothing the viewer can draw without a
-        // way to open one.
-        let kinds: Vec<&str> = EXAMPLES.iter().map(|example| example.kind).collect();
+        // way to open one. Scatterbrain comes from the platform: a UMAP is a
+        // single cloud, a grid of sections a sectioned one.
+        let kinds: Vec<&str> = EXAMPLES
+            .iter()
+            .chain(&bkp::EXAMPLES)
+            .map(|example| example.kind)
+            .collect();
         assert!(kinds.iter().any(|kind| kind.contains("image")));
-        assert!(kinds.iter().any(|kind| kind.contains("point cloud")));
+        assert!(kinds.iter().any(|kind| *kind == "UMAP"));
         assert!(kinds.iter().any(|kind| kind.contains("sections")));
         assert!(kinds.iter().any(|kind| kind.contains("stack")));
         assert!(kinds.iter().any(|kind| kind.contains("Deep Zoom")));
@@ -265,10 +317,11 @@ mod tests {
         // Not one of each kind. Two images can differ in the version of the
         // store they are written in or in whether they are a stack, and picking
         // one to stand for the other hides what makes them worth opening.
-        let mut urls: Vec<&str> = EXAMPLES.iter().map(|example| example.url).collect();
+        let all = || EXAMPLES.iter().chain(&bkp::EXAMPLES);
+        let mut urls: Vec<&str> = all().map(|example| example.url).collect();
         urls.sort_unstable();
         urls.dedup();
-        assert_eq!(urls.len(), EXAMPLES.len(), "two examples share a URL");
+        assert_eq!(urls.len(), all().count(), "two examples share a URL");
     }
 
     #[test]
@@ -276,7 +329,7 @@ mod tests {
         // Written the way they were copied — one of them straight out of a
         // neuroglancer config — so what matters is that each one comes out of
         // the translation as something fetchable.
-        for example in &EXAMPLES {
+        for example in EXAMPLES.iter().chain(&bkp::EXAMPLES) {
             let url = crate::formats::plain_url(example.url);
             assert!(url.starts_with("https://"), "{}: {url}", example.name);
             assert!(!example.name.is_empty());

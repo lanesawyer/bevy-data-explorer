@@ -25,7 +25,7 @@ use crate::ui::cellpanel::{ClearPropertyButton, ColorByButton, SMALL_PX};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
 use crate::widgets::{
-    Accordion, Icon, SectionLevel, button_text, spawn_accordion, spawn_header_button,
+    Accordion, Icon, SectionLevel, button_text, field_well, spawn_accordion, spawn_header_button,
 };
 
 /// Under the cell properties, whose numeric controls these are, and above the
@@ -109,6 +109,12 @@ pub fn spawn_gene_panel(mut commands: Commands, content: Query<Entity, With<Side
                 width: { Val::Percent(100.0) },
                 row_gap: { Val::Px(4.0) },
             }
+        })
+        .id();
+    // The field would not show against the pane's body on its own.
+    let well = commands
+        .spawn_scene(bsn! {
+            field_well()
             Children [
                 (
                     label_dim("Search by symbol, such as Gad1")
@@ -117,6 +123,7 @@ pub fn spawn_gene_panel(mut commands: Commands, content: Query<Entity, With<Side
             ]
         })
         .id();
+    commands.entity(well).add_child(entry);
     let status = commands
         .spawn_scene(bsn! {
             GeneStatus
@@ -150,7 +157,7 @@ pub fn spawn_gene_panel(mut commands: Commands, content: Query<Entity, With<Side
         .id();
     commands
         .entity(body)
-        .add_children(&[entry, status, results, list]);
+        .add_children(&[well, status, results, list]);
     commands.entity(accordion.body).add_child(body);
 }
 

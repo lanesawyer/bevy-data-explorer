@@ -28,7 +28,9 @@ use crate::bookmark::{BookmarkNotice, local_addresses, open_shared, restore, sav
 use crate::source::DataSource;
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{BlocksFrameInput, Panel, ShowsSource};
-use crate::widgets::{Icon, SectionLevel, button_icon, button_text, caption, spawn_accordion};
+use crate::widgets::{
+    Icon, SectionLevel, button_icon, button_text, caption, field_well, spawn_accordion,
+};
 
 /// After the sections that act on a frame: this acts on all of them.
 const SECTION_ORDER: u32 = 30;
@@ -111,6 +113,10 @@ pub fn spawn_bookmarks_section(
         "Name what is on screen, or leave it blank to name it after its datasets.",
     );
 
+    // The field would not show against the pane's body on its own.
+    let well = commands.spawn_scene(field_well()).id();
+    commands.entity(well).add_children(&[save_row, hint]);
+
     let paste = command_button(
         &mut commands,
         Icon::ClipboardPaste,
@@ -148,7 +154,7 @@ pub fn spawn_bookmarks_section(
 
     commands
         .entity(accordion.body)
-        .add_children(&[save_row, hint, share_row, status, list]);
+        .add_children(&[well, share_row, status, list]);
 }
 
 fn row(commands: &mut Commands) -> Entity {
