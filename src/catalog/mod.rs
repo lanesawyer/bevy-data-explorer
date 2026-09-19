@@ -20,6 +20,7 @@
 pub mod bkp;
 pub mod cells;
 pub mod examples;
+pub mod genes;
 
 use std::sync::Arc;
 
@@ -28,7 +29,8 @@ use futures::future::BoxFuture;
 
 use crate::app::net::{Fetching, fetching};
 use crate::app::schedule::Stage;
-use crate::source::properties::{CellColumns, CellProperties};
+use crate::source::genes::Gene;
+use crate::source::properties::{CellColumns, CellProperties, CellProperty};
 use crate::source::{DataSource, SourceUrl};
 
 /// One dataset a catalog offers.
@@ -61,6 +63,22 @@ pub trait DescribeCells: Send + Sync + 'static {
     /// separately because it is far slower, and the labels are worth showing
     /// before it answers.
     fn count(&self, properties: &CellProperties) -> BoxFuture<'static, Result<CellCounts, String>>;
+
+    /// Whether this service knows the genes the dataset measured. The genes
+    /// panel is offered only when it does.
+    fn has_genes(&self) -> bool {
+        false
+    }
+
+    /// Genes whose symbol starts with `text`, in no particular case.
+    fn search_genes(&self, _text: String) -> BoxFuture<'static, Result<Vec<Gene>, String>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    /// A gene as a numeric property, with the histogram of its expression.
+    fn describe_gene(&self, _gene: Gene) -> BoxFuture<'static, Result<CellProperty, String>> {
+        Box::pin(async { Err("this service knows no genes".into()) })
+    }
 }
 
 /// A shared [`DescribeCells`], cheap to clone onto every entry it serves.
@@ -198,7 +216,15 @@ impl Plugin for CatalogPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Catalogs>().add_systems(
             Update,
-            (take_listings, name_sources, cells::ask, cells::take_answers)
+            (
+                take_listings,
+                name_sources,
+                cells::ask,
+                cells::take_answers,
+                genes::offer,
+                genes::search,
+                genes::add,
+            )
                 .chain()
                 .in_set(Stage::Catalogs),
         );

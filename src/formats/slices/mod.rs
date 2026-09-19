@@ -691,6 +691,9 @@ pub fn spawn_source(world: &mut World, cloud: Arc<Scatterbrain>, budget: usize) 
         ),
         cloud.cell_columns(),
     ));
+    if cloud.reads_genes() {
+        world.entity_mut(source).insert(source::genes::ReadsGenes);
+    }
 
     // A dataset of one section has nothing to page through, and offers
     // nothing to page with.
@@ -792,13 +795,7 @@ fn report_status(
             .selection
             .color_by
             .as_ref()
-            .and_then(|name| {
-                cloud
-                    .attributes
-                    .iter()
-                    .find(|a| &a.name == name)
-                    .map(|a| a.description.clone())
-            })
+            .and_then(|column| cloud.column_name(column))
             .unwrap_or_else(|| "none".into());
 
         let showing = match streamer.mode {

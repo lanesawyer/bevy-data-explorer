@@ -11,6 +11,7 @@
 //! at a different entity and moving its camera onto that source's layer.
 
 pub mod channels;
+pub mod genes;
 pub mod gradient;
 pub mod hover;
 pub mod properties;

@@ -22,7 +22,7 @@ pub mod nodes;
 use serde::Deserialize;
 
 use crate::source::properties::{
-    CellColumn, CellColumns, CellProperties, CellProperty, NumericRange, PropertyKind,
+    CellColumn, CellColumns, CellProperties, CellProperty, Column, NumericRange, PropertyKind,
     PropertyValue,
 };
 
@@ -125,6 +125,10 @@ struct RawSpatialUnit {
 struct RawMetadata {
     #[serde(rename = "metadataFileEndpoint")]
     metadata_file_endpoint: String,
+    /// Where expression values are kept, one file per gene and node. Absent
+    /// from datasets that measured no genes.
+    #[serde(rename = "geneFileEndpoint")]
+    gene_file_endpoint: Option<String>,
     #[serde(rename = "pointAttributes")]
     point_attributes: Vec<PointAttribute>,
     #[serde(rename = "spatialColumn")]
@@ -190,6 +194,7 @@ pub struct Scatterbrain {
     /// Physical unit of the coordinates, for display.
     pub unit: String,
     metadata_endpoint: String,
+    gene_endpoint: Option<String>,
     reference_id: String,
     spatial_column: String,
 }
@@ -269,6 +274,7 @@ impl Scatterbrain {
                 .and_then(|u| u.unit)
                 .unwrap_or_else(|| "units".to_string()),
             metadata_endpoint: ensure_slash(raw.metadata_file_endpoint),
+            gene_endpoint: raw.gene_file_endpoint.map(ensure_slash),
             reference_id: raw.visualization_reference_id,
             spatial_column: raw.spatial_column,
         })
@@ -307,6 +313,43 @@ impl Scatterbrain {
             "{}{}/{}/{}",
             self.metadata_endpoint, column, self.reference_id, node.file
         )
+    }
+
+    /// Where one node's values of `column` are read.
+    ///
+    /// A gene's file is one little-endian f32 a point, found by the gene's
+    /// index the way a metadata column is found by its id.
+    pub fn values_url(&self, column: &Column, node: &Node) -> Result<String, String> {
+        match column {
+            Column::Cell(id) => Ok(self.column_url(id, node)),
+            Column::Gene(index) => {
+                let endpoint = self
+                    .gene_endpoint
+                    .as_ref()
+                    .ok_or("this dataset holds no gene expression")?;
+                Ok(format!(
+                    "{endpoint}{index}/{}/{}",
+                    self.reference_id, node.file
+                ))
+            }
+        }
+    }
+
+    /// Whether the files hold expression values to read by gene.
+    pub fn reads_genes(&self) -> bool {
+        self.gene_endpoint.is_some()
+    }
+
+    /// What to call a column in a status line.
+    pub fn column_name(&self, column: &Column) -> Option<String> {
+        match column {
+            Column::Cell(id) => self
+                .attributes
+                .iter()
+                .find(|a| &a.name == id)
+                .map(|a| a.description.clone()),
+            Column::Gene(index) => Some(format!("gene {index}")),
+        }
     }
 
     pub fn positions_url(&self, node: &Node) -> String {
@@ -517,6 +560,7 @@ pub fn placeholder_properties(
             id: column.name.clone(),
             name: column.description.clone(),
             shown: true,
+            gene: None,
             kind: PropertyKind::Categorical(
                 (0..SAMPLE_VALUES)
                     .map(|code| PropertyValue {
@@ -536,6 +580,7 @@ pub fn placeholder_properties(
             id: column.name.clone(),
             name: column.description.clone(),
             shown: true,
+            gene: None,
             kind: PropertyKind::Numeric(NumericRange::full(0.0, 1.0, placeholder_histogram())),
         }));
     }

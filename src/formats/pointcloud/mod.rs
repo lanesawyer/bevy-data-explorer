@@ -383,6 +383,9 @@ pub fn spawn_source(
         ),
         cloud.cell_columns(),
     ));
+    if cloud.reads_genes() {
+        world.entity_mut(source).insert(source::genes::ReadsGenes);
+    }
 
     let mut streamer = PointStreamer::new(cloud, source);
     streamer.nodes.budget = budget;
@@ -474,13 +477,7 @@ fn report_for(streamer: &PointStreamer, sources: &mut Query<&mut SourceStatus>) 
         .selection
         .color_by
         .as_ref()
-        .and_then(|name| {
-            cloud
-                .attributes
-                .iter()
-                .find(|a| &a.name == name)
-                .map(|a| a.description.clone())
-        })
+        .and_then(|column| cloud.column_name(column))
         .unwrap_or_else(|| "none".into());
 
     status.0 = format!(
@@ -718,6 +715,7 @@ mod tests {
             id: "class".into(),
             name: "Class".into(),
             shown: true,
+            gene: None,
             kind: PropertyKind::Categorical(vec![PropertyValue {
                 code: 2,
                 label: "L2/3 IT".into(),

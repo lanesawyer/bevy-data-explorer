@@ -7,6 +7,7 @@ pub mod addsource;
 pub mod bookmarks;
 pub mod cellpanel;
 pub mod channels;
+pub mod genes;
 pub mod help;
 pub mod inspector;
 pub mod layers;
@@ -32,6 +33,7 @@ impl Plugin for UiPlugin {
             addsource::AddSourcePlugin,
             bookmarks::BookmarksPlugin,
             cellpanel::CellPanelPlugin,
+            genes::GenePanelPlugin,
             welcome::WelcomePlugin,
             logpanel::LogPanelPlugin,
             help::HelpPlugin,

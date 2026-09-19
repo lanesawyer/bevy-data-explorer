@@ -92,7 +92,7 @@ fn handle_placement(fraction: f32) -> (f32, f32) {
 ///
 /// The bars are drawn behind the control rather than beside it so the span
 /// being chosen reads against the shape of the data.
-pub(super) fn spawn_range_control(
+pub fn spawn_range_control(
     commands: &mut Commands,
     property: usize,
     range: &NumericRange,

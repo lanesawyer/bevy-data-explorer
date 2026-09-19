@@ -13,6 +13,10 @@
 //! The first four answer in well under a second, so they are asked together
 //! and make up [`BkpCells::describe`]. Counting every categorical value takes
 //! seconds, so it is [`BkpCells::count`], asked once the labels are showing.
+//!
+//! Genes are asked about one at a time: `cellGenes` finds them by symbol
+//! within the dataset's collection and version, and `cellRangeCounts` counts
+//! one's expression when it is taken on, grouped by the gene's index.
 
 use std::collections::HashMap;
 
@@ -24,6 +28,7 @@ use serde_json::{Value, json};
 
 use super::post;
 use crate::catalog::{CellCounts, DescribeCells};
+use crate::source::genes::Gene;
 use crate::source::properties::{
     CellColumns, CellProperties, CellProperty, NumericRange, PropertyKind, PropertyValue, Tree,
     TreeLevel, TreeNode,
@@ -40,6 +45,10 @@ const MAX_VALUE_PAGES: usize = 50;
 
 /// Buckets in a numeric property's histogram.
 const BUCKETS: usize = 32;
+
+/// Genes offered for one search. Enough to find one by its first letters;
+/// a whole genome would be tens of thousands of rows.
+const GENE_RESULTS: usize = 30;
 
 /// One BKP dataset, as the queries about its cells name it.
 pub struct BkpCells {
@@ -106,6 +115,80 @@ impl DescribeCells for BkpCells {
                 .collect();
 
             Ok(build(&columns, display, values, &extents, &histograms))
+        })
+    }
+
+    fn has_genes(&self) -> bool {
+        true
+    }
+
+    fn search_genes(&self, text: String) -> BoxFuture<'static, Result<Vec<Gene>, String>> {
+        let endpoint = self.endpoint.clone();
+        let variables = json!({
+            "collection": self.collection,
+            "version": self.version,
+            "prefixes": prefixes(&text)
+                .into_iter()
+                .map(|prefix| json!({ "symbol": { "startsWith": prefix } }))
+                .collect::<Vec<_>>(),
+            "first": GENE_RESULTS,
+        });
+        Box::pin(async move {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Data {
+                cell_genes: Nodes,
+            }
+            #[derive(Deserialize)]
+            struct Nodes {
+                nodes: Vec<Found>,
+            }
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Found {
+                reference_id: String,
+                symbol: String,
+                index: u32,
+                max: f32,
+            }
+            let data: Data = ask(&endpoint, GENES, variables).await?;
+            Ok(data
+                .cell_genes
+                .nodes
+                .into_iter()
+                .map(|found| Gene {
+                    id: found.reference_id,
+                    symbol: found.symbol,
+                    index: found.index,
+                    high: found.max.max(0.0),
+                })
+                .collect())
+        })
+    }
+
+    fn describe_gene(&self, gene: Gene) -> BoxFuture<'static, Result<CellProperty, String>> {
+        let endpoint = self.endpoint.clone();
+        let filter = self.dataset_filter();
+        Box::pin(async move {
+            let extent = (0.0, gene.high);
+            // Cells not expressing the gene hold no value and are not counted,
+            // so the histogram is of the cells that do. Counting them in would
+            // flatten every other bar under one at zero.
+            let histogram =
+                match histogram(&endpoint, &filter, &gene.index.to_string(), extent).await {
+                    Ok(histogram) => histogram,
+                    Err(e) => {
+                        warn!("BKP: no histogram for {}: {e}", gene.symbol);
+                        Vec::new()
+                    }
+                };
+            Ok(CellProperty {
+                id: gene.id,
+                name: gene.symbol,
+                shown: true,
+                kind: PropertyKind::Numeric(NumericRange::full(extent.0, extent.1, histogram)),
+                gene: Some(gene.index),
+            })
         })
     }
 
@@ -346,6 +429,30 @@ async fn extents(endpoint: &str, dataset: &str) -> Result<HashMap<String, (f32, 
             )
         })
         .collect())
+}
+
+const GENES: &str = "query($collection: String!, $version: String!,
+                           $prefixes: [CellGeneFilterInput!], $first: Int) {
+  cellGenes(first: $first, order: [{ symbol: ASC }],
+            where: { dataCollectionId: { eq: $collection }, version: { eq: $version },
+                     or: $prefixes }) {
+    nodes { referenceId symbol index max }
+  }
+}";
+
+/// The ways a typed prefix may be cased in a symbol.
+///
+/// Matching is case-sensitive, and conventions differ by species: human genes
+/// are upper case (`GAD1`), mouse ones capitalized (`Gad1`). Asking for each
+/// finds either however it was typed.
+fn prefixes(text: &str) -> Vec<String> {
+    let text = text.trim();
+    let mut capitalized: String = text.chars().take(1).flat_map(char::to_uppercase).collect();
+    capitalized.extend(text.chars().skip(1).flat_map(char::to_lowercase));
+    let mut prefixes = vec![text.to_string(), text.to_uppercase(), capitalized];
+    prefixes.sort();
+    prefixes.dedup();
+    prefixes
 }
 
 const RANGE_COUNTS: &str = "query($filter: DatasetFilter!, $field: String!, $range: [String]!) {
@@ -623,6 +730,7 @@ fn build(
                     name: title.unwrap_or_else(|| "Taxonomy".into()),
                     shown,
                     kind: PropertyKind::Tree(tree),
+                    gene: None,
                 });
             }
             Entry::Column { id, title, shown } => entries_column(
@@ -687,6 +795,7 @@ fn entries_column(
         name: title.unwrap_or_else(|| column.name.clone()),
         shown,
         kind,
+        gene: None,
     });
 }
 
@@ -753,7 +862,7 @@ fn parse_color(text: &str) -> Option<Color> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::source::properties::CellColumn;
+    use crate::source::properties::{CellColumn, Column};
 
     fn column(id: &str, numeric: bool) -> CellColumn {
         CellColumn {
@@ -867,7 +976,7 @@ mod tests {
             .set(neurons, true);
         let selection = properties.selection();
         assert_eq!(selection.filters.len(), 1);
-        assert_eq!(selection.filters[0].0, "LEVEL_1");
+        assert_eq!(selection.filters[0].0, Column::Cell("LEVEL_1".into()));
     }
 
     #[test]
@@ -893,7 +1002,11 @@ mod tests {
     fn coloring_starts_where_the_portal_says() {
         let properties = described();
         assert_eq!(
-            properties.selection().color_by.as_deref(),
+            properties
+                .selection()
+                .color_by
+                .as_ref()
+                .and_then(Column::cell),
             Some("LEVEL_1"),
             "the portal's default, not the first listed"
         );
@@ -933,6 +1046,41 @@ mod tests {
     }
 
     #[test]
+    fn a_gene_is_searched_for_however_its_species_cases_it() {
+        assert_eq!(prefixes(" gad "), ["GAD", "Gad", "gad"]);
+        // Nothing asked twice when the typing already matches a convention.
+        assert_eq!(prefixes("GAD"), ["GAD", "Gad"]);
+    }
+
+    #[test]
+    #[ignore = "reads the live BKP API"]
+    fn finds_and_describes_a_live_gene() {
+        let cells = BkpCells {
+            endpoint: super::super::PRODUCTION.into(),
+            dataset: "Q1NCWWPG6FZ0DNIXJBQ".into(),
+            project: String::new(),
+            collection: "AP8JNN5LYABGVMGKY1B".into(),
+            version: "v0".into(),
+        };
+        let found = crate::app::net::block_on(cells.search_genes("gad".into())).unwrap();
+        let gad1 = found
+            .iter()
+            .find(|gene| gene.symbol == "Gad1")
+            .expect("a mouse dataset names it Gad1")
+            .clone();
+        assert!(gad1.high > 0.0);
+
+        let property = crate::app::net::block_on(cells.describe_gene(gad1.clone())).unwrap();
+        assert_eq!(property.gene, Some(gad1.index));
+        let range = property.range().unwrap();
+        assert_eq!((range.low, range.high), (0.0, gad1.high));
+        assert!(
+            range.histogram.iter().sum::<u32>() > 0,
+            "someone expresses it"
+        );
+    }
+
+    #[test]
     fn a_column_of_one_value_still_has_a_bucket_to_count_in() {
         let edges = bucket_edges((5.0, 5.0));
         assert!(edges[BUCKETS] > edges[0]);
@@ -956,7 +1104,11 @@ mod tests {
         let properties = crate::app::net::block_on(cells.describe(columns)).unwrap();
         assert_eq!(properties.properties.len(), 3);
         assert_eq!(
-            properties.selection().color_by.as_deref(),
+            properties
+                .selection()
+                .color_by
+                .as_ref()
+                .and_then(Column::cell),
             Some("CCN20260701_LEVEL_1")
         );
         let age = properties

@@ -128,7 +128,7 @@ pub async fn load_node(
     let mut positions = decode_positions(&fetch(&cloud.positions_url(node)).await?, node.count)?;
 
     let colored = match &selection.color_by {
-        Some(column) => Some((column, fetch(&cloud.column_url(column, node)).await?)),
+        Some(column) => Some((column, fetch(&cloud.values_url(column, node)?).await?)),
         None => None,
     };
     let mut shades = match &colored {
@@ -150,7 +150,7 @@ pub async fn load_node(
     for (column, restriction) in &selection.filters {
         let bytes = match &colored {
             Some((colored, bytes)) if *colored == column => bytes.clone(),
-            _ => fetch(&cloud.column_url(column, node)).await?,
+            _ => fetch(&cloud.values_url(column, node)?).await?,
         };
         let values = if restriction.is_numeric() {
             decode_floats(&bytes, node.count)?
@@ -504,6 +504,7 @@ pub fn build_mesh(positions: &[[f32; 2]], shades: &Shades, selection: &CellSelec
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::source::properties::Column;
 
     /// A cache with `asked` wanted and the first `built` of them resident.
     fn staged(asked: &[usize], built: usize) -> NodeCache<usize> {
@@ -616,7 +617,7 @@ mod tests {
             to: 10.0,
         };
         let selection = CellSelection {
-            color_by: Some("score".into()),
+            color_by: Some(Column::Cell("score".into())),
             ramp: Some(ramp),
             ..default()
         };

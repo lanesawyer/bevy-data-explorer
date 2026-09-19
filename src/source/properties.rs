@@ -128,6 +128,12 @@ pub struct CellProperty {
     /// would remove points with nothing left to explain why.
     pub shown: bool,
     pub kind: PropertyKind,
+    /// A gene's index in the dataset's expression files, for a property that
+    /// is a gene's expression rather than a column of cell metadata.
+    ///
+    /// Genes are added one at a time from the genes panel and always follow
+    /// the cell properties, so adding or removing one never moves those.
+    pub gene: Option<u32>,
 }
 
 impl CellProperty {
@@ -258,11 +264,19 @@ impl CellProperty {
         }
     }
 
+    /// Where the values of the column called `id` in this property are read.
+    fn column(&self, id: &str) -> Column {
+        match self.gene {
+            Some(index) => Column::Gene(index),
+            None => Column::Cell(id.to_string()),
+        }
+    }
+
     /// The column this property filters in, and how.
-    fn restriction(&self) -> (String, Restriction) {
+    fn restriction(&self) -> (Column, Restriction) {
         match &self.kind {
             PropertyKind::Categorical(values) => (
-                self.id.clone(),
+                self.column(&self.id),
                 Restriction::Codes(
                     values
                         .iter()
@@ -271,11 +285,12 @@ impl CellProperty {
                         .collect(),
                 ),
             ),
-            PropertyKind::Numeric(range) => {
-                (self.id.clone(), Restriction::Span(range.from, range.to))
-            }
+            PropertyKind::Numeric(range) => (
+                self.column(&self.id),
+                Restriction::Span(range.from, range.to),
+            ),
             PropertyKind::Tree(tree) => (
-                tree.filter_column().to_string(),
+                self.column(tree.filter_column()),
                 Restriction::Codes(tree.admitted()),
             ),
         }
@@ -368,12 +383,7 @@ impl CellProperties {
     /// Coloring starts on the first listed property with values of its own
     /// to tell apart, or failing that the first listed numeric one.
     pub fn ready(properties: Vec<CellProperty>) -> Self {
-        let listed = |numeric: bool| {
-            properties.iter().position(|property| {
-                property.shown && matches!(property.kind, PropertyKind::Numeric(_)) == numeric
-            })
-        };
-        let color_by = listed(false).or_else(|| listed(true));
+        let color_by = first_to_color(&properties);
         CellProperties {
             properties,
             color_by,
@@ -405,6 +415,56 @@ impl CellProperties {
                 return;
             }
         }
+    }
+
+    /// Add a gene's property after the rest, unless it is already here.
+    ///
+    /// Coloring is left alone: a gene is as often added to filter by as to
+    /// color by, and its own button colors by it.
+    pub fn add_gene(&mut self, gene: CellProperty) {
+        if !self
+            .properties
+            .iter()
+            .any(|property| property.id == gene.id)
+        {
+            self.properties.push(gene);
+        }
+    }
+
+    /// Drop a gene, and its filter with it.
+    ///
+    /// Coloring moves back to where it would start if the gene was what
+    /// colored, and follows its property down a place if that came after it.
+    pub fn remove_gene(&mut self, index: usize) {
+        if self
+            .properties
+            .get(index)
+            .is_none_or(|property| property.gene.is_none())
+        {
+            return;
+        }
+        self.properties.remove(index);
+        self.color_by = match self.color_by {
+            Some(colored) if colored == index => first_to_color(&self.properties),
+            Some(colored) if colored > index => Some(colored - 1),
+            other => other,
+        };
+    }
+
+    /// The properties that are not genes, with their places.
+    pub fn cell_properties(&self) -> impl Iterator<Item = (usize, &CellProperty)> {
+        self.properties
+            .iter()
+            .enumerate()
+            .filter(|(_, property)| property.gene.is_none())
+    }
+
+    /// The genes added, with their places among the properties.
+    pub fn genes(&self) -> impl Iterator<Item = (usize, &CellProperty)> {
+        self.properties
+            .iter()
+            .enumerate()
+            .filter(|(_, property)| property.gene.is_some())
     }
 
     /// Total filters applied across every property, for the control that
@@ -495,9 +555,11 @@ impl CellProperties {
         let property = self.color_by.and_then(|index| self.properties.get(index));
         let coloring = property.and_then(CellProperty::color_column);
         CellSelection {
-            color_by: property
-                .and_then(CellProperty::color_column_id)
-                .map(str::to_string),
+            color_by: property.and_then(|property| {
+                property
+                    .color_column_id()
+                    .map(|column| property.column(column))
+            }),
             palette: coloring
                 .map(|(_, values)| palette_of(&values))
                 .unwrap_or_default(),
@@ -510,6 +572,19 @@ impl CellProperties {
                 .collect(),
         }
     }
+}
+
+/// The property a dataset is first colored by: the first listed cell property
+/// with values of its own to tell apart, or failing that the first numeric one.
+fn first_to_color(properties: &[CellProperty]) -> Option<usize> {
+    let listed = |numeric: bool| {
+        properties.iter().position(|property| {
+            property.shown
+                && property.gene.is_none()
+                && matches!(property.kind, PropertyKind::Numeric(_)) == numeric
+        })
+    };
+    listed(false).or_else(|| listed(true))
 }
 
 /// A repeating categorical palette, for values nobody has chosen a color for.
@@ -621,13 +696,33 @@ pub const MISSING: [f32; 4] = [0.8, 0.85, 0.9, 1.0];
 /// again, so it holds only what changes the result.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CellSelection {
-    pub color_by: Option<String>,
+    pub color_by: Option<Column>,
     /// Linear color per code of `color_by`. Empty, or too short for a code,
     /// means that code takes [`default_color`].
     pub palette: Vec<[f32; 4]>,
     /// Set when `color_by` is numeric, and how its values are colored.
     pub ramp: Option<Ramp>,
-    pub filters: Vec<(String, Restriction)>,
+    pub filters: Vec<(Column, Restriction)>,
+}
+
+/// Where a column of per-cell values is read from.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Column {
+    /// A column of the cell metadata, by its id.
+    Cell(String),
+    /// A gene's expression, by its index in the dataset's expression files.
+    Gene(u32),
+}
+
+impl Column {
+    /// The id of a cell metadata column; nothing for a gene.
+    #[cfg(test)]
+    pub fn cell(&self) -> Option<&str> {
+        match self {
+            Column::Cell(id) => Some(id),
+            Column::Gene(_) => None,
+        }
+    }
 }
 
 impl CellSelection {
@@ -658,6 +753,7 @@ mod tests {
             id: id.into(),
             name: id.into(),
             shown: true,
+            gene: None,
             kind: PropertyKind::Categorical(
                 codes
                     .iter()
@@ -678,6 +774,7 @@ mod tests {
             id: id.into(),
             name: id.into(),
             shown: true,
+            gene: None,
             kind: PropertyKind::Numeric(NumericRange::full(0.0, 1.0, vec![1, 2, 3, 4])),
         }
     }
@@ -744,7 +841,7 @@ mod tests {
         pick(&mut properties.properties[1], 1);
         let selection = properties.selection();
         assert_eq!(selection.filters.len(), 1);
-        assert_eq!(selection.filters[0].0, "region");
+        assert_eq!(selection.filters[0].0, Column::Cell("region".into()));
         assert_eq!(
             selection.filters[0].1,
             Restriction::Codes(HashSet::from([8]))
@@ -754,7 +851,14 @@ mod tests {
     #[test]
     fn coloring_defaults_to_the_first_property() {
         let properties = CellProperties::ready(vec![categorical("class", &[0])]);
-        assert_eq!(properties.selection().color_by.as_deref(), Some("class"));
+        assert_eq!(
+            properties
+                .selection()
+                .color_by
+                .as_ref()
+                .and_then(Column::cell),
+            Some("class")
+        );
     }
 
     #[test]
@@ -769,7 +873,10 @@ mod tests {
             .unwrap()
             .set_end(RangeEnd::From, 0.5);
         let selection = properties.selection();
-        assert_eq!(selection.color_by.as_deref(), Some("score"));
+        assert_eq!(
+            selection.color_by.as_ref().and_then(Column::cell),
+            Some("score")
+        );
         assert!(selection.palette.is_empty());
         let ramp = selection
             .ramp
@@ -782,10 +889,24 @@ mod tests {
     fn coloring_prefers_a_property_with_values_to_tell_apart() {
         let properties =
             CellProperties::ready(vec![numeric("score"), categorical("class", &[0, 1])]);
-        assert_eq!(properties.selection().color_by.as_deref(), Some("class"));
+        assert_eq!(
+            properties
+                .selection()
+                .color_by
+                .as_ref()
+                .and_then(Column::cell),
+            Some("class")
+        );
         // With nothing else to go on, a numeric one still colors.
         let properties = CellProperties::ready(vec![numeric("score")]);
-        assert_eq!(properties.selection().color_by.as_deref(), Some("score"));
+        assert_eq!(
+            properties
+                .selection()
+                .color_by
+                .as_ref()
+                .and_then(Column::cell),
+            Some("score")
+        );
     }
 
     #[test]
@@ -812,6 +933,74 @@ mod tests {
             properties.color_label(Shade::Value(0.25)),
             ("Score".to_string(), "0.250".to_string())
         );
+    }
+
+    fn gene(id: &str, index: u32) -> CellProperty {
+        CellProperty {
+            gene: Some(index),
+            ..numeric(id)
+        }
+    }
+
+    #[test]
+    fn a_gene_is_read_from_the_expression_files() {
+        let mut properties = CellProperties::ready(vec![categorical("class", &[0, 1])]);
+        properties.add_gene(gene("ENSG1", 12));
+        assert_eq!(
+            properties.color_by,
+            Some(0),
+            "adding a gene leaves coloring"
+        );
+        properties.color_by = Some(1);
+        properties.properties[1]
+            .range_mut()
+            .unwrap()
+            .set_end(RangeEnd::From, 0.5);
+        let selection = properties.selection();
+        assert_eq!(selection.color_by, Some(Column::Gene(12)));
+        assert_eq!(selection.filters[0].0, Column::Gene(12));
+    }
+
+    #[test]
+    fn adding_a_gene_twice_keeps_one() {
+        let mut properties = CellProperties::ready(vec![categorical("class", &[0, 1])]);
+        properties.add_gene(gene("ENSG1", 12));
+        properties.add_gene(gene("ENSG1", 12));
+        assert_eq!(properties.genes().count(), 1);
+    }
+
+    #[test]
+    fn removing_the_colored_gene_colors_as_the_dataset_began() {
+        let mut properties = CellProperties::ready(vec![
+            categorical("class", &[0, 1]),
+            categorical("region", &[7, 8]),
+        ]);
+        properties.add_gene(gene("ENSG1", 1));
+        properties.add_gene(gene("ENSG2", 2));
+        properties.color_by = Some(3);
+
+        // Coloring follows its gene down a place when one before it goes.
+        properties.remove_gene(2);
+        assert_eq!(properties.color_by, Some(2));
+        assert_eq!(properties.properties[2].id, "ENSG2");
+
+        properties.remove_gene(2);
+        assert_eq!(properties.color_by, Some(0));
+        assert_eq!(properties.genes().count(), 0);
+    }
+
+    #[test]
+    fn only_genes_can_be_removed() {
+        let mut properties = CellProperties::ready(vec![categorical("class", &[0, 1])]);
+        properties.remove_gene(0);
+        assert_eq!(properties.properties.len(), 1);
+    }
+
+    #[test]
+    fn a_gene_is_never_what_a_dataset_starts_colored_by() {
+        let properties = CellProperties::ready(vec![gene("ENSG1", 1), numeric("score")]);
+        assert_eq!(properties.color_by, Some(1));
+        assert_eq!(properties.cell_properties().count(), 1);
     }
 
     #[test]
@@ -933,7 +1122,14 @@ mod tests {
 
         properties.set_shown(0, false);
         assert!(properties.properties[0].shown);
-        assert_eq!(properties.selection().color_by.as_deref(), Some("class"));
+        assert_eq!(
+            properties
+                .selection()
+                .color_by
+                .as_ref()
+                .and_then(Column::cell),
+            Some("class")
+        );
 
         // Coloring by something else releases it.
         properties.color_by = Some(1);
@@ -979,7 +1175,14 @@ mod tests {
         let mut hidden = categorical("class", &[0, 1]);
         hidden.shown = false;
         let properties = CellProperties::ready(vec![hidden, categorical("region", &[7, 8])]);
-        assert_eq!(properties.selection().color_by.as_deref(), Some("region"));
+        assert_eq!(
+            properties
+                .selection()
+                .color_by
+                .as_ref()
+                .and_then(Column::cell),
+            Some("region")
+        );
     }
 
     #[test]

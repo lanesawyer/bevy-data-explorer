@@ -14,6 +14,9 @@
 //!
 //! Each value shows the color its points are drawn in and, once a service has
 //! counted them, how many cells hold it.
+//!
+//! Genes are properties too, but are listed in their own section
+//! (`ui::genes`), which builds its controls from the same parts.
 
 use bevy::prelude::*;
 use bevy::ui::Checked;
@@ -176,9 +179,8 @@ pub fn rebuild_cell_panel(
     let fingerprint = (
         entity,
         properties
-            .properties
-            .iter()
-            .map(|property| property.id.clone())
+            .cell_properties()
+            .map(|(_, property)| property.id.clone())
             .collect(),
         properties.provenance.clone(),
     );
@@ -202,7 +204,7 @@ pub fn rebuild_cell_panel(
         commands.entity(body).add_child(message);
         return;
     }
-    if properties.properties.is_empty() {
+    if properties.cell_properties().next().is_none() {
         let message = commands
             .spawn_scene(bsn! {
                 CellPanelContent
@@ -218,7 +220,7 @@ pub fn rebuild_cell_panel(
     }
 
     let mut sections = Vec::with_capacity(properties.properties.len());
-    for (index, property) in properties.properties.iter().enumerate() {
+    for (index, property) in properties.cell_properties() {
         let coloring = properties.color_by == Some(index);
         // Sub-sections start closed, since a property can have many values and
         // all of them open at once would bury the rest of the sidebar. One the

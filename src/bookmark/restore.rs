@@ -14,21 +14,25 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
 
 use super::BookmarkNotice;
 use super::capture::saved_address;
 use super::snapshot::{
-    Bookmark, SourceState, apply_cells, apply_channels, apply_slice, clamp_point_size,
+    Bookmark, CellsState, SourceState, apply_cells, apply_channels, apply_slice, clamp_point_size,
+    genes_missing,
 };
 use crate::app::net::{Fetching, fetching};
 use crate::app::theme::Palette;
 use crate::catalog::cells::Described;
+use crate::catalog::genes::GeneService;
 use crate::formats::discover::{self, Discovered};
 use crate::formats::{LoadSettings, spawn_discovered};
 use crate::render::points::SourcePointSize;
 use crate::render::settings::SourceOpacity;
 use crate::source::channels::SourceChannels;
+use crate::source::genes::{GeneSearch, ReadsGenes};
 use crate::source::properties::{CellColumns, CellProperties, PropertyState};
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::volume::SourceVolume;
@@ -85,6 +89,17 @@ pub struct PendingSettings {
     state: SourceState,
     /// When it was asked for, in seconds since startup.
     since: f32,
+    /// Whether the bookmark's genes have been asked to be added.
+    genes_asked: bool,
+}
+
+/// What a restore needs of a source to put its genes back.
+#[derive(QueryData)]
+#[query_data(mutable)]
+pub struct GeneAccess {
+    search: Option<&'static mut GeneSearch>,
+    service: Option<&'static GeneService>,
+    reads: Has<ReadsGenes>,
 }
 
 /// Open the bookmark's datasets, and lay out its frames once they are open.
@@ -123,6 +138,7 @@ pub fn drive_restore(
                         commands.entity(*entity).insert(PendingSettings {
                             state: state.clone(),
                             since: now,
+                            genes_asked: false,
                         });
                         Slot::Open(*entity)
                     }
@@ -152,7 +168,11 @@ pub fn drive_restore(
                     let source = spawn_discovered(world, discovered, settings);
                     world.entity_mut(source).insert((
                         SourceUrl(state.url.clone()),
-                        PendingSettings { state, since: now },
+                        PendingSettings {
+                            state,
+                            since: now,
+                            genes_asked: false,
+                        },
                     ));
                     match world.get_resource_mut::<Restoring>() {
                         Some(mut restoring) if restoring.id == id => {
@@ -313,12 +333,13 @@ pub fn apply_pending_settings(
         Option<&mut CellProperties>,
         Has<CellColumns>,
         Has<Described>,
+        GeneAccess,
     )>,
 ) {
     for (
         entity,
         data,
-        mut pending,
+        pending,
         stack,
         grid,
         point_size,
@@ -326,8 +347,10 @@ pub fn apply_pending_settings(
         properties,
         has_columns,
         described,
+        mut genes,
     ) in &mut sources
     {
+        let pending = pending.into_inner();
         let since = pending.since;
         let state = &mut pending.state;
         if let (Some(slice), Some(mut stack)) = (state.slice.take(), stack) {
@@ -376,6 +399,14 @@ pub fn apply_pending_settings(
                     true
                 }
             }
+            // Genes the bookmark adds have to be there before anything can be
+            // set on them, and each is added only once its histogram is in.
+            (Some(saved), Some(properties))
+                if adding_genes(&properties, saved, &mut genes, &mut pending.genes_asked)
+                    && time.elapsed_secs() - since <= CELLS_PATIENCE_SECS =>
+            {
+                true
+            }
             (Some(saved), Some(mut properties)) => {
                 let missing = apply_cells(&mut properties, saved);
                 if !missing.is_empty() {
@@ -390,6 +421,43 @@ pub fn apply_pending_settings(
         };
         if !waiting {
             commands.entity(entity).remove::<PendingSettings>();
+        }
+    }
+}
+
+/// Ask for the genes a bookmark adds, and say whether any are still coming.
+///
+/// Asked once. A gene the service could not describe leaves the search's
+/// queue without arriving, and is then reported missing like any property the
+/// dataset lacks rather than being waited on for good.
+fn adding_genes(
+    properties: &CellProperties,
+    saved: &CellsState,
+    genes: &mut GeneAccessItem<'_, '_>,
+    asked: &mut bool,
+) -> bool {
+    let missing = genes_missing(properties, saved);
+    if missing.is_empty() {
+        return false;
+    }
+    match (&mut genes.search, genes.service) {
+        (Some(search), _) => {
+            if !*asked {
+                *asked = true;
+                for gene in &missing {
+                    search.add(gene.clone());
+                }
+            }
+            missing
+                .iter()
+                .any(|gene| search.adding.iter().any(|pending| pending.id == gene.id))
+        }
+        // Not yet looked at: whether its catalog knows its genes is decided
+        // once its labels are in.
+        (None, None) => genes.reads,
+        (None, Some(service)) => {
+            debug_assert!(!service.knows_genes());
+            false
         }
     }
 }
@@ -517,6 +585,110 @@ mod tests {
         assert_eq!(
             *world.resource::<BookmarkNotice>(),
             BookmarkNotice::Done("restored test".into())
+        );
+    }
+
+    fn cells(genes: &[(&str, u32)]) -> CellProperties {
+        use crate::source::properties::{CellProperty, NumericRange, PropertyKind, PropertyValue};
+        let mut properties = CellProperties::ready(vec![CellProperty {
+            id: "class".into(),
+            name: "Class".into(),
+            shown: true,
+            gene: None,
+            kind: PropertyKind::Categorical(vec![PropertyValue {
+                code: 0,
+                label: "A".into(),
+                color: None,
+                count: None,
+                selected: false,
+            }]),
+        }]);
+        for (id, index) in genes {
+            properties.add_gene(CellProperty {
+                id: id.to_string(),
+                name: id.to_uppercase(),
+                shown: true,
+                gene: Some(*index),
+                kind: PropertyKind::Numeric(NumericRange::full(0.0, 8.0, vec![1, 1])),
+            });
+        }
+        properties
+    }
+
+    /// A source whose bookmark colors by a gene and filters it, restored onto
+    /// a copy of the dataset without that gene.
+    fn restoring_a_gene(app: &mut App) -> Entity {
+        let source = source(app, "Cells", "https://store/cells.json");
+        let mut saved = cells(&[("gad1", 7)]);
+        saved.color_by_id("gad1");
+        saved.properties[1].range_mut().unwrap().from = 2.0;
+        app.world_mut().entity_mut(source).insert((
+            cells(&[]),
+            GeneSearch::default(),
+            PendingSettings {
+                state: SourceState {
+                    cells: Some(crate::bookmark::snapshot::cells_of(&saved)),
+                    ..default()
+                },
+                since: 0.0,
+                genes_asked: false,
+            },
+        ));
+        app.update();
+        source
+    }
+
+    #[test]
+    fn a_bookmarks_genes_are_added_before_their_settings_are_applied() {
+        let mut app = app();
+        let source = restoring_a_gene(&mut app);
+
+        let adding: Vec<String> = app
+            .world()
+            .get::<GeneSearch>(source)
+            .unwrap()
+            .adding
+            .iter()
+            .map(|gene| gene.id.clone())
+            .collect();
+        assert_eq!(adding, ["gad1"]);
+        assert!(
+            app.world().get::<PendingSettings>(source).is_some(),
+            "nothing can be set on a gene that is not there yet"
+        );
+
+        // The service answers.
+        let mut world = app.world_mut().entity_mut(source);
+        world.get_mut::<GeneSearch>().unwrap().adding.clear();
+        world
+            .get_mut::<CellProperties>()
+            .unwrap()
+            .add_gene(cells(&[("gad1", 7)]).properties[1].clone());
+        app.update();
+
+        let world = app.world();
+        assert!(world.get::<PendingSettings>(source).is_none());
+        let properties = world.get::<CellProperties>(source).unwrap();
+        assert_eq!(properties.color_by, Some(1));
+        assert_eq!(properties.properties[1].range().unwrap().from, 2.0);
+    }
+
+    #[test]
+    fn a_gene_the_service_could_not_add_does_not_hold_the_restore() {
+        let mut app = app();
+        let source = restoring_a_gene(&mut app);
+        app.world_mut()
+            .get_mut::<GeneSearch>(source)
+            .unwrap()
+            .adding
+            .clear();
+        app.update();
+
+        let world = app.world();
+        assert!(world.get::<PendingSettings>(source).is_none());
+        assert_eq!(
+            world.get::<CellProperties>(source).unwrap().color_by,
+            Some(0)
         );
     }
 }

@@ -163,6 +163,7 @@ mod tests {
             id: "braak".into(),
             name: "Braak".into(),
             shown: true,
+            gene: None,
             kind: PropertyKind::Categorical(
                 [0u16, 1]
                     .into_iter()

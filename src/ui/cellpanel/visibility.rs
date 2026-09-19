@@ -69,9 +69,8 @@ pub fn rebuild_visibility_menu(
     let fingerprint: (Entity, Vec<String>) = (
         entity,
         properties
-            .properties
-            .iter()
-            .map(|property| property.id.clone())
+            .cell_properties()
+            .map(|(_, property)| property.id.clone())
             .collect(),
     );
     if shown.as_ref() == Some(&fingerprint) {
@@ -84,7 +83,7 @@ pub fn rebuild_visibility_menu(
     }
 
     let mut rows = vec![heading(&mut commands)];
-    for (index, property) in properties.properties.iter().enumerate() {
+    for (index, property) in properties.cell_properties() {
         let caption = property.name.clone();
         let row = commands
             .spawn_scene(bsn! {
