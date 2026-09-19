@@ -243,31 +243,23 @@ pub fn rebuild_cell_panel(
             .entity(clear)
             .insert(ClearPropertyButton { property: index });
 
-        // Points are colored by code, and a numeric column has none. A tree
-        // colors by one of its levels, so its button opens a menu of them.
+        // A tree colors by one of its levels, so its button opens a menu of
+        // them.
         let button = if let Some(tree) = property.tree() {
             let (button, menu) = spawn_icon_menu(&mut commands, sub.header, Icon::Palette, true);
             // The popup is a root of its own, not under the section, so a
             // rebuild has to be told to take it too.
             commands.entity(menu).insert(CellPanelContent);
             tree::fill_color_menu(&mut commands, menu, index, tree, coloring);
-            Some(button)
-        } else if property.colors() {
-            Some(spawn_header_button(
-                &mut commands,
-                sub.header,
-                Icon::Palette,
-            ))
+            button
         } else {
-            None
+            spawn_header_button(&mut commands, sub.header, Icon::Palette)
         };
-        if let Some(button) = button {
-            commands
-                .entity(button)
-                .insert(ColorByButton { property: index });
-            if coloring {
-                commands.entity(button).insert(ButtonVariant::Primary);
-            }
+        commands
+            .entity(button)
+            .insert(ColorByButton { property: index });
+        if coloring {
+            commands.entity(button).insert(ButtonVariant::Primary);
         }
 
         let rows = match &property.kind {
@@ -306,6 +298,7 @@ pub fn rebuild_cell_panel(
                     &mut commands,
                     index,
                     range,
+                    properties.ramp().as_ref().filter(|_| coloring),
                     &palette,
                 )]
             }
@@ -410,7 +403,7 @@ pub fn on_color_by(
     if !properties
         .properties
         .get(button.property)
-        .is_some_and(|property| property.colors() && property.tree().is_none())
+        .is_some_and(|property| property.tree().is_none())
     {
         return;
     }

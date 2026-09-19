@@ -17,7 +17,7 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::ThemeBackgroundColor;
 
 use crate::app::theme::{Palette, token};
-use crate::source::properties::{CellProperties, NumericRange, RangeEnd};
+use crate::source::properties::{CellProperties, NumericRange, Ramp, RangeEnd};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
 
 /// Height of the histogram drawn above a numeric range.
@@ -69,11 +69,16 @@ pub struct RangeBar {
 
 /// Buckets inside the chosen span are drawn lit, the rest dimmed, so the whole
 /// distribution stays visible while part of it is picked.
-fn bar_color(inside: bool, palette: &Palette) -> Color {
-    if inside {
-        palette.fill
-    } else {
-        palette.bar_dim
+///
+/// While points are colored by this property the lit buckets take the colors
+/// those points are drawn in, which makes the histogram its legend.
+fn bar_color(range: &NumericRange, bucket: usize, ramp: Option<&Ramp>, palette: &Palette) -> Color {
+    let centre = (bucket as f32 + 0.5) / range.histogram.len().max(1) as f32;
+    let value = range.value_at(centre);
+    match ramp {
+        _ if !range.admits(value) => palette.bar_dim,
+        Some(ramp) => ramp.gradient.sample(ramp.fraction_of(value)),
+        None => palette.fill,
     }
 }
 
@@ -91,6 +96,7 @@ pub(super) fn spawn_range_control(
     commands: &mut Commands,
     property: usize,
     range: &NumericRange,
+    ramp: Option<&Ramp>,
     palette: &Palette,
 ) -> Entity {
     let peak = range.histogram.iter().copied().max().unwrap_or(1).max(1);
@@ -99,10 +105,6 @@ pub(super) fn spawn_range_control(
         .iter()
         .enumerate()
         .map(|(bucket, count)| {
-            // Buckets outside the chosen span are dimmed rather than hidden, so
-            // the whole distribution stays visible while a part of it is picked.
-            let centre = (bucket as f32 + 0.5) / range.histogram.len() as f32;
-            let inside = range.admits(range.value_at(centre));
             let height = (*count as f32 / peak as f32).max(0.02) * HISTOGRAM_PX;
             commands
                 .spawn_scene(bsn! {
@@ -112,7 +114,7 @@ pub(super) fn spawn_range_control(
                         height: { Val::Px(height) },
                         margin: { UiRect::horizontal(Val::Px(0.5)) },
                     }
-                    BackgroundColor({ bar_color(inside, palette) })
+                    BackgroundColor({ bar_color(range, bucket, ramp, palette) })
                 })
                 .id()
         })
@@ -342,12 +344,15 @@ pub fn update_range_controls(
         node.margin.left = Val::Px(nudge);
     }
 
+    let ramp = properties.ramp();
     for (bar, mut color) in &mut bars {
         let Some(range) = range_of(bar.property) else {
             continue;
         };
-        let centre = (bar.bucket as f32 + 0.5) / range.histogram.len().max(1) as f32;
-        let wanted = bar_color(range.admits(range.value_at(centre)), &palette);
+        let ramp = ramp
+            .as_ref()
+            .filter(|_| properties.color_by == Some(bar.property));
+        let wanted = bar_color(range, bar.bucket, ramp, &palette);
         if color.0 != wanted {
             color.0 = wanted;
         }

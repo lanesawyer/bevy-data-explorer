@@ -193,8 +193,8 @@ pub fn cells_of(properties: &CellProperties) -> CellsState {
         color_by: properties
             .color_by
             .and_then(|index| properties.properties.get(index))
-            .and_then(|property| property.color_column())
-            .map(|(column, _)| column.to_string()),
+            .and_then(|property| property.color_column_id())
+            .map(str::to_string),
         properties: properties
             .properties
             .iter()

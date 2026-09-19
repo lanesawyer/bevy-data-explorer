@@ -19,7 +19,7 @@ use crate::formats::scatterbrain::nodes::{NodeCache, NodeOutcome, PICK_PX, load_
 use crate::formats::scatterbrain::{Rect, Scatterbrain, Slide};
 use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::hover::{HoverInfo, HoverProbe};
-use crate::source::properties::{CellProperties, CellSelection};
+use crate::source::properties::{CellProperties, CellSelection, Shade};
 use crate::source::{self, DataSource, SourceBusy, SourceExtent, SourceStatus};
 use crate::view::ShowsSource;
 
@@ -48,7 +48,7 @@ pub struct Hit {
     pub index: usize,
     pub position: Vec2,
     /// Its value in the column the cloud is colored by, if any.
-    pub category: Option<u16>,
+    pub shade: Option<Shade>,
 }
 
 /// Streams one point cloud.
@@ -110,8 +110,7 @@ impl PointStreamer {
             if !nodes[*index].bounds.intersects(&reach) {
                 continue;
             }
-            let Some((distance, offset, position, category)) = resident.nearest(target, limit)
-            else {
+            let Some((distance, offset, position, shade)) = resident.nearest(target, limit) else {
                 continue;
             };
             if best.as_ref().is_none_or(|(nearest, _)| distance < *nearest) {
@@ -121,7 +120,7 @@ impl PointStreamer {
                         node: *index,
                         index: offset,
                         position,
-                        category,
+                        shade,
                     },
                 ));
             }
@@ -218,7 +217,7 @@ pub fn spawn_node_tasks(mut streamers: Query<&mut PointStreamer>) {
             fetching(async move {
                 let node = &cloud.slides[slide].nodes[index];
                 match load_node(&cloud, node, &selection).await {
-                    Ok((positions, categories)) => NodeOutcome::Ready(positions, categories),
+                    Ok((positions, shades)) => NodeOutcome::Ready(positions, shades),
                     Err(e) => NodeOutcome::Failed(e),
                 }
             })
@@ -413,7 +412,7 @@ pub fn resolve_hover(
             .as_ref()
             .map(|hit| describe(hit, streamer, source, properties));
 
-        let category = hit.as_ref().and_then(|hit| hit.category);
+        let category = hit.as_ref().and_then(|hit| hit.shade?.code());
         if highlight.0 != category {
             highlight.0 = category;
         }
@@ -439,8 +438,8 @@ fn describe(
     let node = &streamer.slide().nodes[hit.node];
     let mut info = HoverInfo::titled(format!("{}#{}", node.name, hit.index));
 
-    if let Some(code) = hit.category {
-        let (property, label) = properties.color_label(code);
+    if let Some(shade) = hit.shade {
+        let (property, label) = properties.color_label(shade);
         info = info.row(property, label);
     }
 
@@ -500,6 +499,7 @@ fn report_for(streamer: &PointStreamer, sources: &mut Query<&mut SourceStatus>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::formats::scatterbrain::nodes::Shades;
 
     fn cloud() -> Scatterbrain {
         Scatterbrain::parse(include_str!("../../../testdata/scatterbrain.json")).unwrap()
@@ -600,9 +600,10 @@ mod tests {
     /// A streamer with one node already resident, holding `points`.
     fn resident(points: &[[f32; 2]], categories: &[u16]) -> PointStreamer {
         let mut streamer = PointStreamer::new(Arc::new(cloud()), Entity::PLACEHOLDER);
-        streamer
-            .nodes
-            .landed(0, NodeOutcome::Ready(points.to_vec(), categories.to_vec()));
+        streamer.nodes.landed(
+            0,
+            NodeOutcome::Ready(points.to_vec(), Shades::Codes(categories.to_vec())),
+        );
         streamer
     }
 
@@ -625,7 +626,7 @@ mod tests {
             .pick(&probe_at(Vec2::new(cx + 1.0, -cy), 1.0))
             .expect("the pointer is all but on the first point");
         assert_eq!(hit.index, 0);
-        assert_eq!(hit.category, Some(3));
+        assert_eq!(hit.shade, Some(Shade::Code(3)));
     }
 
     #[test]
@@ -690,7 +691,7 @@ mod tests {
         let streamer = resident(&[[cx, cy]], &[]);
         let hit = streamer.pick(&probe_at(Vec2::new(cx, -cy), 1.0)).unwrap();
         // Nothing to highlight, but the point still has an address.
-        assert_eq!(hit.category, None);
+        assert_eq!(hit.shade, None);
     }
 
     #[test]

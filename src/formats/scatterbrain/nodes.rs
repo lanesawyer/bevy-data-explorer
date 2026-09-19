@@ -13,7 +13,7 @@ use bevy::prelude::*;
 
 use crate::app::net::Fetching;
 use crate::render::points::build_point_mesh;
-use crate::source::properties::CellSelection;
+use crate::source::properties::{CellSelection, MISSING, Shade};
 
 use super::{Node, Rect, Scatterbrain, decode_categories, decode_floats, decode_positions};
 
@@ -26,11 +26,56 @@ pub const PICK_PX: f32 = 7.0;
 /// A resident node's points, kept on the CPU after its mesh is built.
 ///
 /// The pointer has to be resolved against actual coordinates and a mesh cannot
-/// be read back, so this is what makes hovering possible at all. Ten bytes a
-/// point against the eighty each already costs on the GPU.
+/// be read back, so this is what makes hovering possible at all. Ten or twelve
+/// bytes a point against the eighty each already costs on the GPU.
 pub struct NodePoints {
     pub positions: Vec<[f32; 2]>,
-    pub categories: Vec<u16>,
+    pub shades: Shades,
+}
+
+/// Each point's value in the column it is colored by.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Shades {
+    Codes(Vec<u16>),
+    Values(Vec<f32>),
+}
+
+impl Default for Shades {
+    /// Colored by nothing.
+    fn default() -> Self {
+        Shades::Codes(Vec::new())
+    }
+}
+
+impl Shades {
+    pub fn get(&self, index: usize) -> Option<Shade> {
+        match self {
+            Shades::Codes(codes) => codes.get(index).copied().map(Shade::Code),
+            Shades::Values(values) => values.get(index).copied().map(Shade::Value),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Shades::Codes(codes) => codes.len(),
+            Shades::Values(values) => values.len(),
+        }
+    }
+
+    /// Keep the points `keep` marks, dropping the rest.
+    fn retain(&mut self, keep: &[bool]) {
+        fn retain<T>(column: &mut Vec<T>, keep: &[bool]) {
+            let mut index = 0;
+            column.retain(|_| {
+                index += 1;
+                keep.get(index - 1).copied().unwrap_or(false)
+            });
+        }
+        match self {
+            Shades::Codes(codes) => retain(codes, keep),
+            Shades::Values(values) => retain(values, keep),
+        }
+    }
 }
 
 impl NodePoints {
@@ -39,8 +84,8 @@ impl NodePoints {
     ///
     /// Shared with the sectioned streamer, which differs only in having to move
     /// the target into each slide's own coordinates first.
-    pub fn nearest(&self, target: Vec2, limit: f32) -> Option<(f32, usize, Vec2, Option<u16>)> {
-        let mut best: Option<(f32, usize, Vec2, Option<u16>)> = None;
+    pub fn nearest(&self, target: Vec2, limit: f32) -> Option<(f32, usize, Vec2, Option<Shade>)> {
+        let mut best: Option<(f32, usize, Vec2, Option<Shade>)> = None;
         for (offset, point) in self.positions.iter().enumerate() {
             let point = Vec2::from(*point);
             let distance = (point - target).length_squared();
@@ -48,12 +93,7 @@ impl NodePoints {
                 continue;
             }
             if best.is_none_or(|(nearest, ..)| distance < nearest) {
-                best = Some((
-                    distance,
-                    offset,
-                    point,
-                    self.categories.get(offset).copied(),
-                ));
+                best = Some((distance, offset, point, self.shades.get(offset)));
             }
         }
         best
@@ -71,7 +111,7 @@ pub fn pick_reach(target: Vec2, radius: f32) -> Rect {
 }
 
 pub enum NodeOutcome {
-    Ready(Vec<[f32; 2]>, Vec<u16>),
+    Ready(Vec<[f32; 2]>, Shades),
     Failed(String),
 }
 
@@ -84,26 +124,34 @@ pub async fn load_node(
     cloud: &Scatterbrain,
     node: &Node,
     selection: &CellSelection,
-) -> Result<(Vec<[f32; 2]>, Vec<u16>), String> {
+) -> Result<(Vec<[f32; 2]>, Shades), String> {
     let mut positions = decode_positions(&fetch(&cloud.positions_url(node)).await?, node.count)?;
 
-    let mut categories = match &selection.color_by {
-        Some(column) => {
-            let bytes = fetch(&cloud.column_url(column, node)).await?;
-            decode_categories(&bytes, node.count)?
+    let colored = match &selection.color_by {
+        Some(column) => Some((column, fetch(&cloud.column_url(column, node)).await?)),
+        None => None,
+    };
+    let mut shades = match &colored {
+        Some((_, bytes)) if selection.ramp.is_some() => {
+            Shades::Values(decode_floats(bytes, node.count)?)
         }
-        None => Vec::new(),
+        Some((_, bytes)) => Shades::Codes(decode_categories(bytes, node.count)?),
+        None => Shades::default(),
     };
 
     if selection.filters.is_empty() {
-        return Ok((positions, categories));
+        return Ok((positions, shades));
     }
 
     // A column is decoded to whatever its restriction compares against: codes
-    // for a categorical filter, floats for a numeric one.
+    // for a categorical filter, floats for a numeric one. Coloring by a range
+    // while filtering it is common, and its column is already here.
     let mut columns: Vec<Vec<f32>> = Vec::with_capacity(selection.filters.len());
     for (column, restriction) in &selection.filters {
-        let bytes = fetch(&cloud.column_url(column, node)).await?;
+        let bytes = match &colored {
+            Some((colored, bytes)) if *colored == column => bytes.clone(),
+            _ => fetch(&cloud.column_url(column, node)).await?,
+        };
         let values = if restriction.is_numeric() {
             decode_floats(&bytes, node.count)?
         } else {
@@ -129,14 +177,8 @@ pub async fn load_node(
         index += 1;
         keep[index - 1]
     });
-    if !categories.is_empty() {
-        let mut index = 0;
-        categories.retain(|_| {
-            index += 1;
-            keep[index - 1]
-        });
-    }
-    Ok((positions, categories))
+    shades.retain(&keep);
+    Ok((positions, shades))
 }
 
 /// Node reads in flight at once, per source.
@@ -265,17 +307,14 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
             // still copying into it, which it reports as a use-after-free for
             // as long as the node stays resident.
             NodeOutcome::Ready(positions, _) if positions.is_empty() => Slot::Empty,
-            NodeOutcome::Ready(positions, categories) => {
+            NodeOutcome::Ready(positions, shades) => {
                 let points = positions.len();
-                let entity = spawn(key, build_mesh(&positions, &categories, selection));
+                let entity = spawn(key, build_mesh(&positions, &shades, selection));
                 self.resident_points += points;
                 Slot::Ready {
                     entity,
                     points,
-                    resident: NodePoints {
-                        positions,
-                        categories,
-                    },
+                    resident: NodePoints { positions, shades },
                 }
             }
             NodeOutcome::Failed(e) => {
@@ -437,25 +476,29 @@ async fn fetch(url: &str) -> Result<Vec<u8>, String> {
     crate::app::net::fetch(url).await
 }
 
-/// Build a node's mesh, coloring each point by its category in the colors
-/// `selection` gives them.
+/// Build a node's mesh, coloring each point by its category or value in the
+/// colors `selection` gives them.
 ///
 /// Each point is a quad for the point shader to size; see
 /// [`build_point_mesh`].
-pub fn build_mesh(positions: &[[f32; 2]], categories: &[u16], selection: &CellSelection) -> Mesh {
+pub fn build_mesh(positions: &[[f32; 2]], shades: &Shades, selection: &CellSelection) -> Mesh {
     let points: Vec<Vec2> = positions.iter().map(|p| Vec2::new(p[0], p[1])).collect();
 
-    let colored = categories.len() == positions.len();
-    let colors: Vec<[f32; 4]> = if colored {
-        categories.iter().map(|c| selection.color(*c)).collect()
-    } else {
-        vec![[0.8, 0.85, 0.9, 1.0]; positions.len()]
+    let colored = shades.len() == positions.len();
+    let colors: Vec<[f32; 4]> = match (shades, selection.ramp) {
+        (Shades::Codes(codes), _) if colored => codes.iter().map(|c| selection.color(*c)).collect(),
+        (Shades::Values(values), Some(ramp)) if colored => ramp.colors(values),
+        _ => vec![MISSING; positions.len()],
     };
 
     // Each vertex carries its point's category so that hovering one can enlarge
-    // the rest sharing it. Without a color-by column there are no groups to
-    // pick out, and the mesh says so by carrying none.
-    build_point_mesh(&points, &colors, if colored { categories } else { &[] })
+    // the rest sharing it. Without a categorical color-by column there are no
+    // groups to pick out, and the mesh says so by carrying none.
+    let categories = match shades {
+        Shades::Codes(codes) if colored => codes.as_slice(),
+        _ => &[],
+    };
+    build_point_mesh(&points, &colors, categories)
 }
 
 #[cfg(test)]
@@ -467,7 +510,10 @@ mod tests {
         let mut cache = NodeCache::new(usize::MAX);
         cache.want(asked.to_vec());
         for index in &asked[..built] {
-            cache.landed(*index, NodeOutcome::Ready(vec![[0.0, 0.0]], Vec::new()));
+            cache.landed(
+                *index,
+                NodeOutcome::Ready(vec![[0.0, 0.0]], Shades::default()),
+            );
         }
         cache
     }
@@ -504,7 +550,7 @@ mod tests {
     fn a_node_the_filter_emptied_counts_as_arrived() {
         // Nothing is spawned for it, so the swap has nothing to wait for.
         let mut cache = staged(&[0, 1], 1);
-        cache.landed(1, NodeOutcome::Ready(Vec::new(), Vec::new()));
+        cache.landed(1, NodeOutcome::Ready(Vec::new(), Shades::default()));
         assert!(cache.generation_ready());
         assert_eq!(cache.loaded(), 2);
     }
@@ -535,7 +581,11 @@ mod tests {
 
     #[test]
     fn a_mesh_without_categories_still_builds() {
-        let mesh = build_mesh(&[[0.0, 0.0], [1.0, 1.0]], &[], &CellSelection::default());
+        let mesh = build_mesh(
+            &[[0.0, 0.0], [1.0, 1.0]],
+            &Shades::default(),
+            &CellSelection::default(),
+        );
         // Four vertices per point: each is drawn as a quad so that it can be
         // given a size.
         assert_eq!(mesh.count_vertices(), 8);
@@ -547,12 +597,44 @@ mod tests {
 
     #[test]
     fn meshes_flip_y_to_match_the_image_panel() {
-        let mesh = build_mesh(&[[2.0, 3.0]], &[], &CellSelection::default());
+        let mesh = build_mesh(&[[2.0, 3.0]], &Shades::default(), &CellSelection::default());
         let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap();
         let bevy::mesh::VertexAttributeValues::Float32x3(values) = positions else {
             panic!("unexpected position format");
         };
         assert_eq!(values[0], [2.0, -3.0, 0.0]);
+    }
+
+    #[test]
+    fn numeric_values_are_drawn_along_the_ramp_and_form_no_groups() {
+        use crate::source::properties::{Gradient, Ramp};
+        use bevy::mesh::VertexAttributeValues;
+
+        let ramp = Ramp {
+            gradient: Gradient::Viridis,
+            from: 0.0,
+            to: 10.0,
+        };
+        let selection = CellSelection {
+            color_by: Some("score".into()),
+            ramp: Some(ramp),
+            ..default()
+        };
+        let mesh = build_mesh(
+            &[[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]],
+            &Shades::Values(vec![0.0, 10.0, f32::NAN]),
+            &selection,
+        );
+        let Some(VertexAttributeValues::Unorm8x4(colors)) =
+            mesh.attribute(crate::render::points::ATTRIBUTE_POINT_COLOR)
+        else {
+            panic!("unexpected color format");
+        };
+        let packed = |color: [f32; 4]| color.map(|channel| (channel * 255.0) as u8);
+        assert_eq!(colors[0], packed(ramp.colors(&[0.0])[0]));
+        assert_eq!(colors[4], packed(ramp.colors(&[10.0])[0]));
+        assert_ne!(colors[0], colors[4], "the two ends must differ");
+        assert_eq!(colors[8], packed(MISSING), "no value, no gradient color");
     }
 
     #[test]

@@ -8,12 +8,14 @@
 //! than the source of it. [`Provenance`] records which of those it was.
 //!
 //! Each property offers two things: coloring points by it, and filtering
-//! points down to a chosen set of its values.
+//! points down to a chosen set of its values. Categorical values are colored
+//! one color each; numeric ones along a [`Gradient`].
 
 use std::collections::HashSet;
 
 use bevy::prelude::*;
 
+pub use super::gradient::Gradient;
 pub use super::tree::{Tree, TreeLevel, TreeNode};
 
 /// One value a property can take.
@@ -169,10 +171,12 @@ impl CellProperty {
         }
     }
 
-    /// Whether points can be colored by this property. They are colored by
-    /// code, and a numeric column holds none.
-    pub fn colors(&self) -> bool {
-        !matches!(self.kind, PropertyKind::Numeric(_))
+    /// The column points are colored by when this property colors them.
+    pub fn color_column_id(&self) -> Option<&str> {
+        match &self.kind {
+            PropertyKind::Numeric(_) => Some(&self.id),
+            _ => self.color_column().map(|(column, _)| column),
+        }
     }
 
     /// The values of a flat categorical property; nothing for any other kind.
@@ -197,8 +201,8 @@ impl CellProperty {
         }
     }
 
-    /// The column points are colored by when this property colors them,
-    /// and the values in it.
+    /// The categorical column points are colored by when this property
+    /// colors them, and the values in it.
     pub fn color_column(&self) -> Option<(&str, Vec<&PropertyValue>)> {
         match &self.kind {
             PropertyKind::Categorical(values) => Some((self.id.as_str(), values.iter().collect())),
@@ -354,30 +358,37 @@ pub struct CellProperties {
     pub properties: Vec<CellProperty>,
     /// Index into `properties` of the one points are colored by.
     pub color_by: Option<usize>,
+    /// The scale a numeric `color_by` is drawn along.
+    pub gradient: Gradient,
     pub state: PropertyState,
     pub provenance: Provenance,
 }
 
 impl CellProperties {
-    /// Coloring starts on the first listed property that can color.
+    /// Coloring starts on the first listed property with values of its own
+    /// to tell apart, or failing that the first listed numeric one.
     pub fn ready(properties: Vec<CellProperty>) -> Self {
-        let color_by = properties
-            .iter()
-            .position(|property| property.shown && property.colors());
+        let listed = |numeric: bool| {
+            properties.iter().position(|property| {
+                property.shown && matches!(property.kind, PropertyKind::Numeric(_)) == numeric
+            })
+        };
+        let color_by = listed(false).or_else(|| listed(true));
         CellProperties {
             properties,
             color_by,
+            gradient: Gradient::default(),
             state: PropertyState::Ready,
             provenance: Provenance::Files,
         }
     }
 
-    /// Color by the column with this id, if a property that can color
-    /// holds it: a categorical property, or one level of a tree.
+    /// Color by the column with this id, if a property holds it: a
+    /// categorical or numeric property, or one level of a tree.
     pub fn color_by_id(&mut self, id: &str) {
         for (index, property) in self.properties.iter_mut().enumerate() {
             let found = match &mut property.kind {
-                PropertyKind::Categorical(_) => property.id == id,
+                PropertyKind::Categorical(_) | PropertyKind::Numeric(_) => property.id == id,
                 PropertyKind::Tree(tree) => {
                     match tree.levels.iter().position(|level| level.id == id) {
                         Some(level) => {
@@ -387,7 +398,6 @@ impl CellProperties {
                         None => false,
                     }
                 }
-                PropertyKind::Numeric(_) => false,
             };
             if found {
                 self.color_by = Some(index);
@@ -403,12 +413,22 @@ impl CellProperties {
         self.properties.iter().map(CellProperty::applied).sum()
     }
 
-    /// How to name a code of the column points are currently colored by: the
-    /// property's name, and the label for that value.
+    /// How to name a point's value in the column points are currently colored
+    /// by: the property's name, and the label for that value.
     ///
     /// A code with no label — the files hold codes, and not every dataset has a
     /// service naming them — names itself rather than showing nothing.
-    pub fn color_label(&self, code: u16) -> (String, String) {
+    pub fn color_label(&self, shade: Shade) -> (String, String) {
+        let code = match shade {
+            Shade::Code(code) => code,
+            Shade::Value(value) => {
+                let name = self
+                    .color_by
+                    .and_then(|index| self.properties.get(index))
+                    .map_or_else(|| "value".into(), |property| property.name.clone());
+                return (name, format!("{value:.3}"));
+            }
+        };
         let Some(property) = self.color_by.and_then(|index| self.properties.get(index)) else {
             return ("value".into(), code.to_string());
         };
@@ -455,6 +475,16 @@ impl CellProperties {
         }
     }
 
+    /// How points are colored, when they are colored by a numeric property.
+    pub fn ramp(&self) -> Option<Ramp> {
+        let range = self.properties.get(self.color_by?)?.range()?;
+        Some(Ramp {
+            gradient: self.gradient,
+            from: range.from,
+            to: range.to,
+        })
+    }
+
     /// What the streamers need in order to draw: the column to color by and
     /// the colors of its codes, and the columns that restrict which points
     /// are drawn at all.
@@ -462,15 +492,16 @@ impl CellProperties {
     /// Properties that exclude nothing are left out, so an untouched panel
     /// costs no extra fetching.
     pub fn selection(&self) -> CellSelection {
-        let coloring = self
-            .color_by
-            .and_then(|index| self.properties.get(index))
-            .and_then(CellProperty::color_column);
+        let property = self.color_by.and_then(|index| self.properties.get(index));
+        let coloring = property.and_then(CellProperty::color_column);
         CellSelection {
-            color_by: coloring.as_ref().map(|(column, _)| column.to_string()),
+            color_by: property
+                .and_then(CellProperty::color_column_id)
+                .map(str::to_string),
             palette: coloring
                 .map(|(_, values)| palette_of(&values))
                 .unwrap_or_default(),
+            ramp: self.ramp(),
             filters: self
                 .properties
                 .iter()
@@ -517,6 +548,73 @@ fn linear(color: Color) -> [f32; 4] {
     [color.red, color.green, color.blue, 1.0]
 }
 
+/// What a point is colored by: its code in a categorical column, or its value
+/// in a numeric one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Shade {
+    Code(u16),
+    Value(f32),
+}
+
+impl Shade {
+    /// The categorical code, which is what hovering a point highlights the
+    /// rest of. Values along a gradient form no groups to highlight.
+    pub fn code(self) -> Option<u16> {
+        match self {
+            Shade::Code(code) => Some(code),
+            Shade::Value(_) => None,
+        }
+    }
+}
+
+/// How a numeric column is colored: along `gradient`, from its start at
+/// `from` to its end at `to`.
+///
+/// The span is the one the property admits, so narrowing a range spreads the
+/// whole gradient over what is left rather than drawing it in a sliver of one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Ramp {
+    pub gradient: Gradient,
+    pub from: f32,
+    pub to: f32,
+}
+
+impl Ramp {
+    /// Steps the gradient is sampled at, which is as fine as the eight bits a
+    /// point's color is packed into can show.
+    const STEPS: usize = 256;
+
+    pub fn fraction_of(&self, value: f32) -> f32 {
+        let span = self.to - self.from;
+        if span.abs() < f32::EPSILON {
+            return 0.5;
+        }
+        (value - self.from) / span
+    }
+
+    /// The linear color of each value, sampling the gradient once per step
+    /// rather than once per point.
+    pub fn colors(&self, values: &[f32]) -> Vec<[f32; 4]> {
+        let table: Vec<[f32; 4]> = (0..Self::STEPS)
+            .map(|step| linear(self.gradient.sample(step as f32 / (Self::STEPS - 1) as f32)))
+            .collect();
+        let last = (Self::STEPS - 1) as f32;
+        values
+            .iter()
+            .map(|value| {
+                let fraction = self.fraction_of(*value);
+                if fraction.is_nan() {
+                    return MISSING;
+                }
+                table[(fraction.clamp(0.0, 1.0) * last).round() as usize]
+            })
+            .collect()
+    }
+}
+
+/// The linear color of a point with no value to color it by.
+pub const MISSING: [f32; 4] = [0.8, 0.85, 0.9, 1.0];
+
 /// The part of [`CellProperties`] that affects what is drawn.
 ///
 /// Compared between frames to decide whether resident points have to be built
@@ -527,6 +625,8 @@ pub struct CellSelection {
     /// Linear color per code of `color_by`. Empty, or too short for a code,
     /// means that code takes [`default_color`].
     pub palette: Vec<[f32; 4]>,
+    /// Set when `color_by` is numeric, and how its values are colored.
+    pub ramp: Option<Ramp>,
     pub filters: Vec<(String, Restriction)>,
 }
 
@@ -655,6 +755,63 @@ mod tests {
     fn coloring_defaults_to_the_first_property() {
         let properties = CellProperties::ready(vec![categorical("class", &[0])]);
         assert_eq!(properties.selection().color_by.as_deref(), Some("class"));
+    }
+
+    #[test]
+    fn a_numeric_property_colors_along_its_admitted_span() {
+        let mut properties =
+            CellProperties::ready(vec![categorical("class", &[0, 1]), numeric("score")]);
+        assert_eq!(properties.selection().ramp, None, "a class colors by code");
+
+        properties.color_by_id("score");
+        properties.properties[1]
+            .range_mut()
+            .unwrap()
+            .set_end(RangeEnd::From, 0.5);
+        let selection = properties.selection();
+        assert_eq!(selection.color_by.as_deref(), Some("score"));
+        assert!(selection.palette.is_empty());
+        let ramp = selection
+            .ramp
+            .expect("a numeric property colors along a gradient");
+        assert_eq!((ramp.from, ramp.to), (0.5, 1.0));
+        assert_eq!(ramp.gradient, Gradient::Viridis);
+    }
+
+    #[test]
+    fn coloring_prefers_a_property_with_values_to_tell_apart() {
+        let properties =
+            CellProperties::ready(vec![numeric("score"), categorical("class", &[0, 1])]);
+        assert_eq!(properties.selection().color_by.as_deref(), Some("class"));
+        // With nothing else to go on, a numeric one still colors.
+        let properties = CellProperties::ready(vec![numeric("score")]);
+        assert_eq!(properties.selection().color_by.as_deref(), Some("score"));
+    }
+
+    #[test]
+    fn a_ramp_spans_its_gradient_and_marks_what_has_no_value() {
+        let ramp = Ramp {
+            gradient: Gradient::Viridis,
+            from: 10.0,
+            to: 20.0,
+        };
+        let colors = ramp.colors(&[10.0, 20.0, 5.0, 25.0, f32::NAN]);
+        assert_eq!(colors[0], linear(Gradient::Viridis.sample(0.0)));
+        assert_eq!(colors[1], linear(Gradient::Viridis.sample(1.0)));
+        // Outside the span clamps to its ends.
+        assert_eq!(colors[2], colors[0]);
+        assert_eq!(colors[3], colors[1]);
+        assert_eq!(colors[4], MISSING);
+    }
+
+    #[test]
+    fn a_numeric_value_is_labelled_by_its_property() {
+        let mut properties = CellProperties::ready(vec![numeric("score")]);
+        properties.properties[0].name = "Score".into();
+        assert_eq!(
+            properties.color_label(Shade::Value(0.25)),
+            ("Score".to_string(), "0.250".to_string())
+        );
     }
 
     #[test]

@@ -28,7 +28,7 @@ use crate::formats::scatterbrain::{Rect, Scatterbrain};
 use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::ViewLimits;
 use crate::source::hover::{HoverInfo, HoverProbe};
-use crate::source::properties::{CellProperties, CellSelection};
+use crate::source::properties::{CellProperties, CellSelection, Shade};
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::{self, DataSource, SourceBusy, SourceExtent, SourceStatus};
 use crate::view::ShowsSource;
@@ -86,7 +86,7 @@ pub struct SliceHit {
     /// Its offset within that node's column files.
     pub index: usize,
     pub position: Vec2,
-    pub category: Option<u16>,
+    pub shade: Option<Shade>,
 }
 
 #[derive(Component)]
@@ -218,8 +218,7 @@ impl SliceStreamer {
             if !node.bounds.intersects(&pick_reach(target, radius)) {
                 continue;
             }
-            let Some((distance, index, position, category)) = resident.nearest(target, limit)
-            else {
+            let Some((distance, index, position, shade)) = resident.nearest(target, limit) else {
                 continue;
             };
             if best.as_ref().is_none_or(|(nearest, _)| distance < *nearest) {
@@ -229,7 +228,7 @@ impl SliceStreamer {
                         key: *key,
                         index,
                         position,
-                        category,
+                        shade,
                     },
                 ));
             }
@@ -426,7 +425,7 @@ pub fn spawn_slice_tasks(mut streamers: Query<&mut SliceStreamer>) {
             fetching(async move {
                 let node = &cloud.slides[key.slide].nodes[key.node];
                 match load_node(&cloud, node, &selection).await {
-                    Ok((positions, categories)) => NodeOutcome::Ready(positions, categories),
+                    Ok((positions, shades)) => NodeOutcome::Ready(positions, shades),
                     Err(e) => NodeOutcome::Failed(e),
                 }
             })
@@ -727,7 +726,7 @@ pub fn resolve_hover(
             .ok()
             .and_then(|probe| streamer.pick(probe));
 
-        let category = hit.as_ref().and_then(|hit| hit.category);
+        let category = hit.as_ref().and_then(|hit| hit.shade?.code());
         if highlight.0 != category {
             highlight.0 = category;
         }
@@ -762,8 +761,8 @@ fn describe(
             streamer.cloud.slides.len()
         ),
     );
-    if let Some(code) = hit.category {
-        let (property, label) = properties.color_label(code);
+    if let Some(shade) = hit.shade {
+        let (property, label) = properties.color_label(shade);
         info = info.row(property, label);
     }
 
@@ -837,6 +836,7 @@ fn report_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::formats::scatterbrain::nodes::Shades;
 
     fn sectioned() -> Arc<Scatterbrain> {
         Arc::new(
@@ -855,7 +855,7 @@ mod tests {
     fn resident(streamer: &mut SliceStreamer, slide: usize, point: [f32; 2], category: u16) {
         streamer.nodes.landed(
             SliceNode { slide, node: 0 },
-            NodeOutcome::Ready(vec![point], vec![category]),
+            NodeOutcome::Ready(vec![point], Shades::Codes(vec![category])),
         );
     }
 
@@ -887,7 +887,7 @@ mod tests {
             .pick(&probe_at(drawn_at(&streamer, slide, point)))
             .expect("the pointer is on the point");
         assert_eq!(hit.key.slide, slide);
-        assert_eq!(hit.category, Some(5));
+        assert_eq!(hit.shade, Some(Shade::Code(5)));
     }
 
     #[test]
