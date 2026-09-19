@@ -18,7 +18,9 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::ThemeMode;
 use crate::view::{BlocksFrameInput, FrameArea};
-use crate::widgets::{AddDock, Dock, DockEdge, HANDLE_PX, Icon, button_icon, dock_handle};
+use crate::widgets::{
+    AddDock, Dock, DockEdge, HANDLE_PX, Icon, button_icon, button_text, dock_handle,
+};
 
 /// Width when collapsed. Enough for the short title and the toggle beneath it.
 const RIBBON_PX: f32 = 52.0;
@@ -116,6 +118,10 @@ pub struct SidebarToggle;
 #[derive(Component, Clone, Default)]
 pub struct ThemeButton;
 
+/// A button's words beside its icon, hidden when the dock is a ribbon.
+#[derive(Component, Clone, Default)]
+pub struct SidebarLabel;
+
 /// The draggable edge.
 #[derive(Component, Clone, Default)]
 pub struct SidebarHandle;
@@ -209,8 +215,12 @@ fn spawn_sidebar(mut commands: Commands) {
                 }
                 Children [(
                     @FeathersToolButton {
-                        @caption: { bsn_list![button_icon(Icon::ScrollText)] }
+                        @caption: { bsn_list![
+                            button_icon(Icon::ScrollText),
+                            (button_text("Logs") SidebarLabel),
+                        ] }
                     }
+                    Node { column_gap: { Val::Px(6.0) } }
                     crate::ui::logpanel::LogPanelToggle
                     BlocksFrameInput
                 )]
@@ -222,8 +232,12 @@ fn spawn_sidebar(mut commands: Commands) {
                 }
                 Children [(
                     @FeathersToolButton {
-                        @caption: { bsn_list![button_icon(Icon::Sun)] }
+                        @caption: { bsn_list![
+                            button_icon(Icon::Sun),
+                            (button_text("Light mode") SidebarLabel),
+                        ] }
                     }
+                    Node { column_gap: { Val::Px(6.0) } }
                     ThemeButton
                     BlocksFrameInput
                 )]
@@ -235,8 +249,12 @@ fn spawn_sidebar(mut commands: Commands) {
                 }
                 Children [(
                     @FeathersToolButton {
-                        @caption: { bsn_list![button_icon(Icon::CircleHelp)] }
+                        @caption: { bsn_list![
+                            button_icon(Icon::CircleHelp),
+                            (button_text("Help") SidebarLabel),
+                        ] }
                     }
+                    Node { column_gap: { Val::Px(6.0) } }
                     crate::ui::help::HelpToggle
                     BlocksFrameInput
                 )]
@@ -253,8 +271,12 @@ fn spawn_sidebar(mut commands: Commands) {
                 Children [
                     (
                         @FeathersToolButton {
-                            @caption: { bsn_list![button_icon(Icon::PanelLeftClose)] }
+                            @caption: { bsn_list![
+                                button_icon(Icon::PanelLeftClose),
+                                (button_text("Collapse") SidebarLabel),
+                            ] }
                         }
+                        Node { column_gap: { Val::Px(6.0) } }
                         SidebarToggle
                         BlocksFrameInput
                     ),
@@ -317,7 +339,7 @@ pub fn update_sidebar(
     >,
     titles: Query<Entity, With<SidebarTitle>>,
     toggles: Query<&Children, With<SidebarToggle>>,
-    mut texts: Query<&mut Text>,
+    mut texts: Query<&mut Text, Without<SidebarLabel>>,
 ) {
     let Ok(window) = windows.single() else { return };
     let width = sidebar.current_width(window.width());
@@ -369,6 +391,20 @@ pub fn update_sidebar(
     }
 }
 
+/// Show the buttons' words beside their icons only while there is room.
+pub fn show_labels(sidebar: Res<Sidebar>, mut labels: Query<&mut Node, With<SidebarLabel>>) {
+    let wanted = if sidebar.collapsed {
+        Display::None
+    } else {
+        Display::Flex
+    };
+    for mut node in &mut labels {
+        if node.display != wanted {
+            node.display = wanted;
+        }
+    }
+}
+
 /// Switch the theme when the button is pressed.
 pub fn on_theme_pressed(
     activate: On<Activate>,
@@ -388,20 +424,25 @@ pub fn on_theme_pressed(
 pub fn sync_theme_button(
     mode: Res<ThemeMode>,
     buttons: Query<&Children, With<ThemeButton>>,
-    mut texts: Query<&mut Text>,
+    mut icons: Query<&mut Text, Without<SidebarLabel>>,
+    mut labels: Query<&mut Text, With<SidebarLabel>>,
 ) {
-    let wanted = if mode.is_dark() {
-        Icon::Sun
+    let (icon, label) = if mode.is_dark() {
+        (Icon::Sun, "Light mode")
     } else {
-        Icon::Moon
-    }
-    .glyph();
+        (Icon::Moon, "Dark mode")
+    };
     for children in &buttons {
         for child in children.iter() {
-            if let Ok(mut text) = texts.get_mut(child)
-                && text.0 != wanted
+            if let Ok(mut text) = icons.get_mut(child)
+                && text.0 != icon.glyph()
             {
-                text.0 = wanted.to_string();
+                text.0 = icon.glyph().to_string();
+            }
+            if let Ok(mut text) = labels.get_mut(child)
+                && text.0 != label
+            {
+                text.0 = label.to_string();
             }
         }
     }
@@ -418,7 +459,7 @@ impl Plugin for SidebarPlugin {
             .add_systems(Update, reserve_space.in_set(Stage::DockReserve))
             .add_systems(
                 Update,
-                (update_sidebar, sync_theme_button)
+                (update_sidebar, show_labels, sync_theme_button)
                     .chain()
                     .in_set(Stage::Chrome),
             )
