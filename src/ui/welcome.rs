@@ -100,7 +100,7 @@ pub fn spawn_welcome(mut commands: Commands) {
     let blurb = commands
         .spawn_scene(bsn! {
             label_dim(BLURB)
-            InheritableFont { font_size: { 13.0f32 } }
+            TextFont { font_size: { FontSize::Px(13.0f32) } }
             Node { max_width: { Val::Px(COLUMN_PX) } }
             TextLayout { justify: { Justify::Center } }
         })
@@ -187,7 +187,7 @@ fn example_column(commands: &mut Commands, heading: &str, examples: &[Example]) 
             Children [
                 (
                     label(heading)
-                    InheritableFont { font_size: { 13.0f32 } }
+                    TextFont { font_size: { FontSize::Px(13.0f32) } }
                     Node {
                         grid_column: { GridPlacement::span(2) },
                         margin: { UiRect::bottom(Val::Px(4.0)) },
@@ -230,7 +230,7 @@ fn example_cells(commands: &mut Commands, example: &Example) -> [Entity; 2] {
     let kind = commands
         .spawn_scene(bsn! {
             label_dim(kind)
-            InheritableFont { font_size: { 12.0f32 } }
+            TextFont { font_size: { FontSize::Px(12.0f32) } }
         })
         .id();
     [button, kind]

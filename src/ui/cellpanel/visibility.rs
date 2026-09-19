@@ -17,7 +17,6 @@ use bevy::prelude::*;
 use bevy::ui::{Checked, InteractionDisabled};
 use bevy_feathers::controls::FeathersCheckbox;
 use bevy_feathers::display::label;
-use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::ValueChange;
 
 use crate::source::properties::CellProperties;
@@ -108,7 +107,7 @@ fn heading(commands: &mut Commands) -> Entity {
         .spawn_scene(bsn! {
             MenuContent
             label("Show properties")
-            InheritableFont { font_size: { 13.0f32 } }
+            TextFont { font_size: { FontSize::Px(13.0f32) } }
             Node { margin: { UiRect::bottom(Val::Px(4.0)) } }
         })
         .id()

@@ -157,7 +157,7 @@ pub fn spawn_log_panel(mut commands: Commands) {
             Children [
                 (
                     label("Log")
-                    InheritableFont { font_size: { 13.0f32 } }
+                    TextFont { font_size: { FontSize::Px(13.0f32) } }
                     Node { flex_grow: { 1.0_f32 } }
                 ),
                 (

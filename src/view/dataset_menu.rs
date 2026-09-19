@@ -30,7 +30,6 @@ use bevy_feathers::controls::{
     FeathersMenu, FeathersMenuButton, FeathersMenuItem, FeathersMenuPopup,
 };
 use bevy_feathers::display::{label, label_dim};
-use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, MenuAction, MenuEvent, ScrollArea};
 
 use super::grid::MAX_LAYERS;
@@ -117,7 +116,7 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
                 @caption: { bsn_list![(
                     button_text("")
                     PanelTitle
-                    InheritableFont { font_size: { 14.0f32 } }
+                    TextFont { font_size: { FontSize::Px(14.0f32) } }
                     Node { margin: { UiRect::right(Val::Px(4.0)) } }
                 )] }
             }
@@ -390,7 +389,7 @@ fn heading(commands: &mut Commands, text: &str, first: bool) -> Entity {
         .spawn_scene(bsn! {
             DatasetListContent
             label_dim(text)
-            InheritableFont { font_size: { 11.0f32 } }
+            TextFont { font_size: { FontSize::Px(11.0f32) } }
             Node { margin: { UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(gap), Val::Px(2.0)) } }
         })
         .id()
@@ -414,12 +413,12 @@ fn item(commands: &mut Commands, name: &str, note: &str, choice: SourceChoice) -
                     Children [
                         (
                             label(name)
-                            InheritableFont { font_size: { 13.0f32 } }
+                            TextFont { font_size: { FontSize::Px(13.0f32) } }
                             TextLayout { linebreak: { LineBreak::NoWrap } }
                         ),
                         (
                             label_dim(note)
-                            InheritableFont { font_size: { 11.0f32 } }
+                            TextFont { font_size: { FontSize::Px(11.0f32) } }
                             TextLayout { linebreak: { LineBreak::NoWrap } }
                         ),
                     ]

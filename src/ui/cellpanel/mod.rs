@@ -22,7 +22,6 @@ use bevy::prelude::*;
 use bevy::ui::Checked;
 use bevy_feathers::controls::{ButtonVariant, FeathersCheckbox};
 use bevy_feathers::display::label_dim;
-use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::ThemeTextColor;
 use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ValueChange};
@@ -217,7 +216,7 @@ pub fn rebuild_cell_panel(
             .spawn_scene(bsn! {
                 CellPanelContent
                 label_dim(format!("Could not load properties: {error}"))
-                InheritableFont { font_size: { 11.0f32 } }
+                TextFont { font_size: { FontSize::Px(11.0f32) } }
             })
             .id();
         commands.entity(body).add_child(message);
@@ -234,7 +233,7 @@ pub fn rebuild_cell_panel(
             .spawn_scene(bsn! {
                 CellPanelContent
                 label_dim("No properties for this dataset.")
-                InheritableFont { font_size: { 11.0f32 } }
+                TextFont { font_size: { FontSize::Px(11.0f32) } }
             })
             .id();
         commands.entity(body).add_child(message);

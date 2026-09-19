@@ -9,7 +9,6 @@ use bevy::prelude::*;
 use bevy::ui::Checked;
 use bevy_feathers::controls::{FeathersCheckbox, FeathersToolButton};
 use bevy_feathers::display::label;
-use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::ThemeTextColor;
 use bevy_ui_widgets::{Activate, SliderRange, SliderValue, ValueChange};
 
@@ -114,7 +113,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     let open = commands
         .spawn_scene(bsn! {
             label("Open a dataset")
-            InheritableFont { font_size: { 12.0f32 } }
+            TextFont { font_size: { FontSize::Px(12.0f32) } }
             Node { margin: { UiRect::new(Val::Px(0.0), Val::Px(0.0), Val::Px(8.0), Val::Px(2.0)) } }
         })
         .id();
@@ -142,7 +141,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         .spawn_scene(bsn! {
             FrameControl
             label("Transparency")
-            InheritableFont { font_size: { 12.0f32 } }
+            TextFont { font_size: { FontSize::Px(12.0f32) } }
         })
         .id();
 
@@ -157,7 +156,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         .spawn_scene(bsn! {
             PointSizeRow
             label("Point size")
-            InheritableFont { font_size: { 12.0f32 } }
+            TextFont { font_size: { FontSize::Px(12.0f32) } }
         })
         .id();
     let size_slider = spawn_slider(
@@ -561,7 +560,7 @@ fn heading(commands: &mut Commands, text: &str, size: f32, gap: f32) -> Entity {
         .spawn_scene(bsn! {
             LayoutContent
             label(text)
-            InheritableFont { font_size: { size } }
+            TextFont { font_size: { FontSize::Px(size) } }
             Node { margin: { UiRect::top(Val::Px(gap)) } }
         })
         .id()
@@ -579,7 +578,7 @@ fn summary(commands: &mut Commands, data: &DataSource) -> Entity {
             }
             Children [(
                 label(name)
-                InheritableFont { font_size: { 13.0f32 } }
+                TextFont { font_size: { FontSize::Px(13.0f32) } }
             )]
         })
         .id();

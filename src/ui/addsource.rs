@@ -25,7 +25,6 @@ use bevy::text::EditableText;
 use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::{FeathersButton, FeathersTextInput, FeathersTextInputContainer};
 use bevy_feathers::display::{label, label_dim};
-use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::Stage;
@@ -203,11 +202,11 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
             Children [
                 (
                     label("Custom visualization")
-                    InheritableFont { font_size: { 12.0f32 } }
+                    TextFont { font_size: { FontSize::Px(12.0f32) } }
                 ),
                 (
                     label_dim("An OME-Zarr store, Deep Zoom .dzi, Scatterbrain .json or .svg URL")
-                    InheritableFont { font_size: { 11.0f32 } }
+                    TextFont { font_size: { FontSize::Px(11.0f32) } }
                 ),
             ]
         })

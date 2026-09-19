@@ -127,7 +127,7 @@ fn spawn_inspector(mut commands: Commands) {
                     (
                         InspectorTitle
                         label("Details")
-                        InheritableFont { font_size: { 15.0f32 } }
+                        TextFont { font_size: { FontSize::Px(15.0f32) } }
                     ),
                     (
                         @FeathersToolButton {

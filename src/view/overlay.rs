@@ -614,7 +614,7 @@ fn menu_heading(commands: &mut Commands, text: &str, gap: f32) -> Entity {
         .spawn_scene(bsn! {
             SourceMenuContent
             label(text)
-            InheritableFont { font_size: { 12.0f32 } }
+            TextFont { font_size: { FontSize::Px(12.0f32) } }
             Node { margin: { UiRect::new(Val::Px(2.0), Val::Px(0.0), Val::Px(gap), Val::Px(2.0)) } }
         })
         .id()
@@ -667,12 +667,12 @@ fn menu_row(
                     Children [
                         (
                             label(name)
-                            InheritableFont { font_size: { 13.0f32 } }
+                            TextFont { font_size: { FontSize::Px(13.0f32) } }
                             TextLayout { linebreak: { LineBreak::NoWrap } }
                         ),
                         (
                             label_dim(note)
-                            InheritableFont { font_size: { 11.0f32 } }
+                            TextFont { font_size: { FontSize::Px(11.0f32) } }
                             TextLayout { linebreak: { LineBreak::NoWrap } }
                         ),
                     ]

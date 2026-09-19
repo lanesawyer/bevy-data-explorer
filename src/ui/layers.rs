@@ -12,7 +12,6 @@ use bevy::prelude::*;
 use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::display::label;
-use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, SliderValue};
 
 use crate::app::schedule::{Boot, Stage};
@@ -189,7 +188,7 @@ pub fn rebuild_layers(
         .spawn_scene(bsn! {
             LayersContent
             label("Add a layer")
-            InheritableFont { font_size: { 12.0f32 } }
+            TextFont { font_size: { FontSize::Px(12.0f32) } }
             Node { margin: { UiRect::top(Val::Px(8.0)) } }
         })
         .id();
@@ -242,7 +241,7 @@ fn name_column(commands: &mut Commands, name: String, lines: Vec<String>) -> Ent
             }
             Children [(
                 label(name)
-                InheritableFont { font_size: { 13.0f32 } }
+                TextFont { font_size: { FontSize::Px(13.0f32) } }
             )]
         })
         .id();
