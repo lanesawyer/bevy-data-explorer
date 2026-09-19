@@ -388,6 +388,15 @@ pub fn apply_pending_settings(
                 warn!("bookmark: {} has no cell properties to filter", data.name);
                 false
             }
+            // The labels the filters name never arrived, and waiting will not
+            // bring them; a retry is the user's to ask for.
+            (Some(_), Some(properties)) if matches!(properties.state, PropertyState::Failed(_)) => {
+                warn!(
+                    "bookmark: {}'s cell properties failed to load, so its filters were not restored",
+                    data.name
+                );
+                false
+            }
             // A service will replace these, so filters set now would be lost.
             (Some(_), Some(properties))
                 if properties.state != PropertyState::Ready || (has_columns && !described) =>

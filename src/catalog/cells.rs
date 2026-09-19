@@ -19,7 +19,7 @@ use super::{Catalogs, CellCounts, CellService, Entry};
 use crate::app::net::{Fetching, fetching};
 use crate::source::SourceUrl;
 use crate::source::properties::{
-    CellColumns, CellProperties, CellProperty, Column, Provenance, Restriction,
+    CellColumns, CellProperties, CellProperty, Column, PropertyState, Provenance, Restriction,
 };
 
 /// How long the filters must hold still before they are counted under.
@@ -91,6 +91,12 @@ pub fn ask(
     }
 }
 
+/// Ask a source's service about its cells again, after it failed.
+pub fn retry(commands: &mut Commands, source: Entity, properties: &mut CellProperties) {
+    properties.state = PropertyState::Ready;
+    commands.entity(source).remove::<Described>();
+}
+
 /// Take in whatever labels the services have answered, and start counting.
 pub fn take_answers(
     mut commands: Commands,
@@ -120,10 +126,8 @@ pub fn take_answers(
             }
             Err(error) => {
                 warn!("{catalog}: could not describe cells: {error}");
-                properties.provenance = Provenance::Unavailable {
-                    service: catalog,
-                    error,
-                };
+                properties.provenance = Provenance::Files;
+                properties.state = PropertyState::Failed(format!("{catalog}: {error}"));
             }
         }
         source.remove::<Describing>().insert(Described);
@@ -202,6 +206,50 @@ fn apply_counts(properties: &mut CellProperties, counts: CellCounts) {
 mod tests {
     use super::*;
     use crate::source::properties::{PropertyKind, PropertyValue};
+    use futures::future::BoxFuture;
+    use std::sync::Arc;
+
+    struct Down;
+
+    impl super::super::DescribeCells for Down {
+        fn describe(&self, _: CellColumns) -> BoxFuture<'static, Result<CellProperties, String>> {
+            Box::pin(async { Err("503".into()) })
+        }
+
+        fn count(&self, _: &CellProperties) -> BoxFuture<'static, Result<CellCounts, String>> {
+            Box::pin(async { Err("503".into()) })
+        }
+    }
+
+    #[test]
+    fn a_failed_description_says_so_and_can_be_retried() {
+        let mut app = App::new();
+        app.add_systems(Update, take_answers);
+        let service = CellService(Arc::new(Down));
+        let source = app
+            .world_mut()
+            .spawn((
+                CellProperties::ready(Vec::new()),
+                Describing {
+                    reading: fetching(service.0.describe(CellColumns::default())),
+                    service,
+                    catalog: "BKP".into(),
+                },
+            ))
+            .id();
+        while app.world().get::<Described>(source).is_none() {
+            app.update();
+        }
+        let properties = app.world().get::<CellProperties>(source).unwrap();
+        assert_eq!(properties.state, PropertyState::Failed("BKP: 503".into()));
+        assert_eq!(properties.provenance, Provenance::Files);
+
+        let mut properties = properties.clone();
+        retry(&mut app.world_mut().commands(), source, &mut properties);
+        app.world_mut().flush();
+        assert_eq!(properties.state, PropertyState::Ready);
+        assert!(app.world().get::<Described>(source).is_none());
+    }
 
     #[test]
     fn counts_land_on_the_values_they_name() {

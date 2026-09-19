@@ -20,7 +20,7 @@
 
 use bevy::prelude::*;
 use bevy::ui::Checked;
-use bevy_feathers::controls::{ButtonVariant, FeathersCheckbox};
+use bevy_feathers::controls::{ButtonVariant, FeathersButton, FeathersCheckbox};
 use bevy_feathers::display::label_dim;
 use bevy_feathers::theme::ThemeTextColor;
 use bevy_feathers::tokens;
@@ -32,7 +32,7 @@ pub mod values;
 pub mod visibility;
 
 use crate::app::schedule::{Boot, Stage};
-use crate::catalog::cells::Described;
+use crate::catalog::cells::{self, Described};
 use crate::source::properties::{
     CellColumns, CellProperties, CellProperty, PropertyKind, PropertyState, PropertyValue,
     Provenance,
@@ -41,7 +41,7 @@ use crate::source::{DataSource, compact_count};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
 use crate::widgets::{
-    Accordion, Icon, SectionLevel, button_text, spawn_accordion, spawn_header_button,
+    Accordion, Icon, SectionLevel, button_icon, button_text, spawn_accordion, spawn_header_button,
     spawn_icon_menu, spawn_menu, spawn_skeleton,
 };
 
@@ -72,6 +72,10 @@ pub struct ColorByButton {
 pub struct ClearPropertyButton {
     pub property: usize,
 }
+
+/// The button that asks a failed service again.
+#[derive(Component, Clone, Default)]
+pub struct RetryButton;
 
 /// The button that drops every filter, on the section's own header.
 #[derive(Component, Clone, Default)]
@@ -153,7 +157,7 @@ pub fn rebuild_cell_panel(
     mut section: Query<&mut Node, With<CellPanel>>,
     existing: Query<Entity, With<CellPanelContent>>,
     open: Res<OpenSections>,
-    mut shown: Local<Option<(Entity, Vec<String>, Provenance, bool)>>,
+    mut shown: Local<Option<(Entity, Vec<String>, Provenance, PropertyState, bool)>>,
 ) {
     let Ok(body) = body.single() else { return };
 
@@ -200,6 +204,7 @@ pub fn rebuild_cell_panel(
             .map(|(_, property)| property.id.clone())
             .collect(),
         properties.provenance.clone(),
+        properties.state.clone(),
         loading,
     );
     if shown.as_ref() == Some(&fingerprint) {
@@ -212,14 +217,8 @@ pub fn rebuild_cell_panel(
     }
 
     if let PropertyState::Failed(error) = &properties.state {
-        let message = commands
-            .spawn_scene(bsn! {
-                CellPanelContent
-                label_dim(format!("Could not load properties: {error}"))
-                TextFont { font_size: { FontSize::Px(11.0f32) } }
-            })
-            .id();
-        commands.entity(body).add_child(message);
+        let failed = spawn_failed(&mut commands, error);
+        commands.entity(body).add_child(failed);
         return;
     }
     if loading {
@@ -499,6 +498,58 @@ pub fn on_clear_property(
     }
 }
 
+/// Why the properties could not be loaded, and a way to ask again.
+fn spawn_failed(commands: &mut Commands, error: &str) -> Entity {
+    let message = format!("Could not load properties from {error}");
+    commands
+        .spawn_scene(bsn! {
+            CellPanelContent
+            Node {
+                flex_direction: { FlexDirection::Column },
+                align_items: { AlignItems::Start },
+                row_gap: { Val::Px(6.0) },
+            }
+            Children [
+                (
+                    label_dim(message)
+                    TextFont { font_size: { FontSize::Px(SMALL_PX) } }
+                ),
+                (
+                    @FeathersButton {
+                        @caption: { bsn_list![button_icon(Icon::RotateCcw), button_text("Retry")] }
+                    }
+                    Node { column_gap: { Val::Px(6.0) } }
+                    BlocksFrameInput
+                    RetryButton
+                ),
+            ]
+        })
+        .id()
+}
+
+/// Ask the selected source's service about its cells again.
+pub fn on_retry(
+    activate: On<Activate>,
+    buttons: Query<&RetryButton>,
+    mut commands: Commands,
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    mut sources: Query<&mut CellProperties>,
+) {
+    if buttons.get(activate.entity).is_err() {
+        return;
+    }
+    let Some((source, mut properties)) = selected
+        .0
+        .and_then(|panel| panels.get(panel).ok())
+        .and_then(|shows| sources.get_mut(shows.0).ok().map(|found| (shows.0, found)))
+    else {
+        return;
+    };
+    info!("retrying the cell properties");
+    cells::retry(&mut commands, source, &mut properties);
+}
+
 /// Drop every filter on the selected source.
 pub fn on_clear_all(
     activate: On<Activate>,
@@ -648,6 +699,7 @@ impl Plugin for CellPanelPlugin {
             .add_observer(on_value_toggled)
             .add_observer(on_clear_property)
             .add_observer(on_clear_all)
+            .add_observer(on_retry)
             .add_observer(visibility::on_show_toggled)
             .add_systems(
                 Update,

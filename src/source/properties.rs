@@ -399,10 +399,9 @@ pub enum PropertyState {
     #[default]
     Pending,
     Ready,
-    /// Reported by the panel, but nothing produces it yet: it is here for the
-    /// lookup that will fetch value labels over HTTP, which can fail in ways
-    /// worth telling the user about rather than showing an empty section.
-    #[expect(dead_code, reason = "part of the interface the loader will use")]
+    /// The service that knows the labels was asked and failed. What the files
+    /// say is kept, so points still draw, but the panel says why the labels
+    /// are missing rather than passing stand-ins off as real.
     Failed(String),
 }
 
@@ -417,8 +416,6 @@ pub enum Provenance {
     Fetching(String),
     /// Supplied by the named service.
     Service(String),
-    /// The named service was asked and failed, so the files' version stands.
-    Unavailable { service: String, error: String },
 }
 
 /// The columns a dataset holds for its cells, as its own files describe them.
