@@ -69,6 +69,7 @@ timeout and grep the output rather than waiting:
 
 ```sh
 cargo fmt && cargo build 2>&1 | grep -E "^(error|warning)"
+cargo clippy --all-targets 2>&1 | grep -E "^(error|warning)"
 cargo test 2>&1 | grep -E "^test result"
 timeout 45 cargo run 2>&1 | grep -iE "panic|ERROR"
 ```
