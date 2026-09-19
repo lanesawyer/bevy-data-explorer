@@ -10,9 +10,9 @@ use std::path::PathBuf;
 
 use bevy::clipboard::Clipboard;
 use bevy::input::keyboard::KeyboardInput;
-use bevy::input_focus::FocusedInput;
+use bevy::input_focus::{FocusedInput, InputFocus};
 use bevy::prelude::*;
-use bevy::text::EditableText;
+use bevy::text::{EditableText, TextEdit};
 use bevy_feathers::controls::{
     ButtonVariant, FeathersButton, FeathersTextInput, FeathersTextInputContainer,
     FeathersToolButton,
@@ -58,9 +58,23 @@ pub struct BookmarkButton {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BookmarkAction {
     Open,
+    Rename,
+    ConfirmRename,
+    CancelRename,
     CopyLine,
     Export,
     Delete,
+}
+
+/// The saved bookmark whose row is a name field rather than its buttons.
+#[derive(Resource, Default)]
+pub struct Renaming(pub Option<PathBuf>);
+
+/// The field a saved bookmark is renamed in, and the name it starts from.
+#[derive(Component, Clone)]
+pub struct BookmarkRenameInput {
+    pub path: PathBuf,
+    pub name: String,
 }
 
 /// The column the saved list is rebuilt into.
@@ -191,12 +205,13 @@ fn command_button(
 pub fn rebuild_list(
     mut commands: Commands,
     saved: Res<SavedBookmarks>,
+    renaming: Res<Renaming>,
     list: Query<Entity, With<BookmarkList>>,
     existing: Query<Entity, With<BookmarkListContent>>,
     mut built: Local<bool>,
 ) {
     let Ok(list) = list.single() else { return };
-    if *built && !saved.is_changed() {
+    if *built && !saved.is_changed() && !renaming.is_changed() {
         return;
     }
     *built = true;
@@ -213,6 +228,12 @@ pub fn rebuild_list(
 
     for entry in &saved.list {
         let bookmark = &entry.bookmark;
+        if renaming.0.as_ref() == Some(&entry.path) {
+            let line = rename_row(&mut commands, entry.path.clone(), bookmark.name.clone());
+            commands.entity(line).insert(BookmarkListContent);
+            commands.entity(list).add_child(line);
+            continue;
+        }
         let frames = bookmark.frames.len();
         let mut detail = format!(
             "{frames} frame{}, {} dataset{}",
@@ -259,33 +280,150 @@ pub fn rebuild_list(
             action: BookmarkAction::Open,
         });
         let buttons: Vec<Entity> = [
+            (Icon::Pencil, BookmarkAction::Rename),
             (Icon::Copy, BookmarkAction::CopyLine),
             (Icon::Download, BookmarkAction::Export),
             (Icon::Trash, BookmarkAction::Delete),
         ]
         .into_iter()
-        .map(|(icon, action)| {
-            let button = commands
-                .spawn_scene(bsn! {
-                    @FeathersToolButton {
-                        @caption: { bsn_list![button_icon(icon)] }
-                    }
-                    BlocksFrameInput
-                    Node { flex_shrink: { 0.0_f32 } }
-                })
-                .id();
-            commands.entity(button).insert(BookmarkButton {
-                path: entry.path.clone(),
-                action,
-            });
-            button
-        })
+        .map(|(icon, action)| row_button(&mut commands, icon, entry.path.clone(), action))
         .collect();
 
         let line = row(&mut commands);
         commands.entity(line).insert(BookmarkListContent);
         commands.entity(line).add_child(open).add_children(&buttons);
         commands.entity(list).add_child(line);
+    }
+}
+
+fn row_button(
+    commands: &mut Commands,
+    icon: Icon,
+    path: PathBuf,
+    action: BookmarkAction,
+) -> Entity {
+    let button = commands
+        .spawn_scene(bsn! {
+            @FeathersToolButton {
+                @caption: { bsn_list![button_icon(icon)] }
+            }
+            BlocksFrameInput
+            Node { flex_shrink: { 0.0_f32 } }
+        })
+        .id();
+    commands
+        .entity(button)
+        .insert(BookmarkButton { path, action });
+    button
+}
+
+/// A saved bookmark's row while it is being renamed: its name in a field, and
+/// buttons to keep or drop what was typed.
+fn rename_row(commands: &mut Commands, path: PathBuf, name: String) -> Entity {
+    let field = commands
+        .spawn_scene(bsn! {
+            @FeathersTextInput
+        })
+        .id();
+    commands.entity(field).insert(BookmarkRenameInput {
+        path: path.clone(),
+        name,
+    });
+    let entry = commands
+        .spawn_scene(bsn! {
+            @FeathersTextInputContainer
+            BlocksFrameInput
+            Node { flex_grow: { 1.0_f32 }, min_width: { Val::Px(0.0) } }
+        })
+        .id();
+    commands.entity(entry).add_child(field);
+    let confirm = row_button(
+        commands,
+        Icon::Check,
+        path.clone(),
+        BookmarkAction::ConfirmRename,
+    );
+    let cancel = row_button(commands, Icon::X, path, BookmarkAction::CancelRename);
+    let line = row(commands);
+    commands
+        .entity(line)
+        .add_children(&[entry, confirm, cancel]);
+    line
+}
+
+/// Fill a rename field with the name it starts from, selected so typing
+/// replaces it, and put the keyboard in it.
+pub fn start_renaming(
+    mut fields: Query<(Entity, &BookmarkRenameInput, &mut EditableText), Added<EditableText>>,
+    mut focus: ResMut<InputFocus>,
+) {
+    for (field, input, mut text) in &mut fields {
+        text.clear();
+        text.queue_edit(TextEdit::Insert(input.name.as_str().into()));
+        text.queue_edit(TextEdit::SelectAll);
+        focus.set(field, bevy::input_focus::FocusCause::Navigated);
+    }
+}
+
+/// Keep what was typed into a rename field, unless it was left blank.
+fn finish_renaming(
+    field: Option<(&BookmarkRenameInput, &EditableText)>,
+    saved: &mut SavedBookmarks,
+    renaming: &mut Renaming,
+    notice: &mut BookmarkNotice,
+    focus: &mut InputFocus,
+) {
+    renaming.0 = None;
+    focus.clear();
+    let Some((input, text)) = field else { return };
+    let name = text.value().to_string().trim().to_string();
+    if name.is_empty() || name == input.name {
+        return;
+    }
+    *notice = match saved.rename(&input.path, &name) {
+        Ok(path) => {
+            info!(
+                "renamed bookmark {} to {name} ({})",
+                input.name,
+                path.display()
+            );
+            BookmarkNotice::Done(format!("renamed {} to {name}", input.name))
+        }
+        Err(error) => BookmarkNotice::Failed(error),
+    };
+}
+
+/// Return keeps the new name; Escape drops it.
+pub fn on_rename_key(
+    mut key: On<FocusedInput<KeyboardInput>>,
+    fields: Query<(&BookmarkRenameInput, &EditableText)>,
+    mut saved: ResMut<SavedBookmarks>,
+    mut renaming: ResMut<Renaming>,
+    mut notice: ResMut<BookmarkNotice>,
+    mut focus: ResMut<InputFocus>,
+) {
+    let Ok(field) = fields.get(key.focused_entity) else {
+        return;
+    };
+    if !key.input.state.is_pressed() {
+        return;
+    }
+    match key.input.key_code {
+        KeyCode::Enter | KeyCode::NumpadEnter => {
+            key.propagate(false);
+            finish_renaming(
+                Some(field),
+                &mut saved,
+                &mut renaming,
+                &mut notice,
+                &mut focus,
+            );
+        }
+        KeyCode::Escape => {
+            key.propagate(false);
+            finish_renaming(None, &mut saved, &mut renaming, &mut notice, &mut focus);
+        }
+        _ => {}
     }
 }
 
@@ -401,7 +539,10 @@ pub fn on_bookmark_button(
     activate: On<Activate>,
     mut commands: Commands,
     buttons: Query<&BookmarkButton>,
+    fields: Query<(&BookmarkRenameInput, &EditableText)>,
     mut saved: ResMut<SavedBookmarks>,
+    mut renaming: ResMut<Renaming>,
+    mut focus: ResMut<InputFocus>,
     mut clipboard: ResMut<Clipboard>,
     mut dialog: ResMut<FileDialog>,
     mut notice: ResMut<BookmarkNotice>,
@@ -409,6 +550,18 @@ pub fn on_bookmark_button(
     let Ok(button) = buttons.get(activate.entity) else {
         return;
     };
+    match button.action {
+        BookmarkAction::ConfirmRename => {
+            let field = fields.iter().find(|(input, _)| input.path == button.path);
+            finish_renaming(field, &mut saved, &mut renaming, &mut notice, &mut focus);
+            return;
+        }
+        BookmarkAction::CancelRename => {
+            finish_renaming(None, &mut saved, &mut renaming, &mut notice, &mut focus);
+            return;
+        }
+        _ => {}
+    }
     let Some(entry) = saved
         .list
         .iter()
@@ -420,6 +573,8 @@ pub fn on_bookmark_button(
     let bookmark = entry.bookmark;
     match button.action {
         BookmarkAction::Open => restore(&mut commands, bookmark),
+        BookmarkAction::Rename => renaming.0 = Some(entry.path),
+        BookmarkAction::ConfirmRename | BookmarkAction::CancelRename => {}
         BookmarkAction::CopyLine => match clipboard.set_text(to_line(&bookmark)) {
             Ok(()) => {
                 info!("copied bookmark {} to the clipboard", bookmark.name);
@@ -490,11 +645,16 @@ pub struct BookmarksPlugin;
 
 impl Plugin for BookmarksPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_command)
+        app.init_resource::<Renaming>()
+            .add_observer(on_command)
             .add_observer(on_name_submitted)
             .add_observer(on_bookmark_button)
+            .add_observer(on_rename_key)
             .add_systems(Startup, spawn_bookmarks_section.in_set(Boot::DockContent))
             .add_systems(Update, rebuild_list.in_set(Stage::ControlsBuild))
-            .add_systems(Update, sync_status.in_set(Stage::ControlsPlace));
+            .add_systems(
+                Update,
+                (start_renaming, sync_status).in_set(Stage::ControlsPlace),
+            );
     }
 }

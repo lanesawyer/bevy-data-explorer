@@ -24,6 +24,7 @@ pub enum Icon {
     BookmarkPlus,
     Bug,
     Camera,
+    Check,
     ChevronDown,
     ChevronRight,
     ChevronUp,
@@ -42,6 +43,7 @@ pub enum Icon {
     Palette,
     PanelLeftClose,
     PanelLeftOpen,
+    Pencil,
     RotateCcw,
     ScrollText,
     Square,
@@ -52,10 +54,11 @@ pub enum Icon {
 
 impl Icon {
     #[cfg(test)]
-    const ALL: [Icon; 27] = [
+    const ALL: [Icon; 29] = [
         Icon::BookmarkPlus,
         Icon::Bug,
         Icon::Camera,
+        Icon::Check,
         Icon::ChevronDown,
         Icon::ChevronRight,
         Icon::ChevronUp,
@@ -74,6 +77,7 @@ impl Icon {
         Icon::Palette,
         Icon::PanelLeftClose,
         Icon::PanelLeftOpen,
+        Icon::Pencil,
         Icon::RotateCcw,
         Icon::ScrollText,
         Icon::Square,
@@ -89,6 +93,7 @@ impl Icon {
             Icon::BookmarkPlus => "\u{e23d}",
             Icon::Bug => "\u{e20c}",
             Icon::Camera => "\u{e064}",
+            Icon::Check => "\u{e06c}",
             Icon::ChevronDown => "\u{e06d}",
             Icon::ChevronRight => "\u{e06f}",
             Icon::ChevronUp => "\u{e070}",
@@ -107,6 +112,7 @@ impl Icon {
             Icon::Palette => "\u{e1dd}",
             Icon::PanelLeftClose => "\u{e21c}",
             Icon::PanelLeftOpen => "\u{e21d}",
+            Icon::Pencil => "\u{e1f9}",
             Icon::RotateCcw => "\u{e148}",
             Icon::ScrollText => "\u{e45f}",
             Icon::Square => "\u{e167}",

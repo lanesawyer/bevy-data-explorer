@@ -63,6 +63,24 @@ impl SavedBookmarks {
         Ok(path)
     }
 
+    /// Give the bookmark saved at `path` a new name. Its file is named after
+    /// it, so the file moves too.
+    pub fn rename(&mut self, path: &Path, name: &str) -> Result<PathBuf, String> {
+        let mut bookmark = self
+            .list
+            .iter()
+            .find(|saved| saved.path == path)
+            .map(|saved| saved.bookmark.clone())
+            .ok_or_else(|| format!("{} is no longer saved", path.display()))?;
+        bookmark.name = name.to_string();
+        let renamed = save(&self.folder, &bookmark)?;
+        if renamed != path {
+            std::fs::remove_file(path).map_err(|e| format!("removing {}: {e}", path.display()))?;
+        }
+        self.refresh();
+        Ok(renamed)
+    }
+
     pub fn delete(&mut self, path: &Path) -> Result<(), String> {
         std::fs::remove_file(path).map_err(|e| format!("deleting {}: {e}", path.display()))?;
         self.refresh();
@@ -265,6 +283,12 @@ mod tests {
             .map(|s| s.bookmark.name.as_str())
             .collect();
         assert_eq!(names, ["newer", "older"]);
+
+        let newer = saved.rename(&newer, "Renamed").unwrap();
+        assert!(newer.ends_with("renamed-20.json"));
+        assert_eq!(saved.list.len(), 2);
+        assert_eq!(saved.list[0].bookmark.name, "Renamed");
+        assert_eq!(saved.list[0].path, newer);
 
         saved.delete(&newer).unwrap();
         assert_eq!(saved.list.len(), 1);
