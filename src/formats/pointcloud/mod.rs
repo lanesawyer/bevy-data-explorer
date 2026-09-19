@@ -487,7 +487,7 @@ fn report_for(streamer: &PointStreamer, sources: &mut Query<&mut SourceStatus>) 
     status.0 = format!(
         "{} points in {} octree nodes, depth {}\n\
          showing depth {}, {}\n\
-         colour by  {}",
+         color by  {}",
         cloud.total_points(),
         cloud.node_count(),
         cloud.max_depth(),

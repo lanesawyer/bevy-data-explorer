@@ -14,6 +14,7 @@ pub mod channels;
 pub mod hover;
 pub mod properties;
 pub mod stack;
+pub mod tree;
 pub mod volume;
 
 use bevy::prelude::*;

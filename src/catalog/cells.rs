@@ -15,7 +15,7 @@ use bevy::prelude::*;
 use super::{Catalogs, CellCounts, CellService, Entry};
 use crate::app::net::{Fetching, fetching};
 use crate::source::SourceUrl;
-use crate::source::properties::{CellColumns, CellProperties, PropertyKind, Provenance};
+use crate::source::properties::{CellColumns, CellProperties, Provenance};
 
 /// A question in flight to the service describing a source's cells.
 #[derive(Component)]
@@ -136,18 +136,12 @@ pub fn take_answers(
 }
 
 fn apply_counts(properties: &mut CellProperties, counts: CellCounts) {
-    for (id, counted) in counts {
-        let Some(property) = properties
+    for (column, counted) in counts {
+        for value in properties
             .properties
             .iter_mut()
-            .find(|property| property.id == id)
-        else {
-            continue;
-        };
-        let PropertyKind::Categorical(values) = &mut property.kind else {
-            continue;
-        };
-        for value in values {
+            .flat_map(|property| property.column_values_mut(&column))
+        {
             value.count = counted
                 .iter()
                 .find(|(code, _)| *code == value.code)
@@ -161,7 +155,7 @@ fn apply_counts(properties: &mut CellProperties, counts: CellCounts) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::source::properties::{CellProperty, PropertyValue};
+    use crate::source::properties::{CellProperty, PropertyKind, PropertyValue};
 
     #[test]
     fn counts_land_on_the_values_they_name() {

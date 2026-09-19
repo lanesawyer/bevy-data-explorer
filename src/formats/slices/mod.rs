@@ -824,7 +824,7 @@ fn report_status(
             "{} points in {} slices\n\
          {}\n\
          {}\n\
-         colour by  {}",
+         color by  {}",
             cloud.total_points(),
             cloud.slides.len(),
             showing,

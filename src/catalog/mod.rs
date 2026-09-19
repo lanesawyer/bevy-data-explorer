@@ -45,7 +45,7 @@ pub struct Entry {
     pub cells: Option<CellService>,
 }
 
-/// How many cells hold each value, by property id and then by code.
+/// How many cells hold each value, by column id and then by code.
 pub type CellCounts = Vec<(String, Vec<(u16, u64)>)>;
 
 /// A service that knows a dataset's cells better than its files do: what its

@@ -114,7 +114,7 @@ A catalog entry can name a service that knows better, and a source whose
 address a catalog lists is described by it however it was opened. The Brain
 Knowledge Platform does this for every dataset it lists: its GraphQL API gives
 the properties the portal shows and in what order, which of them are levels of
-one taxonomy (listed together, coarsest first), the property the portal colours
+one taxonomy, the property the portal colours
 by first, each value's label and colour, and each numeric column's extent and
 histogram. Points are then drawn in the platform's colours, and each value
 carries a swatch. How many cells hold each value takes the API seconds to
@@ -123,6 +123,17 @@ beside them when they land. A dataset any catalog lists also takes the catalog's
 name for it in place of the reference id its address gives. The built-in
 examples keep what their files say about their cells, even where
 the platform also knows them, because no catalog vouches for their addresses.
+
+A taxonomy, or an atlas of regions within regions, is one property drawn as a
+tree: each value nests under its parent a level up, and a node expands to show
+its children, which are only built when it is opened. Ticking a node admits
+every cell under it at whatever level it sits. Ticks are kept minimal —
+ticking every child of a node ticks the node, and unticking one child of a
+ticked node splits the tick among its siblings — so what is admitted is always
+what the boxes show, and a dot marks a collapsed node with ticks inside it. It
+all reduces to a set of codes in the finest level's column, which is the only
+column the streamers read to filter. The colour button in a tree's header opens
+a menu of its levels, and the one chosen is what the points are coloured by.
 
 Numeric properties are offered only when a service gives their extent and
 histogram. A categorical placeholder invents only the labels, over codes that

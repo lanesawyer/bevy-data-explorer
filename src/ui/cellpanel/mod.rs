@@ -25,17 +25,19 @@ use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ValueChange};
 
 pub mod range;
+pub mod tree;
 pub mod visibility;
 
 use crate::app::schedule::{Boot, Stage};
 use crate::source::properties::{
-    CellProperties, CellProperty, PropertyKind, PropertyState, Provenance,
+    CellProperties, CellProperty, PropertyKind, PropertyState, PropertyValue, Provenance,
 };
 use crate::source::{DataSource, compact_count};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::{BlocksFrameInput, SelectedPanel, ShowsSource};
 use crate::widgets::{
-    Accordion, Icon, SectionLevel, button_text, spawn_accordion, spawn_header_button, spawn_menu,
+    Accordion, Icon, SectionLevel, button_text, spawn_accordion, spawn_header_button,
+    spawn_icon_menu, spawn_menu,
 };
 
 /// The section itself, hidden for sources with no properties to show.
@@ -90,10 +92,10 @@ const SECTION_ORDER: u32 = 20;
 /// The most values listed under one property. A whole-brain taxonomy has
 /// thousands of clusters, and a checkbox apiece makes the sidebar crawl while
 /// being too long to find anything in; its coarser levels are the way in.
-const MAX_VALUE_ROWS: usize = 300;
+pub const MAX_VALUE_ROWS: usize = 300;
 
 /// Size of the small print: counts, and the note under a truncated list.
-const SMALL_PX: f32 = 11.0;
+pub const SMALL_PX: f32 = 11.0;
 
 pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
     let Ok(parent) = content.single() else { return };
@@ -241,9 +243,25 @@ pub fn rebuild_cell_panel(
             .entity(clear)
             .insert(ClearPropertyButton { property: index });
 
-        // Points are coloured by code, and a numeric column has none.
-        if property.is_categorical() {
-            let button = spawn_header_button(&mut commands, sub.header, Icon::Palette);
+        // Points are coloured by code, and a numeric column has none. A tree
+        // colours by one of its levels, so its button opens a menu of them.
+        let button = if let Some(tree) = property.tree() {
+            let (button, menu) = spawn_icon_menu(&mut commands, sub.header, Icon::Palette, true);
+            // The popup is a root of its own, not under the section, so a
+            // rebuild has to be told to take it too.
+            commands.entity(menu).insert(CellPanelContent);
+            tree::fill_colour_menu(&mut commands, menu, index, tree, colouring);
+            Some(button)
+        } else if property.colours() {
+            Some(spawn_header_button(
+                &mut commands,
+                sub.header,
+                Icon::Palette,
+            ))
+        } else {
+            None
+        };
+        if let Some(button) = button {
             commands
                 .entity(button)
                 .insert(ColourByButton { property: index });
@@ -259,72 +277,30 @@ pub fn rebuild_cell_panel(
                     .take(MAX_VALUE_ROWS)
                     .enumerate()
                     .map(|(position, value)| {
-                        let caption = value.label.clone();
-                        let swatch = value.swatch();
-                        let count = value.count.map(compact_count).unwrap_or_default();
-                        let checkbox = commands
-                            .spawn_scene(bsn! {
-                                @FeathersCheckbox {
-                                    @caption: { bsn_list![
-                                        (
-                                            Node {
-                                                width: { Val::Px(10.0) },
-                                                height: { Val::Px(10.0) },
-                                                flex_shrink: { 0.0_f32 },
-                                                border_radius: { BorderRadius::all(Val::Px(2.0)) },
-                                            }
-                                            // The value's own colour, not a theme's:
-                                            // it is what its points are painted in.
-                                            BackgroundColor({ swatch })
-                                        ),
-                                        button_text(caption),
-                                    ] }
-                                }
-                                Node { flex_shrink: { 1.0_f32 }, min_width: { Val::ZERO } }
-                                BlocksFrameInput
-                                ValueCheckbox { property: { index }, value: { position } }
-                            })
-                            .id();
-                        if value.selected {
-                            commands.entity(checkbox).insert(Checked);
-                        }
-                        let count = commands
-                            .spawn_scene(bsn! {
-                                Text({ count })
-                                TextFont { font_size: { FontSize::Px(SMALL_PX) } }
-                                ThemeTextColor({ tokens::TEXT_DIM })
-                                Node { flex_shrink: { 0.0_f32 } }
-                                ValueCount { property: { index }, value: { position } }
-                            })
-                            .id();
-                        commands
-                            .spawn(Node {
-                                width: Val::Percent(100.0),
-                                align_items: AlignItems::Center,
-                                justify_content: JustifyContent::SpaceBetween,
-                                column_gap: Val::Px(6.0),
-                                ..default()
-                            })
-                            .add_children(&[checkbox, count])
-                            .id()
+                        spawn_value_row(
+                            &mut commands,
+                            value,
+                            value.selected,
+                            ValueCheckbox {
+                                property: index,
+                                value: position,
+                            },
+                            ValueCount {
+                                property: index,
+                                value: position,
+                            },
+                        )
                     })
                     .collect();
                 if values.len() > MAX_VALUE_ROWS {
-                    let more = format!(
-                        "and {} more; filter by a coarser level to reach them",
-                        values.len() - MAX_VALUE_ROWS
-                    );
-                    rows.push(
-                        commands
-                            .spawn_scene(bsn! {
-                                label_dim(more)
-                                TextFont { font_size: { FontSize::Px(SMALL_PX) } }
-                            })
-                            .id(),
-                    );
+                    rows.push(spawn_more_note(
+                        &mut commands,
+                        values.len() - MAX_VALUE_ROWS,
+                    ));
                 }
                 rows
             }
+            PropertyKind::Tree(_) => vec![tree::spawn_tree_body(&mut commands, index)],
             PropertyKind::Numeric(range) => {
                 vec![range::spawn_range_control(
                     &mut commands,
@@ -340,7 +316,80 @@ pub fn rebuild_cell_panel(
     commands.entity(body).add_children(&sections);
 }
 
-/// Colour points by the property whose header button was pressed.
+/// One value's row: its checkbox, captioned with the colour its points are
+/// drawn in and its label, and the count of cells holding it.
+///
+/// `checkbox` and `count` mark the two for whatever keeps them in sync.
+pub fn spawn_value_row(
+    commands: &mut Commands,
+    value: &PropertyValue,
+    checked: bool,
+    checkbox: impl Bundle,
+    count: impl Bundle,
+) -> Entity {
+    let caption = value.label.clone();
+    let swatch = value.swatch();
+    let counted = value.count.map(compact_count).unwrap_or_default();
+    let boxed = commands
+        .spawn_scene(bsn! {
+            @FeathersCheckbox {
+                @caption: { bsn_list![
+                    (
+                        Node {
+                            width: { Val::Px(10.0) },
+                            height: { Val::Px(10.0) },
+                            flex_shrink: { 0.0_f32 },
+                            border_radius: { BorderRadius::all(Val::Px(2.0)) },
+                        }
+                        // The value's own colour, not a theme's: it is what
+                        // its points are painted in.
+                        BackgroundColor({ swatch })
+                    ),
+                    button_text(caption),
+                ] }
+            }
+            Node { flex_shrink: { 1.0_f32 }, min_width: { Val::ZERO } }
+            BlocksFrameInput
+        })
+        .insert(checkbox)
+        .id();
+    if checked {
+        commands.entity(boxed).insert(Checked);
+    }
+    let counted = commands
+        .spawn_scene(bsn! {
+            Text({ counted })
+            TextFont { font_size: { FontSize::Px(SMALL_PX) } }
+            ThemeTextColor({ tokens::TEXT_DIM })
+            Node { flex_shrink: { 0.0_f32 } }
+        })
+        .insert(count)
+        .id();
+    commands
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::SpaceBetween,
+            column_gap: Val::Px(6.0),
+            ..default()
+        })
+        .add_children(&[boxed, counted])
+        .id()
+}
+
+/// The note under a list cut short at [`MAX_VALUE_ROWS`].
+pub fn spawn_more_note(commands: &mut Commands, more: usize) -> Entity {
+    let note = format!("and {more} more not listed");
+    commands
+        .spawn_scene(bsn! {
+            label_dim(note)
+            TextFont { font_size: { FontSize::Px(SMALL_PX) } }
+        })
+        .id()
+}
+
+/// Colour points by the property whose header button was pressed. A tree's
+/// button only opens its menu of levels; choosing one colours.
 pub fn on_colour_by(
     activate: On<Activate>,
     buttons: Query<&ColourByButton>,
@@ -361,13 +410,13 @@ pub fn on_colour_by(
     if !properties
         .properties
         .get(button.property)
-        .is_some_and(CellProperty::is_categorical)
+        .is_some_and(|property| property.colours() && property.tree().is_none())
     {
         return;
     }
     properties.colour_by = Some(button.property);
     if let Some(property) = properties.properties.get(button.property) {
-        info!("colouring by {}", property.name);
+        info!("coloring by {}", property.name);
     }
 }
 
@@ -399,7 +448,7 @@ pub fn on_value_toggled(
         .get_mut(checkbox.property)
         .and_then(|property| match &mut property.kind {
             PropertyKind::Categorical(values) => values.get_mut(checkbox.value),
-            PropertyKind::Numeric(_) => None,
+            _ => None,
         })
     {
         value.selected = change.value;
@@ -602,7 +651,11 @@ pub struct CellPanelPlugin;
 impl Plugin for CellPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<OpenSections>()
+            .init_resource::<tree::OpenBranches>()
             .add_observer(on_colour_by)
+            .add_observer(tree::on_toggle)
+            .add_observer(tree::on_node_toggled)
+            .add_observer(tree::on_colour_level)
             .add_observer(on_value_toggled)
             .add_observer(on_clear_property)
             .add_observer(on_clear_all)
@@ -615,7 +668,11 @@ impl Plugin for CellPanelPlugin {
             )
             .add_systems(
                 Update,
-                (rebuild_cell_panel, visibility::rebuild_visibility_menu)
+                (
+                    rebuild_cell_panel,
+                    visibility::rebuild_visibility_menu,
+                    tree::sync_branches,
+                )
                     .chain()
                     .in_set(Stage::ControlsBuild),
             )
@@ -625,6 +682,8 @@ impl Plugin for CellPanelPlugin {
                     update_property_controls,
                     visibility::update_property_visibility,
                     range::update_range_controls,
+                    tree::update_tree_controls,
+                    tree::unveil,
                     update_clear_buttons,
                 )
                     .chain()

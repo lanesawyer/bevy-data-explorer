@@ -14,6 +14,8 @@ use std::collections::HashSet;
 
 use bevy::prelude::*;
 
+pub use super::tree::{Tree, TreeLevel, TreeNode};
+
 /// One value a property can take.
 #[derive(Debug, Clone)]
 pub struct PropertyValue {
@@ -104,13 +106,16 @@ pub enum PropertyKind {
     Categorical(Vec<PropertyValue>),
     /// A continuous span, chosen between two ends.
     Numeric(NumericRange),
+    /// Values nesting across several columns, ticked anywhere in the tree.
+    Tree(Tree),
 }
 
 /// A property of a dataset's cells, such as a class, a region, or a
 /// bootstrapping probability.
 #[derive(Debug, Clone)]
 pub struct CellProperty {
-    /// Column identifier, used to fetch the per-point values.
+    /// Column identifier, used to fetch the per-point values. A tree spans
+    /// several columns, named by its levels, and this names the tree.
     pub id: String,
     pub name: String,
     /// Whether the panel lists this property.
@@ -132,6 +137,7 @@ impl CellProperty {
         match &self.kind {
             PropertyKind::Categorical(values) => values.iter().any(|value| value.selected),
             PropertyKind::Numeric(range) => range.restricts(),
+            PropertyKind::Tree(tree) => tree.applied() > 0,
         }
     }
 
@@ -143,6 +149,7 @@ impl CellProperty {
                 values.iter().filter(|value| value.selected).count()
             }
             PropertyKind::Numeric(range) => usize::from(range.restricts()),
+            PropertyKind::Tree(tree) => tree.applied(),
         }
     }
 
@@ -158,44 +165,115 @@ impl CellProperty {
                 range.from = range.low;
                 range.to = range.high;
             }
+            PropertyKind::Tree(tree) => tree.clear(),
         }
     }
 
-    pub fn is_categorical(&self) -> bool {
-        matches!(self.kind, PropertyKind::Categorical(_))
+    /// Whether points can be coloured by this property. They are coloured by
+    /// code, and a numeric column holds none.
+    pub fn colours(&self) -> bool {
+        !matches!(self.kind, PropertyKind::Numeric(_))
     }
 
+    /// The values of a flat categorical property; nothing for any other kind.
     pub fn values(&self) -> &[PropertyValue] {
         match &self.kind {
             PropertyKind::Categorical(values) => values,
-            PropertyKind::Numeric(_) => &[],
+            _ => &[],
+        }
+    }
+
+    pub fn tree(&self) -> Option<&Tree> {
+        match &self.kind {
+            PropertyKind::Tree(tree) => Some(tree),
+            _ => None,
+        }
+    }
+
+    pub fn tree_mut(&mut self) -> Option<&mut Tree> {
+        match &mut self.kind {
+            PropertyKind::Tree(tree) => Some(tree),
+            _ => None,
+        }
+    }
+
+    /// The column points are coloured by when this property colours them,
+    /// and the values in it.
+    pub fn colour_column(&self) -> Option<(&str, Vec<&PropertyValue>)> {
+        match &self.kind {
+            PropertyKind::Categorical(values) => Some((self.id.as_str(), values.iter().collect())),
+            PropertyKind::Tree(tree) => tree.levels.get(tree.colour_level).map(|level| {
+                (
+                    level.id.as_str(),
+                    tree.level_values(tree.colour_level).collect(),
+                )
+            }),
+            PropertyKind::Numeric(_) => None,
+        }
+    }
+
+    /// Every categorical column this property reads, and its values.
+    pub fn columns(&self) -> Vec<(&str, Vec<&PropertyValue>)> {
+        match &self.kind {
+            PropertyKind::Categorical(values) => vec![(self.id.as_str(), values.iter().collect())],
+            PropertyKind::Tree(tree) => tree
+                .levels
+                .iter()
+                .enumerate()
+                .map(|(index, level)| (level.id.as_str(), tree.level_values(index).collect()))
+                .collect(),
+            PropertyKind::Numeric(_) => Vec::new(),
+        }
+    }
+
+    /// The values held in `column`, wherever in this property it is.
+    pub fn column_values_mut(&mut self, column: &str) -> Vec<&mut PropertyValue> {
+        match &mut self.kind {
+            PropertyKind::Categorical(values) if self.id == column => values.iter_mut().collect(),
+            PropertyKind::Tree(tree) => {
+                match tree.levels.iter().position(|level| level.id == column) {
+                    Some(level) => tree.level_values_mut(level).collect(),
+                    None => Vec::new(),
+                }
+            }
+            _ => Vec::new(),
         }
     }
 
     pub fn range(&self) -> Option<&NumericRange> {
         match &self.kind {
             PropertyKind::Numeric(range) => Some(range),
-            PropertyKind::Categorical(_) => None,
+            _ => None,
         }
     }
 
     pub fn range_mut(&mut self) -> Option<&mut NumericRange> {
         match &mut self.kind {
             PropertyKind::Numeric(range) => Some(range),
-            PropertyKind::Categorical(_) => None,
+            _ => None,
         }
     }
 
-    fn restriction(&self) -> Restriction {
+    /// The column this property filters in, and how.
+    fn restriction(&self) -> (String, Restriction) {
         match &self.kind {
-            PropertyKind::Categorical(values) => Restriction::Codes(
-                values
-                    .iter()
-                    .filter(|value| value.selected)
-                    .map(|value| value.code)
-                    .collect(),
+            PropertyKind::Categorical(values) => (
+                self.id.clone(),
+                Restriction::Codes(
+                    values
+                        .iter()
+                        .filter(|value| value.selected)
+                        .map(|value| value.code)
+                        .collect(),
+                ),
             ),
-            PropertyKind::Numeric(range) => Restriction::Span(range.from, range.to),
+            PropertyKind::Numeric(range) => {
+                (self.id.clone(), Restriction::Span(range.from, range.to))
+            }
+            PropertyKind::Tree(tree) => (
+                tree.filter_column().to_string(),
+                Restriction::Codes(tree.admitted()),
+            ),
         }
     }
 }
@@ -281,12 +359,11 @@ pub struct CellProperties {
 }
 
 impl CellProperties {
-    /// Colouring starts on the first listed categorical property: points are
-    /// coloured by code, and a numeric column holds none.
+    /// Colouring starts on the first listed property that can colour.
     pub fn ready(properties: Vec<CellProperty>) -> Self {
         let colour_by = properties
             .iter()
-            .position(|property| property.shown && property.is_categorical());
+            .position(|property| property.shown && property.colours());
         CellProperties {
             properties,
             colour_by,
@@ -295,15 +372,28 @@ impl CellProperties {
         }
     }
 
-    /// Colour by the property with this id, if it is one that can colour.
+    /// Colour by the column with this id, if a property that can colour
+    /// holds it: a categorical property, or one level of a tree.
     pub fn colour_by_id(&mut self, id: &str) {
-        if let Some(index) = self
-            .properties
-            .iter()
-            .position(|property| property.id == id && property.is_categorical())
-        {
-            self.colour_by = Some(index);
-            self.properties[index].shown = true;
+        for (index, property) in self.properties.iter_mut().enumerate() {
+            let found = match &mut property.kind {
+                PropertyKind::Categorical(_) => property.id == id,
+                PropertyKind::Tree(tree) => {
+                    match tree.levels.iter().position(|level| level.id == id) {
+                        Some(level) => {
+                            tree.colour_level = level;
+                            true
+                        }
+                        None => false,
+                    }
+                }
+                PropertyKind::Numeric(_) => false,
+            };
+            if found {
+                self.colour_by = Some(index);
+                property.shown = true;
+                return;
+            }
         }
     }
 
@@ -322,17 +412,21 @@ impl CellProperties {
         let Some(property) = self.colour_by.and_then(|index| self.properties.get(index)) else {
             return ("value".into(), code.to_string());
         };
-        let label = match &property.kind {
-            PropertyKind::Categorical(values) => values
+        let label = property.colour_column().and_then(|(_, values)| {
+            values
                 .iter()
                 .find(|value| value.code == code)
-                .map(|value| value.label.clone()),
-            PropertyKind::Numeric(_) => None,
+                .map(|value| value.label.clone())
+        });
+        // A tree is named by the level colouring, which is what the colour says.
+        let name = match property.tree() {
+            Some(tree) => tree
+                .levels
+                .get(tree.colour_level)
+                .map_or_else(|| property.name.clone(), |level| level.name.clone()),
+            None => property.name.clone(),
         };
-        (
-            property.name.clone(),
-            label.unwrap_or_else(|| format!("code {code}")),
-        )
+        (name, label.unwrap_or_else(|| format!("code {code}")))
     }
 
     pub fn clear_all(&mut self) {
@@ -368,15 +462,20 @@ impl CellProperties {
     /// Properties that exclude nothing are left out, so an untouched panel
     /// costs no extra fetching.
     pub fn selection(&self) -> CellSelection {
-        let colouring = self.colour_by.and_then(|index| self.properties.get(index));
+        let colouring = self
+            .colour_by
+            .and_then(|index| self.properties.get(index))
+            .and_then(CellProperty::colour_column);
         CellSelection {
-            colour_by: colouring.map(|property| property.id.clone()),
-            palette: colouring.map(palette_of).unwrap_or_default(),
+            colour_by: colouring.as_ref().map(|(column, _)| column.to_string()),
+            palette: colouring
+                .map(|(_, values)| palette_of(&values))
+                .unwrap_or_default(),
             filters: self
                 .properties
                 .iter()
                 .filter(|property| property.restricts())
-                .map(|property| (property.id.clone(), property.restriction()))
+                .map(CellProperty::restriction)
                 .collect(),
         }
     }
@@ -399,8 +498,7 @@ impl PropertyValue {
 
 /// Linear colours indexed by code, or nothing when no value carries a colour of
 /// its own and the default palette says it all.
-fn palette_of(property: &CellProperty) -> Vec<[f32; 4]> {
-    let values = property.values();
+fn palette_of(values: &[&PropertyValue]) -> Vec<[f32; 4]> {
     if values.iter().all(|value| value.colour.is_none()) {
         return Vec::new();
     }

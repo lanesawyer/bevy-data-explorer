@@ -25,7 +25,8 @@ use serde_json::{Value, json};
 use super::post;
 use crate::catalog::{CellCounts, DescribeCells};
 use crate::source::properties::{
-    CellColumns, CellProperties, CellProperty, NumericRange, PropertyKind, PropertyValue,
+    CellColumns, CellProperties, CellProperty, NumericRange, PropertyKind, PropertyValue, Tree,
+    TreeLevel, TreeNode,
 };
 
 /// The most value records asked for in one page. The API allows far more than
@@ -111,19 +112,18 @@ impl DescribeCells for BkpCells {
     fn count(&self, properties: &CellProperties) -> BoxFuture<'static, Result<CellCounts, String>> {
         let endpoint = self.endpoint.clone();
         let filter = self.dataset_filter();
-        // Counts come back keyed by label, so each property takes its labels
+        // Counts come back keyed by label, so each column takes its labels
         // along to turn them back into codes.
         let wanted: Vec<(String, HashMap<String, u16>)> = properties
             .properties
             .iter()
-            .filter(|property| property.is_categorical())
-            .map(|property| {
-                let codes = property
-                    .values()
+            .flat_map(CellProperty::columns)
+            .map(|(column, values)| {
+                let codes = values
                     .iter()
                     .map(|value| (value.label.clone(), value.code))
                     .collect();
-                (property.id.clone(), codes)
+                (column.to_string(), codes)
             })
             .collect();
         Box::pin(async move {
@@ -250,7 +250,7 @@ const VALUES: &str = "query($dataset: String!, $first: Int, $after: String) {
     nodes {
       color
       featureType { referenceId }
-      featureTypeValueIndex { value index priorityOrder }
+      featureTypeValueIndex { value index priorityOrder referenceId parentReferenceId }
     }
   }
 }";
@@ -270,6 +270,9 @@ struct ValueIndex {
     /// The code the files store for this value.
     index: i64,
     priority_order: Option<i32>,
+    reference_id: Option<String>,
+    /// The value a level up in a hierarchy, by its `reference_id`.
+    parent_reference_id: Option<String>,
 }
 
 async fn values(endpoint: &str, dataset: &str) -> Result<Vec<ValueRecord>, String> {
@@ -464,12 +467,38 @@ async fn counts(
         .collect())
 }
 
+/// One value as the platform lists it, before it is placed.
+struct Listed {
+    priority: i32,
+    reference: Option<String>,
+    parent: Option<String>,
+    value: PropertyValue,
+}
+
+/// What the portal lists, in its order.
+enum Entry {
+    Column {
+        id: String,
+        title: Option<String>,
+        shown: bool,
+    },
+    Tree {
+        id: String,
+        title: Option<String>,
+        shown: bool,
+        /// Column id and title of each level, coarsest first.
+        levels: Vec<(String, Option<String>)>,
+    },
+}
+
 /// Assemble the properties the portal would show, for the columns the files
 /// hold.
 ///
-/// Listed in the portal's order: a taxonomy expands in place into its levels. Columns the portal does not show are kept
-/// but hidden, so the section's menu can still offer them, and only if the
-/// platform knows enough about them to be worth offering.
+/// Listed in the portal's order. A taxonomy becomes one tree over whichever of
+/// its levels the files hold, or a plain property if they hold only one.
+/// Columns the portal does not show are kept but hidden, so the section's menu
+/// can still offer them, and only if the platform knows enough about them to be
+/// worth offering.
 fn build(
     columns: &CellColumns,
     display: Display,
@@ -477,49 +506,60 @@ fn build(
     extents: &HashMap<String, (f32, f32)>,
     histograms: &HashMap<String, Vec<u32>>,
 ) -> CellProperties {
-    let mut by_column: HashMap<String, Vec<(i32, PropertyValue)>> = HashMap::new();
+    let mut by_column: HashMap<String, Vec<Listed>> = HashMap::new();
+    // Every value's parent, whatever its column, so a tree can reach past a
+    // level the files do not hold.
+    let mut parents: HashMap<String, String> = HashMap::new();
     for record in values {
         let index = record.feature_type_value_index;
         let Ok(code) = u16::try_from(index.index) else {
             continue;
         };
-        by_column
+        let listed = by_column
             .entry(record.feature_type.reference_id)
-            .or_default()
-            .push((
-                index.priority_order.unwrap_or(i32::MAX),
-                PropertyValue {
-                    code,
-                    label: index.value,
-                    colour: record.color.as_deref().and_then(parse_colour),
-                    count: None,
-                    selected: false,
-                },
-            ));
+            .or_default();
+        // Some datasets list every value twice, identically.
+        if listed.iter().any(|found| found.value.code == code) {
+            continue;
+        }
+        if let (Some(reference), Some(parent)) = (&index.reference_id, &index.parent_reference_id) {
+            parents.insert(reference.clone(), parent.clone());
+        }
+        listed.push(Listed {
+            priority: index.priority_order.unwrap_or(i32::MAX),
+            reference: index.reference_id,
+            parent: index.parent_reference_id,
+            value: PropertyValue {
+                code,
+                label: index.value,
+                colour: record.color.as_deref().and_then(parse_colour),
+                count: None,
+                selected: false,
+            },
+        });
+    }
+    for listed in by_column.values_mut() {
+        listed.sort_by_key(|found| (found.priority, found.value.code));
     }
 
-    // One entry per column, in the order the portal lists them.
-    struct Listed {
-        id: String,
-        title: Option<String>,
-        shown: bool,
-    }
     let mut features = display.display_features;
     features.sort_by_key(|feature| feature.priority_order.unwrap_or(i32::MAX));
-    let mut listed: Vec<Listed> = Vec::new();
+    let mut entries: Vec<Entry> = Vec::new();
     for feature in features {
         match feature.feature_set {
             Some(mut levels) if !levels.is_empty() => {
                 levels.sort_by_key(|level| level.priority_order.unwrap_or(i32::MAX));
-                for level in levels {
-                    listed.push(Listed {
-                        id: level.feature_type.reference_id,
-                        title: level.feature_type.title,
-                        shown: feature.is_default,
-                    });
-                }
+                entries.push(Entry::Tree {
+                    id: feature.feature_type.reference_id,
+                    title: feature.feature_type.title,
+                    shown: feature.is_default,
+                    levels: levels
+                        .into_iter()
+                        .map(|level| (level.feature_type.reference_id, level.feature_type.title))
+                        .collect(),
+                });
             }
-            _ => listed.push(Listed {
+            _ => entries.push(Entry::Column {
                 id: feature.feature_type.reference_id,
                 title: feature.feature_type.title,
                 shown: feature.is_default,
@@ -527,41 +567,76 @@ fn build(
         }
     }
     for column in &columns.0 {
-        listed.push(Listed {
+        entries.push(Entry::Column {
             id: column.id.clone(),
             title: None,
             shown: false,
         });
     }
 
+    let readable = |id: &str, by_column: &HashMap<String, Vec<Listed>>| {
+        columns
+            .0
+            .iter()
+            .any(|column| column.id == id && !column.numeric)
+            && by_column.contains_key(id)
+    };
+
     let mut properties = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for entry in listed {
-        let Some(column) = columns.0.iter().find(|column| column.id == entry.id) else {
-            continue;
-        };
-        if !seen.insert(entry.id.clone()) {
-            continue;
+    for entry in entries {
+        match entry {
+            Entry::Tree {
+                id,
+                title,
+                shown,
+                levels,
+            } => {
+                let present: Vec<(String, Option<String>)> = levels
+                    .into_iter()
+                    .filter(|(level, _)| !seen.contains(level) && readable(level, &by_column))
+                    .collect();
+                if present.len() == 1 {
+                    let (level, level_title) = present.into_iter().next().unwrap();
+                    entries_column(
+                        &mut properties,
+                        &mut seen,
+                        &mut by_column,
+                        columns,
+                        extents,
+                        histograms,
+                        &level,
+                        level_title,
+                        shown,
+                    );
+                    continue;
+                }
+                if present.is_empty() || !seen.insert(id.clone()) {
+                    continue;
+                }
+                let tree = tree_of(&present, &mut by_column, &parents, columns);
+                for (level, _) in &present {
+                    seen.insert(level.clone());
+                }
+                properties.push(CellProperty {
+                    id,
+                    name: title.unwrap_or_else(|| "Taxonomy".into()),
+                    shown,
+                    kind: PropertyKind::Tree(tree),
+                });
+            }
+            Entry::Column { id, title, shown } => entries_column(
+                &mut properties,
+                &mut seen,
+                &mut by_column,
+                columns,
+                extents,
+                histograms,
+                &id,
+                title,
+                shown,
+            ),
         }
-        let kind = if column.numeric {
-            let Some(&(low, high)) = extents.get(&column.id) else {
-                continue;
-            };
-            let histogram = histograms.get(&column.id).cloned().unwrap_or_default();
-            PropertyKind::Numeric(NumericRange::full(low, high, histogram))
-        } else {
-            let Some(mut values) = by_column.remove(&column.id) else {
-                continue;
-            };
-            values.sort_by_key(|(priority, value)| (*priority, value.code));
-            PropertyKind::Categorical(values.into_iter().map(|(_, value)| value).collect())
-        };
-        properties.push(CellProperty {
-            id: column.id.clone(),
-            name: entry.title.unwrap_or_else(|| column.name.clone()),
-            shown: entry.shown,
-            kind,
-        });
     }
 
     let mut described = CellProperties::ready(properties);
@@ -569,6 +644,105 @@ fn build(
         described.colour_by_id(&default.reference_id);
     }
     described
+}
+
+/// Add one column as a property of its own, if the files hold it and the
+/// platform says enough about it.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the state one pass of the build threads through"
+)]
+fn entries_column(
+    properties: &mut Vec<CellProperty>,
+    seen: &mut std::collections::HashSet<String>,
+    by_column: &mut HashMap<String, Vec<Listed>>,
+    columns: &CellColumns,
+    extents: &HashMap<String, (f32, f32)>,
+    histograms: &HashMap<String, Vec<u32>>,
+    id: &str,
+    title: Option<String>,
+    shown: bool,
+) {
+    let Some(column) = columns.0.iter().find(|column| column.id == id) else {
+        return;
+    };
+    if seen.contains(id) {
+        return;
+    }
+    let kind = if column.numeric {
+        let Some(&(low, high)) = extents.get(id) else {
+            return;
+        };
+        let histogram = histograms.get(id).cloned().unwrap_or_default();
+        PropertyKind::Numeric(NumericRange::full(low, high, histogram))
+    } else {
+        let Some(values) = by_column.remove(id) else {
+            return;
+        };
+        PropertyKind::Categorical(values.into_iter().map(|found| found.value).collect())
+    };
+    seen.insert(id.to_string());
+    properties.push(CellProperty {
+        id: id.to_string(),
+        name: title.unwrap_or_else(|| column.name.clone()),
+        shown,
+        kind,
+    });
+}
+
+/// Nest the values of `levels` under one another by their parents.
+///
+/// A parent is found by walking up the platform's links until one lands on a
+/// value in a level held here, so a level missing from the files is stepped
+/// over rather than cutting the tree apart. A value whose line reaches no such
+/// parent becomes a root of its own rather than being lost.
+fn tree_of(
+    levels: &[(String, Option<String>)],
+    by_column: &mut HashMap<String, Vec<Listed>>,
+    parents: &HashMap<String, String>,
+    columns: &CellColumns,
+) -> Tree {
+    let mut nodes: Vec<TreeNode> = Vec::new();
+    let mut placed: HashMap<String, usize> = HashMap::new();
+    for (level, (id, _)) in levels.iter().enumerate() {
+        for listed in by_column.remove(id).unwrap_or_default() {
+            let mut above = listed.parent.clone();
+            let parent = loop {
+                match above {
+                    Some(reference) => match placed.get(&reference) {
+                        Some(&node) => break Some(node),
+                        None => above = parents.get(&reference).cloned(),
+                    },
+                    None => break None,
+                }
+            };
+            if let Some(reference) = listed.reference {
+                placed.insert(reference, nodes.len());
+            }
+            nodes.push(TreeNode {
+                level,
+                parent,
+                value: listed.value,
+            });
+        }
+    }
+    Tree {
+        levels: levels
+            .iter()
+            .map(|(id, title)| TreeLevel {
+                id: id.clone(),
+                name: title.clone().unwrap_or_else(|| {
+                    columns
+                        .0
+                        .iter()
+                        .find(|column| &column.id == id)
+                        .map_or_else(|| id.clone(), |column| column.name.clone())
+                }),
+            })
+            .collect(),
+        nodes,
+        colour_level: 0,
+    }
 }
 
 /// A colour as the platform writes it: `#rrggbb`, in either case.
@@ -614,9 +788,20 @@ mod tests {
         {"color": "#fedbcb", "featureType": {"referenceId": "BRAAK"},
          "featureTypeValueIndex": {"value": "Braak 0", "index": 5, "priorityOrder": 1}},
         {"color": "#1655F2", "featureType": {"referenceId": "LEVEL_1"},
-         "featureTypeValueIndex": {"value": "STR D1 MSN", "index": 15, "priorityOrder": 1}},
+         "featureTypeValueIndex": {"value": "STR D1 MSN", "index": 15, "priorityOrder": 1,
+                                   "referenceId": "SCLA_01", "parentReferenceId": "NEIG_01"}},
+        {"color": "#1655F2", "featureType": {"referenceId": "LEVEL_1"},
+         "featureTypeValueIndex": {"value": "STR D1 MSN", "index": 15, "priorityOrder": 1,
+                                   "referenceId": "SCLA_01", "parentReferenceId": "NEIG_01"}},
+        {"color": "#8D6C62", "featureType": {"referenceId": "LEVEL_1"},
+         "featureTypeValueIndex": {"value": "Endothelial", "index": 1, "priorityOrder": 14,
+                                   "referenceId": "SCLA_14", "parentReferenceId": "NEIG_07"}},
         {"color": null, "featureType": {"referenceId": "LEVEL_0"},
-         "featureTypeValueIndex": {"value": "Neurons", "index": 0, "priorityOrder": 1}},
+         "featureTypeValueIndex": {"value": "Neurons", "index": 0, "priorityOrder": 1,
+                                   "referenceId": "NEIG_01"}},
+        {"color": null, "featureType": {"referenceId": "LEVEL_0"},
+         "featureTypeValueIndex": {"value": "Vascular", "index": 3, "priorityOrder": 7,
+                                   "referenceId": "NEIG_07"}},
         {"color": "#000000", "featureType": {"referenceId": "DONOR"},
          "featureTypeValueIndex": {"value": "H20.33.046", "index": 37, "priorityOrder": 24}}
     ]"##;
@@ -640,27 +825,55 @@ mod tests {
     }
 
     #[test]
-    fn properties_follow_the_portals_order_with_taxonomy_levels_in_place() {
+    fn properties_follow_the_portals_order_with_a_taxonomy_as_one_tree() {
         let properties = described();
         let ids: Vec<&str> = properties
             .properties
             .iter()
             .map(|property| property.id.as_str())
             .collect();
-        // The taxonomy first, its levels in their own order; the genes, which
-        // the files hold no column for, nowhere; the donor, which the portal
-        // does not list, last and hidden; and the column the platform knows
-        // nothing about, not at all.
-        assert_eq!(ids, ["LEVEL_0", "LEVEL_1", "BRAAK", "CPS", "DONOR"]);
-        let level = &properties.properties[1];
-        assert_eq!(level.name, "Subclass");
-        assert!(!properties.properties[4].shown);
+        // The taxonomy first, as one property; the genes, which the files hold
+        // no column for, nowhere; the donor, which the portal does not list,
+        // last and hidden; and the column the platform knows nothing about,
+        // not at all.
+        assert_eq!(ids, ["TAX", "BRAAK", "CPS", "DONOR"]);
+        assert_eq!(properties.properties[0].name, "SEA-AD CaH Taxonomy");
+        assert!(!properties.properties[3].shown);
+    }
+
+    #[test]
+    fn a_taxonomy_nests_its_levels_by_their_parents() {
+        let properties = described();
+        let tree = properties.properties[0].tree().unwrap();
+        let names: Vec<&str> = tree
+            .levels
+            .iter()
+            .map(|level| level.name.as_str())
+            .collect();
+        assert_eq!(names, ["Neighborhood", "Subclass"]);
+
+        let label = |node: usize| tree.nodes[node].value.label.as_str();
+        let roots: Vec<&str> = tree.children(None).map(label).collect();
+        assert_eq!(roots, ["Neurons", "Vascular"]);
+        let neurons = tree.children(None).next().unwrap();
+        let under: Vec<&str> = tree.children(Some(neurons)).map(label).collect();
+        assert_eq!(under, ["STR D1 MSN"], "listed once, though sent twice");
+
+        // Filtering happens in the finest column.
+        let mut properties = properties;
+        properties.properties[0]
+            .tree_mut()
+            .unwrap()
+            .set(neurons, true);
+        let selection = properties.selection();
+        assert_eq!(selection.filters.len(), 1);
+        assert_eq!(selection.filters[0].0, "LEVEL_1");
     }
 
     #[test]
     fn values_carry_the_platforms_labels_colours_and_order() {
         let properties = described();
-        let braak = &properties.properties[2];
+        let braak = &properties.properties[1];
         let labels: Vec<(&str, u16)> = braak
             .values()
             .iter()
@@ -672,7 +885,8 @@ mod tests {
             Some(Color::from(Srgba::hex("d52221").unwrap()))
         );
         // A value with no colour of its own falls back to the default palette.
-        assert_eq!(properties.properties[0].values()[0].colour, None);
+        let tree = properties.properties[0].tree().unwrap();
+        assert_eq!(tree.nodes[0].value.colour, None);
     }
 
     #[test]
@@ -692,7 +906,7 @@ mod tests {
     #[test]
     fn a_numeric_property_takes_the_platforms_extent_and_histogram() {
         let properties = described();
-        let range = properties.properties[3].range().unwrap();
+        let range = properties.properties[2].range().unwrap();
         assert_eq!((range.low, range.high), (0.0, 1.0));
         assert_eq!(range.histogram, [1, 2, 3]);
         assert!(!range.restricts());

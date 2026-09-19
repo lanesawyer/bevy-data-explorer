@@ -291,6 +291,21 @@ const MENU_MIN_HEIGHT: f32 = 120.0;
 /// the sidebar and a frame's header clip their contents and a menu is meant to
 /// overhang them.
 pub fn spawn_menu(commands: &mut Commands, parent: Entity) -> Entity {
+    spawn_icon_menu(commands, parent, Icon::Ellipsis, false).1
+}
+
+/// [`spawn_menu`] behind a button showing `icon`, returning the button and the
+/// popup.
+///
+/// With `caret`, a small chevron follows the icon, for a menu that picks one
+/// of several values rather than offering actions — which is what sets it
+/// apart from the plain icon buttons beside it.
+pub fn spawn_icon_menu(
+    commands: &mut Commands,
+    parent: Entity,
+    icon: Icon,
+    caret: bool,
+) -> (Entity, Entity) {
     let menu = commands
         .spawn_scene(bsn! {
             Menu
@@ -313,19 +328,38 @@ pub fn spawn_menu(commands: &mut Commands, parent: Entity) -> Entity {
         })
         .id();
 
-    let button = commands
-        .spawn_scene(bsn! {
-            @FeathersToolButton {
-                @caption: { bsn_list![button_icon(Icon::Ellipsis)] }
-            }
-            BlocksFrameInput
-            MenuButton { menu: { menu } }
-        })
-        .id();
+    let button = if caret {
+        commands
+            .spawn_scene(bsn! {
+                @FeathersToolButton {
+                    @caption: { bsn_list![
+                        button_icon(icon),
+                        (
+                            button_icon(Icon::ChevronDown)
+                            TextFont { font_size: { FontSize::Px(10.0) } }
+                        ),
+                    ] }
+                }
+                BlocksFrameInput
+                MenuButton { menu: { menu } }
+                Node { column_gap: { Val::Px(1.0) } }
+            })
+            .id()
+    } else {
+        commands
+            .spawn_scene(bsn! {
+                @FeathersToolButton {
+                    @caption: { bsn_list![button_icon(icon)] }
+                }
+                BlocksFrameInput
+                MenuButton { menu: { menu } }
+            })
+            .id()
+    };
 
     commands.entity(parent).add_child(button);
     commands.entity(menu).insert(MenuAnchor { button });
-    menu
+    (button, menu)
 }
 
 /// Open and close menus, and dismiss them when something else is clicked.
