@@ -146,7 +146,7 @@ impl NumericRange {
     /// whether the bucket counts as inside the span.
     pub fn bucket_centre(&self, bucket: usize) -> f32 {
         let (start, end) = self.bucket_span(bucket);
-        (start + end) * 0.5
+        f32::midpoint(start, end)
     }
 
     /// Cells in the buckets the span admits, and in the whole histogram.

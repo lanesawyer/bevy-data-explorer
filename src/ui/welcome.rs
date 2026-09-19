@@ -306,7 +306,7 @@ mod tests {
             .map(|example| example.kind)
             .collect();
         assert!(kinds.iter().any(|kind| kind.contains("image")));
-        assert!(kinds.iter().any(|kind| *kind == "UMAP"));
+        assert!(kinds.contains(&"UMAP"));
         assert!(kinds.iter().any(|kind| kind.contains("sections")));
         assert!(kinds.iter().any(|kind| kind.contains("stack")));
         assert!(kinds.iter().any(|kind| kind.contains("Deep Zoom")));
