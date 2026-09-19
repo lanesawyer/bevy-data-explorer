@@ -16,14 +16,13 @@
 use bevy::prelude::*;
 use bevy::ui::{Checked, InteractionDisabled};
 use bevy_feathers::controls::FeathersCheckbox;
-use bevy_feathers::display::label;
 use bevy_ui_widgets::ValueChange;
 
 use crate::source::ShowsSource;
 use crate::source::properties::CellProperties;
 use crate::ui::cellpanel::{CellPanelMenu, PropertySection};
 use crate::view::SelectedPanel;
-use crate::widgets::{BlocksFrameInput, button_text};
+use crate::widgets::{BlocksFrameInput, button_text, size, text};
 
 /// A checkbox in the menu, listing or hiding one property.
 #[derive(Component, Clone, Default)]
@@ -107,8 +106,7 @@ fn heading(commands: &mut Commands) -> Entity {
     commands
         .spawn_scene(bsn! {
             MenuContent
-            label("Show properties")
-            TextFont { font_size: { FontSize::Px(13.0f32) } }
+            text("Show properties", size::BODY)
             Node { margin: { UiRect::bottom(Val::Px(4.0)) } }
         })
         .id()

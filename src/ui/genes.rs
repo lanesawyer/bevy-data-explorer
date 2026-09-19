@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use bevy::text::EditableText;
 use bevy_feathers::controls::FeathersButton;
-use bevy_feathers::display::label_dim;
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
@@ -23,12 +22,12 @@ use crate::source::ShowsSource;
 use crate::source::genes::{GeneSearch, SearchState};
 use crate::source::properties::CellProperties;
 use crate::ui::cellpanel::range::spawn_range_control;
-use crate::ui::cellpanel::{ClearPropertyButton, ColorByButton, SMALL_PX};
+use crate::ui::cellpanel::{ClearPropertyButton, ColorByButton};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::{
-    Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, field_well, spawn_accordion,
-    spawn_header_button, spawn_search_field,
+    Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, field_well, size,
+    spawn_accordion, spawn_header_button, spawn_search_field, text_dim,
 };
 
 /// Under the cell properties, whose numeric controls these are, and above the
@@ -109,8 +108,7 @@ pub fn spawn_gene_panel(mut commands: Commands, content: Query<Entity, With<Side
     let status = commands
         .spawn_scene(bsn! {
             GeneStatus
-            label_dim("")
-            TextFont { font_size: { FontSize::Px(SMALL_PX) } }
+            text_dim("", size::SMALL)
             Node { display: { Display::None } }
         })
         .id();

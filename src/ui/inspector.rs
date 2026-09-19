@@ -9,7 +9,6 @@
 
 use bevy::prelude::*;
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
@@ -19,7 +18,8 @@ use crate::app::schedule::{Boot, Stage};
 use crate::source::{DataSource, ShowsSource, SourceStatus};
 use crate::view::{FrameArea, PanelRequest, SelectedPanel};
 use crate::widgets::{
-    AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, dock_handle,
+    AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, dock_handle, size,
+    text,
 };
 
 const WIDTH_PX: f32 = 300.0;
@@ -128,8 +128,7 @@ fn spawn_inspector(mut commands: Commands) {
                 Children [
                     (
                         InspectorTitle
-                        label("Details")
-                        TextFont { font_size: { FontSize::Px(15.0f32) } }
+                        text("Details", size::DOCK_TITLE)
                     ),
                     (
                         @FeathersToolButton {
@@ -143,7 +142,7 @@ fn spawn_inspector(mut commands: Commands) {
             (
                 InspectorBody
                 Text({ String::new() })
-                TextFont { font_size: { FontSize::Px(12.0) } }
+                TextFont { font_size: { FontSize::Px(size::SECONDARY) } }
                 ThemeTextColor({ tokens::TEXT_MAIN })
             ),
         ]

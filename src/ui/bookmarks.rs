@@ -17,7 +17,6 @@ use bevy_feathers::controls::{
     ButtonVariant, FeathersButton, FeathersTextInput, FeathersTextInputContainer,
     FeathersToolButton,
 };
-use bevy_feathers::display::{label, label_dim};
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
@@ -29,8 +28,8 @@ use crate::source::{DataSource, ShowsSource};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::Panel;
 use crate::widgets::{
-    BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, caption, field_well,
-    spawn_accordion,
+    BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, caption, field_well, size,
+    spawn_accordion, text, text_dim,
 };
 
 /// After the sections that act on a frame: this acts on all of them.
@@ -151,7 +150,7 @@ pub fn spawn_bookmarks_section(
         .spawn_scene(bsn! {
             BookmarkStatus
             Text({ String::new() })
-            TextFont { font_size: { FontSize::Px(11.0) } }
+            TextFont { font_size: { FontSize::Px(size::SMALL) } }
             Node { display: { Display::None } }
         })
         .id();
@@ -264,13 +263,11 @@ pub fn rebuild_list(
                 }
                 Children [
                     (
-                        label(name)
-                        TextFont { font_size: { FontSize::Px(13.0) } }
+                        text(name, size::BODY)
                         TextLayout { linebreak: { LineBreak::NoWrap } }
                     ),
                     (
-                        label_dim(detail)
-                        TextFont { font_size: { FontSize::Px(11.0) } }
+                        text_dim(detail, size::SMALL)
                         TextLayout { linebreak: { LineBreak::NoWrap } }
                     ),
                 ]

@@ -11,7 +11,6 @@
 use bevy::prelude::*;
 use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::display::label;
 use bevy_ui_widgets::{Activate, SliderValue};
 
 use crate::app::schedule::{Boot, Stage};
@@ -23,7 +22,8 @@ use crate::view::grid::MAX_LAYERS;
 use crate::view::layers::{stacked_sources, unit_mismatch};
 use crate::view::{FrameLayers, LayerOf, LayerOpacity, Panel, PanelRequest, SelectedPanel};
 use crate::widgets::{
-    BlocksFrameInput, Icon, SectionLevel, button_icon, caption, spawn_accordion, spawn_slider,
+    BlocksFrameInput, Icon, SectionLevel, button_icon, caption, size, spawn_accordion,
+    spawn_slider, text,
 };
 
 /// Straight after View configuration, which acts on the bottom of the same
@@ -186,8 +186,7 @@ pub fn rebuild_layers(
     let heading = commands
         .spawn_scene(bsn! {
             LayersContent
-            label("Add a layer")
-            TextFont { font_size: { FontSize::Px(12.0f32) } }
+            text("Add a layer", size::SECONDARY)
             Node { margin: { UiRect::top(Val::Px(8.0)) } }
         })
         .id();
@@ -211,8 +210,8 @@ pub fn rebuild_layers(
     commands.entity(body).add_children(&rows);
 }
 
-fn content_caption(commands: &mut Commands, text: &str) -> Entity {
-    let entity = caption(commands, text.to_string());
+fn content_caption(commands: &mut Commands, content: &str) -> Entity {
+    let entity = caption(commands, content.to_string());
     commands.entity(entity).insert(LayersContent);
     entity
 }
@@ -239,8 +238,7 @@ fn name_column(commands: &mut Commands, name: String, lines: Vec<String>) -> Ent
                 row_gap: { Val::Px(1.0) },
             }
             Children [(
-                label(name)
-                TextFont { font_size: { FontSize::Px(13.0f32) } }
+                text(name, size::BODY)
             )]
         })
         .id();

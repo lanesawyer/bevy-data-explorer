@@ -20,7 +20,7 @@ use crate::app::theme::ThemeMode;
 use crate::view::FrameArea;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, button_text,
-    dock_handle,
+    dock_handle, size,
 };
 
 /// Width when collapsed. Enough for the short title and the toggle beneath it.
@@ -206,7 +206,7 @@ fn spawn_sidebar(mut commands: Commands) {
             (
                 SidebarTitle
                 Text({ FULL_TITLE.to_string() })
-                TextFont { font_size: { FontSize::Px(15.0) } }
+                TextFont { font_size: { FontSize::Px(size::DOCK_TITLE) } }
                 ThemeTextColor({ tokens::TEXT_MAIN })
             ),
             (
@@ -322,7 +322,7 @@ fn spawn_sidebar(mut commands: Commands) {
                     (
                         SidebarVersion
                         Text({ VERSION.to_string() })
-                        TextFont { font_size: { FontSize::Px(13.0) } }
+                        TextFont { font_size: { FontSize::Px(size::BODY) } }
                         ThemeTextColor({ tokens::TEXT_DIM })
                     ),
                 ]

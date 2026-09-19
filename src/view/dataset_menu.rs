@@ -29,7 +29,7 @@ use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::{
     FeathersMenu, FeathersMenuButton, FeathersMenuItem, FeathersMenuPopup,
 };
-use bevy_feathers::display::{label, label_dim};
+use bevy_feathers::display::label_dim;
 use bevy_ui_widgets::{Activate, MenuAction, MenuEvent, ScrollArea};
 
 use super::grid::MAX_LAYERS;
@@ -39,8 +39,8 @@ use super::{FrameLayers, LayerOf, MAX_PANELS, Panel};
 use crate::catalog::Catalogs;
 use crate::source::{DataSource, ShowsSource, SourceUrl};
 use crate::widgets::{
-    BlocksFrameInput, MENU_WIDTH, button_text, field_well, matches_search, spawn_search_field,
-    truncate_to_width,
+    BlocksFrameInput, MENU_WIDTH, button_text, field_well, matches_search, size,
+    spawn_search_field, text, text_dim, truncate_to_width,
 };
 
 /// Where a picker puts what is chosen from it.
@@ -117,7 +117,7 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
                 @caption: { bsn_list![(
                     button_text("")
                     PanelTitle
-                    TextFont { font_size: { FontSize::Px(14.0f32) } }
+                    TextFont { font_size: { FontSize::Px(size::FRAME_TITLE) } }
                     Node { margin: { UiRect::right(Val::Px(4.0)) } }
                 )] }
             }
@@ -383,14 +383,13 @@ pub fn rebuild_dataset_lists(
 }
 
 /// The name over one section of a list: what is open, or a catalog.
-fn heading(commands: &mut Commands, text: &str, first: bool) -> Entity {
-    let text = text.to_string();
+fn heading(commands: &mut Commands, content: &str, first: bool) -> Entity {
+    let content = content.to_string();
     let gap = if first { 2.0 } else { 10.0 };
     commands
         .spawn_scene(bsn! {
             DatasetListContent
-            label_dim(text)
-            TextFont { font_size: { FontSize::Px(11.0f32) } }
+            text_dim(content, size::SMALL)
             Node { margin: { UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(gap), Val::Px(2.0)) } }
         })
         .id()
@@ -413,13 +412,11 @@ fn item(commands: &mut Commands, name: &str, note: &str, choice: SourceChoice) -
                     }
                     Children [
                         (
-                            label(name)
-                            TextFont { font_size: { FontSize::Px(13.0f32) } }
+                            text(name, size::BODY)
                             TextLayout { linebreak: { LineBreak::NoWrap } }
                         ),
                         (
-                            label_dim(note)
-                            TextFont { font_size: { FontSize::Px(11.0f32) } }
+                            text_dim(note, size::SMALL)
                             TextLayout { linebreak: { LineBreak::NoWrap } }
                         ),
                     ]

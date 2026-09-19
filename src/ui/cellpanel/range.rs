@@ -21,12 +21,11 @@ use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
 
-use super::SMALL_PX;
 use crate::app::theme::{Palette, token};
 use crate::source::properties::{CellProperties, NumericRange, Ramp, RangeEnd};
 use crate::source::{ShowsSource, compact_count};
 use crate::view::SelectedPanel;
-use crate::widgets::{BlocksFrameInput, hold_drag_cursor};
+use crate::widgets::{BlocksFrameInput, hold_drag_cursor, size};
 
 /// Height of the histogram drawn above a numeric range.
 const HISTOGRAM_PX: f32 = 44.0;
@@ -282,13 +281,13 @@ pub fn spawn_range_control(
                 (
                     RangeReadout { property: { property } }
                     Text({ span })
-                    TextFont { font_size: { FontSize::Px(SMALL_PX) } }
+                    TextFont { font_size: { FontSize::Px(size::SMALL) } }
                     ThemeTextColor({ tokens::TEXT_DIM })
                 ),
                 (
                     RangeCount { property: { property } }
                     Text({ count })
-                    TextFont { font_size: { FontSize::Px(SMALL_PX) } }
+                    TextFont { font_size: { FontSize::Px(size::SMALL) } }
                     ThemeTextColor({ tokens::TEXT_DIM })
                 ),
             ]

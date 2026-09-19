@@ -149,6 +149,12 @@ re-measuring will regress something:
 - **Chrome that overlaps the grid needs `BlocksFrameInput`** and, if it holds
   no buttons, an `Interaction` of its own — otherwise the pointer falls through
   to the frame behind.
+- **A Feathers `label` ignores an inherited font.** It carries
+  `PropagateOver<TextFont>`, so an `InheritableFont` on the panel around it is
+  dropped and the text quietly stays at 13px. Text is spawned through
+  `widgets::text` / `text_dim` with a size from `widgets::size`, which patch
+  `TextFont` on the label itself; a container's `InheritableFont` still reaches
+  buttons and fields, which is all it is for.
 - **BSN scene components** are patched `@Component { @prop: {expr} }`, with the
   `@` on both. Components with private fields cannot be patched field by field;
   supply them whole with `template_value(...)`.

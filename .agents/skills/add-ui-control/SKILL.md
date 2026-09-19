@@ -37,8 +37,11 @@ gets a file of its own there, re-exported from `widgets/mod.rs`.
   glyphs, so anything else renders as a question mark.
 - **Colors** are theme tokens (`ThemeBackgroundColor`, `ThemeTextColor`),
   never literals. Otherwise the control ignores a theme switch.
-- **Text size**: size a Feathers `label` with `TextFont`, since it ignores
-  `InheritableFont`.
+- **Text** comes from `text(content, size::SMALL)` and `text_dim(...)` in
+  `widgets/text.rs`, with a size from the `size` scale (`SMALL`, `SECONDARY`,
+  `BODY`, `FRAME_TITLE`, `DOCK_TITLE`, ...). Never size a Feathers `label`
+  with `InheritableFont`, which it ignores, and never with a literal: a size
+  worth having is worth naming for where it sits.
 - **BSN**: patch a component with `@Component { @prop: {expr} }`, with the
   `@` on both the component and each prop. A component with private fields
   can't be patched field by field, so supply it whole with

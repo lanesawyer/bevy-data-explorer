@@ -15,14 +15,13 @@ use std::collections::{BTreeMap, HashSet};
 
 use bevy::prelude::*;
 use bevy::text::EditableText;
-use bevy_feathers::display::label_dim;
 
 use super::tree::{TreeCheckbox, TreeCount, Unveil, spawn_tree_body};
-use super::{MAX_VALUE_ROWS, SMALL_PX, ValueCheckbox, ValueCount, spawn_value_row};
+use super::{MAX_VALUE_ROWS, ValueCheckbox, ValueCount, spawn_value_row};
 use crate::source::ShowsSource;
 use crate::source::properties::{CellProperties, CellProperty, PropertyKind};
 use crate::view::SelectedPanel;
-use crate::widgets::{matches_search, scroll_list, spawn_search_field};
+use crate::widgets::{matches_search, scroll_list, size, spawn_search_field, text_dim};
 
 /// Fewest values a property has before it offers a search. Below this the
 /// whole list is in view anyway.
@@ -70,8 +69,7 @@ pub fn spawn_values(commands: &mut Commands, index: usize, property: &CellProper
 
     let note = commands
         .spawn_scene(bsn! {
-            label_dim("")
-            TextFont { font_size: { FontSize::Px(SMALL_PX) } }
+            text_dim("", size::SMALL)
             Node { display: { Display::None } }
         })
         .id();

@@ -13,10 +13,8 @@
 //! here.
 
 use bevy::prelude::*;
-use bevy::text::{FontSourceTemplate, FontWeight};
-use bevy_feathers::constants::fonts;
 use bevy_feathers::controls::{ButtonVariant, FeathersButton};
-use bevy_feathers::display::{label, label_dim};
+use bevy_feathers::display::label_dim;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
@@ -26,7 +24,9 @@ use crate::catalog::examples::{EXAMPLES, Example};
 use crate::ui::addsource::spawn_custom_section;
 use crate::ui::help::{AUTHOR, LICENSE, LICENSE_URL, REPOSITORY};
 use crate::view::{FrameArea, Panel};
-use crate::widgets::{BlocksFrameInput, Icon, button_text, link_button};
+use crate::widgets::{
+    BlocksFrameInput, Icon, button_text, link_button, size, text, text_dim, title,
+};
 
 /// The empty-state panel itself.
 #[derive(Component, Clone, Default)]
@@ -81,14 +81,7 @@ pub fn spawn_welcome(mut commands: Commands) {
 
     let title = commands
         .spawn_scene(bsn! {
-            label("Bevy Data Explorer")
-            // `TextFont` rather than `InheritableFont`: a Feathers label opts
-            // out of inherited fonts, so an inheritable size on it is ignored.
-            TextFont {
-                font: FontSourceTemplate::Handle(fonts::BOLD),
-                font_size: { FontSize::Px(32.0) },
-                weight: { FontWeight::BOLD },
-            }
+            title("Bevy Data Explorer")
             // Centred by auto margins at either end rather than by
             // `JustifyContent::Center`, which overflows both ways once the
             // content is taller than the screen and puts the top out of reach
@@ -99,8 +92,7 @@ pub fn spawn_welcome(mut commands: Commands) {
 
     let blurb = commands
         .spawn_scene(bsn! {
-            label_dim(BLURB)
-            TextFont { font_size: { FontSize::Px(13.0f32) } }
+            text_dim(BLURB, size::BODY)
             Node { max_width: { Val::Px(COLUMN_PX) } }
             TextLayout { justify: { Justify::Center } }
         })
@@ -186,8 +178,7 @@ fn example_column(commands: &mut Commands, heading: &str, examples: &[Example]) 
             }
             Children [
                 (
-                    label(heading)
-                    TextFont { font_size: { FontSize::Px(13.0f32) } }
+                    text(heading, size::BODY)
                     Node {
                         grid_column: { GridPlacement::span(2) },
                         margin: { UiRect::bottom(Val::Px(4.0)) },
@@ -229,8 +220,7 @@ fn example_cells(commands: &mut Commands, example: &Example) -> [Entity; 2] {
         .id();
     let kind = commands
         .spawn_scene(bsn! {
-            label_dim(kind)
-            TextFont { font_size: { FontSize::Px(12.0f32) } }
+            text_dim(kind, size::SECONDARY)
         })
         .id();
     [button, kind]

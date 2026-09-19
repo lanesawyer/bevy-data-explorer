@@ -20,7 +20,6 @@ use bevy::prelude::*;
 use bevy::text::EditableText;
 use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
@@ -31,7 +30,7 @@ use crate::app::schedule::{Boot, Stage};
 use crate::view::{FrameArea, TextEntryFocused};
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, SelectableText, button_icon,
-    dock_handle, has_selection,
+    dock_handle, has_selection, size, text,
 };
 
 /// Height the panel opens at, before anyone has dragged it.
@@ -156,8 +155,7 @@ pub fn spawn_log_panel(mut commands: Commands) {
             }
             Children [
                 (
-                    label("Log")
-                    TextFont { font_size: { FontSize::Px(13.0f32) } }
+                    text("Log", size::BODY)
                     Node { flex_grow: { 1.0_f32 } }
                 ),
                 (
@@ -197,7 +195,7 @@ pub fn spawn_log_panel(mut commands: Commands) {
             LogText
             SelectableText
             EditableText { allow_newlines: true, cursor_width: 0.0 }
-            TextFont { font_size: { FontSize::Px(11.0) } }
+            TextFont { font_size: { FontSize::Px(size::SMALL) } }
             ThemeTextColor({ tokens::TEXT_DIM })
             Node { width: { Val::Percent(100.0) }, flex_shrink: { 0.0_f32 } }
         })

@@ -14,7 +14,7 @@ use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
-use crate::widgets::{BlocksFrameInput, Icon, button_icon, link_button};
+use crate::widgets::{BlocksFrameInput, Icon, button_icon, link_button, size, text};
 
 /// Taken from the manifest, like the version, so the two cannot disagree.
 pub const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
@@ -98,8 +98,7 @@ pub fn spawn_help(mut commands: Commands) {
                     }
                     Children [
                         (
-                            label("Bevy Data Explorer")
-                            TextFont { font_size: { FontSize::Px(20.0) } }
+                            text("Bevy Data Explorer", size::SCREEN_HEADING)
                         ),
                         (
                             label_dim(VERSION)
@@ -115,8 +114,7 @@ pub fn spawn_help(mut commands: Commands) {
                 ),
                 label_dim(crate::ui::welcome::BLURB),
                 (
-                    label("Getting around")
-                    TextFont { font_size: { FontSize::Px(15.0) } }
+                    text("Getting around", size::DOCK_TITLE)
                     Node { margin: { UiRect::top(Val::Px(6.0)) } }
                 ),
             ]
@@ -151,8 +149,7 @@ pub fn spawn_help(mut commands: Commands) {
             }
             Children [
                 (
-                    label("Feedback and source")
-                    TextFont { font_size: { FontSize::Px(15.0) } }
+                    text("Feedback and source", size::DOCK_TITLE)
                     Node { margin: { UiRect::top(Val::Px(6.0)) } }
                 ),
                 label_dim(

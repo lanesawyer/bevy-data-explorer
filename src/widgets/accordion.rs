@@ -20,11 +20,11 @@ use bevy_feathers::theme::{ThemeBorderColor, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
 
-use super::{BlocksFrameInput, CORNER_PX, Icon, button_icon, icon_text, truncate_to_width};
+use super::{BlocksFrameInput, CORNER_PX, Icon, button_icon, icon_text, size, truncate_to_width};
 
 pub const ACCORDION_INDENT: f32 = 8.0;
 /// Size the accordion titles are drawn at, which sets how many characters fit.
-const TITLE_FONT: f32 = 13.0;
+const TITLE_FONT: f32 = size::BODY;
 
 /// How deep in the sidebar a section sits, which decides what it is drawn as.
 ///

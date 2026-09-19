@@ -42,7 +42,7 @@ use crate::view::Panel;
 use crate::view::chrome::{PanelButton, SelectionBorder};
 use crate::view::loading::LoadingBar;
 use crate::view::overlay::{PanelHeader, PanelTooltip};
-use crate::widgets::{BlocksFrameInput, Icon, button_icon};
+use crate::widgets::{BlocksFrameInput, Icon, button_icon, size};
 
 /// Where pictures are written, relative to where the app was started.
 const FOLDER: &str = "screenshots";
@@ -146,7 +146,7 @@ pub(super) fn spawn_capture_notice(commands: &mut Commands, box_: Entity, panel:
         .spawn_scene(bsn! {
             CaptureNotice { panel: { panel } }
             Text
-            TextFont { font_size: { FontSize::Px(11.0) } }
+            TextFont { font_size: { FontSize::Px(size::SMALL) } }
             ThemeTextColor({ crate::app::theme::token::OVERLAY_DIM })
             Node { display: { Display::None } }
         })

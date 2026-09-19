@@ -21,7 +21,6 @@
 use bevy::prelude::*;
 use bevy::ui::Checked;
 use bevy_feathers::controls::{ButtonVariant, FeathersButton, FeathersCheckbox};
-use bevy_feathers::display::label_dim;
 use bevy_feathers::theme::ThemeTextColor;
 use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ValueChange};
@@ -41,8 +40,8 @@ use crate::source::{DataSource, ShowsSource, compact_count};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::{
-    Accordion, BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, spawn_accordion,
-    spawn_header_button, spawn_icon_menu, spawn_menu, spawn_skeleton,
+    Accordion, BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, size,
+    spawn_accordion, spawn_header_button, spawn_icon_menu, spawn_menu, spawn_skeleton, text_dim,
 };
 
 /// The section itself, hidden for sources with no properties to show.
@@ -107,9 +106,6 @@ pub const MAX_VALUE_ROWS: usize = 300;
 /// tall as the sub-sections that replace them.
 const SKELETON_ROWS: usize = 4;
 const SKELETON_ROW_PX: f32 = 26.0;
-
-/// Size of the small print: counts, and the note under a truncated list.
-pub const SMALL_PX: f32 = 11.0;
 
 pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
     let Ok(parent) = content.single() else { return };
@@ -231,8 +227,7 @@ pub fn rebuild_cell_panel(
         let message = commands
             .spawn_scene(bsn! {
                 CellPanelContent
-                label_dim("No properties for this dataset.")
-                TextFont { font_size: { FontSize::Px(11.0f32) } }
+                text_dim("No properties for this dataset.", size::SMALL)
             })
             .id();
         commands.entity(body).add_child(message);
@@ -347,7 +342,7 @@ pub fn spawn_value_row(
     let counted = commands
         .spawn_scene(bsn! {
             Text({ counted })
-            TextFont { font_size: { FontSize::Px(SMALL_PX) } }
+            TextFont { font_size: { FontSize::Px(size::SMALL) } }
             ThemeTextColor({ tokens::TEXT_DIM })
             Node { flex_shrink: { 0.0_f32 } }
         })
@@ -370,8 +365,7 @@ pub fn spawn_more_note(commands: &mut Commands, more: usize) -> Entity {
     let note = format!("and {more} more; search to find them");
     commands
         .spawn_scene(bsn! {
-            label_dim(note)
-            TextFont { font_size: { FontSize::Px(SMALL_PX) } }
+            text_dim(note, size::SMALL)
         })
         .id()
 }
@@ -511,8 +505,7 @@ fn spawn_failed(commands: &mut Commands, error: &str) -> Entity {
             }
             Children [
                 (
-                    label_dim(message)
-                    TextFont { font_size: { FontSize::Px(SMALL_PX) } }
+                    text_dim(message, size::SMALL)
                 ),
                 (
                     @FeathersButton {

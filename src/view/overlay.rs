@@ -16,7 +16,7 @@
 use bevy::prelude::*;
 use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::display::{label, label_dim};
+use bevy_feathers::display::label_dim;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 
@@ -31,7 +31,7 @@ use crate::view::layers::stacked_sources;
 use crate::view::{
     DatasetRequest, DatasetTarget, FrameLayers, LayerOf, Panel, PanelRequest, PendingShow,
 };
-use crate::widgets::{BlocksFrameInput, Icon, button_icon, spawn_menu};
+use crate::widgets::{BlocksFrameInput, Icon, button_icon, size, spawn_menu, text, text_dim};
 
 /// The translucent panel a frame's header and status sit on.
 #[derive(Component, Clone)]
@@ -191,7 +191,7 @@ fn spawn_tooltip(commands: &mut Commands, panel: Entity) {
     commands.spawn_scene(bsn! {
         PanelTooltip { panel: { panel } }
         Text
-        TextFont { font_size: { FontSize::Px(12.0) } }
+        TextFont { font_size: { FontSize::Px(size::SECONDARY) } }
         ThemeTextColor({ token::OVERLAY_TEXT })
         Node {
             position_type: { PositionType::Absolute },
@@ -271,7 +271,7 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
         .spawn_scene(bsn! {
             PanelText { panel: { panel } }
             Text
-            TextFont { font_size: { FontSize::Px(12.0) } }
+            TextFont { font_size: { FontSize::Px(size::SECONDARY) } }
             ThemeTextColor({ token::OVERLAY_DIM })
         })
         .id();
@@ -607,24 +607,23 @@ fn layer_note(base: Option<&DataSource>, source: &DataSource) -> String {
     }
 }
 
-fn menu_heading(commands: &mut Commands, text: &str, gap: f32) -> Entity {
-    let text = text.to_string();
+fn menu_heading(commands: &mut Commands, content: &str, gap: f32) -> Entity {
+    let content = content.to_string();
     commands
         .spawn_scene(bsn! {
             SourceMenuContent
-            label(text)
-            TextFont { font_size: { FontSize::Px(12.0f32) } }
+            text(content, size::SECONDARY)
             Node { margin: { UiRect::new(Val::Px(2.0), Val::Px(0.0), Val::Px(gap), Val::Px(2.0)) } }
         })
         .id()
 }
 
-fn menu_caption(commands: &mut Commands, text: &str) -> Entity {
-    let text = text.to_string();
+fn menu_caption(commands: &mut Commands, content: &str) -> Entity {
+    let content = content.to_string();
     commands
         .spawn_scene(bsn! {
             SourceMenuContent
-            label_dim(text)
+            label_dim(content)
             Node { margin: { UiRect::new(Val::Px(2.0), Val::Px(0.0), Val::Px(0.0), Val::Px(4.0)) } }
         })
         .id()
@@ -665,13 +664,11 @@ fn menu_row(
                     }
                     Children [
                         (
-                            label(name)
-                            TextFont { font_size: { FontSize::Px(13.0f32) } }
+                            text(name, size::BODY)
                             TextLayout { linebreak: { LineBreak::NoWrap } }
                         ),
                         (
-                            label_dim(note)
-                            TextFont { font_size: { FontSize::Px(11.0f32) } }
+                            text_dim(note, size::SMALL)
                             TextLayout { linebreak: { LineBreak::NoWrap } }
                         ),
                     ]

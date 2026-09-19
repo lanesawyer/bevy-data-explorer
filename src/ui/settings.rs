@@ -10,7 +10,7 @@ use bevy::window::WindowTheme;
 use bevy_feathers::controls::{
     ButtonVariant, FeathersButton, FeathersCheckbox, FeathersToolButton,
 };
-use bevy_feathers::display::{label, label_dim};
+use bevy_feathers::display::label_dim;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::rounded_corners::RoundedCorners;
 use bevy_feathers::theme::ThemeBackgroundColor;
@@ -21,7 +21,9 @@ use crate::app::prefs::{Preferences, PreferencesFile};
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::ThemeMode;
 use crate::ui::filtered::{FilteredTarget, filtered_controls};
-use crate::widgets::{BlocksFrameInput, Icon, ResetDockSizes, button_icon, button_text};
+use crate::widgets::{
+    BlocksFrameInput, Icon, ResetDockSizes, button_icon, button_text, size, text,
+};
 
 /// With the help screen: both cover everything a menu could open over.
 const SETTINGS_Z: i32 = 20;
@@ -128,8 +130,7 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
                     }
                     Children [
                         (
-                            label("Settings")
-                            TextFont { font_size: { FontSize::Px(20.0) } }
+                            text("Settings", size::SCREEN_HEADING)
                             Node { flex_grow: { 1.0_f32 } }
                         ),
                         (
@@ -147,8 +148,7 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
                     Node { margin: { UiRect::top(Val::Px(-6.0)) } }
                 ),
                 (
-                    label("Layout")
-                    TextFont { font_size: { FontSize::Px(15.0) } }
+                    text("Layout", size::DOCK_TITLE)
                     Node { margin: { UiRect::top(Val::Px(6.0)) } }
                 ),
                 (
@@ -175,8 +175,7 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
                     )]
                 ),
                 (
-                    label("Appearance")
-                    TextFont { font_size: { FontSize::Px(15.0) } }
+                    text("Appearance", size::DOCK_TITLE)
                     Node { margin: { UiRect::top(Val::Px(6.0)) } }
                 ),
                 (
@@ -189,8 +188,7 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
                 ),
                 label_dim("System follows your operating system's light or dark setting."),
                 (
-                    label("Point clouds")
-                    TextFont { font_size: { FontSize::Px(15.0) } }
+                    text("Point clouds", size::DOCK_TITLE)
                     Node { margin: { UiRect::top(Val::Px(6.0)) } }
                 ),
                 filtered_controls(FilteredTarget::Default),

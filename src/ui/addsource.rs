@@ -24,7 +24,6 @@ use bevy::prelude::*;
 use bevy::text::EditableText;
 use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::{FeathersButton, FeathersTextInput, FeathersTextInputContainer};
-use bevy_feathers::display::{label, label_dim};
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::Stage;
@@ -33,7 +32,7 @@ use crate::formats::discover::{self, Discovered};
 use crate::formats::{LoadSettings, spawn_discovered};
 use crate::source::SourceUrl;
 use crate::view::{DatasetRequest, DatasetTarget, PendingShow};
-use crate::widgets::{BlocksFrameInput, button_text, field_well};
+use crate::widgets::{BlocksFrameInput, button_text, field_well, size, text, text_dim};
 
 /// The field a URL is typed into. On the inner text entity, which is the one
 /// holding the [`EditableText`], rather than on its container.
@@ -201,12 +200,10 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
             field_well()
             Children [
                 (
-                    label("Custom visualization")
-                    TextFont { font_size: { FontSize::Px(12.0f32) } }
+                    text("Custom visualization", size::SECONDARY)
                 ),
                 (
-                    label_dim("An OME-Zarr store, Deep Zoom .dzi, Scatterbrain .json or .svg URL")
-                    TextFont { font_size: { FontSize::Px(11.0f32) } }
+                    text_dim("An OME-Zarr store, Deep Zoom .dzi, Scatterbrain .json or .svg URL", size::SMALL)
                 ),
             ]
         })
@@ -255,7 +252,7 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
         .spawn_scene(bsn! {
             CustomStatus
             Text({ String::new() })
-            TextFont { font_size: { FontSize::Px(11.0) } }
+            TextFont { font_size: { FontSize::Px(size::SMALL) } }
             Node { display: { Display::None } }
         })
         .id();

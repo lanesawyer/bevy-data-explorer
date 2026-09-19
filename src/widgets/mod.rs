@@ -17,6 +17,7 @@ mod search;
 mod selectable;
 mod skeleton;
 mod slider;
+mod text;
 mod truncate;
 
 pub use accordion::{Accordion, SectionLevel, spawn_accordion, spawn_header_button};
@@ -33,6 +34,7 @@ pub use search::{matches_search, spawn_search_field};
 pub use selectable::{SelectableText, has_selection};
 pub use skeleton::spawn_skeleton;
 pub use slider::spawn_slider;
+pub use text::{size, text, text_dim, title};
 pub use truncate::truncate_to_width;
 
 use crate::app::schedule::Stage;

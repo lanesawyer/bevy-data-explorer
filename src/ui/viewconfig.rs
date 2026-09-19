@@ -8,7 +8,6 @@
 use bevy::prelude::*;
 use bevy::ui::Checked;
 use bevy_feathers::controls::{FeathersCheckbox, FeathersToolButton};
-use bevy_feathers::display::label;
 use bevy_feathers::theme::ThemeTextColor;
 use bevy_ui_widgets::{Activate, SliderRange, SliderValue, ValueChange};
 
@@ -21,8 +20,8 @@ use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::{
-    BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, caption, spawn_accordion,
-    spawn_menu, spawn_slider,
+    BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, caption, size, spawn_accordion,
+    spawn_menu, spawn_slider, text,
 };
 
 /// The opacity slider runs 0..100, so its built-in readout is a percentage.
@@ -112,8 +111,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     // instead of repointing one.
     let open = commands
         .spawn_scene(bsn! {
-            label("Open a dataset")
-            TextFont { font_size: { FontSize::Px(12.0f32) } }
+            text("Open a dataset", size::SECONDARY)
             Node { margin: { UiRect::new(Val::Px(0.0), Val::Px(0.0), Val::Px(8.0), Val::Px(2.0)) } }
         })
         .id();
@@ -132,7 +130,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         .spawn_scene(bsn! {
             SelectedName
             Text({ String::new() })
-            TextFont { font_size: { FontSize::Px(12.0) } }
+            TextFont { font_size: { FontSize::Px(size::SECONDARY) } }
             ThemeTextColor({ bevy_feathers::tokens::TEXT_DIM })
         })
         .id();
@@ -140,8 +138,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     let transparency = commands
         .spawn_scene(bsn! {
             FrameControl
-            label("Transparency")
-            TextFont { font_size: { FontSize::Px(12.0f32) } }
+            text("Transparency", size::SECONDARY)
         })
         .id();
 
@@ -155,8 +152,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     let size_label = commands
         .spawn_scene(bsn! {
             PointSizeRow
-            label("Point size")
-            TextFont { font_size: { FontSize::Px(12.0f32) } }
+            text("Point size", size::SECONDARY)
         })
         .id();
     let size_slider = spawn_slider(
@@ -183,7 +179,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
             SliceRow
             SliceReadout
             Text({ String::new() })
-            TextFont { font_size: { FontSize::Px(12.0) } }
+            TextFont { font_size: { FontSize::Px(size::SECONDARY) } }
             ThemeTextColor({ bevy_feathers::tokens::TEXT_MAIN })
         })
         .id();
@@ -554,13 +550,12 @@ pub fn rebuild_layout_menu(
     commands.entity(menu).add_children(&children);
 }
 
-fn heading(commands: &mut Commands, text: &str, size: f32, gap: f32) -> Entity {
-    let text = text.to_string();
+fn heading(commands: &mut Commands, content: &str, size: f32, gap: f32) -> Entity {
+    let content = content.to_string();
     commands
         .spawn_scene(bsn! {
             LayoutContent
-            label(text)
-            TextFont { font_size: { FontSize::Px(size) } }
+            text(content, size)
             Node { margin: { UiRect::top(Val::Px(gap)) } }
         })
         .id()
@@ -577,8 +572,7 @@ fn summary(commands: &mut Commands, data: &DataSource) -> Entity {
                 row_gap: { Val::Px(1.0) },
             }
             Children [(
-                label(name)
-                TextFont { font_size: { FontSize::Px(13.0f32) } }
+                text(name, size::BODY)
             )]
         })
         .id();
