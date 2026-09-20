@@ -13,7 +13,9 @@ pub mod image;
 pub mod pointcloud;
 pub mod scatterbrain;
 pub mod slices;
+pub mod specimens;
 pub mod svg;
+pub mod table;
 pub mod tiles;
 
 use bevy::prelude::*;
@@ -121,7 +123,7 @@ pub fn spawn_discovered(
             slices::spawn_source(world, std::sync::Arc::new(cloud), settings.slice_budget)
         }
         Discovered::Annotations(svg) => svg::spawn_source(world, std::sync::Arc::new(svg)),
-        Discovered::Table(table) => csv::spawn_source(world, std::sync::Arc::new(*table)),
+        Discovered::Table(table) => table::spawn_source(world, *table),
     }
 }
 

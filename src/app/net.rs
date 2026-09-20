@@ -101,6 +101,30 @@ pub async fn fetch(url: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("reading {url}: {e}"))
 }
 
+/// Post a JSON body and read the answer as text.
+///
+/// The answer is read whatever the status, because a GraphQL error arrives as
+/// a 500 with the reason in the body; the status is only reported when the
+/// body says nothing better.
+pub async fn post_json(url: &str, body: String) -> Result<String, String> {
+    let response = client()
+        .post(url)
+        .header("content-type", "application/json")
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| format!("querying {url}: {e}"))?;
+    let status = response.status();
+    let text = response
+        .text()
+        .await
+        .map_err(|e| format!("reading {url}: {e}"))?;
+    if !status.is_success() && !text.contains("\"errors\"") {
+        return Err(format!("querying {url}: {status}"));
+    }
+    Ok(text)
+}
+
 /// Fetch a whole file as text.
 pub async fn fetch_text(url: &str) -> Result<String, String> {
     let response = client()

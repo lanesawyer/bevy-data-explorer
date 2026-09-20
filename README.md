@@ -23,6 +23,10 @@ as you zoom. Five formats are supported so far:
   with a header that stays put and scrollbars, for the metadata that comes
   alongside the imagery — gene panels, region lists, cell annotations. Read
   whole, but only the rows on screen are built.
+- **Brain Knowledge Platform specimens**: one project's specimen records,
+  asked of the platform's GraphQL API and shown as the same table. The
+  reference project is the SEA-AD donor metadata: 84 donors across 32 columns
+  of clinical and neuropathology features.
 
 None of the streamed formats is ever loaded in its entirety. An annotation
 document and a table are small enough to be read whole.
@@ -35,6 +39,7 @@ cargo run --release -- <url-or-dir>          # any OME-Zarr root
 cargo run --release -- metadata.json         # a manifest describing one
 cargo run --release -- slide.dzi             # a Deep Zoom image, URL or file
 cargo run --release -- genes.csv             # a CSV or TSV table, URL or file
+cargo run --release -- '<bkp-endpoint>/?specimens=<project>'  # a specimen table
 cargo run --release -- --points <url|file>   # a Scatterbrain metadata JSON
 cargo run --release -- --slices <url|file>   # a sectioned Scatterbrain JSON
 cargo run --release -- --z 3 <source>        # pick a z slice
@@ -792,6 +797,42 @@ but the cleared background to photograph; and anything to do with layers,
 neither the frame's own menu nor the sidebar's section — a table shares no
 coordinates with an image, so stacking one on the other would put two
 unrelated things in one cell.
+
+### Brain Knowledge Platform specimens
+
+Not a file format: a question asked of the platform's GraphQL API, addressed
+as the endpoint with the project named on it, so the thing being talked to is
+the thing being named and another deployment is reached by writing its host.
+
+```
+https://idf-api-prod.aibs-idk-prod.net/?specimens=JGN327NUXRZSHEV88TN
+```
+
+A specimen is not a row. It carries a list of annotations and a list of
+measurements, each tagged with the feature it belongs to, and which features a
+specimen has varies within one project — so the columns are the union of the
+features seen, and a specimen with nothing under a feature leaves that cell
+empty. A measurement names its unit in the column rather than in every cell.
+
+Three things the records do that a naive flattening gets wrong, all found by
+reading the live API before writing the reader:
+
+- **An annotation can name more than one taxon.** A SEA-AD donor with two
+  clinical diagnoses carries both, so they are listed rather than one being
+  picked.
+- **The platform repeats some measurements.** Every SEA-AD donor carries sex
+  and age at death twice over, with the same value both times, so the first
+  reading is taken; showing a value beside itself would say something the data
+  does not.
+- **Its column order changes between requests.** The table fixes one: what
+  identifies a specimen, then its annotations by name, then its measurements
+  by name.
+
+The project title and the specimens come back in one request — two root
+fields — so naming the table costs no extra round trip. Pages are 500
+specimens: the SEA-AD project's 84 donors of 30 features came to 199KB in
+0.7s, so a full page is a request of a megabyte or two for the widest records
+the platform holds.
 
 ### Things that were measured rather than assumed
 

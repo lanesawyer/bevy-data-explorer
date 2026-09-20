@@ -11,11 +11,11 @@
 //! OME-Zarr group's attributes — so nothing beyond that document is fetched to
 //! decide.
 
-use crate::formats::csv::parse::Table;
 use crate::formats::dzi::pyramid::DeepZoom;
 use crate::formats::image::dataset::Dataset;
 use crate::formats::scatterbrain::Scatterbrain;
 use crate::formats::svg::parse::Svg;
+use crate::formats::table::Table;
 
 /// What a source turned out to be.
 pub enum Discovered {
@@ -57,6 +57,14 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
     let source = source.as_str();
     if source.is_empty() {
         return Err("type the URL of a dataset to load".into());
+    }
+
+    // A question asked of an API rather than a file to read, so it is named
+    // by what it asks for rather than by an extension.
+    if let Some((endpoint, project)) = crate::formats::specimens::query_of(source) {
+        return crate::formats::specimens::read(&endpoint, &project)
+            .await
+            .map(|table| Discovered::Table(Box::new(table)));
     }
 
     // A Deep Zoom image is named by its descriptor, and nothing else ends in

@@ -26,7 +26,6 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-use super::post;
 use crate::catalog::{CellCounts, CellRecord, DescribeCells, RegionFocus};
 use crate::source::genes::Gene;
 use crate::source::properties::{
@@ -544,7 +543,7 @@ async fn ask<T: DeserializeOwned>(
     }
 
     let body = json!({ "query": query, "variables": variables });
-    let text = post(endpoint, body.to_string()).await?;
+    let text = crate::app::net::post_json(endpoint, body.to_string()).await?;
     let response: Response<T> =
         serde_json::from_str(&text).map_err(|e| format!("parsing BKP answer: {e}"))?;
     if let Some(error) = response.errors.first() {

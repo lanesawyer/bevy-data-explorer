@@ -85,8 +85,15 @@ sections. A plugin that cannot answer simply never writes the answer.
 place writes a `SourceTable` and draws nothing at all. `view/table.rs` fills
 that frame with a scrolling table — there is nothing to pan over, so its frame
 scrolls rather than moves. Only the rows on screen are built. A format's whole
-job there is parsing, which is why `formats/csv` has no systems: everything it
-knows is known the moment it is read.
+job there is producing rows, which is why neither `formats/csv` nor
+`formats/specimens` has any systems: everything they know is known the moment
+they are read, and `formats/table.rs` is where both of them end up.
+
+`formats/specimens` is not a file format at all — it is a query against the
+Brain Knowledge Platform, addressed as the API endpoint with the project on
+its query string. A format may talk to an API; what it may not do is reach
+into `catalog`, which is below it. The endpoint comes off the address rather
+than from `catalog::bkp::PRODUCTION` for exactly that reason.
 
 Frames point at a source entity rather than naming a format. Every streamer is
 a component of the source entity it serves, and selects panels with

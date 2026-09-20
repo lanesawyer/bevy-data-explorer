@@ -129,7 +129,10 @@ async fn list(endpoint: String) -> Result<Vec<Entry>, String> {
             "query": QUERY,
             "variables": { "first": PAGE, "after": after },
         });
-        let (page, next) = parse_page(&endpoint, &post(&endpoint, body.to_string()).await?)?;
+        let (page, next) = parse_page(
+            &endpoint,
+            &crate::app::net::post_json(&endpoint, body.to_string()).await?,
+        )?;
         entries.extend(page);
         after = next;
         if after.is_none() {
@@ -139,28 +142,6 @@ async fn list(endpoint: String) -> Result<Vec<Entry>, String> {
     // The API's own order changes from one request to the next.
     entries.sort_by_key(|entry| entry.name.to_lowercase());
     Ok(entries)
-}
-
-async fn post(endpoint: &str, body: String) -> Result<String, String> {
-    let response = crate::app::net::client()
-        .post(endpoint)
-        .header("content-type", "application/json")
-        .body(body)
-        .send()
-        .await
-        .map_err(|e| format!("querying {endpoint}: {e}"))?;
-    // A GraphQL error arrives as a 500 with the reason in the body, so the
-    // body is read whatever the status and the status only reported if it
-    // says nothing better.
-    let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|e| format!("reading {endpoint}: {e}"))?;
-    if !status.is_success() && !text.contains("\"errors\"") {
-        return Err(format!("querying {endpoint}: {status}"));
-    }
-    Ok(text)
 }
 
 #[derive(Deserialize)]

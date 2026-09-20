@@ -1,0 +1,286 @@
+{
+ "data": {
+  "project": [
+   {
+    "referenceId": "JGN327NUXRZSHEV88TN",
+    "title": "Seattle Alzheimer's Disease Brain Cell Atlas (SEA-AD) - Donor Metadata and Neuropathology"
+   }
+  ],
+  "aio_specimen": [
+   {
+    "referenceId": "H039VXZCCFGHU684VSK",
+    "cRID": {
+     "symbol": "H21.33.012"
+    },
+    "specimenType": {
+     "name": "sample"
+    },
+    "annotations": [
+     {
+      "featureType": {
+       "title": "Cognitive status"
+      },
+      "taxons": [
+       {
+        "symbol": "Dementia"
+       }
+      ]
+     },
+     {
+      "featureType": {
+       "title": "Consensus clinical diagnosis"
+      },
+      "taxons": [
+       {
+        "symbol": "Multiple System Atrophy"
+       },
+       {
+        "symbol": "Other"
+       }
+      ]
+     },
+     {
+      "featureType": {
+       "title": "Donor ID"
+      },
+      "taxons": [
+       {
+        "symbol": "H21.33.012"
+       }
+      ]
+     },
+     {
+      "featureType": {
+       "title": "Race/ ethnicity"
+      },
+      "taxons": [
+       {
+        "symbol": "White"
+       }
+      ]
+     }
+    ],
+    "measurements": [
+     {
+      "featureType": {
+       "title": "Sex"
+      },
+      "value": "Female",
+      "unit": null
+     },
+     {
+      "featureType": {
+       "title": "Age at death"
+      },
+      "value": "93",
+      "unit": "years"
+     },
+     {
+      "featureType": {
+       "title": "Sex"
+      },
+      "value": "Female",
+      "unit": null
+     },
+     {
+      "featureType": {
+       "title": "Brain pH"
+      },
+      "value": "6.4",
+      "unit": null
+     },
+     {
+      "featureType": {
+       "title": "Age at death"
+      },
+      "value": "93",
+      "unit": "years"
+     }
+    ]
+   },
+   {
+    "referenceId": "DI7M7876BCOK8WG00BN",
+    "cRID": {
+     "symbol": "H20.33.020"
+    },
+    "specimenType": {
+     "name": "sample"
+    },
+    "annotations": [
+     {
+      "featureType": {
+       "title": "Cognitive status"
+      },
+      "taxons": [
+       {
+        "symbol": "Dementia"
+       }
+      ]
+     },
+     {
+      "featureType": {
+       "title": "Consensus clinical diagnosis"
+      },
+      "taxons": [
+       {
+        "symbol": "Alzheimers disease"
+       }
+      ]
+     },
+     {
+      "featureType": {
+       "title": "Donor ID"
+      },
+      "taxons": [
+       {
+        "symbol": "H20.33.020"
+       }
+      ]
+     },
+     {
+      "featureType": {
+       "title": "Race/ ethnicity"
+      },
+      "taxons": [
+       {
+        "symbol": "White"
+       }
+      ]
+     }
+    ],
+    "measurements": [
+     {
+      "featureType": {
+       "title": "Sex"
+      },
+      "value": "Male",
+      "unit": null
+     },
+     {
+      "featureType": {
+       "title": "Age at death"
+      },
+      "value": "81",
+      "unit": "years"
+     },
+     {
+      "featureType": {
+       "title": "Sex"
+      },
+      "value": "Male",
+      "unit": null
+     },
+     {
+      "featureType": {
+       "title": "MoCA score"
+      },
+      "value": "4",
+      "unit": null
+     },
+     {
+      "featureType": {
+       "title": "Brain pH"
+      },
+      "value": "6.8",
+      "unit": null
+     },
+     {
+      "featureType": {
+       "title": "Age at death"
+      },
+      "value": "81",
+      "unit": "years"
+     }
+    ]
+   },
+   {
+    "referenceId": "VCMJBSVAZNKNHXV7XC0",
+    "cRID": {
+     "symbol": "H20.33.032"
+    },
+    "specimenType": {
+     "name": "sample"
+    },
+    "annotations": [
+     {
+      "featureType": {
+       "title": "Cognitive status"
+      },
+      "taxons": [
+       {
+        "symbol": "No dementia"
+       }
+      ]
+     },
+     {
+      "featureType": {
+       "title": "Consensus clinical diagnosis"
+      },
+      "taxons": [
+       {
+        "symbol": "Control"
+       }
+      ]
+     },
+     {
+      "featureType": {
+       "title": "Donor ID"
+      },
+      "taxons": [
+       {
+        "symbol": "H20.33.032"
+       }
+      ]
+     },
+     {
+      "featureType": {
+       "title": "Race/ ethnicity"
+      },
+      "taxons": [
+       {
+        "symbol": "White"
+       }
+      ]
+     }
+    ],
+    "measurements": [
+     {
+      "featureType": {
+       "title": "Sex"
+      },
+      "value": "Male",
+      "unit": null
+     },
+     {
+      "featureType": {
+       "title": "Age at death"
+      },
+      "value": "98",
+      "unit": "years"
+     },
+     {
+      "featureType": {
+       "title": "Sex"
+      },
+      "value": "Male",
+      "unit": null
+     },
+     {
+      "featureType": {
+       "title": "Brain pH"
+      },
+      "value": "6.8",
+      "unit": null
+     },
+     {
+      "featureType": {
+       "title": "Age at death"
+      },
+      "value": "98",
+      "unit": "years"
+     }
+    ]
+   }
+  ]
+ }
+}

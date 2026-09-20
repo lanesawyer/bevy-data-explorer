@@ -9,40 +9,7 @@
 //! doubled quote, or a newline; a ragged row is padded or trimmed to the
 //! header rather than rejected, since one bad line should not lose the file.
 
-/// Rows kept, past which a file is read as far as this and said to be.
-///
-/// The whole file is already in memory as text by the time it is parsed, so
-/// this is not about the fetch: it caps the strings a table holds, which are
-/// what a multi-million row export would spend a gigabyte on.
-pub const MAX_ROWS: usize = 100_000;
-
-/// The widest a column is laid out, in characters. A value longer than this is
-/// drawn elided, so one prose column cannot push every column after it off the
-/// side of a frame.
-pub const MAX_CHARS: usize = 44;
-
-/// One column, as the header named it and the values below it measured.
-pub struct Column {
-    pub name: String,
-    /// The widest value in it, header included, in characters and already
-    /// capped at [`MAX_CHARS`].
-    pub chars: usize,
-    /// Every value in it is a number, so it is set flush right the way a
-    /// spreadsheet sets one.
-    pub numeric: bool,
-}
-
-/// A parsed table: a header, and the rows under it.
-pub struct Table {
-    pub name: String,
-    pub columns: Vec<Column>,
-    /// One entry per row, each as wide as `columns`.
-    pub rows: Vec<Vec<String>>,
-    /// Rows past [`MAX_ROWS`], which were not kept.
-    pub skipped: usize,
-    /// Which character separated the fields, for saying what was read.
-    pub delimiter: char,
-}
+use crate::formats::table::{MAX_ROWS, Table};
 
 /// Read `text` as delimited text, or say why it is not.
 pub fn parse(name: &str, text: &str) -> Result<Table, String> {
@@ -60,59 +27,41 @@ pub fn parse(name: &str, text: &str) -> Result<Table, String> {
         ));
     }
 
-    let mut columns: Vec<Column> = header
+    let headers: Vec<String> = header
         .into_iter()
         .enumerate()
         .map(|(index, name)| {
-            let name = if name.trim().is_empty() {
+            if name.trim().is_empty() {
                 format!("column {}", index + 1)
             } else {
                 name
-            };
-            Column {
-                chars: name.chars().count().min(MAX_CHARS),
-                name,
-                // Until a value says otherwise: a column with no rows under it
-                // is set flush left like text.
-                numeric: false,
             }
         })
         .collect();
 
-    let mut numeric = vec![true; columns.len()];
     let mut rows = Vec::new();
     let mut skipped = 0;
-    for mut record in records {
+    for record in records {
         if rows.len() == MAX_ROWS {
             skipped += 1;
             continue;
         }
-        record.resize(columns.len(), String::new());
-        for (index, value) in record.iter().enumerate() {
-            let value = value.trim();
-            columns[index].chars = columns[index]
-                .chars
-                .max(value.chars().count())
-                .min(MAX_CHARS);
-            if !value.is_empty() && value.parse::<f64>().is_err() {
-                numeric[index] = false;
-            }
-        }
         rows.push(record);
     }
 
-    for (column, numeric) in columns.iter_mut().zip(numeric) {
-        // With no rows to judge by, every column would otherwise qualify.
-        column.numeric = numeric && !rows.is_empty();
-    }
-
-    Ok(Table {
-        name: name.to_string(),
-        columns,
+    let kind = if delimiter == '\t' {
+        "Tab-separated table"
+    } else {
+        "Comma-separated table"
+    };
+    let note = (skipped > 0).then(|| format!("{skipped} rows past the limit not read"));
+    Ok(Table::new(
+        name,
+        format!("{kind}, {} columns", headers.len()),
+        headers,
         rows,
-        skipped,
-        delimiter,
-    })
+        note,
+    ))
 }
 
 /// Which character separates the fields, decided from the first line.
@@ -176,26 +125,30 @@ fn records(text: &str, delimiter: char) -> Vec<Vec<String>> {
 mod tests {
     use super::*;
 
-    /// What is at `row` and `column`. Only the tests read a table this way:
-    /// what is parsed goes straight into a `SourceTable` for the grid.
-    fn cell(table: &Table, row: usize, column: usize) -> Option<&str> {
-        table.rows.get(row)?.get(column).map(String::as_str)
-    }
-
     fn genes() -> Table {
         parse("genes", include_str!("../../../testdata/genes.csv")).unwrap()
+    }
+
+    /// What is at `row` and `column`. Only the tests read a table this way:
+    /// what is parsed goes straight to the grid.
+    fn cell(table: &Table, row: usize, column: usize) -> &str {
+        table.rows.cell(row, column)
+    }
+
+    fn names(table: &Table) -> Vec<&str> {
+        table
+            .rows
+            .columns
+            .iter()
+            .map(|column| column.name.as_str())
+            .collect()
     }
 
     #[test]
     fn a_header_names_the_columns_and_the_rest_are_rows() {
         let table = genes();
-        let names: Vec<&str> = table
-            .columns
-            .iter()
-            .map(|column| column.name.as_str())
-            .collect();
         assert_eq!(
-            names,
+            names(&table),
             [
                 "gene_identifier",
                 "gene_symbol",
@@ -204,101 +157,77 @@ mod tests {
                 "mapped_ncbi_identifier"
             ]
         );
-        assert_eq!(table.rows.len(), 6);
-        assert_eq!(cell(&table, 0, 1), Some("Prkcq"));
+        assert_eq!(table.rows.rows.len(), 6);
+        assert_eq!(cell(&table, 0, 1), "Prkcq");
     }
 
     #[test]
     fn a_quoted_field_keeps_the_delimiter_inside_it() {
         // The one thing a naive split gets wrong, and the reason this fixture
         // is real data rather than invented.
-        assert_eq!(cell(&genes(), 0, 3), Some("protein kinase C, theta"));
+        assert_eq!(cell(&genes(), 0, 3), "protein kinase C, theta");
     }
 
     #[test]
     fn a_doubled_quote_inside_a_quoted_field_is_one_quote() {
         let table = parse("t", "a,b\n\"he said \"\"no\"\"\",2\n").unwrap();
-        assert_eq!(cell(&table, 0, 0), Some("he said \"no\""));
+        assert_eq!(cell(&table, 0, 0), "he said \"no\"");
     }
 
     #[test]
     fn a_newline_inside_a_quoted_field_does_not_end_the_row() {
         let table = parse("t", "a,b\n\"one\ntwo\",2\n").unwrap();
-        assert_eq!(table.rows.len(), 1);
-        assert_eq!(cell(&table, 0, 0), Some("one\ntwo"));
+        assert_eq!(table.rows.rows.len(), 1);
+        assert_eq!(cell(&table, 0, 0), "one\ntwo");
     }
 
     #[test]
     fn a_quote_partway_through_a_field_is_just_a_character() {
         let table = parse("t", "a,b\n6\" pipe,2\n").unwrap();
-        assert_eq!(cell(&table, 0, 0), Some("6\" pipe"));
-        assert_eq!(cell(&table, 0, 1), Some("2"));
+        assert_eq!(cell(&table, 0, 0), "6\" pipe");
+        assert_eq!(cell(&table, 0, 1), "2");
     }
 
     #[test]
     fn tabs_separate_a_file_written_with_tabs() {
         let table = parse("t", "a\tb\tc\n1\t2\t3\n").unwrap();
-        assert_eq!(table.delimiter, '\t');
-        assert_eq!(table.columns.len(), 3);
-        assert_eq!(cell(&table, 0, 2), Some("3"));
+        assert_eq!(table.rows.columns.len(), 3);
+        assert!(table.detail.starts_with("Tab-separated"));
+        assert_eq!(cell(&table, 0, 2), "3");
     }
 
     #[test]
     fn a_short_row_is_padded_and_a_long_one_trimmed() {
         // One bad line should cost that line's missing values, not the file.
         let table = parse("t", "a,b,c\n1\n1,2,3,4\n").unwrap();
-        assert_eq!(table.rows[0], ["1", "", ""]);
-        assert_eq!(table.rows[1], ["1", "2", "3"]);
+        assert_eq!(table.rows.rows[0], ["1", "", ""]);
+        assert_eq!(table.rows.rows[1], ["1", "2", "3"]);
     }
 
     #[test]
     fn windows_line_endings_leave_no_carriage_returns_behind() {
         let table = parse("t", "a,b\r\n1,2\r\n").unwrap();
-        assert_eq!(cell(&table, 0, 1), Some("2"));
-        assert_eq!(table.columns[1].name, "b");
+        assert_eq!(cell(&table, 0, 1), "2");
+        assert_eq!(table.rows.columns[1].name, "b");
     }
 
     #[test]
     fn a_file_that_does_not_end_in_a_newline_keeps_its_last_row() {
-        let table = parse("t", "a,b\n1,2").unwrap();
-        assert_eq!(table.rows.len(), 1);
+        assert_eq!(parse("t", "a,b\n1,2").unwrap().rows.rows.len(), 1);
     }
 
     #[test]
     fn blank_lines_are_not_rows() {
-        let table = parse("t", "a,b\n1,2\n\n\n3,4\n").unwrap();
-        assert_eq!(table.rows.len(), 2);
-    }
-
-    #[test]
-    fn a_column_of_numbers_is_set_flush_right_and_one_of_words_is_not() {
-        let table = parse("t", "label,count\nfirst,10\nsecond,\nthird,-3.5\n").unwrap();
-        assert!(!table.columns[0].numeric);
-        // A gap says nothing about the column, so it does not disqualify it.
-        assert!(table.columns[1].numeric);
-    }
-
-    #[test]
-    fn a_header_with_nothing_under_it_has_no_numeric_columns() {
-        let table = parse("t", "a,b\n").unwrap();
-        assert!(table.rows.is_empty());
-        assert!(!table.columns[0].numeric);
-    }
-
-    #[test]
-    fn a_column_is_as_wide_as_its_widest_value_up_to_the_cap() {
-        let table = parse("t", "ab,count\nlonger than the header,2\n").unwrap();
-        assert_eq!(table.columns[0].chars, "longer than the header".len());
-        // A header wider than anything under it still fits.
-        assert_eq!(table.columns[1].chars, "count".len());
-        let wide = parse("t", &format!("a,b\n{},2\n", "x".repeat(500))).unwrap();
-        assert_eq!(wide.columns[0].chars, MAX_CHARS);
+        assert_eq!(
+            parse("t", "a,b\n1,2\n\n\n3,4\n").unwrap().rows.rows.len(),
+            2
+        );
     }
 
     #[test]
     fn an_unnamed_column_is_named_after_its_position() {
         let table = parse("t", "a,,c\n1,2,3\n").unwrap();
-        assert_eq!(table.columns[1].name, "column 2");
+        assert_eq!(table.rows.columns[1].name, "column 2");
     }
 
     #[test]
@@ -317,7 +246,10 @@ mod tests {
             text.push_str(&format!("{row},2\n"));
         }
         let table = parse("t", &text).unwrap();
-        assert_eq!(table.rows.len(), MAX_ROWS);
-        assert_eq!(table.skipped, 5);
+        assert_eq!(table.rows.rows.len(), MAX_ROWS);
+        assert_eq!(
+            table.note.as_deref(),
+            Some("5 rows past the limit not read")
+        );
     }
 }
