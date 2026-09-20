@@ -14,7 +14,9 @@
 //! that is bright in places and black in others.
 
 use bevy::prelude::*;
+use bevy::text::FontSourceTemplate;
 use bevy::ui::InteractionDisabled;
+use bevy_feathers::constants::fonts;
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::display::label_dim;
 use bevy_feathers::font_styles::InheritableFont;
@@ -199,7 +201,12 @@ fn spawn_tooltip(commands: &mut Commands, panel: Entity) {
     commands.spawn_scene(bsn! {
         PanelTooltip { panel: { panel } }
         Text
-        TextFont { font_size: { FontSize::Px(size::SECONDARY) } }
+        // Rewritten every frame, so it names the font itself rather than
+        // coming through `widgets::text`. See that module.
+        TextFont {
+            font: FontSourceTemplate::Handle(fonts::REGULAR),
+            font_size: { FontSize::Px(size::SECONDARY) },
+        }
         ThemeTextColor({ token::OVERLAY_TEXT })
         Node {
             position_type: { PositionType::Absolute },
@@ -280,7 +287,10 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
         .spawn_scene(bsn! {
             PanelText { panel: { panel } }
             Text
-            TextFont { font_size: { FontSize::Px(size::SECONDARY) } }
+            TextFont {
+                font: FontSourceTemplate::Handle(fonts::REGULAR),
+                font_size: { FontSize::Px(size::SECONDARY) },
+            }
             ThemeTextColor({ token::OVERLAY_DIM })
         })
         .id();

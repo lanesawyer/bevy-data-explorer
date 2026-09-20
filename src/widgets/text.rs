@@ -9,6 +9,12 @@
 //! above it is silently dropped and the text stays at Feathers' own 13px —
 //! which is why these helpers exist rather than a size on the panel around
 //! them.
+//!
+//! Text rewritten every frame is spawned empty and so cannot come through
+//! [`text`]. It still has to name [`fonts::REGULAR`] itself: a bare `Text`
+//! takes Bevy's default font, which is a monospace *subset*. That looks
+//! nothing like the rest of the UI and has no glyph outside ASCII, so an
+//! ellipsis or a multiplication sign comes out as an empty box.
 
 use bevy::prelude::*;
 use bevy::text::{FontSourceTemplate, FontWeight};

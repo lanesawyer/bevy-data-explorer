@@ -32,6 +32,8 @@ pub enum Discovered {
     Annotations(Svg),
     /// Delimited text, shown as rows and columns.
     Table(Box<Table>),
+    /// A project's specimens, shown as a table a page at a time.
+    Specimens(Box<crate::formats::specimens::Specimens>),
 }
 
 impl Discovered {
@@ -44,6 +46,7 @@ impl Discovered {
             Discovered::Slices(_) => "Sections",
             Discovered::Annotations(svg) => &svg.name,
             Discovered::Table(table) => &table.name,
+            Discovered::Specimens(specimens) => &specimens.table.name,
         }
     }
 }
@@ -64,7 +67,7 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
     if let Some((endpoint, project)) = crate::formats::specimens::query_of(source) {
         return crate::formats::specimens::read(&endpoint, &project)
             .await
-            .map(|table| Discovered::Table(Box::new(table)));
+            .map(|specimens| Discovered::Specimens(Box::new(specimens)));
     }
 
     // A Deep Zoom image is named by its descriptor, and nothing else ends in

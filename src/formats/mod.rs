@@ -31,6 +31,8 @@ impl Plugin for FormatsPlugin {
         app.init_resource::<LoadSettings>().add_plugins((
             image::ImageSystems,
             dzi::DziSystems,
+            table::TableSystems,
+            specimens::SpecimenSystems,
             pointcloud::PointCloudSystems,
             slices::SlicesSystems,
             svg::SvgSystems,
@@ -124,6 +126,7 @@ pub fn spawn_discovered(
         }
         Discovered::Annotations(svg) => svg::spawn_source(world, std::sync::Arc::new(svg)),
         Discovered::Table(table) => table::spawn_source(world, *table),
+        Discovered::Specimens(specimens) => specimens::spawn_source(world, *specimens),
     }
 }
 

@@ -82,7 +82,11 @@ points were drawn where their coordinates put them or laid out into a grid of
 sections. A plugin that cannot answer simply never writes the answer.
 
 `source/table.rs` goes the other way: a format that has records rather than a
-place writes a `SourceTable` and draws nothing at all. `view/table.rs` fills
+place writes a `SourceTable` and draws nothing at all. `TablePaging` beside it
+is a third question of the same kind: the frame's buttons write the page, and
+whatever produced the rows serves it — `formats/table.rs` slices a table it
+read whole, `formats/specimens.rs` fetches one. Neither knows about the
+buttons, and the buttons know about neither. `view/table.rs` fills
 that frame with a scrolling table — there is nothing to pan over, so its frame
 scrolls rather than moves. Only the rows on screen are built. A format's whole
 job there is producing rows, which is why neither `formats/csv` nor

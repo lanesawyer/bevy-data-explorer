@@ -33,6 +33,8 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
+use bevy::text::FontSourceTemplate;
+use bevy_feathers::constants::fonts;
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::theme::ThemeTextColor;
 
@@ -171,7 +173,10 @@ pub(super) fn spawn_capture_notice(commands: &mut Commands, box_: Entity, panel:
         .spawn_scene(bsn! {
             CaptureNotice { panel: { panel } }
             Text
-            TextFont { font_size: { FontSize::Px(size::SMALL) } }
+            TextFont {
+                font: FontSourceTemplate::Handle(fonts::REGULAR),
+                font_size: { FontSize::Px(size::SMALL) },
+            }
             ThemeTextColor({ crate::app::theme::token::OVERLAY_DIM })
             Node { display: { Display::None } }
         })

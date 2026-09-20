@@ -783,14 +783,23 @@ the rows, and a format that has rows to show writes that component rather than
 learning to draw. It is the third of the things `source/` carries between a
 format and the grid, alongside hover and region.
 
-Only the rows on screen exist. A hundred thousand rows would be a hundred
-thousand UI nodes laid out every frame, so the content node is given the full
-height and the rows inside it are placed absolutely within it: the scrollbar
-measures the whole table while a screenful is what gets built. Columns are
-sized from the characters a value has rather than by laying the text out, which
-would mean reacting to the measurement a frame later; a value too wide for its
-column is cut with an ellipsis by the same estimate that sized it, so a column
-as wide as its widest value never truncates it.
+A table is read a page at a time — a hundred rows, with buttons along the
+bottom for the first, previous, next and last, and a line saying which rows are
+on screen of how many. Two different things serve that page, and a frame does
+not know which: a table read whole keeps the rest of itself out of sight and
+slices what is asked for, while one read from an API fetches the page it is
+turned to. Which is why the page a frame is on is a component on the source —
+another of the questions the grid asks and a format answers, alongside hover
+and region.
+
+Within a page, only the rows on screen exist. Even a hundred rows of thirty
+columns is three thousand UI nodes, so the content node is given the page's
+full height and the rows inside it are placed absolutely: the scrollbar
+measures the page while a screenful is what gets built. Columns are sized from
+the characters a value has rather than by laying the text out, which would mean
+reacting to the measurement a frame later; a value too wide for its column is
+cut with an ellipsis by the same estimate that sized it, so a column as wide as
+its widest value never truncates it.
 
 What a table's frame does not offer, because none of it means anything for
 rows: the zoom line in the overlay; the button that saves a picture, since the
@@ -830,12 +839,30 @@ reading the live API before writing the reader:
   identifies a specimen, then its annotations by name, then its measurements
   by name.
 
-The project title and the specimens come back in one request — two root
-fields — so naming the table costs no extra round trip. Pages are 500
-specimens: the SEA-AD project's 84 donors of 30 features came to 199KB in
-0.7s, and a full page of the widest records is 1.5MB in 1.1s. Bigger pages buy
-nothing — 2,000 at a time was 6.2MB in 3.1s, so the listing is limited by what
-comes down the wire rather than by round trips.
+The title, the count and the first page come back in one request — three root
+fields — so opening a table costs one round trip however large the project is.
+That matters: reading the Genetic Tools Atlas whole was 34MB and some twenty
+seconds before a frame appeared, against a page of a hundred rows now. Turning
+a page fetches that page and nothing else.
+
+The columns are settled by the first page and kept, so turning a page does not
+relay the table out under the pointer. A later page carrying a feature no
+earlier one had grows the columns rather than losing the value — they only ever
+gain, which the frame notices and lays itself out again — and a column's width
+grows the same way, since only the page in hand can be measured and a column
+that narrowed on every page would shuffle the table sideways each time.
+
+Two things the records do that only showed up on the last page, both now
+fixtured:
+
+- **A list can arrive as `null`** rather than as an empty one, for a specimen
+  with no measurements at all. Serde's `default` covers a field that is
+  missing, not one that is present and null.
+- **A page can be refused.** The platform's search index rejects an offset and
+  limit summing past 10,000, so the tail of a project larger than that answers
+  with an error. The rows on screen are left alone and the frame is put back on
+  the page it is actually showing — without that it asks for the missing page
+  again every frame, forever.
 
 Which projects have a table is the platform's own answer rather than a guess.
 Every project carries a list of capabilities, and `SPECIMEN`, `DONOR` and

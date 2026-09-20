@@ -27,6 +27,9 @@ pub enum Icon {
     Camera,
     Check,
     ChevronDown,
+    ChevronFirst,
+    ChevronLast,
+    ChevronLeft,
     ChevronRight,
     ChevronUp,
     CircleHelp,
@@ -57,13 +60,16 @@ pub enum Icon {
 
 impl Icon {
     #[cfg(test)]
-    const ALL: [Icon; 32] = [
+    const ALL: [Icon; 35] = [
         Icon::BookmarkPlus,
         Icon::BoxSelect,
         Icon::Bug,
         Icon::Camera,
         Icon::Check,
         Icon::ChevronDown,
+        Icon::ChevronFirst,
+        Icon::ChevronLast,
+        Icon::ChevronLeft,
         Icon::ChevronRight,
         Icon::ChevronUp,
         Icon::CircleHelp,
@@ -102,6 +108,9 @@ impl Icon {
             Icon::Camera => "\u{e064}",
             Icon::Check => "\u{e06c}",
             Icon::ChevronDown => "\u{e06d}",
+            Icon::ChevronFirst => "\u{e243}",
+            Icon::ChevronLast => "\u{e244}",
+            Icon::ChevronLeft => "\u{e06e}",
             Icon::ChevronRight => "\u{e06f}",
             Icon::ChevronUp => "\u{e070}",
             Icon::CircleHelp => "\u{e082}",

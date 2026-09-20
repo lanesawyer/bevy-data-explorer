@@ -186,6 +186,23 @@ pub fn compact_count(value: u64) -> String {
     }
 }
 
+/// A count with its thousands marked off: 10901 as "10,901".
+///
+/// For counts that are read rather than compared, which is what a table's rows
+/// are. [`compact_count`] is the other way round: it rounds so that counts of
+/// very different sizes line up in a listing.
+pub fn grouped(value: usize) -> String {
+    let digits = value.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
+}
+
 /// The source a frame, or a layer of one, is currently displaying.
 ///
 /// Held as an entity rather than a format tag so that repointing a frame at
@@ -260,6 +277,15 @@ mod tests {
         assert_eq!(compact_count(1_420_000), "1.42M");
         assert_eq!(compact_count(12_345), "12.3K");
         assert_eq!(compact_count(999), "999");
+    }
+
+    #[test]
+    fn counts_meant_to_be_read_are_marked_off_in_thousands() {
+        assert_eq!(grouped(0), "0");
+        assert_eq!(grouped(999), "999");
+        assert_eq!(grouped(1_000), "1,000");
+        assert_eq!(grouped(10_901), "10,901");
+        assert_eq!(grouped(1_234_567), "1,234,567");
     }
 
     #[test]

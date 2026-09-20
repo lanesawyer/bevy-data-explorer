@@ -21,15 +21,18 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use bevy::prelude::*;
-use bevy::ui::ScrollPosition;
+use bevy::ui::{InteractionDisabled, ScrollPosition};
+use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::theme::ThemeBackgroundColor;
+use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::Stage;
 use crate::app::theme::{Palette, token};
-use crate::source::ShowsSource;
-use crate::source::table::SourceTable;
+use crate::source::table::{SourceTable, TablePaging};
+use crate::source::{ShowsSource, grouped};
 use crate::widgets::{
-    BlocksFrameInput, ScrollBoth, size, text, text_dim, truncate_to_width, width_of,
+    BlocksFrameInput, Icon, ScrollBoth, button_icon, size, text, text_dim, truncate_to_width,
+    width_of,
 };
 
 use super::chrome::BUTTON_PX;
@@ -68,6 +71,9 @@ const CHROME_GAP_PX: f32 = 6.0;
 /// header and [`super::camera`] puts the buttons.
 const CHROME_TOP_PX: f32 = 8.0;
 
+/// How tall the strip of paging buttons along the bottom is.
+const FOOTER_PX: f32 = 32.0;
+
 /// The table filling one frame.
 #[derive(Component)]
 pub struct TableView {
@@ -82,10 +88,14 @@ pub struct TableView {
     /// placed in.
     body: Entity,
     content: Entity,
+    /// The strip of paging buttons along the bottom, and the line in it that
+    /// says which rows are on screen.
+    footer: Entity,
+    readout: Entity,
     /// Where each column starts, the numbering gutter first, with the whole
     /// width on the end.
     edges: Vec<f32>,
-    /// The rows on screen, by row index.
+    /// The rows on screen, by their place on the page.
     live: HashMap<usize, Entity>,
 }
 
@@ -103,13 +113,71 @@ enum Cell {
     Number,
 }
 
+/// Which way a button moves through the pages.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PageStep {
+    First,
+    Previous,
+    Next,
+    Last,
+}
+
+impl PageStep {
+    const ALL: [PageStep; 4] = [
+        PageStep::First,
+        PageStep::Previous,
+        PageStep::Next,
+        PageStep::Last,
+    ];
+
+    fn icon(self) -> Icon {
+        match self {
+            PageStep::First => Icon::ChevronFirst,
+            PageStep::Previous => Icon::ChevronLeft,
+            PageStep::Next => Icon::ChevronRight,
+            PageStep::Last => Icon::ChevronLast,
+        }
+    }
+
+    /// Where this step lands from `paging`, or nothing if it would not move.
+    fn from(self, paging: &TablePaging) -> Option<usize> {
+        let wanted = match self {
+            PageStep::First => 0,
+            PageStep::Previous if !paging.has_previous() => return None,
+            PageStep::Previous => paging.page - 1,
+            PageStep::Next if !paging.has_next() => return None,
+            PageStep::Next => paging.page + 1,
+            PageStep::Last => paging.last_page()?,
+        };
+        (wanted != paging.page).then_some(wanted)
+    }
+}
+
+/// A button that moves a frame through its table's pages.
+#[derive(Component, Clone, Copy)]
+pub struct TablePageButton {
+    pub panel: Entity,
+    pub step: PageStep,
+}
+
+impl Default for TablePageButton {
+    fn default() -> Self {
+        TablePageButton {
+            panel: Entity::PLACEHOLDER,
+            step: PageStep::First,
+        }
+    }
+}
+
 /// Where each column starts, the numbering gutter first, with the full width
 /// last.
 ///
 /// Sized from the characters a format already counted rather than from laying
 /// the text out, which would mean reacting to the measurement a frame later.
-fn edges_of(table: &SourceTable) -> Vec<f32> {
-    let gutter = width_of(table.rows.len().max(1).to_string().len(), size::SMALL) + PAD_PX * 2.0;
+/// The gutter is sized for the *last* row number rather than the page's, since
+/// the numbers carry on across pages.
+fn edges_of(table: &SourceTable, total: usize) -> Vec<f32> {
+    let gutter = width_of(total.max(1).to_string().len(), size::SMALL) + PAD_PX * 2.0;
     let mut edges = vec![0.0, gutter];
     for column in &table.columns {
         let last = edges.last().copied().unwrap_or_default();
@@ -123,12 +191,20 @@ fn edges_of(table: &SourceTable) -> Vec<f32> {
 pub fn sync_tables(
     mut commands: Commands,
     panels: Query<(Entity, &ShowsSource), With<Panel>>,
-    tables: Query<&SourceTable>,
+    tables: Query<(&SourceTable, &TablePaging)>,
     views: Query<(Entity, &TableView)>,
 ) {
     for (entity, view) in &views {
+        // Rebuilt rather than redrawn when the columns move: a frame pointed
+        // at another table, or one whose source grew a column it had not seen
+        // on the first page, is laid out afresh.
         let stale = match panels.get(view.panel) {
-            Ok((_, shows)) => shows.0 != view.source,
+            Ok((_, shows)) => {
+                shows.0 != view.source
+                    || tables.get(shows.0).is_ok_and(|(table, paging)| {
+                        edges_of(table, paging.total.unwrap_or_default()) != view.edges
+                    })
+            }
             Err(_) => true,
         };
         if stale {
@@ -137,18 +213,27 @@ pub fn sync_tables(
     }
 
     for (panel, shows) in &panels {
-        let Ok(table) = tables.get(shows.0) else {
+        let Ok((table, paging)) = tables.get(shows.0) else {
             continue;
         };
-        if views.iter().any(|(_, view)| view.panel == panel) {
+        if views
+            .iter()
+            .any(|(_, view)| view.panel == panel && view.source == shows.0)
+        {
             continue;
         }
-        spawn_table(&mut commands, panel, shows.0, table);
+        spawn_table(&mut commands, panel, shows.0, table, paging);
     }
 }
 
-fn spawn_table(commands: &mut Commands, panel: Entity, source: Entity, table: &SourceTable) {
-    let edges = edges_of(table);
+fn spawn_table(
+    commands: &mut Commands,
+    panel: Entity,
+    source: Entity,
+    table: &SourceTable,
+    paging: &TablePaging,
+) {
+    let edges = edges_of(table, paging.total.unwrap_or_default());
     let width = edges.last().copied().unwrap_or_default();
 
     let headings = commands
@@ -214,12 +299,41 @@ fn spawn_table(commands: &mut Commands, panel: Entity, source: Entity, table: &S
         .id();
     commands.entity(body).add_child(content);
 
+    let readout = commands
+        .spawn_scene(text_dim(String::new(), size::SMALL))
+        .id();
+    let footer = commands
+        .spawn((
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Px(FOOTER_PX),
+                flex_shrink: 0.0,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                column_gap: Val::Px(6.0),
+                ..default()
+            },
+            ThemeBackgroundColor(token::OVERLAY_BG),
+        ))
+        .id();
+    // Two buttons, the readout, two buttons: the row reads outward from where
+    // it says where you are.
+    let buttons: Vec<Entity> = PageStep::ALL
+        .iter()
+        .map(|step| page_button(commands, panel, *step))
+        .collect();
+    commands
+        .entity(footer)
+        .add_children(&[buttons[0], buttons[1], readout, buttons[2], buttons[3]]);
+
     commands
         .spawn((
             TableView {
                 panel,
                 source,
                 headings,
+                footer,
+                readout,
                 body,
                 content,
                 edges,
@@ -239,7 +353,126 @@ fn spawn_table(commands: &mut Commands, panel: Entity, source: Entity, table: &S
             },
             GlobalZIndex(TABLE_Z),
         ))
-        .add_children(&[strip, body]);
+        .add_children(&[strip, body, footer]);
+}
+
+fn page_button(commands: &mut Commands, panel: Entity, step: PageStep) -> Entity {
+    commands
+        .spawn_scene(bsn! {
+            @FeathersToolButton {
+                @caption: { bsn_list![button_icon(step.icon())] }
+            }
+            BlocksFrameInput
+            TablePageButton { panel: { panel }, step: { step } }
+        })
+        .id()
+}
+
+/// Turn the page of the frame whose button was pressed.
+pub fn on_page_pressed(
+    activate: On<Activate>,
+    buttons: Query<&TablePageButton>,
+    panels: Query<&ShowsSource>,
+    mut paging: Query<&mut TablePaging>,
+    mut positions: Query<&mut ScrollPosition>,
+    views: Query<&TableView>,
+) {
+    let Ok(button) = buttons.get(activate.entity) else {
+        return;
+    };
+    let Ok(shows) = panels.get(button.panel) else {
+        return;
+    };
+    let Ok(mut paging) = paging.get_mut(shows.0) else {
+        return;
+    };
+    let Some(page) = button.step.from(&paging) else {
+        return;
+    };
+    paging.page = page;
+
+    // A new page is read from its first row, not from wherever the last one
+    // was left. Sideways is left alone: the columns have not moved.
+    for view in &views {
+        if view.panel == button.panel
+            && let Ok(mut at) = positions.get_mut(view.body)
+        {
+            at.y = 0.0;
+        }
+    }
+}
+
+/// Say which rows are on screen, and offer only the steps that lead anywhere.
+///
+/// A table that fits on one page has no footer at all: there is nowhere to go,
+/// and the frame's own status already says how many rows there are.
+pub fn update_footers(
+    mut commands: Commands,
+    views: Query<&TableView>,
+    panels: Query<&ShowsSource>,
+    tables: Query<(&SourceTable, &TablePaging)>,
+    mut buttons: Query<(Entity, &TablePageButton, Has<InteractionDisabled>)>,
+    mut nodes: Query<&mut Node>,
+    mut texts: Query<&mut Text>,
+) {
+    for view in &views {
+        let Ok((table, paging)) = panels.get(view.panel).and_then(|shows| tables.get(shows.0))
+        else {
+            continue;
+        };
+        let several = paging.pages().is_none_or(|pages| pages > 1);
+        if let Ok(mut node) = nodes.get_mut(view.footer) {
+            let wanted = if several {
+                Display::Flex
+            } else {
+                Display::None
+            };
+            if node.display != wanted {
+                node.display = wanted;
+            }
+        }
+        if !several {
+            continue;
+        }
+        if let Ok(mut text) = texts.get_mut(view.readout) {
+            let next = readout(table, paging);
+            if text.0 != next {
+                text.0 = next;
+            }
+        }
+    }
+
+    for (entity, button, disabled) in &mut buttons {
+        let leads_somewhere = panels
+            .get(button.panel)
+            .and_then(|shows| tables.get(shows.0))
+            .is_ok_and(|(_, paging)| button.step.from(paging).is_some());
+        if leads_somewhere == disabled {
+            if leads_somewhere {
+                commands.entity(entity).remove::<InteractionDisabled>();
+            } else {
+                commands.entity(entity).insert(InteractionDisabled);
+            }
+        }
+    }
+}
+
+/// Which rows are on screen, of how many.
+fn readout(table: &SourceTable, paging: &TablePaging) -> String {
+    if table.rows.is_empty() {
+        return "no rows".to_string();
+    }
+    let first = table.first + 1;
+    let last = table.first + table.rows.len();
+    match paging.total {
+        Some(total) => format!(
+            "{} \u{2013} {} of {}",
+            grouped(first),
+            grouped(last),
+            grouped(total)
+        ),
+        None => format!("{} \u{2013} {}", grouped(first), grouped(last)),
+    }
 }
 
 /// One cell, sized to its column and holding as much of `value` as fits.
@@ -369,7 +602,7 @@ pub fn fill_tables(
     mut commands: Commands,
     mut views: Query<&mut TableView>,
     panels: Query<&ShowsSource>,
-    tables: Query<&SourceTable>,
+    tables: Query<Ref<SourceTable>>,
     bodies: Query<(&ComputedNode, &ScrollPosition)>,
     palette: Res<Palette>,
 ) {
@@ -378,8 +611,9 @@ pub fn fill_tables(
             continue;
         };
         // The stripes carry the theme, so a theme change is a rebuild of
-        // whatever is on screen. There is never much of it.
-        if palette.is_changed() {
+        // whatever is on screen; so is a page turning, since the rows in hand
+        // are then different ones. There is never much of it either way.
+        if palette.is_changed() || table.is_changed() {
             for row in view.live.drain().map(|(_, row)| row) {
                 commands.entity(row).despawn();
             }
@@ -399,7 +633,7 @@ pub fn fill_tables(
             if view.live.contains_key(&row) {
                 continue;
             }
-            let entity = spawn_row(&mut commands, &view, table, row, &palette);
+            let entity = spawn_row(&mut commands, &view, &table, row, &palette);
             commands.entity(content).add_child(entity);
             view.live.insert(row, entity);
         }
@@ -464,11 +698,13 @@ fn spawn_row(
         ))
         .id();
 
+    // Numbered by where the row falls in the whole table rather than on the
+    // page, which is the number the readout under it counts to.
     let number = spawn_cell(
         commands,
         &view.edges,
         0,
-        &(row + 1).to_string(),
+        &(table.first + row + 1).to_string(),
         false,
         Cell::Number,
     );
@@ -492,10 +728,11 @@ pub struct TablePlugin;
 
 impl Plugin for TablePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, sync_tables.in_set(Stage::FrameChrome))
+        app.add_observer(on_page_pressed)
+            .add_systems(Update, sync_tables.in_set(Stage::FrameChrome))
             .add_systems(
                 Update,
-                (place_tables, fill_tables, hide_layer_menus)
+                (place_tables, fill_tables, update_footers, hide_layer_menus)
                     .chain()
                     .in_set(Stage::Chrome),
             );
@@ -520,12 +757,13 @@ mod tests {
             rows: (0..rows)
                 .map(|row| columns.iter().map(|_| row.to_string()).collect())
                 .collect(),
+            first: 0,
         }
     }
 
     #[test]
     fn a_column_is_wide_enough_for_its_widest_value() {
-        let edges = edges_of(&table(3, &[("a", 10, false), ("b", 4, true)]));
+        let edges = edges_of(&table(3, &[("a", 10, false), ("b", 4, true)]), 3);
         // The numbering gutter, then a column apiece, then the whole width.
         assert_eq!(edges.len(), 3 + 1);
         assert!(edges[0] < edges[1] && edges[1] < edges[2] && edges[2] < edges[3]);
@@ -535,14 +773,16 @@ mod tests {
 
     #[test]
     fn the_gutter_is_wide_enough_for_the_last_row_number() {
-        let few = edges_of(&table(9, &[("a", 4, false)]));
-        let many = edges_of(&table(1000, &[("a", 4, false)]));
-        assert!(many[1] > few[1], "a four-digit number needs more room");
+        // Sized for the last row number in the whole table, not the page's:
+        // a page of 100 rows can still be numbering row 10,901.
+        let few = edges_of(&table(9, &[("a", 4, false)]), 9);
+        let many = edges_of(&table(9, &[("a", 4, false)]), 10_901);
+        assert!(many[1] > few[1], "a five-digit number needs more room");
     }
 
     #[test]
     fn a_table_with_no_rows_still_lays_out_its_columns() {
-        let edges = edges_of(&table(0, &[("a", 4, false)]));
+        let edges = edges_of(&table(0, &[("a", 4, false)]), 0);
         assert_eq!(edges.len(), 3);
         assert!(edges[2] > edges[1]);
         assert_eq!(rows_in_view(0.0, 400.0, 0), 0..0);
@@ -587,6 +827,80 @@ mod tests {
         // header has not been measured yet still clears them.
         assert_eq!(depth_below(0.0), depth_below(BUTTON_PX));
         assert!(depth_below(0.0) > CHROME_TOP_PX + BUTTON_PX);
+    }
+
+    #[test]
+    fn a_step_that_would_not_move_leads_nowhere() {
+        // Which is what greys its button out, so the ends of a table are not
+        // buttons that look pressable and do nothing.
+        let first = TablePaging::new(100, Some(250));
+        assert_eq!(PageStep::First.from(&first), None);
+        assert_eq!(PageStep::Previous.from(&first), None);
+        assert_eq!(PageStep::Next.from(&first), Some(1));
+        assert_eq!(PageStep::Last.from(&first), Some(2));
+
+        let last = TablePaging {
+            page: 2,
+            ..TablePaging::new(100, Some(250))
+        };
+        assert_eq!(PageStep::First.from(&last), Some(0));
+        assert_eq!(PageStep::Previous.from(&last), Some(1));
+        assert_eq!(PageStep::Next.from(&last), None);
+        assert_eq!(PageStep::Last.from(&last), None);
+    }
+
+    #[test]
+    fn nowhere_to_go_in_a_table_that_fits_on_one_page() {
+        let one = TablePaging::new(100, Some(29));
+        for step in PageStep::ALL {
+            assert_eq!(step.from(&one), None, "{step:?}");
+        }
+    }
+
+    #[test]
+    fn a_source_still_counting_offers_no_way_forward() {
+        // Rather than a page it cannot fill. It corrects itself the moment a
+        // total lands.
+        let counting = TablePaging::new(100, None);
+        assert_eq!(PageStep::Next.from(&counting), None);
+        assert_eq!(PageStep::Last.from(&counting), None);
+    }
+
+    #[test]
+    fn the_readout_counts_rows_rather_than_pages() {
+        let mut table = table(100, &[("a", 4, false)]);
+        table.first = 200;
+        let paging = TablePaging {
+            page: 2,
+            ..TablePaging::new(100, Some(10_901))
+        };
+        assert_eq!(readout(&table, &paging), "201 \u{2013} 300 of 10,901");
+    }
+
+    #[test]
+    fn a_short_last_page_says_where_it_really_ends() {
+        let mut table = table(50, &[("a", 4, false)]);
+        table.first = 200;
+        let paging = TablePaging {
+            page: 2,
+            ..TablePaging::new(100, Some(250))
+        };
+        assert_eq!(readout(&table, &paging), "201 \u{2013} 250 of 250");
+    }
+
+    #[test]
+    fn a_table_with_no_rows_says_so_rather_than_counting_to_zero() {
+        let table = table(0, &[("a", 4, false)]);
+        assert_eq!(readout(&table, &TablePaging::new(100, Some(0))), "no rows");
+    }
+
+    #[test]
+    fn a_total_nobody_knows_yet_is_left_off() {
+        let table = table(100, &[("a", 4, false)]);
+        assert_eq!(
+            readout(&table, &TablePaging::new(100, None)),
+            "1 \u{2013} 100"
+        );
     }
 
     #[test]

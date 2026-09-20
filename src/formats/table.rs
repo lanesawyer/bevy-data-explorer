@@ -12,7 +12,8 @@
 
 use bevy::prelude::*;
 
-use crate::source::table::{SourceTable, TableColumn};
+use crate::app::schedule::Stage;
+use crate::source::table::{SourceTable, TableColumn, TablePaging};
 use crate::source::{self, SourceExtent, SourceStatus};
 
 /// Rows kept, past which a table is read as far as this and says so.
@@ -26,6 +27,13 @@ pub const MAX_ROWS: usize = 100_000;
 /// side of a frame.
 pub const MAX_CHARS: usize = 44;
 
+/// Rows to a page.
+///
+/// Small enough that a source reading a page at a time fetches it quickly,
+/// and that a frame is never holding much; large enough that paging is
+/// occasional rather than constant.
+pub const PAGE_ROWS: usize = 100;
+
 /// A table, and what to call it.
 pub struct Table {
     pub name: String,
@@ -34,6 +42,10 @@ pub struct Table {
     /// What was left out, in the words of whatever read it. Shown in the
     /// frame's status under the shape of the table.
     pub note: Option<String>,
+    /// How many rows there are altogether, when `rows` holds only a page of
+    /// them. Absent when the whole table was read, which is the usual case
+    /// and the one where the rows can be counted.
+    pub total: Option<usize>,
     pub rows: SourceTable,
 }
 
@@ -49,6 +61,19 @@ impl Table {
         headers: Vec<String>,
         mut rows: Vec<Vec<String>>,
         note: Option<String>,
+    ) -> Table {
+        Table::paged(name, detail, headers, rows_taken(&mut rows), note, None)
+    }
+
+    /// A table whose rows are a page of `total`, read from somewhere that will
+    /// be asked again for the next one.
+    pub fn paged(
+        name: impl Into<String>,
+        detail: impl Into<String>,
+        headers: Vec<String>,
+        mut rows: Vec<Vec<String>>,
+        note: Option<String>,
+        total: Option<usize>,
     ) -> Table {
         let width = headers.len();
         let mut chars: Vec<usize> = headers
@@ -73,7 +98,9 @@ impl Table {
             name: name.into(),
             detail: detail.into(),
             note,
+            total,
             rows: SourceTable {
+                first: 0,
                 columns: headers
                     .into_iter()
                     .zip(chars)
@@ -92,9 +119,67 @@ impl Table {
     }
 }
 
+/// Hands the rows back untouched. Only here so [`Table::new`] and
+/// [`Table::paged`] can share one body without one of them moving the rows
+/// twice.
+fn rows_taken(rows: &mut Vec<Vec<String>>) -> Vec<Vec<String>> {
+    std::mem::take(rows)
+}
+
+/// Every row of a table that was read whole, out of sight of the frame.
+///
+/// The frame draws a page at a time, so the rest waits here until it is asked
+/// for. A format that reads a page at a time from somewhere else has no such
+/// component; it answers the same question its own way.
+#[derive(Component)]
+pub struct WholeTable(pub Vec<Vec<String>>);
+
+/// Put the page a frame is asking for into the rows it draws.
+///
+/// Slicing rather than fetching, because this serves the tables that were
+/// read whole. The page is clamped here rather than where it is written, so a
+/// frame asking past the end lands on the last page instead of an empty one.
+fn serve_pages(
+    mut tables: Query<(&WholeTable, &mut TablePaging, &mut SourceTable), Changed<TablePaging>>,
+) {
+    for (whole, mut paging, mut rows) in &mut tables {
+        let page = paging.clamped(paging.page);
+        if page != paging.page {
+            paging.page = page;
+        }
+        let first = paging.first();
+        let wanted: Vec<Vec<String>> = whole
+            .0
+            .iter()
+            .skip(first)
+            .take(paging.size)
+            .cloned()
+            .collect();
+        if rows.first != first || rows.rows != wanted {
+            rows.first = first;
+            rows.rows = wanted;
+        }
+    }
+}
+
+/// The systems every table read whole shares.
+pub struct TableSystems;
+
+impl Plugin for TableSystems {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, serve_pages.in_set(Stage::Sources));
+    }
+}
+
 /// Register a table as a source.
+///
+/// A table read whole keeps the rest of itself in a [`WholeTable`] and draws a
+/// page out of it; one that arrived as a page is left as it is, for whatever
+/// read it to serve the next page its own way.
 pub fn spawn_source(world: &mut World, table: Table) -> Entity {
-    let (rows, columns) = (table.rows.rows.len(), table.rows.columns.len());
+    let held = table.rows.rows.len();
+    let paged = table.total.is_some();
+    let (rows, columns) = (table.total.unwrap_or(held), table.rows.columns.len());
     let source = source::register_in(
         world,
         source::SourceInfo {
@@ -115,13 +200,29 @@ pub fn spawn_source(world: &mut World, table: Table) -> Entity {
         },
     );
 
-    let mut status = format!("{rows} rows \u{00d7} {columns} columns");
+    // Written out rather than set with a multiplication sign: the overlay is
+    // read, not calculated, and one column of one row is still "1 row".
+    let mut status = format!(
+        "{} {} in {columns} columns",
+        source::grouped(rows),
+        if rows == 1 { "row" } else { "rows" }
+    );
     if let Some(note) = table.note {
         status += &format!(", {note}");
     }
-    world
-        .entity_mut(source)
-        .insert((SourceStatus(status), table.rows));
+
+    let mut page = table.rows;
+    let paging = TablePaging::new(PAGE_ROWS, Some(rows));
+    let mut entity = world.entity_mut(source);
+    entity.insert((SourceStatus(status), paging));
+    if !paged {
+        // Everything is already in hand, so the whole table is put aside and
+        // the first page of it is what the frame draws.
+        let whole = std::mem::take(&mut page.rows);
+        page.rows = whole.iter().take(PAGE_ROWS).cloned().collect();
+        entity.insert(WholeTable(whole));
+    }
+    entity.insert(page);
     source
 }
 
@@ -196,6 +297,54 @@ mod tests {
     }
 
     #[test]
+    fn a_frame_opens_on_the_first_page_and_the_rest_waits() {
+        let mut app = App::new();
+        let rows: Vec<Vec<String>> = (0..PAGE_ROWS + 30)
+            .map(|row| vec![row.to_string()])
+            .collect();
+        let table = Table::new("t", "test", headers(&["a"]), rows, None);
+        let source = spawn_source(app.world_mut(), table);
+
+        let world = app.world();
+        let page = world.get::<SourceTable>(source).unwrap();
+        assert_eq!(page.rows.len(), PAGE_ROWS);
+        assert_eq!(page.first, 0);
+        assert_eq!(page.rows[0][0], "0");
+        // The rest is held rather than thrown away or drawn.
+        assert_eq!(
+            world.get::<WholeTable>(source).unwrap().0.len(),
+            PAGE_ROWS + 30
+        );
+        let paging = world.get::<TablePaging>(source).unwrap();
+        assert_eq!(paging.pages(), Some(2));
+        assert_eq!(paging.page, 0);
+    }
+
+    #[test]
+    fn asking_for_a_page_serves_it_out_of_what_was_read() {
+        let mut app = App::new();
+        app.add_systems(Update, serve_pages);
+        let rows: Vec<Vec<String>> = (0..250).map(|row| vec![row.to_string()]).collect();
+        let table = Table::new("t", "test", headers(&["a"]), rows, None);
+        let source = spawn_source(app.world_mut(), table);
+
+        app.world_mut().get_mut::<TablePaging>(source).unwrap().page = 1;
+        app.update();
+        let page = app.world().get::<SourceTable>(source).unwrap();
+        assert_eq!(page.first, 100);
+        assert_eq!(page.rows[0][0], "100");
+        assert_eq!(page.rows.len(), 100);
+
+        // The last page is short, and a page past the end lands on it.
+        app.world_mut().get_mut::<TablePaging>(source).unwrap().page = 99;
+        app.update();
+        assert_eq!(app.world().get::<TablePaging>(source).unwrap().page, 2);
+        let page = app.world().get::<SourceTable>(source).unwrap();
+        assert_eq!(page.first, 200);
+        assert_eq!(page.rows.len(), 50);
+    }
+
+    #[test]
     fn registering_a_table_says_its_shape_and_what_was_left_out() {
         let mut app = App::new();
         let table = Table::new(
@@ -210,7 +359,7 @@ mod tests {
         let world = app.world();
         assert_eq!(
             world.get::<SourceStatus>(source).unwrap().0,
-            "1 rows \u{00d7} 2 columns, read as far as 1 row"
+            "1 row in 2 columns, read as far as 1 row"
         );
         let data = world.get::<source::DataSource>(source).unwrap();
         assert_eq!(data.stat, "1 ROWS");
