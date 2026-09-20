@@ -12,8 +12,10 @@
 //! a lookup that fills them in later — over HTTP, from whatever service knows
 //! the labels — needs no cooperation from this module.
 //!
-//! Each value shows the color its points are drawn in and, once a service has
-//! counted them, how many cells hold it.
+//! Each value shows, once a service has counted them, how many cells hold it,
+//! and — only under the property the points are actually colored by — the
+//! color they are drawn in. A square beside a property nobody is coloring by
+//! would name a color that is nowhere on screen.
 //!
 //! Genes are properties too, but are listed in their own section
 //! (`ui::genes`), which builds its controls from the same parts.
@@ -92,6 +94,17 @@ pub struct ValueCheckbox {
 pub struct ValueCount {
     pub property: usize,
     pub value: usize,
+}
+
+/// The color square beside one value, shown only while its points are
+/// actually drawn in that color.
+#[derive(Component, Clone, Default)]
+pub struct ValueSwatch {
+    pub property: usize,
+    /// The tree level the value sits on; nothing for a flat property. A tree
+    /// colors by one level, so the rest of its nodes are no more in use than
+    /// another property's values are.
+    pub level: Option<usize>,
 }
 
 /// Below the view configuration, which applies to every source.
@@ -302,16 +315,21 @@ pub fn rebuild_cell_panel(
 /// One value's row: its checkbox, captioned with the color its points are
 /// drawn in and its label, and the count of cells holding it.
 ///
-/// `checkbox` and `count` mark the two for whatever keeps them in sync.
+/// `checkbox`, `count` and `swatch` mark the three for whatever keeps them in
+/// sync. The square starts hidden and is shown by
+/// [`update_property_controls`] only while this property is the one coloring
+/// the points.
 pub fn spawn_value_row(
     commands: &mut Commands,
     value: &PropertyValue,
     checked: bool,
     checkbox: impl Bundle,
     count: impl Bundle,
+    swatch: ValueSwatch,
 ) -> Entity {
     let caption = value.label.clone();
-    let swatch = value.swatch();
+    let color = value.swatch();
+    let ValueSwatch { property, level } = swatch;
     let counted = value.count.map(compact_count).unwrap_or_default();
     let boxed = commands
         .spawn_scene(bsn! {
@@ -323,10 +341,12 @@ pub fn spawn_value_row(
                             height: { Val::Px(10.0) },
                             flex_shrink: { 0.0_f32 },
                             border_radius: { BorderRadius::all(Val::Px(2.0)) },
+                            display: { Display::None },
                         }
                         // The value's own color, not a theme's: it is what
                         // its points are painted in.
-                        BackgroundColor({ swatch })
+                        BackgroundColor({ color })
+                        ValueSwatch { property: { property }, level: { level } }
                     ),
                     button_text(caption),
                 ] }
@@ -627,6 +647,7 @@ pub fn update_property_controls(
     boxes: Query<(Entity, &ValueCheckbox, Has<Checked>)>,
     mut colors: Query<(&ColorByButton, &mut ButtonVariant)>,
     mut counts: Query<(&ValueCount, &mut Text)>,
+    mut swatches: Query<(&ValueSwatch, &mut Node)>,
 ) {
     let Some(properties) = selected
         .0
@@ -664,6 +685,28 @@ pub fn update_property_controls(
             .unwrap_or_default();
         if text.0 != wanted {
             text.0 = wanted;
+        }
+    }
+
+    // A value's color square means nothing unless its points are drawn in it,
+    // so only the property doing the coloring shows squares — and on a tree,
+    // only the level it colors by.
+    for (swatch, mut node) in &mut swatches {
+        let coloring = properties.color_by == Some(swatch.property)
+            && swatch.level.is_none_or(|level| {
+                properties
+                    .properties
+                    .get(swatch.property)
+                    .and_then(CellProperty::tree)
+                    .is_some_and(|tree| tree.color_level == level)
+            });
+        let wanted = if coloring {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != wanted {
+            node.display = wanted;
         }
     }
 

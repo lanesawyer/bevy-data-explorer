@@ -18,7 +18,7 @@ use bevy_feathers::controls::{ButtonVariant, FeathersButton, FeathersToolButton}
 use bevy_feathers::display::label;
 use bevy_ui_widgets::{Activate, ValueChange};
 
-use super::{MAX_VALUE_ROWS, spawn_more_note, spawn_value_row};
+use super::{MAX_VALUE_ROWS, ValueSwatch, spawn_more_note, spawn_value_row};
 use crate::app::theme::Palette;
 use crate::source::properties::{CellProperties, Tree};
 use crate::source::{ShowsSource, compact_count};
@@ -181,6 +181,10 @@ fn spawn_branch(
         tree.checked(node),
         TreeCheckbox { property, node },
         TreeCount { property, node },
+        ValueSwatch {
+            property,
+            level: Some(tree.nodes[node].level),
+        },
     );
     commands.entity(row).insert(Node {
         flex_grow: 1.0,
