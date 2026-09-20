@@ -138,6 +138,31 @@ pub(super) fn spawn_capture_button(commands: &mut Commands, header: Entity, pane
     commands.entity(header).add_child(button);
 }
 
+/// Hide the button on a frame that is filled with rows.
+///
+/// A table is drawn as chrome over its frame rather than into it, so the
+/// camera has nothing but the cleared background to photograph. Rather than
+/// saving an empty picture, the frame does not offer one.
+pub fn sync_capture_buttons(
+    panels: Query<&ShowsSource>,
+    tables: Query<(), With<crate::source::table::SourceTable>>,
+    mut buttons: Query<(&PanelCaptureButton, &mut Node)>,
+) {
+    for (button, mut node) in &mut buttons {
+        let showing_rows = panels
+            .get(button.panel)
+            .is_ok_and(|shows| tables.contains(shows.0));
+        let wanted = if showing_rows {
+            Display::None
+        } else {
+            Display::Flex
+        };
+        if node.display != wanted {
+            node.display = wanted;
+        }
+    }
+}
+
 /// Add the line that says where a frame's last picture went. Spawned into the
 /// overlay's own box, under the status, and hidden until there is something to
 /// report.
@@ -445,7 +470,12 @@ impl Plugin for CapturePlugin {
             // the overlay reads what happened.
             .add_systems(
                 Update,
-                (drive_capture, poll_capture_save, show_capture_notice)
+                (
+                    sync_capture_buttons,
+                    drive_capture,
+                    poll_capture_save,
+                    show_capture_notice,
+                )
                     .chain()
                     .in_set(Stage::Chrome),
             );

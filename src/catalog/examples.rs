@@ -48,7 +48,7 @@ pub struct Example {
     pub url: &'static str,
 }
 
-pub const EXAMPLES: [Example; 5] = [
+pub const EXAMPLES: [Example; 6] = [
     Example {
         name: "Epifluorescence whole slide",
         kind: "OME-Zarr image",
@@ -73,5 +73,12 @@ pub const EXAMPLES: [Example; 5] = [
         name: "SEA-AD pathology annotations",
         kind: "SVG annotations",
         url: "https://idk-etl-prod-download-bucket.s3.amazonaws.com/idf-23-10-pathology-images/pat_images_JGCXWER774NLNWX2NNR/H20.33.040-A12-I6-primary/annotation.svg",
+    },
+    Example {
+        // Short and narrow, so the whole of it is on screen at once rather
+        // than behind a scroll, which is what an example of a new kind is for.
+        name: "Brain regions of interest",
+        kind: "CSV table",
+        url: "https://allen-brain-cell-atlas.s3.us-west-2.amazonaws.com/metadata/WMB-10X/20230830/region_of_interest_metadata.csv",
     },
 ];

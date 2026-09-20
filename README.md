@@ -3,7 +3,7 @@
 A streaming explorer for large scientific datasets, built on
 [Bevy](https://bevyengine.org). Datasets are shown side by side in independent
 panels, each streaming only what its own view needs and pulling in finer detail
-as you zoom. Four formats are supported so far:
+as you zoom. Five formats are supported so far:
 
 - **OME-Zarr** multiscale images, read through
   [`zarrs`](https://crates.io/crates/zarrs), in both Zarr v3 and v2. The
@@ -19,9 +19,13 @@ as you zoom. Four formats are supported so far:
 - **SVG annotations**: outlines drawn over a slide in its own pixels, with the
   labels the annotation tool wrote on them. The reference document outlines 16
   structures in 46 polygons over the reference Deep Zoom slide.
+- **CSV and TSV tables**: delimited text shown as a table filling its frame,
+  with a header that stays put and scrollbars, for the metadata that comes
+  alongside the imagery — gene panels, region lists, cell annotations. Read
+  whole, but only the rows on screen are built.
 
 None of the streamed formats is ever loaded in its entirety. An annotation
-document is small enough to be read whole.
+document and a table are small enough to be read whole.
 
 ## Running
 
@@ -30,6 +34,7 @@ cargo run --release                          # an empty window, and the examples
 cargo run --release -- <url-or-dir>          # any OME-Zarr root
 cargo run --release -- metadata.json         # a manifest describing one
 cargo run --release -- slide.dzi             # a Deep Zoom image, URL or file
+cargo run --release -- genes.csv             # a CSV or TSV table, URL or file
 cargo run --release -- --points <url|file>   # a Scatterbrain metadata JSON
 cargo run --release -- --slices <url|file>   # a sectioned Scatterbrain JSON
 cargo run --release -- --z 3 <source>        # pick a z slice
@@ -252,8 +257,10 @@ At the bottom of that menu is **Custom visualization**: a text field for the
 URL of a dataset that was not named on the command line. Nothing asks which
 format it is — the URL is read and the format worked out from what comes back,
 so an OME-Zarr store, a single point cloud and a sectioned dataset are all
-pasted into the same field. A `.json` is tried as Scatterbrain metadata first
-and as an image manifest second; anything else is tried as a Zarr store. A
+pasted into the same field. A `.dzi`, `.svg`, `.csv` or `.tsv` is named by its
+extension, since nothing else uses those. A `.json` is tried as Scatterbrain
+metadata first and as an image manifest second; anything else is tried as a
+Zarr store. A
 sectioned dataset is recognised by its metadata listing more than one slide.
 The command line reads what it is given the same way, so `--points` and
 `--slices` say only that a dataset gets a frame of its own, not what it is.
@@ -742,6 +749,49 @@ the same mesh correctly.
 
 Hovering names the outline whose stroke is under the pointer, or else the
 innermost region the pointer is inside.
+
+### CSV and TSV tables
+
+RFC 4180, with the tab allowed in place of the comma and the delimiter decided
+from whichever separates the first line more. Quoted fields may hold the
+delimiter, a doubled quote or a newline. A row shorter or longer than the
+header is padded or trimmed rather than rejected, since one bad line should not
+cost the file. A column whose every value parses as a number is set flush
+right. A file is read as far as 100,000 rows and says how many it left.
+
+A table is not a view onto anything: its rows are records rather than a place,
+so there is nothing to pan over and nothing finer to zoom into. Its frame is
+filled with the table instead — a header that stays put while the rows move
+under it, the numbering gutter down the side, and the same scrollbars every
+scrolling area in the app gets. Holding shift turns the wheel sideways, which
+is the only way across for a wheel with no sideways axis of its own. The
+frame's camera still clears the cell behind it, which is what keeps the table
+on the theme's own background, and the table starts below the frame's own
+chrome — measured from the header rather than assumed, since a header is as
+tall as the status it reports.
+
+The drawing lives in `view/table.rs` rather than in the format, keyed off a
+`SourceTable` on the source entity. So a table looks the same whatever produced
+the rows, and a format that has rows to show writes that component rather than
+learning to draw. It is the third of the things `source/` carries between a
+format and the grid, alongside hover and region.
+
+Only the rows on screen exist. A hundred thousand rows would be a hundred
+thousand UI nodes laid out every frame, so the content node is given the full
+height and the rows inside it are placed absolutely within it: the scrollbar
+measures the whole table while a screenful is what gets built. Columns are
+sized from the characters a value has rather than by laying the text out, which
+would mean reacting to the measurement a frame later; a value too wide for its
+column is cut with an ellipsis by the same estimate that sized it, so a column
+as wide as its widest value never truncates it.
+
+What a table's frame does not offer, because none of it means anything for
+rows: the zoom line in the overlay; the button that saves a picture, since the
+table is drawn over the frame rather than into it and the camera has nothing
+but the cleared background to photograph; and anything to do with layers,
+neither the frame's own menu nor the sidebar's section — a table shares no
+coordinates with an image, so stacking one on the other would put two
+unrelated things in one cell.
 
 ### Things that were measured rather than assumed
 

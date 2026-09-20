@@ -14,6 +14,7 @@ use bevy_feathers::controls::FeathersToolButton;
 use bevy_ui_widgets::{Activate, SliderValue};
 
 use crate::app::schedule::{Boot, Stage};
+use crate::source::table::SourceTable;
 use crate::source::{DataSource, ShowsSource};
 use crate::ui::addsource::CustomLoad;
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
@@ -32,6 +33,10 @@ const SECTION_ORDER: u32 = 15;
 
 /// The opacity sliders run 0..100, as View configuration's does.
 const PERCENT: f32 = 100.0;
+
+/// The section itself, hidden for a frame that has nothing to layer.
+#[derive(Component, Clone, Default)]
+pub struct LayersSection;
 
 /// The body the rows are rebuilt into.
 #[derive(Component, Clone, Default)]
@@ -79,7 +84,7 @@ pub fn spawn_layers_section(mut commands: Commands, content: Query<Entity, With<
     let accordion = spawn_accordion(&mut commands, "Layers", true, SectionLevel::Pane);
     commands
         .entity(accordion.section)
-        .insert(SectionOrder(SECTION_ORDER));
+        .insert((SectionOrder(SECTION_ORDER), LayersSection));
     commands.entity(accordion.body).insert(LayersBody);
     commands.entity(parent).add_child(accordion.section);
 }
@@ -99,6 +104,8 @@ pub fn rebuild_layers(
     load: Res<CustomLoad>,
     body: Query<Entity, With<LayersBody>>,
     existing: Query<Entity, With<LayersContent>>,
+    tables: Query<(), With<SourceTable>>,
+    mut sections: Query<&mut Node, With<LayersSection>>,
     mut shown: Local<
         Option<(
             Option<Entity>,
@@ -114,6 +121,21 @@ pub fn rebuild_layers(
     let frame = selected
         .0
         .and_then(|panel| panels.get(panel).ok().map(|found| (panel, found)));
+
+    // A table shares no coordinates with an image, so stacking one on the
+    // other would put two unrelated things in one cell. The section goes
+    // rather than standing there offering something that cannot be done.
+    // Settled before the fingerprint below, which skips the rest of this.
+    let display = if frame.is_some_and(|(_, (shows, _))| tables.contains(shows.0)) {
+        Display::None
+    } else {
+        Display::Flex
+    };
+    for mut node in &mut sections {
+        if node.display != display {
+            node.display = display;
+        }
+    }
     let stack = frame.map_or_else(Vec::new, |(_, (shows, layers))| {
         stacked_sources(shows, layers, &layer_cameras)
     });

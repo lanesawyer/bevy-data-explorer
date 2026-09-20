@@ -8,6 +8,15 @@
 /// erring narrow truncates a little early rather than overflowing.
 const GLYPH_WIDTH: f32 = 0.58;
 
+/// How wide `chars` characters come out at `font_size`, by the same estimate
+/// [`truncate_to_width`] cuts by.
+///
+/// The two share the estimate so that a box sized by one and filled by the
+/// other agree: a column as wide as its widest value never truncates it.
+pub fn width_of(chars: usize, font_size: f32) -> f32 {
+    chars as f32 * (font_size * GLYPH_WIDTH).max(1.0)
+}
+
 /// Fit `text` into `width`, ending with an ellipsis if it has to be cut.
 pub fn truncate_to_width(text: &str, width: f32, font_size: f32) -> String {
     let glyph = (font_size * GLYPH_WIDTH).max(1.0);
@@ -26,6 +35,14 @@ pub fn truncate_to_width(text: &str, width: f32, font_size: f32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_box_sized_for_a_string_holds_the_whole_of_it() {
+        for text in ["Class", "gene_symbol", "protein kinase C, theta"] {
+            let width = width_of(text.chars().count(), 12.0);
+            assert_eq!(truncate_to_width(text, width, 12.0), text);
+        }
+    }
 
     #[test]
     fn a_title_that_fits_is_left_alone() {

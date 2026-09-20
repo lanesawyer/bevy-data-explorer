@@ -17,6 +17,7 @@ pub mod hover;
 pub mod properties;
 pub mod region;
 pub mod stack;
+pub mod table;
 pub mod tree;
 pub mod volume;
 

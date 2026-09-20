@@ -30,13 +30,13 @@ pub use frame_input::BlocksFrameInput;
 pub use icons::{Icon, button_icon, icon_text};
 pub use link::link_button;
 pub use menu::{MENU_WIDTH, Menu, spawn_icon_menu, spawn_menu};
-pub use scroll::scroll_list;
+pub use scroll::{ScrollBoth, scroll_list};
 pub use search::{matches_search, spawn_search_field};
 pub use selectable::{SelectableText, has_selection};
 pub use skeleton::spawn_skeleton;
 pub use slider::spawn_slider;
 pub use text::{size, text, text_dim, title};
-pub use truncate::truncate_to_width;
+pub use truncate::{truncate_to_width, width_of};
 
 use crate::app::schedule::Stage;
 
@@ -57,6 +57,7 @@ impl Plugin for WidgetsPlugin {
             .add_observer(accordion::toggle_accordions)
             .add_observer(link::on_link_pressed)
             .add_observer(scroll::on_list_scroll)
+            .add_observer(scroll::on_both_scroll)
             .add_observer(search::on_clear_search)
             .add_systems(
                 Update,

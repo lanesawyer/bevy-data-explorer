@@ -96,7 +96,7 @@ pub struct LayerComposite(Vec<Entity>);
 /// Where layer images sit among the UI roots: below everything, since every
 /// other root is chrome drawn over the frames. Each layer adds its depth, so
 /// higher layers draw over lower ones.
-const COMPOSITE_Z: i32 = -(MAX_LAYERS as i32) - 1;
+pub(super) const COMPOSITE_Z: i32 = -(MAX_LAYERS as i32) - 1;
 
 /// Marks a source named on the command line as a layer rather than a frame.
 ///

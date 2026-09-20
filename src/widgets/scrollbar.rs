@@ -4,9 +4,9 @@
 //! to be told which entity it scrolls, and it does not place itself. Wiring
 //! one up by hand at every scrolling area is how scrolling areas end up
 //! without them, which is where this app was. So nothing here is opt-in —
-//! every [`ScrollArea`] and [`ScrollList`] gets a bar the frame after it is
-//! spawned, and the sections, menus and docks that scroll say nothing about
-//! it.
+//! every [`ScrollArea`], [`ScrollList`] and [`ScrollBoth`] gets a bar the
+//! frame after it is spawned, and the sections, menus, docks and tables that
+//! scroll say nothing about it.
 //!
 //! The bar is an absolutely positioned child of the area it scrolls, held
 //! still against the scroll by [`IgnoreScroll`] and drawn above its siblings
@@ -27,7 +27,7 @@ use bevy::ui::IgnoreScroll;
 use bevy_feathers::controls::FeathersScrollbar;
 use bevy_ui_widgets::{ControlOrientation, ScrollArea};
 
-use super::{BlocksFrameInput, scroll::ScrollList};
+use super::{BlocksFrameInput, scroll::ScrollBoth, scroll::ScrollList};
 
 /// How thick a bar is, across the axis it scrolls.
 const BAR_PX: f32 = 8.0;
@@ -76,7 +76,7 @@ pub fn add_scrollbars(
     mut areas: Query<
         (Entity, &mut Node),
         (
-            Or<(With<ScrollArea>, With<ScrollList>)>,
+            Or<(With<ScrollArea>, With<ScrollList>, With<ScrollBoth>)>,
             Without<HasScrollbar>,
         ),
     >,

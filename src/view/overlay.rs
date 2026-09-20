@@ -26,6 +26,7 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::Stage;
 use crate::catalog::{Catalogs, EntryId};
 use crate::source::hover::{HoverInfo, HoverProbe};
+use crate::source::table::SourceTable;
 use crate::source::{DataSource, ShowsSource, SourceStatus};
 use crate::view::layers::stacked_sources;
 use crate::view::{
@@ -70,6 +71,13 @@ impl Default for PanelInfoButton {
 #[derive(Component, Clone)]
 pub struct SourceMenu {
     panel: Entity,
+}
+
+impl SourceMenu {
+    /// The frame this menu belongs to.
+    pub fn panel(&self) -> Entity {
+        self.panel
+    }
 }
 
 impl Default for SourceMenu {
@@ -366,6 +374,7 @@ pub fn update_tooltips(
 pub fn update_hud(
     panels: Query<(&Camera, &Projection, &ShowsSource, Option<&PendingShow>)>,
     sources: Query<(&DataSource, &SourceStatus)>,
+    tables: Query<(), With<SourceTable>>,
     mut texts: Query<(&mut Text, &PanelText)>,
     titles: Query<(Entity, &ChildOf), With<PanelTitle>>,
     headers: Query<&PanelHeader>,
@@ -386,8 +395,11 @@ pub fn update_hud(
             format!("reading {}\u{2026}\n", pending.name)
         });
         // A zoom in units per pixel means nothing in perspective, where it
-        // differs with depth, so a 3D frame says how it is driven instead.
+        // differs with depth, so a 3D frame says how it is driven instead —
+        // and nothing at all in a frame filled with rows, which has no view
+        // onto anything to report.
         let view = match projection {
+            _ if tables.contains(shows.0) => String::new(),
             Projection::Orthographic(ortho) => {
                 let viewport = camera.logical_viewport_size().unwrap_or(Vec2::ONE);
                 let units_per_px = ortho.area.width() / viewport.x.max(1.0);
@@ -395,7 +407,11 @@ pub fn update_hud(
             }
             _ => "3D: drag to turn, right- or shift-drag to move, scroll to zoom to the pointer, R to reset".to_string(),
         };
-        let next = format!("{waiting}{}\n{view}", status.0);
+        let next = if view.is_empty() {
+            format!("{waiting}{}", status.0)
+        } else {
+            format!("{waiting}{}\n{view}", status.0)
+        };
         if text.0 != next {
             text.0 = next;
         }

@@ -11,6 +11,7 @@
 //! OME-Zarr group's attributes — so nothing beyond that document is fetched to
 //! decide.
 
+use crate::formats::csv::parse::Table;
 use crate::formats::dzi::pyramid::DeepZoom;
 use crate::formats::image::dataset::Dataset;
 use crate::formats::scatterbrain::Scatterbrain;
@@ -29,6 +30,8 @@ pub enum Discovered {
     Slices(Scatterbrain),
     /// Outlines drawn over an image, meant to be layered onto it.
     Annotations(Svg),
+    /// Delimited text, shown as rows and columns.
+    Table(Box<Table>),
 }
 
 impl Discovered {
@@ -40,6 +43,7 @@ impl Discovered {
             Discovered::Points { name, .. } => name,
             Discovered::Slices(_) => "Sections",
             Discovered::Annotations(svg) => &svg.name,
+            Discovered::Table(table) => &table.name,
         }
     }
 }
@@ -67,6 +71,14 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
         let text = fetch_text(source).await?;
         return crate::formats::svg::parse::parse(&crate::formats::svg::label_for(source), &text)
             .map(Discovered::Annotations);
+    }
+
+    // And delimited text, which is likewise named by what it is and read
+    // whole.
+    if is_table(source) {
+        let text = fetch_text(source).await?;
+        return crate::formats::csv::parse::parse(&crate::formats::csv::label_for(source), &text)
+            .map(|table| Discovered::Table(Box::new(table)));
     }
 
     // A Zarr root is a directory, so only a `.json` can be Scatterbrain
@@ -146,6 +158,10 @@ fn is_svg(source: &str) -> bool {
     has_extension(source, ".svg")
 }
 
+fn is_table(source: &str) -> bool {
+    has_extension(source, ".csv") || has_extension(source, ".tsv")
+}
+
 /// Whether the file a source names ends in `extension`, ignoring any query
 /// string or fragment after it.
 fn has_extension(source: &str, extension: &str) -> bool {
@@ -216,6 +232,15 @@ mod tests {
         assert!(is_svg("https://bucket/slide/annotation.svg"));
         assert!(is_svg("/data/Regions.SVG?v=2"));
         assert!(!is_svg("https://bucket/slide/slide.dzi"));
+    }
+
+    #[test]
+    fn delimited_text_is_known_by_its_extension() {
+        assert!(is_table("https://store/metadata/gene.csv"));
+        assert!(is_table("/data/cells.TSV?v=2"));
+        assert!(!is_table("https://store/metadata.json"));
+        // A directory named after a table is not one.
+        assert!(!is_table("https://store/gene.csv/tiles"));
     }
 
     #[test]

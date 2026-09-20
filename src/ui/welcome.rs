@@ -52,8 +52,8 @@ const WELCOME_Z: i32 = 5;
 
 pub const BLURB: &str = "An experimental streaming explorer for large scientific datasets. \
                      Currently supports OME-Zarr v2 and v3, Deep Zoom images, the \
-                     Allen Institute Scatterbrain format for point clouds, and SVG \
-                     annotations.";
+                     Allen Institute Scatterbrain format for point clouds, SVG \
+                     annotations, and CSV and TSV tables.";
 
 pub fn spawn_welcome(mut commands: Commands) {
     let screen = commands
@@ -300,6 +300,7 @@ mod tests {
         assert!(kinds.iter().any(|kind| kind.contains("sections")));
         assert!(kinds.iter().any(|kind| kind.contains("stack")));
         assert!(kinds.iter().any(|kind| kind.contains("Deep Zoom")));
+        assert!(kinds.iter().any(|kind| kind.contains("table")));
     }
 
     #[test]

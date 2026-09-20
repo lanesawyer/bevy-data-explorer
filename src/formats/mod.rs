@@ -6,6 +6,7 @@
 //! format, which is what lets a URL typed in later open into the same
 //! machinery — including a format that was switched off at startup.
 
+pub mod csv;
 pub mod discover;
 pub mod dzi;
 pub mod image;
@@ -120,6 +121,7 @@ pub fn spawn_discovered(
             slices::spawn_source(world, std::sync::Arc::new(cloud), settings.slice_budget)
         }
         Discovered::Annotations(svg) => svg::spawn_source(world, std::sync::Arc::new(svg)),
+        Discovered::Table(table) => csv::spawn_source(world, std::sync::Arc::new(*table)),
     }
 }
 
