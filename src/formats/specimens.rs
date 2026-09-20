@@ -30,7 +30,9 @@ use serde_json::json;
 use crate::app::net::{Fetching, fetching};
 use crate::app::schedule::Stage;
 use crate::source::SourceBusy;
-use crate::source::table::{SourceTable, TableColumn, TablePaging};
+use crate::source::table::{
+    SourceTable, TableColumn, TableFilter, TableFilterValue, TableFilters, TablePaging,
+};
 
 use super::table::{PAGE_ROWS, Table};
 
@@ -57,7 +59,7 @@ const QUERY: &str = "query($project: [Filter], $specimens: [Filter],
     cRID { symbol }
     specimenType { name }
     annotations {
-      featureType { title }
+      featureType { referenceId title }
       taxons { symbol }
     }
     measurements {
@@ -67,6 +69,21 @@ const QUERY: &str = "query($project: [Filter], $specimens: [Filter],
     }
   }
 }";
+
+/// What the API says went wrong, which arrives beside the data rather than as
+/// a status.
+#[derive(Deserialize)]
+struct GraphQlError {
+    message: String,
+}
+
+/// The fewest and most values a column may hold to be worth filtering by.
+///
+/// One value narrows nothing — every row has it. Many values and it is an
+/// identifier rather than a category: the SEA-AD donors carry a "Donor ID"
+/// annotation with one value per donor, which as a list of checkboxes is
+/// eighty-four ways of picking one row.
+const FILTER_VALUES: std::ops::RangeInclusive<usize> = 2..=60;
 
 /// The query parameter that names a project's specimens.
 const PARAMETER: &str = "specimens";
@@ -187,7 +204,11 @@ struct Measurement {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Titled {
+    /// Only annotations carry one through: it is what a filter narrows by.
+    #[serde(default)]
+    reference_id: Option<String>,
     title: Option<String>,
 }
 
@@ -203,7 +224,7 @@ struct Taxon {
 /// what comes back, and [`SpecimenSystems`] fetches any other page the frame
 /// is turned to.
 pub async fn read(endpoint: &str, project: &str) -> Result<Specimens, String> {
-    let answer = ask(endpoint, project, 0).await?;
+    let answer = ask(endpoint, project, 0, &[]).await?;
     if answer.aio_specimen.is_empty() {
         return Err(format!(
             "{endpoint} knows no specimens in project {project}"
@@ -241,25 +262,38 @@ pub struct Specimens {
     plan: Plan,
 }
 
-async fn ask(endpoint: &str, project: &str, offset: usize) -> Result<Data, String> {
+/// One request: the project's title, how many specimens match, and a page of
+/// them.
+///
+/// `values` are the ticked filters, as column and value. Two ticks in one
+/// column widen — the platform treats a field named twice as either — and
+/// ticks in different columns narrow each other, which is what a row of
+/// checkboxes is read to mean.
+async fn ask(
+    endpoint: &str,
+    project: &str,
+    offset: usize,
+    values: &[(String, String)],
+) -> Result<Data, String> {
     #[derive(Deserialize)]
     struct Response {
         data: Option<Data>,
         #[serde(default)]
         errors: Vec<GraphQlError>,
     }
-    #[derive(Deserialize)]
-    struct GraphQlError {
-        message: String,
-    }
-
+    let mut specimens = vec![json!({
+        "field": "projectReferenceIds", "operator": "EQ", "value": project
+    })];
+    specimens.extend(
+        values
+            .iter()
+            .map(|(field, value)| json!({ "field": field, "operator": "EQ", "value": value })),
+    );
     let body = json!({
         "query": QUERY,
         "variables": {
             "project": [{ "field": "referenceId", "operator": "EQ", "value": project }],
-            "specimens": [{
-                "field": "projectReferenceIds", "operator": "EQ", "value": project
-            }],
+            "specimens": specimens,
             "groupBy": ["projectReferenceIds"],
             "limit": PAGE,
             "offset": offset,
@@ -288,7 +322,9 @@ async fn ask(endpoint: &str, project: &str, offset: usize) -> Result<Data, Strin
 /// own order is not stable between requests.
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct Plan {
-    annotations: Vec<String>,
+    /// Each annotation's feature — what the platform calls it, which is what
+    /// a filter narrows by, and what the column is headed.
+    annotations: Vec<(String, String)>,
     /// Each measurement's feature and the unit it is recorded in, which names
     /// the column rather than every cell in it.
     measurements: Vec<(String, Option<String>)>,
@@ -306,12 +342,19 @@ impl Plan {
     /// Returns whether anything was added, since that is what makes the
     /// columns on screen wrong until they are rebuilt.
     fn extend(&mut self, specimens: &[Specimen]) -> bool {
-        let mut annotations: BTreeMap<&str, ()> = BTreeMap::new();
+        let mut annotations: BTreeMap<&str, &str> = BTreeMap::new();
         let mut measurements: BTreeMap<&str, Option<&str>> = BTreeMap::new();
         for specimen in specimens {
             for annotation in &specimen.annotations {
                 if let Some(title) = annotation.feature_type.title.as_deref() {
-                    annotations.insert(title, ());
+                    annotations.insert(
+                        title,
+                        annotation
+                            .feature_type
+                            .reference_id
+                            .as_deref()
+                            .unwrap_or(""),
+                    );
                 }
             }
             for measurement in &specimen.measurements {
@@ -326,9 +369,10 @@ impl Plan {
         }
 
         let before = (self.annotations.len(), self.measurements.len());
-        for title in annotations.keys() {
-            if !self.annotations.iter().any(|known| known == title) {
-                self.annotations.push((*title).to_string());
+        for (title, id) in &annotations {
+            if !self.annotations.iter().any(|(_, known)| known == title) {
+                self.annotations
+                    .push(((*id).to_string(), (*title).to_string()));
             }
         }
         for (title, unit) in &measurements {
@@ -337,14 +381,14 @@ impl Plan {
                     .push(((*title).to_string(), unit.map(str::to_string)));
             }
         }
-        self.annotations.sort();
+        self.annotations.sort_by(|a, b| a.1.cmp(&b.1));
         self.measurements.sort();
         before != (self.annotations.len(), self.measurements.len())
     }
 
     fn headers(&self) -> Vec<String> {
         let mut headers = vec![SPECIMEN.to_string(), KIND.to_string()];
-        headers.extend(self.annotations.iter().cloned());
+        headers.extend(self.annotations.iter().map(|(_, title)| title.clone()));
         headers.extend(self.measurements.iter().map(|(title, unit)| match unit {
             Some(unit) => format!("{title} ({unit})"),
             None => title.clone(),
@@ -371,7 +415,7 @@ impl Plan {
                 row.extend(
                     self.annotations
                         .iter()
-                        .map(|title| annotated(specimen, title)),
+                        .map(|(_, title)| annotated(specimen, title)),
                 );
                 row.extend(
                     self.measurements
@@ -415,6 +459,97 @@ fn measured(specimen: &Specimen, title: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Ask what every filterable column holds, in one request.
+///
+/// A root field per column, aliased, since the counts come back grouped by
+/// whichever column was asked about and there is no way to ask for several
+/// groupings at once.
+///
+/// The counts are of the whole project rather than of what is on screen. A
+/// count then says what ticking a value would bring back, which is the
+/// question a reader is asking of it, and it does not shift under them as
+/// they tick.
+async fn ask_values(
+    endpoint: &str,
+    project: &str,
+    columns: &[(String, String)],
+) -> Result<Vec<TableFilter>, String> {
+    let fields: String = columns
+        .iter()
+        .enumerate()
+        .map(|(index, (id, _))| {
+            format!(
+                "c{index}: aio_specimenCounts(filter: $specimens, groupBy: [\"{id}\"]) \
+                 {{ count properties {{ property value }} }}"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let query = format!("query($specimens: [Filter]) {{ {fields} }}");
+
+    #[derive(Deserialize)]
+    struct Response {
+        data: Option<BTreeMap<String, Vec<Grouped>>>,
+        #[serde(default)]
+        errors: Vec<GraphQlError>,
+    }
+    #[derive(Deserialize)]
+    struct Grouped {
+        count: Option<f64>,
+        #[serde(default, deserialize_with = "maybe_list")]
+        properties: Vec<Property>,
+    }
+    #[derive(Deserialize)]
+    struct Property {
+        value: Option<String>,
+    }
+
+    let body = json!({
+        "query": query,
+        "variables": {
+            "specimens": [{
+                "field": "projectReferenceIds", "operator": "EQ", "value": project
+            }],
+        }
+    });
+    let text = crate::app::net::post_json(endpoint, body.to_string()).await?;
+    let response: Response =
+        serde_json::from_str(&text).map_err(|e| format!("parsing {endpoint}: {e}"))?;
+    if let Some(error) = response.errors.first() {
+        return Err(error.message.clone());
+    }
+    let answers = response
+        .data
+        .ok_or_else(|| format!("{endpoint} answered with no data"))?;
+
+    let mut filters = Vec::new();
+    for (index, (id, name)) in columns.iter().enumerate() {
+        let Some(groups) = answers.get(&format!("c{index}")) else {
+            continue;
+        };
+        let values: Vec<TableFilterValue> = groups
+            .iter()
+            .filter_map(|group| {
+                let label = group.properties.first()?.value.clone()?;
+                (!label.trim().is_empty()).then(|| TableFilterValue {
+                    label,
+                    count: group.count.unwrap_or_default() as u64,
+                    chosen: false,
+                })
+            })
+            .collect();
+        if !FILTER_VALUES.contains(&values.len()) {
+            continue;
+        }
+        filters.push(TableFilter {
+            id: id.clone(),
+            name: name.clone(),
+            values,
+        });
+    }
+    Ok(filters)
+}
+
 /// The project a frame's specimen table came from, so a page it has not got
 /// can be asked for.
 ///
@@ -429,6 +564,14 @@ pub struct SpecimenPages {
     plan: Plan,
     /// The page being fetched, and the fetch, while one is in flight.
     fetching: Option<(usize, Fetching<Result<Data, String>>)>,
+    /// What the columns hold, asked for once.
+    offering: Option<Fetching<Result<Vec<TableFilter>, String>>>,
+    /// Whether the columns have been asked about, so they are asked once
+    /// whether or not anything came back.
+    offered: bool,
+    /// The values in force on the rows now on screen, so a tick that changes
+    /// nothing does not refetch and one that does is noticed.
+    applied: Vec<(String, String)>,
 }
 
 impl SpecimenPages {
@@ -438,7 +581,44 @@ impl SpecimenPages {
             project,
             plan,
             fetching: None,
+            offering: None,
+            offered: false,
+            applied: Vec::new(),
         }
+    }
+}
+
+/// Ask the platform what each column holds, once per source, and offer the
+/// answer as filters.
+///
+/// Only the annotations: a measurement is a number, and a number wants a range
+/// rather than a list of every reading anyone took.
+fn offer_filters(mut commands: Commands, mut sources: Query<(Entity, &mut SpecimenPages)>) {
+    for (source, mut pages) in &mut sources {
+        if let Some(fetch) = pages.offering.as_mut()
+            && let Some(answer) = fetch.take()
+        {
+            pages.offering = None;
+            match answer {
+                Ok(columns) if !columns.is_empty() => {
+                    info!("{} columns to narrow specimens by", columns.len());
+                    commands.entity(source).insert(TableFilters { columns });
+                }
+                // Nothing to narrow by is not a failure: the section simply
+                // does not appear.
+                Ok(_) => {}
+                Err(e) => warn!("asking what specimens can be narrowed by: {e}"),
+            }
+        }
+        if pages.offered {
+            continue;
+        }
+        pages.offered = true;
+        let (endpoint, project) = (pages.endpoint.clone(), pages.project.clone());
+        let columns = pages.plan.annotations.clone();
+        pages.offering = Some(fetching(async move {
+            ask_values(&endpoint, &project, &columns).await
+        }));
     }
 }
 
@@ -453,16 +633,27 @@ fn serve_pages(
         &mut TablePaging,
         &mut SourceTable,
         &mut SourceBusy,
+        Option<&TableFilters>,
     )>,
 ) {
-    for (mut pages, mut paging, mut rows, mut busy) in &mut sources {
+    for (mut pages, mut paging, mut rows, mut busy, filters) in &mut sources {
+        let wanted_values = filters.map(TableFilters::chosen).unwrap_or_default();
         if let Some((page, fetch)) = pages.fetching.as_mut()
             && let Some(answer) = fetch.take()
         {
             let page = *page;
             pages.fetching = None;
             match answer {
-                Ok(data) => take_page(&mut pages, &mut rows, page * paging.size, &data),
+                Ok(data) => {
+                    // A narrowed table is a different table: however many rows
+                    // it now has is what the paging counts to.
+                    if let Some(total) = data.counted() {
+                        paging.total = Some(total);
+                    } else if data.aio_specimen.is_empty() {
+                        paging.total = Some(0);
+                    }
+                    take_page(&mut pages, &mut rows, page * paging.size, &data);
+                }
                 Err(e) => {
                     // The rows on screen are left alone — a page that could
                     // not be read is better than an empty table — and the
@@ -478,13 +669,22 @@ fn serve_pages(
             }
         }
 
+        // A tick is a new table, so it starts at the top rather than on
+        // whichever page the old one happened to be showing.
+        let narrowed = pages.applied != wanted_values;
+        if narrowed && paging.page != 0 {
+            paging.page = 0;
+        }
+
         let wanted = paging.first();
         let asking = pages.fetching.as_ref().map(|(page, _)| page * paging.size);
-        if rows.first != wanted && asking != Some(wanted) {
+        if (narrowed || rows.first != wanted) && asking != Some(wanted) {
             let (endpoint, project) = (pages.endpoint.clone(), pages.project.clone());
+            let values = wanted_values.clone();
+            pages.applied = wanted_values;
             pages.fetching = Some((
                 paging.page,
-                fetching(async move { ask(&endpoint, &project, wanted).await }),
+                fetching(async move { ask(&endpoint, &project, wanted, &values).await }),
             ));
         }
         busy.set_if_neq(SourceBusy(pages.fetching.is_some()));
@@ -532,7 +732,10 @@ pub struct SpecimenSystems;
 
 impl Plugin for SpecimenSystems {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, serve_pages.in_set(Stage::Sources));
+        app.add_systems(
+            Update,
+            (offer_filters, serve_pages).chain().in_set(Stage::Sources),
+        );
     }
 }
 

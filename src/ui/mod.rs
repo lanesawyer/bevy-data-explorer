@@ -16,6 +16,7 @@ pub mod logpanel;
 pub mod selection;
 pub mod settings;
 pub mod sidebar;
+pub mod tablefilters;
 pub mod viewconfig;
 pub mod welcome;
 
@@ -39,6 +40,11 @@ impl Plugin for UiPlugin {
             cellpanel::CellPanelPlugin,
             selection::SelectionPanelPlugin,
             genes::GenePanelPlugin,
+        ))
+        // Split because a plugin tuple caps at sixteen, the way a system
+        // tuple caps at twenty.
+        .add_plugins((
+            tablefilters::TableFilterPlugin,
             welcome::WelcomePlugin,
             logpanel::LogPanelPlugin,
             help::HelpPlugin,

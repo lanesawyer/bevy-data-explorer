@@ -360,6 +360,7 @@ pub fn sync_opacity_slider(
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     mut sources: Query<(&DataSource, Option<&mut SourceOpacity>)>,
+    tables: Query<(), With<crate::source::table::SourceTable>>,
     slider: Query<(Entity, &SliderValue), With<OpacitySlider>>,
     mut names: Query<&mut Text, With<SelectedName>>,
     mut controls: Query<&mut Node, With<FrameControl>>,
@@ -372,8 +373,9 @@ pub fn sync_opacity_slider(
 
     // A control with nothing to act on is worse than no control: it invites a
     // drag that changes nothing. With no frame selected the section says so and
-    // shows nothing else.
-    let wanted = if source.is_some() {
+    // shows nothing else — and a frame full of rows has no geometry to fade,
+    // since its table is chrome drawn over the frame rather than into it.
+    let wanted = if source.is_some_and(|source| !tables.contains(source)) {
         Display::Flex
     } else {
         Display::None

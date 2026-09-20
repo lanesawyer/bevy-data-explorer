@@ -852,6 +852,26 @@ gain, which the frame notices and lays itself out again — and a column's width
 grows the same way, since only the page in hand can be measured and a column
 that narrowed on every page would shuffle the table sideways each time.
 
+A table's rows can be narrowed from the sidebar, in the section under the cell
+properties and built from the same pieces: a sub-section per column, a checkbox
+per value with its count beside it, and a button on the header that clears the
+lot. Narrowing happens at the platform rather than here — the ticked values go
+into the same query the page fetch already builds — so the row count and every
+page after it are of the narrowed table.
+
+Ticks within one column widen and columns narrow each other, which is what a
+row of checkboxes is read to mean and, as it happens, exactly what the platform
+does with a field named twice. A column is offered only if it holds between two
+and sixty values: one value narrows nothing, and the SEA-AD donors carry a
+"Donor ID" annotation with one value per donor, which as a list of checkboxes
+is eighty-four ways of picking one row. The counts beside each value are of the
+whole project rather than of what is on screen, so a count says what ticking it
+would bring back and does not shift under the pointer while ticking.
+
+Only the annotations are offered. A measurement is a number, and a number wants
+a range rather than a list of every reading anyone took; the API has
+`aio_specimenRangeCounts` for exactly that, and it is the obvious next step.
+
 Two things the records do that only showed up on the last page, both now
 fixtured:
 
