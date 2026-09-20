@@ -13,6 +13,7 @@ mod icons;
 mod link;
 mod menu;
 mod scroll;
+mod scrollbar;
 mod search;
 mod selectable;
 mod skeleton;
@@ -59,12 +60,17 @@ impl Plugin for WidgetsPlugin {
             .add_observer(search::on_clear_search)
             .add_systems(
                 Update,
+                scrollbar::add_scrollbars.in_set(Stage::ControlsBuild),
+            )
+            .add_systems(
+                Update,
                 (
                     accordion::update_accordions,
                     accordion::truncate_accordion_titles,
                     menu::dismiss_menus,
                     menu::release_focus_from_closed_menus,
                     menu::position_menus,
+                    scrollbar::show_scrollbars,
                     search::sync_search_hints,
                     skeleton::pulse_skeletons,
                 )
