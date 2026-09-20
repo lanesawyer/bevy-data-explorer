@@ -126,7 +126,7 @@ pub(super) const SELECTION_PX: f32 = 2.0;
 /// outline and the rules are separate UI roots, so nothing orders them
 /// implicitly and the rule would cover the shared edges — leaving every frame
 /// except the top-left one outlined on two sides only.
-const SELECTION_Z: i32 = 1;
+pub(super) const SELECTION_Z: i32 = 1;
 
 pub(super) const BUTTON_PX: f32 = 22.0;
 pub(super) const BUTTON_GAP: f32 = 4.0;

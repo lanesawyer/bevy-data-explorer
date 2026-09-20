@@ -92,6 +92,14 @@ mod tests {
                 },
                 orbit: None,
                 layers: Vec::new(),
+                selection: Some(crate::bookmark::snapshot::RegionState {
+                    min: [-4.5, -20.0],
+                    max: [12.0, -3.25],
+                    focus: Some(crate::bookmark::snapshot::FocusState {
+                        column: "class".into(),
+                        label: "04 DG-IMN Glut".into(),
+                    }),
+                }),
             }],
             selected: Some(0),
         }
@@ -102,6 +110,20 @@ mod tests {
         let bookmark = bookmark();
         assert_eq!(from_text(&to_json(&bookmark)), Ok(bookmark.clone()));
         assert_eq!(from_text(&to_line(&bookmark)), Ok(bookmark));
+    }
+
+    #[test]
+    fn a_bookmark_written_before_selections_still_reads() {
+        // Raising the version refuses every older link, so a field merely
+        // added has to read as absent instead.
+        let mut value: serde_json::Value = serde_json::from_str(&to_json(&bookmark())).unwrap();
+        value["frames"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("selection");
+        let read = from_text(&value.to_string()).expect("an older bookmark still reads");
+        assert_eq!(read.frames[0].selection, None);
+        assert_eq!(read.version, VERSION);
     }
 
     #[test]

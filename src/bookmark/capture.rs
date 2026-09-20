@@ -3,15 +3,17 @@
 use bevy::prelude::*;
 
 use super::snapshot::{
-    Bookmark, FrameState, LayerState, OrbitState, SourceState, VERSION, ViewState, cells_of,
-    channels_of,
+    Bookmark, FocusState, FrameState, LayerState, OrbitState, RegionState, SourceState, VERSION,
+    ViewState, cells_of, channels_of,
 };
+use crate::catalog::RegionFocus;
 use crate::render::points::SourcePointSize;
 use crate::render::settings::SourceOpacity;
 use crate::source::channels::SourceChannels;
 use crate::source::properties::{CellProperties, FilteredPoints, PropertyState, Provenance};
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::{ShowsSource, SourceUrl};
+use crate::view::FrameRegion;
 use crate::view::{FrameArea, FrameLayers, LayerOpacity, Orbit, SelectedPanel};
 use crate::view::{Panel, View};
 
@@ -38,6 +40,8 @@ pub fn is_remote(url: &str) -> bool {
 pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
     let area = *world.resource::<FrameArea>();
     let selected = world.resource::<SelectedPanel>().0;
+    // One bucket across the sidebar, so every saved rectangle names the same
+    // one; whichever is restored last is the one its section will show.
 
     let mut panels = world.query_filtered::<(
         Entity,
@@ -47,11 +51,12 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
         &Projection,
         Option<&Orbit>,
         Option<&FrameLayers>,
+        Option<&FrameRegion>,
     ), With<Panel>>();
     let mut found: Vec<_> = panels
         .iter(world)
         .map(
-            |(entity, panel, shows, transform, projection, orbit, layers)| {
+            |(entity, panel, shows, transform, projection, orbit, layers, region)| {
                 let flat = match (orbit, projection) {
                     (Some(orbit), _) => Some(orbit.flat),
                     (None, Projection::Orthographic(ortho)) => Some(View {
@@ -67,6 +72,7 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
                     flat,
                     orbit.copied(),
                     layers.map(|layers| layers.cameras().to_vec()),
+                    region.copied(),
                 )
             },
         )
@@ -89,8 +95,15 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
     let count = found.len();
     let mut frames = Vec::new();
     let mut selected_frame = None;
-    for (position, (entity, _, source, flat, orbit, layers)) in found.into_iter().enumerate() {
+    for (position, (entity, _, source, flat, orbit, layers, region)) in
+        found.into_iter().enumerate()
+    {
         let Some(flat) = flat else { continue };
+        // Read before `source` is turned into its index, which shadows it.
+        let focus = world.get::<RegionFocus>(source).map(|focus| FocusState {
+            column: focus.column.clone(),
+            label: focus.label.clone(),
+        });
         let Some(source) = index_of(world, source) else {
             warn!("a frame's dataset has no address, so the bookmark leaves it out");
             continue;
@@ -121,6 +134,11 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
                 distance: orbit.distance,
             }),
             layers,
+            selection: region.map(|region| RegionState {
+                min: region.min().to_array(),
+                max: region.max().to_array(),
+                focus,
+            }),
         });
     }
     if frames.is_empty() {

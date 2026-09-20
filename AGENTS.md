@@ -60,11 +60,26 @@ pool and adds every layer's plugin, so it imports all of them. Keep the
 submodules free of anything above `source`; a submodule that needs `view` or
 `ui` belongs in that layer instead.
 
+The docks on the right stack rather than share an edge. Each subtracts its own
+width from `FrameArea`, which keeps the frames clear of both, but that says
+nothing about where either is *drawn* — so a dock inboard of another places
+itself past the one outside it and offsets its drag handle by the same amount.
+`ui/selection.rs` sits inboard of `ui/inspector.rs` and is the example.
+
 `src/source` imports nothing else from the crate. Keep it that way: it is what
 lets a frame point at any dataset without naming a format. Something a format
 and a frame both need, such as `ShowsSource`, lives there rather than in
 `view`, and a keyboard shortcut that acts on a source belongs in
 `view/input.rs`, not in the format that reads it.
+
+Two of the things in `source/` are questions the grid asks and a format
+answers, and both work the same way: the grid writes a component onto the
+source entity, the plugin writes another back, and the UI reads the answer
+without knowing what produced it. `hover` asks what is under the pointer;
+`region` asks where a rectangle dragged over a frame lands in the dataset's own
+coordinates, which only the format knows because only it knows whether its
+points were drawn where their coordinates put them or laid out into a grid of
+sections. A plugin that cannot answer simply never writes the answer.
 
 Frames point at a source entity rather than naming a format. Every streamer is
 a component of the source entity it serves, and selects panels with

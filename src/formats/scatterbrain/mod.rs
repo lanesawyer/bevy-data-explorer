@@ -280,6 +280,11 @@ impl Scatterbrain {
         })
     }
 
+    /// What a service indexing this visualization's coordinates knows it by.
+    pub fn reference_id(&self) -> &str {
+        &self.reference_id
+    }
+
     pub fn total_points(&self) -> u64 {
         self.slides.iter().map(|s| s.total_points).sum()
     }

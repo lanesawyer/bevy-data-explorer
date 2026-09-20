@@ -31,6 +31,7 @@ use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::ViewLimits;
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::properties::{CellProperties, CellSelection, FilteredPoints, Shade};
+use crate::source::region::{RegionProbe, SelectedRegion, region_of};
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::{self, DataSource, ShowsSource, SourceBusy, SourceExtent, SourceStatus};
 
@@ -238,6 +239,23 @@ impl SliceStreamer {
     }
 
     /// Whether a slide is drawn in the current mode.
+    /// Which slide a point of the laid-out view falls in.
+    ///
+    /// Slides share one coordinate system and are pulled apart into cells, so a
+    /// rectangle drawn over the grid means one slide's coordinates and not
+    /// another's. The nearest visible cell centre wins, which is what picks a
+    /// slide for a rectangle straddling the padding between two of them rather
+    /// than answering with nothing.
+    pub fn slide_at(&self, world: Vec2) -> Option<usize> {
+        match self.mode {
+            SliceMode::Single => Some(self.current),
+            SliceMode::Grid => (0..self.cloud.slides.len()).min_by(|a, b| {
+                let to = |slide: &usize| world.distance_squared(self.layout.grid[*slide]);
+                to(a).total_cmp(&to(b))
+            }),
+        }
+    }
+
     pub fn visible(&self, slide: usize) -> bool {
         match self.mode {
             SliceMode::Grid => true,
@@ -661,7 +679,11 @@ impl Plugin for SlicesSystems {
         // Resolving the pointer reads the nodes that are resident now, and
         // which slide is where; the schedule already puts `HoverProbing`
         // after the layout has settled.
-        .add_systems(Update, resolve_hover.in_set(source::hover::HoverProbing));
+        .add_systems(Update, resolve_hover.in_set(source::hover::HoverProbing))
+        .add_systems(
+            Update,
+            resolve_region.in_set(source::region::RegionResolving),
+        );
     }
 }
 
@@ -718,6 +740,45 @@ pub fn spawn_source(world: &mut World, cloud: Arc<Scatterbrain>, budget: usize) 
 }
 
 /// Answer the pointer: which cell is under it, and which cells share its value.
+/// Say where a rectangle dragged over these sections lands in the dataset's own
+/// coordinates.
+///
+/// A rectangle means one section: the sections share a coordinate system and
+/// are only pulled apart for display, so a rectangle spanning two of them would
+/// otherwise be read as one band of coordinates covering both. The section it
+/// was drawn over is the one it is taken in, and the layout offset is undone to
+/// get there.
+pub fn resolve_region(
+    mut commands: Commands,
+    sources: Query<(
+        Entity,
+        &SliceStreamer,
+        Option<&RegionProbe>,
+        Option<&SelectedRegion>,
+    )>,
+) {
+    for (entity, streamer, probe, current) in &sources {
+        let wanted = probe.and_then(|probe| {
+            let centre = (probe.min + probe.max) * 0.5;
+            let slide = streamer.slide_at(centre)?;
+            Some(region_of(
+                probe,
+                streamer.offset(slide),
+                streamer.cloud.reference_id(),
+            ))
+        });
+        match wanted {
+            Some(region) if current != Some(&region) => {
+                commands.entity(entity).insert(region);
+            }
+            None if current.is_some() => {
+                commands.entity(entity).remove::<SelectedRegion>();
+            }
+            _ => {}
+        }
+    }
+}
+
 pub fn resolve_hover(
     streamers: Query<&SliceStreamer>,
     probes: Query<&HoverProbe>,

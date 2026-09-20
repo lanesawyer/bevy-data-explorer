@@ -13,6 +13,7 @@
 use bevy::prelude::*;
 
 use crate::source::hover::HoverProbing;
+use crate::source::region::RegionResolving;
 
 /// The stages of a frame, in the order they run.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -98,9 +99,9 @@ pub enum Boot {
 
 /// Declare the stage order.
 ///
-/// [`HoverProbing`] sits between [`Stage::HoverProbe`] and [`Stage::Overlay`]
-/// rather than being a variant here, because it is the surface a format plugin
-/// implements and predates these stages.
+/// [`HoverProbing`] and [`RegionResolving`] sit between [`Stage::HoverProbe`]
+/// and [`Stage::Overlay`] rather than being variants here, because they are the
+/// surface a format plugin implements rather than stages of the frame.
 pub fn configure(app: &mut App) {
     app.configure_sets(
         Startup,
@@ -133,6 +134,7 @@ pub fn configure(app: &mut App) {
             Stage::Sources,
             Stage::HoverProbe,
             HoverProbing,
+            RegionResolving,
             Stage::Overlay,
         )
             .chain(),

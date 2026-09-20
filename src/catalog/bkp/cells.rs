@@ -27,12 +27,13 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use super::post;
-use crate::catalog::{CellCounts, DescribeCells};
+use crate::catalog::{CellCounts, CellRecord, DescribeCells, RegionFocus};
 use crate::source::genes::Gene;
 use crate::source::properties::{
     CellColumns, CellProperties, CellProperty, NumericRange, PropertyKind, PropertyValue, Tree,
     TreeLevel, TreeNode,
 };
+use crate::source::region::SelectedRegion;
 
 /// The most value records asked for in one page. The API allows far more than
 /// the 50 its dataset listing does, and a taxonomy with thousands of clusters
@@ -200,20 +201,131 @@ impl DescribeCells for BkpCells {
     }
 
     fn count(&self, properties: &CellProperties) -> BoxFuture<'static, Result<CellCounts, String>> {
+        self.count_within(properties, Vec::new())
+    }
+
+    fn counts_regions(&self) -> bool {
+        true
+    }
+
+    fn count_region(
+        &self,
+        properties: &CellProperties,
+        region: &SelectedRegion,
+    ) -> BoxFuture<'static, Result<CellCounts, String>> {
+        self.count_within(properties, vec![point_filter(region)])
+    }
+
+    fn cells_in(
+        &self,
+        properties: &CellProperties,
+        region: &SelectedRegion,
+        within: Option<&RegionFocus>,
+        limit: usize,
+    ) -> BoxFuture<'static, Result<Vec<CellRecord>, String>> {
+        let endpoint = self.endpoint.clone();
+        // Every categorical column the dataset has, so a record reads as the
+        // whole of what is known about a cell rather than as the columns the
+        // sidebar happens to be listing.
+        let columns: Vec<String> = properties
+            .properties
+            .iter()
+            .filter(|property| property.gene.is_none())
+            .flat_map(|property| property.columns())
+            .map(|(column, _)| column.to_string())
+            .collect();
+        // The cells listed are the cells on screen, so the sidebar's filters
+        // narrow them as they narrow everything else: a class unticked in the
+        // cell panel is not drawn, and must not be listed either.
+        let mut filters: Vec<Value> = properties
+            .properties
+            .iter()
+            .filter_map(cell_filter)
+            .collect();
+        // Each is a further group, so a cell must satisfy all of them — be
+        // inside the rectangle, and of the category, and admitted by every
+        // filter — while the conditions within one group are alternatives.
+        filters.push(point_filter(region));
+        filters.extend(within.map(facet_filter));
+        let variables = json!({
+            "filter": self.dataset_filter(),
+            "properties": columns,
+            "filters": filters,
+            "limit": limit,
+        });
+        Box::pin(async move {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Data {
+                cell_info: Vec<Found>,
+            }
+            #[derive(Deserialize)]
+            struct Found {
+                id: Option<String>,
+                index: Option<u64>,
+                #[serde(default)]
+                properties: Vec<Held>,
+            }
+            #[derive(Deserialize)]
+            struct Held {
+                property: Option<String>,
+                value: Option<String>,
+            }
+
+            let data: Data = ask(&endpoint, CELL_INFO, variables).await?;
+            Ok(data
+                .cell_info
+                .into_iter()
+                .map(|found| CellRecord {
+                    id: found.id.unwrap_or_default(),
+                    index: found.index.unwrap_or_default(),
+                    values: found
+                        .properties
+                        .into_iter()
+                        .filter_map(|held| Some((held.property?, held.value?)))
+                        // A column a cell holds nothing in is left out rather
+                        // than shown empty, which would read as a value.
+                        .filter(|(_, value)| !value.is_empty() && value != "NA")
+                        .collect(),
+                })
+                .collect())
+        })
+    }
+}
+
+impl BkpCells {
+    /// The counts, optionally narrowed to one more group of conditions every
+    /// counted cell must also satisfy.
+    ///
+    /// The whole-dataset counts and a region's are the same round of queries
+    /// asked either side of one extra filter, so they are written once. Only
+    /// categorical values are counted for a region: the histograms are what
+    /// the range controls are drawn from, and redrawing those under a
+    /// rectangle would have a filter's shape change as it was dragged.
+    fn count_within(
+        &self,
+        properties: &CellProperties,
+        within: Vec<Value>,
+    ) -> BoxFuture<'static, Result<CellCounts, String>> {
         let endpoint = self.endpoint.clone();
         let filter = self.dataset_filter();
+        let region_only = !within.is_empty();
         let groups: Vec<Option<Value>> = properties.properties.iter().map(cell_filter).collect();
         // Values are counted under every filter, their own property's too, so
         // a value left unticked counts none and a partly ticked tree node
         // counts what is ticked under it. A range is counted under every
         // filter but its own, so its histogram keeps the shape outside it.
         let filters_for = |index: usize, own: bool| {
-            let applied: Vec<&Value> = groups
+            let mut applied: Vec<&Value> = groups
                 .iter()
                 .enumerate()
                 .filter(|(other, _)| own || *other != index)
                 .filter_map(|(_, group)| group.as_ref())
                 .collect();
+            // These narrow every count, their own property's included: a
+            // value outside the rectangle holds none of its cells, which is
+            // the whole point of drawing one.
+            applied.extend(within.iter());
             json!(applied)
         };
         // Counts come back keyed by label, so each column takes its labels
@@ -221,7 +333,7 @@ impl DescribeCells for BkpCells {
         let mut columns: Vec<(String, HashMap<String, u16>, Value)> = Vec::new();
         let mut ranges: Vec<(String, String, (f32, f32), Value)> = Vec::new();
         for (index, property) in properties.properties.iter().enumerate() {
-            if let Some(range) = property.range() {
+            if let Some(range) = property.range().filter(|_| !region_only) {
                 // Genes are counted by their index, cell columns by their id.
                 let field = property
                     .gene
@@ -272,6 +384,38 @@ impl DescribeCells for BkpCells {
             }
         })
     }
+}
+
+/// A selected rectangle as the counting queries take it: one condition every
+/// counted cell must satisfy.
+///
+/// The API's only spatial filter is this box. Its field names the
+/// visualization whose coordinates the rectangle is in — the same id the
+/// Scatterbrain metadata carries, which is what [`SelectedRegion::key`] holds
+/// — and its value is the two corners, the far one first. Corner order does
+/// not actually matter to the service, but it is written the way the platform
+/// writes it so the two can be compared when one of them changes.
+fn point_filter(region: &SelectedRegion) -> Value {
+    let (min, max) = region.corners();
+    json!([{
+        "type": "POINT",
+        "field": format!("{}_point", region.key),
+        "operator": "CONTAINED_IN",
+        "value": format!("[{},{},{},{}]", max[0], max[1], min[0], min[1]),
+    }])
+}
+
+/// One category as the counting queries take it, for drilling into a region.
+///
+/// Named by label, as every metadata condition here is: the API matches the
+/// value the platform shows rather than the code the files store.
+fn facet_filter(within: &RegionFocus) -> Value {
+    json!([{
+        "type": "METADATA",
+        "field": within.column,
+        "operator": "EQ",
+        "value": within.label,
+    }])
 }
 
 /// A property's filter as the counting queries take it: the conditions any
@@ -639,6 +783,21 @@ fn bin(edges: &[f64], counted: &[Counted]) -> Vec<u32> {
     buckets
 }
 
+/// The cells themselves, rather than a count of them.
+///
+/// Each value comes back named by its column and already as the label the
+/// platform shows, so a record needs no translation from the codes the files
+/// store.
+const CELL_INFO: &str = "query($filter: DatasetFilter!, $properties: [String!],
+                              $filters: [[CellFilterInput!]], $limit: Int) {
+  cellInfo(datasetFilter: $filter, properties: $properties,
+           filters: $filters, limit: $limit) {
+    id
+    index
+    properties { property value }
+  }
+}";
+
 const COUNTS: &str = "query($filter: DatasetFilter!, $field: String!,
                           $filters: [[CellFilterInput!]]) {
   cellCounts(datasetFilter: $filter, groupBy: [$field], filters: $filters) {
@@ -963,6 +1122,171 @@ fn parse_color(text: &str) -> Option<Color> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_region_is_asked_for_as_the_box_the_api_takes() {
+        // The API rejects anything but `[x,y,x,y]`, and names the field after
+        // the visualization rather than the dataset; both were found by asking
+        // it, so a change here has to be checked against it again.
+        let region = SelectedRegion {
+            key: "MGA5LUTH4ETM859L5IM".into(),
+            min: Vec2::new(20.0, 30.0),
+            max: Vec2::new(40.0, 50.0),
+        };
+        let filter = point_filter(&region);
+        let condition = &filter[0];
+        assert_eq!(condition["type"], "POINT");
+        assert_eq!(condition["operator"], "CONTAINED_IN");
+        assert_eq!(condition["field"], "MGA5LUTH4ETM859L5IM_point");
+        assert_eq!(condition["value"], "[40,50,20,30]");
+    }
+
+    /// How many cells a round of counts came to, however they were grouped.
+    #[cfg(test)]
+    fn counted(counts: &CellCounts) -> u64 {
+        counts
+            .values
+            .iter()
+            .flat_map(|(_, values)| values.iter().map(|(_, count)| *count))
+            .sum()
+    }
+
+    #[test]
+    #[ignore = "reads the live BKP API"]
+    fn a_region_counts_some_of_the_dataset_and_not_all_of_it() {
+        // The box filter was found by asking the API, not from a schema that
+        // documents it, so this is what notices if its field naming or its
+        // corner order ever changes. Zhuang-ABCA-1 spans roughly x 0..79 and
+        // y 2..95, and the rectangle takes a bite out of the middle.
+        let cells = BkpCells {
+            endpoint: super::super::PRODUCTION.to_string(),
+            dataset: "ZGCBY62J0LFKZ58JIUE".into(),
+            project: "5C0201JSVE04WY6DMVC".into(),
+            collection: "U5V94ES4J76MYSL7QL7".into(),
+            version: "v0".into(),
+        };
+        // Several columns, so the records that come back are the shape a
+        // sidebar shows rather than one field wide.
+        let columns = CellColumns(
+            [
+                ("FS00DXV0T9R1X9FJ4QE", "Class"),
+                ("QY5S8KMO5HLJUF0P00K", "Subclass"),
+                ("4MV7HA5DG2XJZ3UD8G9", "Neurotransmitter Type"),
+                ("73GVTDXDEGE27M2XJMT", "Anatomical Division"),
+            ]
+            .into_iter()
+            .map(|(id, name)| CellColumn {
+                id: id.into(),
+                name: name.into(),
+                numeric: false,
+            })
+            .collect(),
+        );
+        let properties = crate::app::net::block_on(cells.describe(columns)).unwrap();
+        let everything = crate::app::net::block_on(cells.count(&properties)).unwrap();
+        let region = SelectedRegion {
+            key: "MGA5LUTH4ETM859L5IM".into(),
+            min: Vec2::new(20.0, 30.0),
+            max: Vec2::new(40.0, 50.0),
+        };
+        let inside = crate::app::net::block_on(cells.count_region(&properties, &region)).unwrap();
+        assert!(counted(&inside) > 0, "the rectangle counted nothing");
+        assert!(
+            counted(&inside) < counted(&everything),
+            "the rectangle counted the whole dataset, so the filter did nothing"
+        );
+
+        // Drilling into one category narrows it again, and the two filters
+        // have to compose: the box and the category are separate groups, and
+        // a service that read them as alternatives would answer with more
+        // cells rather than fewer.
+        const CLASS: &str = "FS00DXV0T9R1X9FJ4QE";
+        let (biggest, _) = inside
+            .values
+            .iter()
+            .find(|(column, _)| column == CLASS)
+            .expect("the class column was counted")
+            .1
+            .iter()
+            .max_by_key(|(_, count)| *count)
+            .expect("the rectangle held some cells");
+        // Through `columns`, not `values`: the platform folds the taxonomy's
+        // columns into a tree, whose codes live in its levels rather than in a
+        // flat list.
+        let label = properties
+            .properties
+            .iter()
+            .flat_map(|property| property.columns())
+            .find(|(column, _)| *column == CLASS)
+            .expect("the class column is one of the described properties")
+            .1
+            .iter()
+            .find(|value| value.code == *biggest)
+            .expect("the counted code is one of the described values")
+            .label
+            .clone();
+        let focus = RegionFocus {
+            column: CLASS.into(),
+            label,
+        };
+        let listed =
+            crate::app::net::block_on(cells.cells_in(&properties, &region, Some(&focus), 5))
+                .unwrap();
+        assert!(!listed.is_empty(), "the category listed no cells");
+        assert!(listed.len() <= 5, "the page limit was not honored");
+        for cell in &listed {
+            assert!(!cell.id.is_empty(), "a cell came back with no identifier");
+            // Every one of them is of the category asked for, which is what
+            // says the box and the category composed rather than being read as
+            // alternatives.
+            assert_eq!(cell.value(CLASS), Some(focus.label.as_str()));
+            // Values arrive as labels rather than as the codes the files
+            // store, so a record needs no translation to be shown.
+            assert!(cell.values.len() > 1, "a cell came back nearly empty");
+        }
+
+        // The cells listed are the cells on screen, so a value unticked in the
+        // cell panel must not appear among them. Ticking one value of a column
+        // admits only that one.
+        const NEUROTRANSMITTER: &str = "4MV7HA5DG2XJZ3UD8G9";
+        let mut filtered = properties;
+        let admitted = filtered
+            .properties
+            .iter_mut()
+            .flat_map(|property| property.column_values_mut(NEUROTRANSMITTER))
+            .find(|value| value.label == "Glut")
+            .map(|value| {
+                value.selected = true;
+                value.label.clone()
+            })
+            .expect("the dataset describes a neurotransmitter type of Glut");
+        let narrowed =
+            crate::app::net::block_on(cells.cells_in(&filtered, &region, None, 10)).unwrap();
+        assert!(!narrowed.is_empty(), "the filter admitted no cells at all");
+        for cell in &narrowed {
+            assert_eq!(
+                cell.value(NEUROTRANSMITTER),
+                Some(admitted.as_str()),
+                "a cell the filters exclude was listed anyway"
+            );
+        }
+    }
+
+    #[test]
+    fn a_region_dragged_backwards_asks_the_same_question() {
+        let key = "V".to_string();
+        let forward = point_filter(&SelectedRegion {
+            key: key.clone(),
+            min: Vec2::new(20.0, 30.0),
+            max: Vec2::new(40.0, 50.0),
+        });
+        let backward = point_filter(&SelectedRegion {
+            key,
+            min: Vec2::new(40.0, 50.0),
+            max: Vec2::new(20.0, 30.0),
+        });
+        assert_eq!(forward, backward);
+    }
     use crate::source::properties::{CellColumn, Column, RangeEnd};
 
     fn column(id: &str, numeric: bool) -> CellColumn {

@@ -31,9 +31,11 @@ const PANEL_PX: f32 = 520.0;
 
 /// Keys and gestures, and what each does. Kept to what works in every frame
 /// or says which kind of dataset it acts on.
-const SHORTCUTS: [(&str, &str); 9] = [
+const SHORTCUTS: [(&str, &str); 11] = [
     ("Drag", "Pan a frame; in 3D, turn it"),
     ("Shift or right drag", "Slide a 3D frame"),
+    ("Drag, selecting cells", "Draw a rectangle over the points"),
+    ("Drag inside it", "Move the rectangle, keeping its size"),
     ("Scroll", "Zoom toward the pointer"),
     ("R", "Reset the selected frame's view"),
     ("\u{2190} \u{2192}  [ ]  PgUp PgDn", "Step through slices"),

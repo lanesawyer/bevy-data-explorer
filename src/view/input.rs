@@ -203,7 +203,7 @@ pub fn toggle_channels(
 ///
 /// Read from the picking hover state rather than from `Interaction`, because
 /// the Feathers controls carry no `Interaction` for a hit test to find.
-fn pointer_over_chrome(
+pub(super) fn pointer_over_chrome(
     hover: &bevy::picking::hover::HoverMap,
     chrome: &Query<(), With<BlocksFrameInput>>,
     parents: &Query<&ChildOf>,
@@ -316,6 +316,7 @@ fn probe_target(
 pub fn panel_controls(
     mut wheel: MessageReader<MouseWheel>,
     mut panels: Query<(
+        Entity,
         &Camera,
         &GlobalTransform,
         &mut Transform,
@@ -333,6 +334,7 @@ pub fn panel_controls(
     parents: Query<&ChildOf>,
     panel_entities: Query<(Entity, &Panel)>,
     mut selected: ResMut<SelectedPanel>,
+    selecting: Query<(), With<super::SelectMode>>,
     mut drag: Local<Option<Drag>>,
 ) {
     let Ok(window) = windows.single() else { return };
@@ -393,10 +395,14 @@ pub fn panel_controls(
         };
     }
 
-    for (camera, global, mut transform, mut projection, panel, limits, orbit) in &mut panels {
+    for (entity, camera, global, mut transform, mut projection, panel, limits, orbit) in &mut panels
+    {
         if panel.index != active {
             continue;
         }
+        // A frame taking a selection has given its drags away; the wheel still
+        // zooms, so a rectangle can be aimed without leaving the mode.
+        let panning = !selecting.contains(entity);
         // The same gestures, read as moving about a volume: a drag turns it,
         // any other drag slides it, and the wheel moves toward whatever is
         // under the pointer, as it does in a flat frame.
@@ -407,7 +413,9 @@ pub fn panel_controls(
                     Err(_) => orbit.zoom(scroll),
                 }
             }
-            if let Some(state) = *drag {
+            if let Some(state) = *drag
+                && panning
+            {
                 let delta = cursor - state.last;
                 if delta != Vec2::ZERO {
                     let sliding = buttons.any_pressed([MouseButton::Middle, MouseButton::Right])
@@ -444,7 +452,9 @@ pub fn panel_controls(
             }
         }
 
-        if let Some(state) = *drag {
+        if let Some(state) = *drag
+            && panning
+        {
             let delta = cursor - state.last;
             transform.translation.x -= delta.x * ortho.scale;
             transform.translation.y += delta.y * ortho.scale;

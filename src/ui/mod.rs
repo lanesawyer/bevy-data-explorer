@@ -13,6 +13,7 @@ pub mod help;
 pub mod inspector;
 pub mod layers;
 pub mod logpanel;
+pub mod selection;
 pub mod settings;
 pub mod sidebar;
 pub mod viewconfig;
@@ -36,6 +37,7 @@ impl Plugin for UiPlugin {
             addsource::AddSourcePlugin,
             bookmarks::BookmarksPlugin,
             cellpanel::CellPanelPlugin,
+            selection::SelectionPanelPlugin,
             genes::GenePanelPlugin,
             welcome::WelcomePlugin,
             logpanel::LogPanelPlugin,

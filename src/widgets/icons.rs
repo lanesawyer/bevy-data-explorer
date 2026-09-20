@@ -22,6 +22,7 @@ const SIZE: f32 = 15.0;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Icon {
     BookmarkPlus,
+    BoxSelect,
     Bug,
     Camera,
     Check,
@@ -56,8 +57,9 @@ pub enum Icon {
 
 impl Icon {
     #[cfg(test)]
-    const ALL: [Icon; 31] = [
+    const ALL: [Icon; 32] = [
         Icon::BookmarkPlus,
+        Icon::BoxSelect,
         Icon::Bug,
         Icon::Camera,
         Icon::Check,
@@ -95,6 +97,7 @@ impl Icon {
     pub fn glyph(self) -> &'static str {
         match self {
             Icon::BookmarkPlus => "\u{e23d}",
+            Icon::BoxSelect => "\u{e1cb}",
             Icon::Bug => "\u{e20c}",
             Icon::Camera => "\u{e064}",
             Icon::Check => "\u{e06c}",

@@ -31,6 +31,7 @@ use crate::app::net::{Fetching, fetching};
 use crate::app::schedule::Stage;
 use crate::source::genes::Gene;
 use crate::source::properties::{CellColumns, CellProperties, CellProperty};
+use crate::source::region::SelectedRegion;
 use crate::source::{DataSource, SourceUrl};
 
 /// One dataset a catalog offers.
@@ -57,6 +58,102 @@ pub struct CellCounts {
     pub histograms: Vec<(String, Vec<u32>)>,
 }
 
+/// What a service found inside a region of a dataset: how its cells are
+/// distributed, and — once a category is drilled into — the cells themselves.
+///
+/// One per source rather than per frame: a source can only carry one
+/// [`SelectedRegion`] at a time, so two frames selecting on one dataset share
+/// the last rectangle drawn, which is also the one both of them show.
+#[derive(Component, Debug, Default)]
+pub struct RegionSummary {
+    /// The region these counts are of, so a stale answer landing after the
+    /// rectangle moved can be told apart from a current one.
+    pub counted: Option<SelectedRegion>,
+    pub state: SummaryState,
+    /// How many cells in the region hold each value, by column id and code.
+    pub values: Vec<(String, Vec<(u16, u64)>)>,
+    /// The individual cells of the one category drilled into, and how that
+    /// fetch is going. Fetched separately because it is asked only when a
+    /// category is picked, and picking one should not re-ask the counts.
+    pub cells: Vec<CellRecord>,
+    pub focus_state: SummaryState,
+}
+
+/// One cell, as a service lists the cells inside a region.
+///
+/// Values arrive named and already as labels rather than as the codes the
+/// files store, so a record can be shown without going back to the properties
+/// for a translation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CellRecord {
+    pub id: String,
+    pub index: u64,
+    /// Column id and what this cell holds in it.
+    pub values: Vec<(String, String)>,
+}
+
+impl CellRecord {
+    /// What this cell holds in `column`, if the service said.
+    pub fn value(&self, column: &str) -> Option<&str> {
+        self.values
+            .iter()
+            .find(|(id, _)| id == column)
+            .map(|(_, value)| value.as_str())
+    }
+}
+
+/// One value of one column, naming a category to narrow a region's counts to.
+///
+/// Named by label rather than by code because that is what the counting
+/// queries take, and what survives being compared against an answer.
+#[derive(Component, Clone, Debug, PartialEq, Eq, Default)]
+pub struct RegionFocus {
+    pub column: String,
+    pub label: String,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub enum SummaryState {
+    /// Nothing selected, or nothing that can count one.
+    #[default]
+    Idle,
+    Counting,
+    Ready,
+    Failed(String),
+}
+
+impl RegionSummary {
+    /// The cells in the region holding each value of `column`, largest first.
+    pub fn buckets(&self, column: &str) -> Vec<(u16, u64)> {
+        ranked(&self.values, column)
+    }
+
+    /// How many cells the region holds of `label` in `column`.
+    ///
+    /// Read from the counts rather than from the records, which are only ever
+    /// the first page of them.
+    pub fn counted_in(&self, column: &str, code: u16) -> Option<u64> {
+        self.buckets(column)
+            .into_iter()
+            .find(|(found, _)| *found == code)
+            .map(|(_, count)| count)
+    }
+}
+
+/// The values of `column` in `counted`, largest first and none of them empty.
+fn ranked(counted: &[(String, Vec<(u16, u64)>)], column: &str) -> Vec<(u16, u64)> {
+    let mut found: Vec<(u16, u64)> = counted
+        .iter()
+        .find(|(id, _)| id == column)
+        .map(|(_, counted)| counted.clone())
+        .unwrap_or_default();
+    // Largest first: a selection is read for what is mostly in it, and a
+    // taxonomy's own order buries that under hundreds of empty values.
+    found.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    found.retain(|(_, count)| *count > 0);
+    found
+}
+
 /// A service that knows a dataset's cells better than its files do: what its
 /// codes are called, which color each is drawn in, which properties are worth
 /// showing and in what order, and how many cells hold each value.
@@ -72,6 +169,43 @@ pub trait DescribeCells: Send + Sync + 'static {
     /// and the labels are worth showing before it answers; and asked again
     /// whenever the filters change.
     fn count(&self, properties: &CellProperties) -> BoxFuture<'static, Result<CellCounts, String>>;
+
+    /// How many cells inside `region` hold each value of each categorical
+    /// property, among the cells the other properties' filters admit.
+    ///
+    /// Separate from [`Self::count`] because a region is dragged out and
+    /// redrawn far more often than a filter changes, and because a service may
+    /// know a dataset's cells without indexing where they are.
+    fn count_region(
+        &self,
+        _properties: &CellProperties,
+        _region: &SelectedRegion,
+    ) -> BoxFuture<'static, Result<CellCounts, String>> {
+        Box::pin(async { Err("this service cannot count a region".into()) })
+    }
+
+    /// The individual cells inside `region`, and of the category `within` when
+    /// one has been drilled into, at most `limit` of them.
+    ///
+    /// The counts say what a rectangle is made of; this says what is actually
+    /// in it. A rectangle can hold hundreds of thousands of cells, so only the
+    /// first page is ever asked for and the counts are what say how many there
+    /// really are.
+    fn cells_in(
+        &self,
+        _properties: &CellProperties,
+        _region: &SelectedRegion,
+        _within: Option<&RegionFocus>,
+        _limit: usize,
+    ) -> BoxFuture<'static, Result<Vec<CellRecord>, String>> {
+        Box::pin(async { Err("this service cannot list the cells of a region".into()) })
+    }
+
+    /// Whether this service can count a region at all. The selection summary
+    /// is offered only when it can.
+    fn counts_regions(&self) -> bool {
+        false
+    }
 
     /// Whether this service knows the genes the dataset measured. The genes
     /// panel is offered only when it does.
@@ -231,6 +365,7 @@ impl Plugin for CatalogPlugin {
                 cells::ask,
                 cells::take_answers,
                 cells::recount,
+                cells::recount_region,
                 genes::offer,
                 genes::search,
                 genes::add,

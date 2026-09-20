@@ -25,6 +25,7 @@ use super::snapshot::{
 };
 use crate::app::net::{Fetching, fetching};
 use crate::app::theme::Palette;
+use crate::catalog::RegionFocus;
 use crate::catalog::cells::Described;
 use crate::catalog::genes::GeneService;
 use crate::formats::discover::{self, Discovered};
@@ -39,7 +40,10 @@ use crate::source::volume::SourceVolume;
 use crate::source::{DataSource, SourceExtent, SourceUrl};
 use crate::view::grid::{MAX_LAYERS, MAX_PANELS};
 use crate::view::layers::spawn_layer;
-use crate::view::{FrameArea, LayerOpacity, Orbit, Panel, SelectedPanel, View, spawn_panel};
+use crate::view::{
+    FrameArea, FrameRegion, LayerOpacity, Orbit, Panel, SelectMode, SelectedPanel, View,
+    spawn_panel,
+};
 
 /// How long a dataset's cell settings wait for its properties before being
 /// given up on. A service that has not answered by then is not going to.
@@ -241,6 +245,27 @@ pub fn drive_restore(
             Some(flat),
             palette.frame_bg,
         );
+        // A rectangle implies the tool was on when it was saved: turning the
+        // tool off is what clears one, so a bookmark holding one was taken
+        // with it on. Restoring the rectangle without the mode would put a
+        // selection on screen that no drag could replace.
+        if let Some(saved) = &frame.selection {
+            commands.entity(panel).insert((
+                SelectMode,
+                FrameRegion {
+                    from: Vec2::from_array(saved.min),
+                    to: Vec2::from_array(saved.max),
+                },
+            ));
+            if let Some(focus) = saved.focus.clone() {
+                // A category the dataset no longer holds simply counts
+                // nothing, which the dock reports rather than failing over.
+                commands.entity(base).insert(RegionFocus {
+                    column: focus.column,
+                    label: focus.label,
+                });
+            }
+        }
         match (frame.orbit, volume) {
             (Some(saved), Some(volume)) => {
                 let mut orbit = Orbit::fit(volume, flat);

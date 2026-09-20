@@ -15,6 +15,7 @@ pub mod genes;
 pub mod gradient;
 pub mod hover;
 pub mod properties;
+pub mod region;
 pub mod stack;
 pub mod tree;
 pub mod volume;

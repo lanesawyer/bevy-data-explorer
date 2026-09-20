@@ -137,6 +137,36 @@ pub struct FrameState {
     /// Drawn over it, bottom first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layers: Vec<LayerState>,
+    /// The rectangle selecting cells in it, if one is drawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<RegionState>,
+}
+
+/// A rectangle selecting cells, and the column its summary is broken down by.
+///
+/// Kept in the frame's own display coordinates, the space [`ViewState`] saves
+/// its centre in, so the two are restored consistently: a rectangle saved in
+/// the dataset's coordinates would need the section layout to be rebuilt the
+/// same way before it meant anything.
+///
+/// The category drilled into travels with it rather than as a preference of
+/// its own, because it is a question about this rectangle. It is named by
+/// column and label, both of which survive another process, rather than by the
+/// code a re-ingest could renumber.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct RegionState {
+    pub min: [f32; 2],
+    pub max: [f32; 2],
+    /// The category drilled into, if one was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus: Option<FocusState>,
+}
+
+/// One value of one column, named the way the counting queries name it.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct FocusState {
+    pub column: String,
+    pub label: String,
 }
 
 /// A flat view, as the world it showed rather than a zoom factor.

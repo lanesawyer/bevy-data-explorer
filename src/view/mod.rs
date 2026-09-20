@@ -26,6 +26,7 @@ pub mod loading;
 pub mod orbit;
 pub mod overlay;
 pub mod requests;
+pub mod select;
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
@@ -52,6 +53,7 @@ pub use input::TextEntryFocused;
 pub use layers::{FrameLayers, LayerOf, LayerOpacity, OpensAsLayer};
 pub use orbit::Orbit;
 pub use requests::{DatasetRequest, DatasetTarget, PanelRequest, PendingShow};
+pub use select::{FrameRegion, SelectMode};
 
 /// The frame the sidebar's controls act on.
 ///
@@ -195,6 +197,7 @@ impl Plugin for ViewPlugin {
             .init_resource::<TextEntryFocused>()
             .add_observer(panel_buttons)
             .add_observer(orbit::on_view_toggled)
+            .add_observer(select::on_select_toggled)
             .add_systems(Update, track_text_focus.in_set(Stage::Focus))
             .add_systems(Update, reset_frame_area.in_set(Stage::FrameArea))
             .add_systems(
@@ -205,11 +208,19 @@ impl Plugin for ViewPlugin {
             )
             .add_systems(
                 Update,
-                (sync_panel_buttons, loading::sync_loading_bars).in_set(Stage::FrameChrome),
+                (
+                    sync_panel_buttons,
+                    loading::sync_loading_bars,
+                    select::sync_region_outlines,
+                )
+                    .in_set(Stage::FrameChrome),
             )
             .add_systems(
                 Update,
                 (
+                    // Before the pan, which skips a frame in selection mode, so
+                    // one drag is never both a selection and a pan.
+                    select::drag_region,
                     panel_controls,
                     reset_selected_view,
                     // After the pointer has turned it, so the camera never lags
@@ -225,7 +236,15 @@ impl Plugin for ViewPlugin {
                     .chain()
                     .in_set(Stage::Viewports),
             )
-            .add_systems(Update, orbit::sync_view_buttons.in_set(Stage::Chrome))
+            .add_systems(
+                Update,
+                (
+                    orbit::sync_view_buttons,
+                    select::sync_select_buttons,
+                    select::place_region_outlines,
+                )
+                    .in_set(Stage::Chrome),
+            )
             .add_systems(Update, update_selection_border.in_set(Stage::ControlsPlace))
             // Paging writes through to the source it pages, which is what every
             // other control does in this stage — and being here is what has the
@@ -234,7 +253,10 @@ impl Plugin for ViewPlugin {
                 Update,
                 (page_slice_stack, toggle_slice_grid, toggle_channels).in_set(Stage::ControlsApply),
             )
-            .add_systems(Update, probe_hover.in_set(Stage::HoverProbe))
+            .add_systems(
+                Update,
+                (probe_hover, select::probe_region).in_set(Stage::HoverProbe),
+            )
             // After the sources, which is when each says whether it is fetching.
             .add_systems(Update, loading::update_loading_bars.in_set(Stage::Overlay))
             .add_systems(

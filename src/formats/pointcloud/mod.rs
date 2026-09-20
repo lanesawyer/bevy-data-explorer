@@ -22,6 +22,7 @@ use crate::formats::scatterbrain::{Rect, Scatterbrain, Slide};
 use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::properties::{CellProperties, CellSelection, FilteredPoints, Shade};
+use crate::source::region::{RegionProbe, SelectedRegion, region_of};
 use crate::source::{self, DataSource, ShowsSource, SourceBusy, SourceExtent, SourceStatus};
 
 /// Descend into a node's children while its region covers at least this many
@@ -345,7 +346,11 @@ impl Plugin for PointCloudSystems {
         // Resolving the pointer reads the nodes that are resident now; the
         // schedule already puts `HoverProbing` after this frame's arrivals and
         // evictions.
-        .add_systems(Update, resolve_hover.in_set(source::hover::HoverProbing));
+        .add_systems(Update, resolve_hover.in_set(source::hover::HoverProbing))
+        .add_systems(
+            Update,
+            resolve_region.in_set(source::region::RegionResolving),
+        );
     }
 }
 
@@ -407,6 +412,33 @@ pub fn spawn_source(
 /// highlight drives a uniform upload per resident node and the tooltip drives a
 /// text layout — and the pointer sits still for most of the frames it is over a
 /// cloud.
+/// Say where a rectangle dragged over this cloud lands in its own coordinates.
+///
+/// A single cloud draws its points where their coordinates put them, so the
+/// only thing to undo is display space negating y.
+pub fn resolve_region(
+    mut commands: Commands,
+    sources: Query<(
+        Entity,
+        &PointStreamer,
+        Option<&RegionProbe>,
+        Option<&SelectedRegion>,
+    )>,
+) {
+    for (entity, streamer, probe, current) in &sources {
+        let wanted = probe.map(|probe| region_of(probe, Vec2::ZERO, streamer.cloud.reference_id()));
+        match wanted {
+            Some(region) if current != Some(&region) => {
+                commands.entity(entity).insert(region);
+            }
+            None if current.is_some() => {
+                commands.entity(entity).remove::<SelectedRegion>();
+            }
+            _ => {}
+        }
+    }
+}
+
 pub fn resolve_hover(
     mut sources: Query<(
         &PointStreamer,
