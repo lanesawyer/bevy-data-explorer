@@ -56,6 +56,14 @@ pub struct CellCounts {
     /// Each numeric property's histogram, by property id, in the buckets it
     /// already has.
     pub histograms: Vec<(String, Vec<u32>)>,
+    /// How each column's values break down by the column being colored by:
+    /// the column, then one triple per group of (its code, the color's code,
+    /// how many cells hold both).
+    pub mixes: Vec<(String, Vec<(u16, u16, u64)>)>,
+    /// The column the mixes were crossed against. Nothing when the service
+    /// did not cross them — a gradient has no codes to cross, and a coloring
+    /// with more values than a bar can show is not worth the bytes.
+    pub mix_column: Option<String>,
 }
 
 /// What a service found inside a region of a dataset: how its cells are

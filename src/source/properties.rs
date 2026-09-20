@@ -11,7 +11,7 @@
 //! points down to a chosen set of its values. Categorical values are colored
 //! one color each; numeric ones along a [`Gradient`].
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -443,6 +443,40 @@ pub struct CellProperties {
     pub gradient: Gradient,
     pub state: PropertyState,
     pub provenance: Provenance,
+    /// What the cells holding each value are colored, counted by the service
+    /// alongside the counts themselves.
+    pub mixes: Mixes,
+}
+
+/// How every other column's values break down by the column the points are
+/// colored by: for a region, a donor or a class, how much of it is drawn in
+/// each of the colors on screen.
+///
+/// Held here rather than on each [`PropertyValue`] because the whole lot is
+/// counted against one column and is worthless the moment the coloring moves
+/// somewhere else — [`Mixes::column`] is what says which column that was, and
+/// a mix counted against another is ignored rather than drawn stale.
+#[derive(Debug, Clone, Default)]
+pub struct Mixes {
+    /// The column these were crossed against, and the coloring they describe.
+    pub column: Option<String>,
+    /// Column id, then value code, then how many of that value's cells hold
+    /// each code of [`Mixes::column`].
+    pub by_column: HashMap<String, HashMap<u16, Vec<(u16, u64)>>>,
+}
+
+impl Mixes {
+    /// How the cells holding `code` in `column` are colored, or nothing when
+    /// they have not been counted — or were counted against another coloring.
+    pub fn of(&self, against: Option<&str>, column: &str, code: u16) -> &[(u16, u64)] {
+        if against.is_none() || self.column.as_deref() != against {
+            return &[];
+        }
+        self.by_column
+            .get(column)
+            .and_then(|codes| codes.get(&code))
+            .map_or(&[], Vec::as_slice)
+    }
 }
 
 impl CellProperties {
@@ -456,6 +490,7 @@ impl CellProperties {
             gradient: Gradient::default(),
             state: PropertyState::Ready,
             provenance: Provenance::Files,
+            mixes: Mixes::default(),
         }
     }
 
@@ -599,6 +634,13 @@ impl CellProperties {
         if !shown {
             property.clear();
         }
+    }
+
+    /// The column the points are colored by, if a categorical property is
+    /// doing the coloring. A gradient has no codes to break a mix down by.
+    pub fn mix_column(&self) -> Option<&str> {
+        let property = self.properties.get(self.color_by?)?;
+        property.color_column().map(|(column, _)| column)
     }
 
     /// How points are colored, when they are colored by a numeric property.

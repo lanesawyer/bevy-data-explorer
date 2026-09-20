@@ -51,6 +51,12 @@ const BUCKETS: usize = 32;
 /// a whole genome would be tens of thousands of rows.
 const GENE_RESULTS: usize = 30;
 
+/// The most values a coloring can have before the counts stop being crossed
+/// against it. Crossing costs a row per pairing that occurs — measured at
+/// 13,000 rows and 1.9MB for a 700-value column against a 338-value one — and
+/// a bar divided into hundreds of colors says nothing anyway.
+const MIX_COLORS: usize = 128;
+
 /// One BKP dataset, as the queries about its cells name it.
 pub struct BkpCells {
     pub endpoint: String,
@@ -328,6 +334,43 @@ impl BkpCells {
             applied.extend(within.iter());
             json!(applied)
         };
+        // Every count but the coloring's own is crossed against the column
+        // the points are colored by, which is what the panel's bars are drawn
+        // from. A region's counts are not: the summary already breaks a
+        // rectangle down by the coloring, and a drag re-asks these.
+        let mix_column = properties
+            .mix_column()
+            .filter(|_| !region_only)
+            .filter(|column| {
+                let values = properties
+                    .properties
+                    .iter()
+                    .flat_map(CellProperty::columns)
+                    .find(|(id, _)| id == column)
+                    .map_or(0, |(_, values)| values.len());
+                if values > MIX_COLORS {
+                    info!("BKP: not crossing counts against {values} colors");
+                }
+                values <= MIX_COLORS
+            })
+            .map(str::to_string);
+        let mix_codes: HashMap<String, u16> = mix_column
+            .as_deref()
+            .and_then(|column| {
+                properties
+                    .properties
+                    .iter()
+                    .flat_map(CellProperty::columns)
+                    .find(|(id, _)| *id == column)
+            })
+            .map(|(_, values)| {
+                values
+                    .iter()
+                    .map(|value| (value.label.clone(), value.code))
+                    .collect()
+            })
+            .unwrap_or_default();
+
         // Counts come back keyed by label, so each column takes its labels
         // along to turn them back into codes.
         let mut columns: Vec<(String, HashMap<String, u16>, Value)> = Vec::new();
@@ -354,21 +397,35 @@ impl BkpCells {
             }
         }
         Box::pin(async move {
-            let (counted, histograms) =
-                futures::future::join(
-                    join_all(columns.iter().map(|(id, codes, filters)| {
-                        counts(&endpoint, &filter, id, codes, filters)
-                    })),
-                    join_all(ranges.iter().map(|(_, field, extent, filters)| {
-                        histogram(&endpoint, &filter, field, *extent, filters)
-                    })),
-                )
-                .await;
-            let mut found = CellCounts::default();
+            let (counted, histograms) = futures::future::join(
+                join_all(columns.iter().map(|(id, codes, filters)| {
+                    // A column crossed against itself would count each value
+                    // against itself, so the coloring's own counts are asked
+                    // for plainly.
+                    let against = mix_column
+                        .as_deref()
+                        .filter(|column| column != id)
+                        .map(|column| (column, &mix_codes));
+                    counts(&endpoint, &filter, id, codes, against, filters)
+                })),
+                join_all(ranges.iter().map(|(_, field, extent, filters)| {
+                    histogram(&endpoint, &filter, field, *extent, filters)
+                })),
+            )
+            .await;
+            let mut found = CellCounts {
+                mix_column: mix_column.clone(),
+                ..CellCounts::default()
+            };
             let mut last_error = None;
             for ((id, _, _), result) in columns.into_iter().zip(counted) {
                 match result {
-                    Ok(counts) => found.values.push((id, counts)),
+                    Ok((counts, mixes)) => {
+                        found.values.push((id.clone(), counts));
+                        if !mixes.is_empty() {
+                            found.mixes.push((id, mixes));
+                        }
+                    }
                     Err(e) => last_error = Some(e),
                 }
             }
@@ -710,6 +767,9 @@ struct Counted {
 
 #[derive(Deserialize)]
 struct Tuple {
+    /// Which column this value came from, for a group crossing two.
+    #[serde(default)]
+    property: Option<String>,
     value: Option<String>,
 }
 
@@ -798,40 +858,86 @@ const CELL_INFO: &str = "query($filter: DatasetFilter!, $properties: [String!],
   }
 }";
 
-const COUNTS: &str = "query($filter: DatasetFilter!, $field: String!,
+const COUNTS: &str = "query($filter: DatasetFilter!, $fields: [String!],
                           $filters: [[CellFilterInput!]]) {
-  cellCounts(datasetFilter: $filter, groupBy: [$field], filters: $filters) {
+  cellCounts(datasetFilter: $filter, groupBy: $fields, filters: $filters) {
     count
-    properties { value }
+    properties { property value }
   }
 }";
 
-/// How many cells hold each value of one categorical column, by code, among
-/// the cells `filters` admit: every one of its groups, and any condition in a
-/// group.
+/// How many cells hold each value of one categorical column, and — when
+/// `against` names a second column — how many hold each pairing of the two,
+/// among the cells `filters` admit: every one of its groups, and any
+/// condition in a group.
+///
+/// Crossing two columns is one query rather than one per value: the API
+/// groups by as many fields as it is given and returns only the pairings that
+/// occur, so a taxonomy crossed with its own coloring costs a row per cluster
+/// rather than a row per cluster per color.
 async fn counts(
     endpoint: &str,
     filter: &Value,
     field: &str,
     codes: &HashMap<String, u16>,
+    against: Option<(&str, &HashMap<String, u16>)>,
     filters: &Value,
-) -> Result<Vec<(u16, u64)>, String> {
+) -> Result<(Vec<(u16, u64)>, Vec<(u16, u16, u64)>), String> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Data {
         cell_counts: Vec<Counted>,
     }
 
-    let variables = json!({ "filter": filter, "field": field, "filters": filters });
+    let fields: Vec<&str> = [field]
+        .into_iter()
+        .chain(against.map(|(id, _)| id))
+        .collect();
+    let variables = json!({ "filter": filter, "fields": fields, "filters": filters });
     let data: Data = ask(endpoint, COUNTS, variables).await?;
-    Ok(data
-        .cell_counts
-        .iter()
-        .filter_map(|counted| {
-            let label = counted.properties.first()?.value.as_deref()?;
-            Some((*codes.get(label)?, counted.count as u64))
-        })
-        .collect())
+    Ok(tally(&data.cell_counts, field, codes, against))
+}
+
+/// Put each counted group back on its codes: the column's own count, summed
+/// across whatever it was crossed with, and the crossing itself.
+///
+/// Each group names the column every one of its values came from, so a
+/// crossed pair is read by name rather than by trusting the order it comes
+/// back in. A group holding a label neither column knows is dropped.
+fn tally<'a>(
+    groups: &'a [Counted],
+    field: &str,
+    codes: &HashMap<String, u16>,
+    against: Option<(&str, &HashMap<String, u16>)>,
+) -> (Vec<(u16, u64)>, Vec<(u16, u16, u64)>) {
+    let held = |counted: &'a Counted, column: &str| -> Option<&'a str> {
+        counted
+            .properties
+            .iter()
+            .find(|tuple| tuple.property.as_deref() == Some(column))
+            // One group has nothing to tell apart, and the range counts name
+            // no column at all.
+            .or_else(|| counted.properties.first().filter(|_| against.is_none()))
+            .and_then(|tuple| tuple.value.as_deref())
+    };
+
+    let mut totals: HashMap<u16, u64> = HashMap::new();
+    let mut mixes = Vec::new();
+    for counted in groups {
+        let Some(code) = held(counted, field).and_then(|label| codes.get(label).copied()) else {
+            continue;
+        };
+        let count = counted.count as u64;
+        *totals.entry(code).or_default() += count;
+        if let Some((column, against)) = against
+            && let Some(color) = held(counted, column).and_then(|label| against.get(label).copied())
+        {
+            mixes.push((code, color, count));
+        }
+    }
+    let mut values: Vec<(u16, u64)> = totals.into_iter().collect();
+    values.sort_unstable();
+    (values, mixes)
 }
 
 /// One value as the platform lists it, before it is placed.
@@ -1122,6 +1228,65 @@ fn parse_color(text: &str) -> Option<Color> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two groups of a real crossed answer: the API returns one row per
+    /// pairing that occurs, each value named by the column it came from.
+    const CROSSED_TEXT: &str = r#"[
+      { "count": 2144, "properties": [
+          { "property": "NEUROTRANSMITTER", "value": "Chol" },
+          { "property": "CLASS", "value": "17 MH-LH Glut" } ] },
+      { "count": 1778, "properties": [
+          { "property": "NEUROTRANSMITTER", "value": "Chol" },
+          { "property": "CLASS", "value": "08 CNU-MGE GABA" } ] },
+      { "count": 6121, "properties": [
+          { "property": "NEUROTRANSMITTER", "value": "Dopa" },
+          { "property": "CLASS", "value": "05 OB-IMN GABA" } ] },
+      { "count": 12, "properties": [
+          { "property": "NEUROTRANSMITTER", "value": "Chol" },
+          { "property": "CLASS", "value": "a class nobody described" } ] }
+    ]"#;
+
+    fn crossed() -> (Vec<(u16, u64)>, Vec<(u16, u16, u64)>) {
+        let groups: Vec<Counted> = serde_json::from_str(CROSSED_TEXT).unwrap();
+        let codes = HashMap::from([("Chol".to_string(), 7), ("Dopa".to_string(), 9)]);
+        let colors = HashMap::from([
+            ("17 MH-LH Glut".to_string(), 17),
+            ("08 CNU-MGE GABA".to_string(), 8),
+            ("05 OB-IMN GABA".to_string(), 5),
+        ]);
+        let (values, mixes) = tally(
+            &groups,
+            "NEUROTRANSMITTER",
+            &codes,
+            Some(("CLASS", &colors)),
+        );
+        // Owned, so the test's maps do not have to outlive the answer.
+        (values, mixes)
+    }
+
+    #[test]
+    fn a_crossed_count_adds_up_to_the_plain_one() {
+        let (values, _) = crossed();
+        // Chol's three groups, the undescribed class among them, and Dopa's one.
+        assert_eq!(values, [(7, 2144 + 1778 + 12), (9, 6121)]);
+    }
+
+    #[test]
+    fn a_crossed_count_keeps_the_pairings_it_can_name() {
+        let (_, mixes) = crossed();
+        assert_eq!(mixes, [(7, 17, 2144), (7, 8, 1778), (9, 5, 6121)]);
+    }
+
+    #[test]
+    fn an_uncrossed_count_reads_the_one_value_a_group_holds() {
+        let groups: Vec<Counted> =
+            serde_json::from_str(r#"[{ "count": 40, "properties": [{ "value": "Braak 0" }] }]"#)
+                .unwrap();
+        let codes = HashMap::from([("Braak 0".to_string(), 5)]);
+        let (values, mixes) = tally(&groups, "BRAAK", &codes, None);
+        assert_eq!(values, [(5, 40)]);
+        assert!(mixes.is_empty());
+    }
 
     #[test]
     fn a_region_is_asked_for_as_the_box_the_api_takes() {

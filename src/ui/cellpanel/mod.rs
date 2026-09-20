@@ -17,8 +17,18 @@
 //! color they are drawn in. A square beside a property nobody is coloring by
 //! would name a color that is nowhere on screen.
 //!
+//! Every other property's values get a bar instead, beside the count and
+//! divided between the colors its cells are actually drawn in, largest share
+//! first: a legend read the other way round, saying what a donor, a region or
+//! a class is made of in the colors already on screen. The service counts the crossing alongside the counts
+//! themselves, so the bars follow the filters and empty the moment the
+//! coloring moves to another column.
+//!
 //! Genes are properties too, but are listed in their own section
 //! (`ui::genes`), which builds its controls from the same parts.
+
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 use bevy::prelude::*;
 use bevy::ui::Checked;
@@ -96,16 +106,52 @@ pub struct ValueCount {
     pub value: usize,
 }
 
+/// Which column and code one value's row stands for.
+///
+/// The parts of a row that depend on what the points are colored by — its
+/// color square and its mix bar — are kept in step from this, without
+/// knowing which property or level of the panel they sit under. A tree's
+/// levels are columns of their own, so a node carries the level it is on.
+#[derive(Component, Clone, Default)]
+pub struct ValueColumn {
+    pub column: String,
+    pub code: u16,
+}
+
 /// The color square beside one value, shown only while its points are
 /// actually drawn in that color.
 #[derive(Component, Clone, Default)]
-pub struct ValueSwatch {
-    pub property: usize,
-    /// The tree level the value sits on; nothing for a flat property. A tree
-    /// colors by one level, so the rest of its nodes are no more in use than
-    /// another property's values are.
-    pub level: Option<usize>,
+pub struct ValueSwatch;
+
+/// The bar under one value, divided between the colors the cells holding
+/// that value are drawn in.
+///
+/// Empty until a service has counted the crossing, and empty again the moment
+/// the coloring moves to another column. `drawn` is what its segments were
+/// last built from, so counts landing rebuild it and a frame where nothing
+/// changed does not.
+#[derive(Component, Clone, Default)]
+pub struct MixBar {
+    pub drawn: Option<u64>,
 }
+
+/// The most colors one bar is divided into. Past this the largest are kept
+/// and the rest are gathered into the remainder: a bar cut into more slices
+/// than it has pixels is a smear.
+const MAX_SEGMENTS: usize = 16;
+
+/// The least of a bar one color is given a slice of. Below this it would be
+/// a fraction of a pixel, and it joins the remainder instead.
+const MIN_SEGMENT: f32 = 0.005;
+
+/// How tall the mix bars are, and how wide. Wide enough to read a couple of
+/// dozen slices in, narrow enough to leave a sidebar's labels their room.
+const BAR_PX: f32 = 6.0;
+const BAR_WIDTH_PX: f32 = 56.0;
+
+/// The slot a count is written right-aligned into, so a row with a long one
+/// does not push its bar out of line with the rest.
+const COUNT_WIDTH_PX: f32 = 34.0;
 
 /// Below the view configuration, which applies to every source.
 const SECTION_ORDER: u32 = 20;
@@ -313,23 +359,25 @@ pub fn rebuild_cell_panel(
 }
 
 /// One value's row: its checkbox, captioned with the color its points are
-/// drawn in and its label, and the count of cells holding it.
+/// drawn in and its label, then hard against the right edge the bar dividing
+/// its cells between the colors on screen and the count of them.
 ///
-/// `checkbox`, `count` and `swatch` mark the three for whatever keeps them in
-/// sync. The square starts hidden and is shown by
-/// [`update_property_controls`] only while this property is the one coloring
-/// the points.
+/// `checkbox` and `count` mark the two for whatever keeps them in sync;
+/// `column` says which column and code the row stands for, which is what the
+/// square and the bar are kept in step from. Both start hidden: the square is
+/// shown by [`update_property_controls`] only while this column is the one
+/// coloring the points, and the bar by [`update_mix_bars`] only while it is
+/// not and a service has counted the crossing.
 pub fn spawn_value_row(
     commands: &mut Commands,
     value: &PropertyValue,
     checked: bool,
     checkbox: impl Bundle,
     count: impl Bundle,
-    swatch: ValueSwatch,
+    column: ValueColumn,
 ) -> Entity {
     let caption = value.label.clone();
     let color = value.swatch();
-    let ValueSwatch { property, level } = swatch;
     let counted = value.count.map(compact_count).unwrap_or_default();
     let boxed = commands
         .spawn_scene(bsn! {
@@ -346,7 +394,11 @@ pub fn spawn_value_row(
                         // The value's own color, not a theme's: it is what
                         // its points are painted in.
                         BackgroundColor({ color })
-                        ValueSwatch { property: { property }, level: { level } }
+                        ValueSwatch
+                        ValueColumn {
+                            column: { column.column.clone() },
+                            code: { column.code },
+                        }
                     ),
                     button_text(caption),
                 ] }
@@ -364,9 +416,36 @@ pub fn spawn_value_row(
             Text({ counted })
             TextFont { font_size: { FontSize::Px(size::SMALL) } }
             ThemeTextColor({ tokens::TEXT_DIM })
-            Node { flex_shrink: { 0.0_f32 } }
+            TextLayout { justify: { Justify::Right } }
+            Node { flex_shrink: { 0.0_f32 }, min_width: { Val::Px(COUNT_WIDTH_PX) } }
         })
         .insert(count)
+        .id();
+    let bar = commands
+        .spawn((
+            Node {
+                width: Val::Px(BAR_WIDTH_PX),
+                height: Val::Px(BAR_PX),
+                flex_shrink: 0.0,
+                border_radius: BorderRadius::all(Val::Px(BAR_PX / 2.0)),
+                overflow: Overflow::clip(),
+                display: Display::None,
+                ..default()
+            },
+            MixBar::default(),
+            column,
+        ))
+        .id();
+    // The bar travels with the count against the right edge, so the bars of
+    // a list line up under one another however long the labels are.
+    let tail = commands
+        .spawn(Node {
+            align_items: AlignItems::Center,
+            flex_shrink: 0.0,
+            column_gap: Val::Px(6.0),
+            ..default()
+        })
+        .add_children(&[bar, counted])
         .id();
     commands
         .spawn(Node {
@@ -376,8 +455,44 @@ pub fn spawn_value_row(
             column_gap: Val::Px(6.0),
             ..default()
         })
-        .add_children(&[boxed, counted])
+        .add_children(&[boxed, tail])
         .id()
+}
+
+/// How one value's cells divide between the colors on screen: a weight and a
+/// color per slice, largest first, so what a value is mostly made of is the
+/// first thing the bar says.
+///
+/// Slices too thin to see are gathered into a remainder at the end, in
+/// `rest`, as are all but the largest [`MAX_SEGMENTS`] — a bar with a
+/// thousand clusters in it is a smear, and the shape is in its biggest parts.
+fn segments(mix: &[(u16, u64)], colors: &HashMap<u16, Color>, rest: Color) -> Vec<(f32, Color)> {
+    let total: u64 = mix.iter().map(|(_, count)| *count).sum();
+    if total == 0 {
+        return Vec::new();
+    }
+    let fraction = |count: u64| count as f32 / total as f32;
+    let mut kept: Vec<(u64, Color)> = mix
+        .iter()
+        .filter(|(_, count)| fraction(*count) >= MIN_SEGMENT)
+        .filter_map(|(code, count)| colors.get(code).map(|color| (*count, *color)))
+        .collect();
+    // Largest first, ties broken by color so that counting the same answer
+    // twice does not shuffle a bar's slices.
+    kept.sort_unstable_by_key(|(count, color)| {
+        (std::cmp::Reverse(*count), color.to_srgba().to_u8_array())
+    });
+    kept.truncate(MAX_SEGMENTS);
+
+    let shown: u64 = kept.iter().map(|(count, _)| *count).sum();
+    let mut slices: Vec<(f32, Color)> = kept
+        .into_iter()
+        .map(|(count, color)| (fraction(count), color))
+        .collect();
+    if fraction(total - shown) >= MIN_SEGMENT {
+        slices.push((fraction(total - shown), rest));
+    }
+    slices
 }
 
 /// The note under a branch cut short at [`MAX_VALUE_ROWS`].
@@ -471,7 +586,7 @@ pub fn on_value_toggled(
 /// Rebuilding despawns the sub-sections, so ticking a checkbox would otherwise
 /// close the very section being used. The flag outlives the accordion here.
 #[derive(Resource, Default)]
-pub struct OpenSections(pub std::collections::HashMap<usize, bool>);
+pub struct OpenSections(pub HashMap<usize, bool>);
 
 /// Marks a sub-section with the property it stands for.
 #[derive(Component, Clone, Default)]
@@ -647,7 +762,7 @@ pub fn update_property_controls(
     boxes: Query<(Entity, &ValueCheckbox, Has<Checked>)>,
     mut colors: Query<(&ColorByButton, &mut ButtonVariant)>,
     mut counts: Query<(&ValueCount, &mut Text)>,
-    mut swatches: Query<(&ValueSwatch, &mut Node)>,
+    mut swatches: Query<(&ValueColumn, &mut Node), With<ValueSwatch>>,
 ) {
     let Some(properties) = selected
         .0
@@ -689,18 +804,10 @@ pub fn update_property_controls(
     }
 
     // A value's color square means nothing unless its points are drawn in it,
-    // so only the property doing the coloring shows squares — and on a tree,
-    // only the level it colors by.
-    for (swatch, mut node) in &mut swatches {
-        let coloring = properties.color_by == Some(swatch.property)
-            && swatch.level.is_none_or(|level| {
-                properties
-                    .properties
-                    .get(swatch.property)
-                    .and_then(CellProperty::tree)
-                    .is_some_and(|tree| tree.color_level == level)
-            });
-        let wanted = if coloring {
+    // so only the column doing the coloring shows squares — on a tree, only
+    // the level it colors by, and nowhere at all under a gradient.
+    for (column, mut node) in &mut swatches {
+        let wanted = if properties.mix_column() == Some(column.column.as_str()) {
             Display::Flex
         } else {
             Display::None
@@ -720,6 +827,90 @@ pub fn update_property_controls(
         variant.set_if_neq(wanted);
     }
 }
+/// Divide each value's bar between the colors its cells are drawn in.
+///
+/// The counts these come from land seconds after the labels and again
+/// whenever a filter or the coloring changes, so the segments are rebuilt
+/// when they differ and left alone otherwise: a row can hold sixteen of them
+/// and a property can hold three hundred rows.
+pub fn update_mix_bars(
+    mut commands: Commands,
+    palette: Res<crate::app::theme::Palette>,
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    sources: Query<&CellProperties>,
+    mut bars: Query<(Entity, &ValueColumn, &mut MixBar, &mut Node)>,
+) {
+    let Some(properties) = selected
+        .0
+        .and_then(|panel| panels.get(panel).ok())
+        .and_then(|shows| sources.get(shows.0).ok())
+    else {
+        return;
+    };
+
+    // What each of the coloring's codes is painted, which is what a slice of
+    // a bar is drawn in.
+    let against = properties.mix_column();
+    let colors: HashMap<u16, Color> = properties
+        .color_by
+        .and_then(|index| properties.properties.get(index))
+        .and_then(CellProperty::color_column)
+        .map(|(_, values)| {
+            values
+                .iter()
+                .map(|value| (value.code, value.swatch()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    for (entity, column, mut bar, mut node) in &mut bars {
+        let mix = properties.mixes.of(against, &column.column, column.code);
+        let drawn = Some(signature(against, mix));
+        if bar.drawn == drawn {
+            continue;
+        }
+        bar.drawn = drawn;
+        commands.entity(entity).despawn_related::<Children>();
+
+        let slices = segments(mix, &colors, palette.fill);
+        let wanted = if slices.is_empty() {
+            Display::None
+        } else {
+            Display::Flex
+        };
+        if node.display != wanted {
+            node.display = wanted;
+        }
+        let spawned: Vec<Entity> = slices
+            .into_iter()
+            .map(|(weight, color)| {
+                commands
+                    .spawn((
+                        Node {
+                            flex_grow: weight,
+                            flex_basis: Val::Px(0.0),
+                            height: Val::Percent(100.0),
+                            ..default()
+                        },
+                        BackgroundColor(color),
+                    ))
+                    .id()
+            })
+            .collect();
+        commands.entity(entity).add_children(&spawned);
+    }
+}
+
+/// What a bar was drawn from, so an answer that says the same thing as the
+/// last one does not respawn its slices.
+fn signature(against: Option<&str>, mix: &[(u16, u64)]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    against.hash(&mut hasher);
+    mix.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// The sidebar section that filters and colors a point cloud by its cell
 /// properties.
 pub struct CellPanelPlugin;
@@ -758,6 +949,7 @@ impl Plugin for CellPanelPlugin {
                 Update,
                 (
                     update_property_controls,
+                    update_mix_bars,
                     visibility::update_property_visibility,
                     range::update_range_controls,
                     tree::update_tree_controls,
@@ -768,5 +960,69 @@ impl Plugin for CellPanelPlugin {
                     .in_set(Stage::ControlsPlace),
             )
             .add_systems(Startup, spawn_cell_panel.in_set(Boot::DockContent));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const REST: Color = Color::BLACK;
+
+    /// What the coloring paints codes 0..n.
+    fn palette(codes: usize) -> HashMap<u16, Color> {
+        (0..codes as u16)
+            .map(|code| (code, crate::source::properties::default_color(code)))
+            .collect()
+    }
+
+    #[test]
+    fn a_bar_divides_in_proportion_to_the_counts() {
+        let colors = palette(3);
+        let slices = segments(&[(0, 30), (1, 10)], &colors, REST);
+        let weights: Vec<f32> = slices.iter().map(|(weight, _)| *weight).collect();
+        assert_eq!(weights, [0.75, 0.25]);
+        assert_eq!(slices[0].1, colors[&0]);
+    }
+
+    #[test]
+    fn a_bar_puts_its_largest_color_first() {
+        let colors = palette(3);
+        let slices = segments(&[(2, 10), (0, 30), (1, 20)], &colors, REST);
+        let drawn: Vec<Color> = slices.iter().map(|(_, color)| *color).collect();
+        assert_eq!(drawn, [colors[&0], colors[&1], colors[&2]]);
+    }
+
+    #[test]
+    fn a_counted_nothing_has_no_bar() {
+        assert!(segments(&[], &palette(3), REST).is_empty());
+        assert!(segments(&[(0, 0)], &palette(3), REST).is_empty());
+    }
+
+    #[test]
+    fn slivers_are_gathered_into_the_remainder() {
+        let slices = segments(&[(0, 1000), (1, 1)], &palette(2), REST);
+        assert_eq!(slices.len(), 1, "a thousandth is under a pixel");
+        assert_eq!(slices[0].1, palette(2)[&0]);
+    }
+
+    #[test]
+    fn a_bar_keeps_the_largest_colors_and_lumps_the_rest() {
+        let mix: Vec<(u16, u64)> = (0..40u16)
+            .map(|code| (code, 100 - u64::from(code)))
+            .collect();
+        let slices = segments(&mix, &palette(40), REST);
+        assert_eq!(slices.len(), MAX_SEGMENTS + 1, "the rest is one slice");
+        assert_eq!(slices[MAX_SEGMENTS].1, REST);
+        let total: f32 = slices.iter().map(|(weight, _)| weight).sum();
+        assert!((total - 1.0).abs() < 1e-4, "the bar is full: {total}");
+    }
+
+    #[test]
+    fn a_color_the_panel_does_not_know_falls_into_the_remainder() {
+        let slices = segments(&[(0, 50), (99, 50)], &palette(1), REST);
+        assert_eq!(slices.len(), 2);
+        assert_eq!(slices[1].1, REST);
+        assert_eq!(slices[1].0, 0.5);
     }
 }

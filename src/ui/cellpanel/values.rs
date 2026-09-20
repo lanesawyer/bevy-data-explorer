@@ -17,7 +17,7 @@ use bevy::prelude::*;
 use bevy::text::EditableText;
 
 use super::tree::{TreeCheckbox, TreeCount, Unveil, spawn_tree_body};
-use super::{MAX_VALUE_ROWS, ValueCheckbox, ValueCount, ValueSwatch, spawn_value_row};
+use super::{MAX_VALUE_ROWS, ValueCheckbox, ValueColumn, ValueCount, spawn_value_row};
 use crate::source::ShowsSource;
 use crate::source::properties::{CellProperties, CellProperty, PropertyKind};
 use crate::view::SelectedPanel;
@@ -181,9 +181,9 @@ pub fn sync_value_lists(
                         property: list.property,
                         value: index,
                     },
-                    ValueSwatch {
-                        property: list.property,
-                        level: None,
+                    ValueColumn {
+                        column: property.id.clone(),
+                        code: values[index].code,
                     },
                 ),
                 PropertyKind::Tree(tree) => spawn_value_row(
@@ -198,9 +198,9 @@ pub fn sync_value_lists(
                         property: list.property,
                         node: index,
                     },
-                    ValueSwatch {
-                        property: list.property,
-                        level: Some(tree.nodes[index].level),
+                    ValueColumn {
+                        column: tree.column_of(index).unwrap_or_default().to_string(),
+                        code: tree.nodes[index].value.code,
                     },
                 ),
                 PropertyKind::Numeric(_) => continue,

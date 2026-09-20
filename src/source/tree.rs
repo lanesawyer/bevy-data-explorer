@@ -57,6 +57,12 @@ impl Tree {
         self.nodes.iter().any(|other| other.parent == Some(node))
     }
 
+    /// The column one node's value is stored in: the level it sits on.
+    pub fn column_of(&self, node: usize) -> Option<&str> {
+        let level = self.nodes.get(node)?.level;
+        Some(self.levels.get(level)?.id.as_str())
+    }
+
     pub fn level_values(&self, level: usize) -> impl Iterator<Item = &PropertyValue> {
         self.nodes
             .iter()

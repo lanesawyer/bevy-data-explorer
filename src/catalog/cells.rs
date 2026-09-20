@@ -13,6 +13,8 @@
 //! and whenever a gene is added, whose histogram has to be counted the same
 //! way.
 
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 
 use super::{
@@ -21,7 +23,8 @@ use super::{
 use crate::app::net::{Fetching, fetching};
 use crate::source::SourceUrl;
 use crate::source::properties::{
-    CellColumns, CellProperties, CellProperty, Column, PropertyState, Provenance, Restriction,
+    CellColumns, CellProperties, CellProperty, Column, Mixes, PropertyState, Provenance,
+    Restriction,
 };
 use crate::source::region::SelectedRegion;
 
@@ -62,8 +65,10 @@ pub struct Counting {
     reading: Option<Fetching<Result<CellCounts, String>>>,
 }
 
-/// What a count depends on: which properties there are, and how they filter.
-type Counted = (Vec<String>, Vec<(Column, Restriction)>);
+/// What a count depends on: which properties there are, how they filter, and
+/// the column they are crossed against, since a change of coloring is a
+/// different breakdown to ask for.
+type Counted = (Vec<String>, Vec<(Column, Restriction)>, Option<String>);
 
 /// Keeps a described source's selection summary in step with the rectangle
 /// drawn over it and the filters in force.
@@ -193,6 +198,7 @@ pub fn recount(time: Res<Time>, mut sources: Query<(&mut Counting, &mut CellProp
                 .map(|property| property.id.clone())
                 .collect(),
             properties.filters(),
+            properties.mix_column().map(str::to_string),
         );
         if counting.asked.as_ref() == Some(&wanted) {
             counting.waited = 0.0;
@@ -212,9 +218,11 @@ pub fn recount(time: Res<Time>, mut sources: Query<(&mut Counting, &mut CellProp
         match result {
             Ok(counts) => {
                 debug!(
-                    "{} counted cells for {} properties",
+                    "{} counted cells for {} properties, {} of them crossed against {}",
                     counting.catalog,
-                    counts.values.len() + counts.histograms.len()
+                    counts.values.len() + counts.histograms.len(),
+                    counts.mixes.len(),
+                    counts.mix_column.as_deref().unwrap_or("nothing"),
                 );
                 apply_counts(&mut properties, counts);
             }
@@ -271,6 +279,9 @@ pub fn recount_region(
                     .map(|property| property.id.clone())
                     .collect(),
                 properties.filters(),
+                // A region's counts are not crossed against the coloring, so
+                // choosing another color-by does not re-ask them.
+                None,
             ),
         );
         if counting.asked.as_ref() == Some(&wanted) {
@@ -311,6 +322,7 @@ pub fn recount_region(
                             .map(|property| property.id.clone())
                             .collect(),
                         properties.filters(),
+                        None,
                     ),
                     focus.clone(),
                 );
@@ -376,6 +388,23 @@ pub fn recount_region(
 }
 
 fn apply_counts(properties: &mut CellProperties, counts: CellCounts) {
+    // Crossed against a coloring that has since moved, the mixes describe
+    // colors nothing is drawn in any more, so they are kept with the column
+    // they were counted against and dropped rather than shown stale.
+    properties.mixes = Mixes {
+        column: counts.mix_column,
+        by_column: counts
+            .mixes
+            .into_iter()
+            .map(|(column, crossed)| {
+                let mut codes: HashMap<u16, Vec<(u16, u64)>> = HashMap::new();
+                for (code, color, count) in crossed {
+                    codes.entry(code).or_default().push((color, count));
+                }
+                (column, codes)
+            })
+            .collect(),
+    };
     for (id, histogram) in counts.histograms {
         let range = properties
             .properties
@@ -479,6 +508,7 @@ mod tests {
                     ("missing".into(), vec![(0, 5)]),
                 ],
                 histograms: Vec::new(),
+                ..CellCounts::default()
             },
         );
         let counts: Vec<Option<u64>> = properties.properties[0]
