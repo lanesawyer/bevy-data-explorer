@@ -1,0 +1,55 @@
+{
+ "data": {
+  "dataCollectionProjectInventory": [
+   {
+    "referenceId": "JGN327NUXRZSHEV88TN",
+    "title": "Seattle Alzheimer's Disease Brain Cell Atlas (SEA-AD) - Donor Metadata and Neuropathology",
+    "shortTitle": "",
+    "capabilities": [
+     "DONOR"
+    ]
+   },
+   {
+    "referenceId": "5O3GAQDWZK5ZM3IMWWB",
+    "title": "A Molecular and Cellular Atlas of the Marmoset Brain - Single nucleus sequencing",
+    "shortTitle": "",
+    "capabilities": [
+     "SPECIMEN",
+     "SPECIMEN_FILES"
+    ]
+   },
+   {
+    "referenceId": "NIIDEA21OW12W4XTTYO",
+    "title": "Transcriptomic cell types in the mouse brain: 10x cells",
+    "shortTitle": "",
+    "capabilities": [
+     "SPECIMEN",
+     "SPECIMEN_FILES"
+    ]
+   },
+   {
+    "referenceId": "K1YP17A0QIKJOMOAIS4",
+    "title": "Full morphology in the mouse brain: fMOST",
+    "shortTitle": "",
+    "capabilities": [
+     "SPECIMEN",
+     "SPECIMEN_FILES"
+    ]
+   },
+   {
+    "referenceId": "5C0201JSVE04WY6DMVC",
+    "title": "A molecularly defined and spatially resolved cell atlas of the whole mouse brain",
+    "shortTitle": "",
+    "capabilities": [
+     "BKP_DATASET"
+    ]
+   },
+   {
+    "referenceId": "Y0SZ8G86MC8US8S2211",
+    "title": "Highly specific, renewable, and cost-effective antibody toolbox for 3D proteomic phenotyping of the brain",
+    "shortTitle": "",
+    "capabilities": []
+   }
+  ]
+ }
+}

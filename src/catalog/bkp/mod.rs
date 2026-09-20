@@ -12,6 +12,7 @@
 //! the portal does rather than the codes its files hold.
 
 pub mod cells;
+pub mod projects;
 
 use std::sync::Arc;
 

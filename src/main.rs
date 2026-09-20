@@ -43,6 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // order listed here.
     app.add_plugins(catalog::CatalogPlugin)
         .add_catalog(catalog::bkp::Bkp::production())
+        .add_catalog(catalog::bkp::projects::SpecimenTables::production())
         .add_catalog(catalog::examples::Examples);
 
     // Each dataset named is registered exactly as one opened from the sidebar

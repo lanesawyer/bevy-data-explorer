@@ -95,6 +95,13 @@ its query string. A format may talk to an API; what it may not do is reach
 into `catalog`, which is below it. The endpoint comes off the address rather
 than from `catalog::bkp::PRODUCTION` for exactly that reason.
 
+The platform gets two catalogs rather than one. `catalog/bkp` lists a
+dataset's visualizations; `catalog/bkp/projects` lists the projects whose
+specimens are a table, which is a different query against the same API. Apart,
+because each keeps its own slot and a slow or failing one then costs only its
+own entries. A project qualifies on the capabilities it declares, never on
+what its title suggests.
+
 Frames point at a source entity rather than naming a format. Every streamer is
 a component of the source entity it serves, and selects panels with
 `shows.0 == streamer.source` rather than by type, so two frames can show

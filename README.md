@@ -24,9 +24,11 @@ as you zoom. Five formats are supported so far:
   alongside the imagery — gene panels, region lists, cell annotations. Read
   whole, but only the rows on screen are built.
 - **Brain Knowledge Platform specimens**: one project's specimen records,
-  asked of the platform's GraphQL API and shown as the same table. The
-  reference project is the SEA-AD donor metadata: 84 donors across 32 columns
-  of clinical and neuropathology features.
+  asked of the platform's GraphQL API and shown as the same table. Every
+  project whose specimens can be tabulated is offered in the dataset
+  dropdown — seven of the platform's 172, from 38 specimens to 10,901. The
+  reference one is the SEA-AD donor metadata: 84 donors across 32 columns of
+  clinical and neuropathology features.
 
 None of the streamed formats is ever loaded in its entirety. An annotation
 document and a table are small enough to be read whole.
@@ -831,8 +833,18 @@ reading the live API before writing the reader:
 The project title and the specimens come back in one request — two root
 fields — so naming the table costs no extra round trip. Pages are 500
 specimens: the SEA-AD project's 84 donors of 30 features came to 199KB in
-0.7s, so a full page is a request of a megabyte or two for the widest records
-the platform holds.
+0.7s, and a full page of the widest records is 1.5MB in 1.1s. Bigger pages buy
+nothing — 2,000 at a time was 6.2MB in 3.1s, so the listing is limited by what
+comes down the wire rather than by round trips.
+
+Which projects have a table is the platform's own answer rather than a guess.
+Every project carries a list of capabilities, and `SPECIMEN`, `DONOR` and
+`PARTITIONED_SPECIMEN` are the three that mean there are specimens to
+tabulate. That was measured against the live API rather than read off the
+names: every project carrying one of them answered with rows, and every
+project carrying only `BKP_DATASET`, `OME_ZARR`, `SPECIMEN_FILES` or nothing
+answered with none. `SPECIMEN_FILES` is the trap — it reads as though it
+should qualify, it does not, and no project carries it alone.
 
 ### Things that were measured rather than assumed
 
