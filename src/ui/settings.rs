@@ -4,23 +4,30 @@
 //! A modal, like the help screen: opened from the sidebar, and closed by its
 //! own X, Escape, or a click outside it.
 
+use bevy::input::keyboard::KeyboardInput;
+use bevy::input_focus::FocusedInput;
 use bevy::prelude::*;
+use bevy::text::EditableText;
 use bevy::ui::{Checked, InteractionDisabled};
 use bevy::window::WindowTheme;
-use bevy_feathers::controls::{ButtonVariant, FeathersButton, FeathersCheckbox};
+use bevy_feathers::controls::{
+    ButtonVariant, FeathersButton, FeathersCheckbox, FeathersTextInput, FeathersTextInputContainer,
+};
 use bevy_feathers::display::label_dim;
 use bevy_feathers::rounded_corners::RoundedCorners;
 use bevy_ui_widgets::{Activate, ValueChange};
 
+use crate::app::net::{Fetching, fetching};
 use crate::app::prefs::{Preferences, PreferencesFile};
 use crate::app::schedule::{Boot, Stage};
-use crate::app::theme::ThemeMode;
+use crate::app::theme::{Palette, ThemeMode};
+use crate::catalog::registry::{self, AssetSample};
 use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::ui::log_panel::LogPanel;
 use crate::widgets::space;
 use crate::widgets::{
-    AddModal, Icon, Modal, ResetDockSizes, button_icon, button_text, set_modal_open, size,
-    spawn_modal, text,
+    AddModal, Icon, Modal, ResetDockSizes, button_icon, button_text, field_well, set_modal_open,
+    size, spawn_modal, text,
 };
 
 const PANEL_PX: f32 = 440.0;
@@ -162,27 +169,314 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
                         ResetPointCloudButton
                     )]
                 ),
-                (
-                    // Not a setting, so it sits apart from them, in the corner.
-                    Node {
-                        justify_content: { JustifyContent::End },
-                        margin: { UiRect::top(Val::Px(space::HEADING)) },
-                    }
-                    Children [(
-                        @FeathersButton {
-                            @caption: { bsn_list![
-                                button_icon(Icon::ScrollText),
-                                button_text("Logs"),
-                            ] }
-                        }
-                        Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-                        ShowLogsButton
-                    )]
-                ),
             ]
         })
         .id();
+    let registry = spawn_registry_section(&mut commands);
+    let logs = commands
+        .spawn_scene(bsn! {
+            // Not a setting, so it sits apart from them, in the corner.
+            Node {
+                justify_content: { JustifyContent::End },
+                margin: { UiRect::top(Val::Px(space::HEADING)) },
+            }
+            Children [(
+                @FeathersButton {
+                    @caption: { bsn_list![
+                        button_icon(Icon::ScrollText),
+                        button_text("Logs"),
+                    ] }
+                }
+                Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+                ShowLogsButton
+            )]
+        })
+        .id();
+    commands.entity(body).add_children(&[registry, logs]);
     commands.entity(modal.panel).add_child(body);
+}
+
+/// Where the BKP Registry token is pasted, and the button that tries it.
+///
+/// The field has no masking, so it is only ever a place to paste into: saving
+/// empties it, and from then on the token is shown by its last characters.
+fn spawn_registry_section(commands: &mut Commands) -> Entity {
+    commands
+        .spawn_scene(bsn! {
+            Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(space::ROWS) } }
+            Children [
+                (
+                    text("BKP Registry", size::DOCK_TITLE)
+                    Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
+                ),
+                label_dim("Pre-production. Paste a bearer token to use it."),
+                (
+                    field_well()
+                    Children [
+                        (
+                            Node {
+                                width: { Val::Percent(100.0) },
+                                align_items: { AlignItems::Center },
+                                column_gap: { Val::Px(space::CONTROLS) },
+                            }
+                            Children [
+                                (
+                                    @FeathersTextInputContainer
+                                    Children [(
+                                        @FeathersTextInput
+                                        RegistryTokenInput
+                                    )]
+                                ),
+                                (
+                                    @FeathersButton {
+                                        @caption: { bsn_list![button_text("Save")] }
+                                    }
+                                    Node { flex_shrink: { 0.0_f32 } }
+                                    SaveTokenButton
+                                ),
+                            ]
+                        ),
+                        (
+                            RegistryStatus
+                            Text({ String::new() })
+                            TextFont { font_size: { FontSize::Px(size::SMALL) } }
+                        ),
+                    ]
+                ),
+                (
+                    Node { column_gap: { Val::Px(space::CONTROLS) } }
+                    Children [
+                        (
+                            @FeathersButton {
+                                @caption: { bsn_list![button_text("Test request")] }
+                            }
+                            TestRegistryButton
+                        ),
+                        (
+                            @FeathersButton {
+                                @caption: { bsn_list![button_text("Forget token")] }
+                            }
+                            ForgetTokenButton
+                        ),
+                    ]
+                ),
+            ]
+        })
+        .id()
+}
+
+/// The field a token is pasted into.
+#[derive(Component, Clone, Default)]
+pub struct RegistryTokenInput;
+
+#[derive(Component, Clone, Default)]
+pub struct SaveTokenButton;
+
+#[derive(Component, Clone, Default)]
+pub struct ForgetTokenButton;
+
+#[derive(Component, Clone, Default)]
+pub struct TestRegistryButton;
+
+/// The line saying which token is saved and how the last request went.
+#[derive(Component, Clone, Default)]
+pub struct RegistryStatus;
+
+/// The test request in flight, if any, and how the last one went.
+#[derive(Resource, Default)]
+pub struct RegistryProbe {
+    task: Option<Fetching<Result<AssetSample, String>>>,
+    outcome: Option<Result<String, String>>,
+}
+
+impl RegistryProbe {
+    /// What the status line says, and whether it is a problem.
+    fn message(&self, token: Option<&str>) -> (String, bool) {
+        let saved = match token {
+            Some(token) => format!("Token {} saved.", registry::token_hint(token)),
+            None => "No token saved.".to_string(),
+        };
+        match &self.outcome {
+            _ if self.task.is_some() => (format!("{saved} Asking\u{2026}"), false),
+            Some(Ok(answer)) => (format!("{saved} {answer}"), false),
+            Some(Err(problem)) => (format!("{saved} {problem}"), true),
+            None => (saved, false),
+        }
+    }
+}
+
+fn save_token(
+    prefs: &mut Preferences,
+    probe: &mut RegistryProbe,
+    inputs: &mut Query<&mut EditableText, With<RegistryTokenInput>>,
+) {
+    let Ok(mut field) = inputs.single_mut() else {
+        return;
+    };
+    let token = registry::clean_token(&field.value().to_string());
+    if token.is_empty() {
+        return;
+    }
+    field.clear();
+    info!(
+        "saved a BKP Registry token ({})",
+        registry::token_hint(&token)
+    );
+    prefs.registry_token = Some(token);
+    probe.outcome = None;
+}
+
+pub fn on_save_token(
+    activate: On<Activate>,
+    buttons: Query<(), With<SaveTokenButton>>,
+    mut inputs: Query<&mut EditableText, With<RegistryTokenInput>>,
+    mut prefs: ResMut<Preferences>,
+    mut probe: ResMut<RegistryProbe>,
+) {
+    if buttons.contains(activate.entity) {
+        save_token(&mut prefs, &mut probe, &mut inputs);
+    }
+}
+
+/// Return in the field saves it, as it loads a URL in the URL field.
+pub fn on_token_submitted(
+    key: On<FocusedInput<KeyboardInput>>,
+    mut inputs: Query<&mut EditableText, With<RegistryTokenInput>>,
+    mut prefs: ResMut<Preferences>,
+    mut probe: ResMut<RegistryProbe>,
+) {
+    if inputs.contains(key.focused_entity)
+        && key.input.state.is_pressed()
+        && matches!(key.input.key_code, KeyCode::Enter | KeyCode::NumpadEnter)
+    {
+        save_token(&mut prefs, &mut probe, &mut inputs);
+    }
+}
+
+pub fn on_forget_token(
+    activate: On<Activate>,
+    buttons: Query<(), With<ForgetTokenButton>>,
+    mut prefs: ResMut<Preferences>,
+    mut probe: ResMut<RegistryProbe>,
+) {
+    if buttons.contains(activate.entity) && prefs.registry_token.is_some() {
+        prefs.registry_token = None;
+        probe.outcome = None;
+        info!("forgot the BKP Registry token");
+    }
+}
+
+pub fn on_test_registry(
+    activate: On<Activate>,
+    buttons: Query<(), With<TestRegistryButton>>,
+    prefs: Res<Preferences>,
+    mut probe: ResMut<RegistryProbe>,
+) {
+    if !buttons.contains(activate.entity) || probe.task.is_some() {
+        return;
+    }
+    let Some(token) = prefs.registry_token.clone() else {
+        return;
+    };
+    info!(
+        "BKP Registry: asking {} for {} data assets",
+        registry::STAGE,
+        registry::SAMPLE
+    );
+    probe.task = Some(fetching(registry::sample_assets(
+        registry::STAGE.to_string(),
+        token,
+    )));
+}
+
+/// Log what the registry answered, asset by asset, and sum it up on screen.
+pub fn poll_registry_probe(mut probe: ResMut<RegistryProbe>) {
+    let Some(outcome) = probe.task.as_mut().and_then(Fetching::take) else {
+        return;
+    };
+    probe.task = None;
+    probe.outcome = Some(match outcome {
+        Ok(sample) => {
+            info!(
+                "BKP Registry: {} data assets in all, {} on this page{}",
+                sample.total,
+                sample.assets.len(),
+                if sample.more {
+                    ", more to page through"
+                } else {
+                    ""
+                }
+            );
+            for (kind, count) in sample.kinds() {
+                info!("BKP Registry: type {kind}: {count}");
+            }
+            for asset in &sample.assets {
+                let tags: Vec<&str> = asset
+                    .tags
+                    .iter()
+                    .flatten()
+                    .flatten()
+                    .map(String::as_str)
+                    .collect();
+                info!(
+                    "BKP Registry: {} [{}] {} id={} tags={tags:?}",
+                    asset.name,
+                    asset.kind.as_deref().unwrap_or("no type"),
+                    asset.status,
+                    asset.id,
+                );
+                for instance in &asset.instances {
+                    info!("BKP Registry:   {}", instance.download_url);
+                }
+            }
+            Ok(format!(
+                "{} data assets; the first {} are in the log.",
+                sample.total,
+                sample.assets.len()
+            ))
+        }
+        Err(problem) => {
+            warn!("{problem}");
+            Err(problem)
+        }
+    });
+}
+
+pub fn sync_registry(
+    mut commands: Commands,
+    prefs: Res<Preferences>,
+    probe: Res<RegistryProbe>,
+    palette: Res<Palette>,
+    mut labels: Query<(&mut Text, &mut TextColor), With<RegistryStatus>>,
+    buttons: Query<
+        (Entity, Has<InteractionDisabled>, Has<TestRegistryButton>),
+        Or<(With<TestRegistryButton>, With<ForgetTokenButton>)>,
+    >,
+) {
+    let token = prefs.registry_token.as_deref();
+    let can_test = token.is_some() && probe.task.is_none();
+    for (entity, disabled, test) in &buttons {
+        let enabled = if test { can_test } else { token.is_some() };
+        if enabled && disabled {
+            commands.entity(entity).remove::<InteractionDisabled>();
+        } else if !enabled && !disabled {
+            commands.entity(entity).insert(InteractionDisabled);
+        }
+    }
+    let (message, problem) = probe.message(token);
+    let color = if problem {
+        palette.problem
+    } else {
+        palette.progress
+    };
+    for (mut text, mut text_color) in &mut labels {
+        if text.0 != message {
+            text.0 = message.clone();
+        }
+        if text_color.0 != color {
+            text_color.0 = color;
+        }
+    }
 }
 
 pub fn on_show_logs(
@@ -305,7 +599,16 @@ impl Plugin for SettingsPlugin {
             .add_observer(on_reset_point_cloud)
             .add_observer(on_remember_layout)
             .add_observer(on_theme_option)
-            .add_systems(Update, sync_settings.in_set(Stage::ControlsPlace))
+            .init_resource::<RegistryProbe>()
+            .add_observer(on_save_token)
+            .add_observer(on_token_submitted)
+            .add_observer(on_forget_token)
+            .add_observer(on_test_registry)
+            .add_systems(Update, poll_registry_probe.in_set(Stage::ControlsApply))
+            .add_systems(
+                Update,
+                (sync_settings, sync_registry).in_set(Stage::ControlsPlace),
+            )
             .add_systems(Startup, spawn_settings.in_set(Boot::Shell));
     }
 }

@@ -812,6 +812,7 @@ impl Plugin for OverlayPlugin {
                     position_hud,
                     rebuild_source_menus,
                     super::dataset_menu::clear_closed_searches,
+                    super::dataset_menu::search_catalogs,
                     super::dataset_menu::rebuild_dataset_lists,
                 )
                     .chain()

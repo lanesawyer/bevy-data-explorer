@@ -107,9 +107,23 @@ pub async fn fetch(url: &str) -> Result<Vec<u8>, String> {
 /// a 500 with the reason in the body; the status is only reported when the
 /// body says nothing better.
 pub async fn post_json(url: &str, body: String) -> Result<String, String> {
-    let response = client()
+    post(url, body, None).await
+}
+
+/// [`post_json`] for an API that wants a bearer token.
+pub async fn post_json_bearer(url: &str, body: String, token: &str) -> Result<String, String> {
+    post(url, body, Some(token)).await
+}
+
+async fn post(url: &str, body: String, token: Option<&str>) -> Result<String, String> {
+    let mut request = client()
         .post(url)
         .header("content-type", "application/json")
+        .header("accept", "application/json");
+    if let Some(token) = token {
+        request = request.bearer_auth(token);
+    }
+    let response = request
         .body(body)
         .send()
         .await

@@ -54,6 +54,9 @@ pub struct Preferences {
     /// none while it follows the built-in default, so a change to that
     /// reaches anyone who never changed theirs.
     pub filtered_points: Option<SavedFiltered>,
+    /// The bearer token for the BKP Registry, pasted in settings. Kept in
+    /// plain text, like anything else in this file.
+    pub registry_token: Option<String>,
 }
 
 impl Default for Preferences {
@@ -63,6 +66,7 @@ impl Default for Preferences {
             docks: BTreeMap::new(),
             theme: None,
             filtered_points: None,
+            registry_token: None,
         }
     }
 }

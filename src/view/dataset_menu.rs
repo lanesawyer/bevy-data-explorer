@@ -193,6 +193,7 @@ pub struct ListState {
     stack: Vec<Entity>,
     query: String,
     sources: usize,
+    /// The catalogs' generation.
     catalogued: usize,
     /// Whether the grid has room for another frame.
     room: bool,
@@ -237,7 +238,7 @@ pub fn rebuild_dataset_lists(
                 stack,
                 query,
                 sources: source_count,
-                catalogued: catalogs.len(),
+                catalogued: catalogs.generation(),
                 room,
             })
         })
@@ -356,7 +357,7 @@ pub fn rebuild_dataset_lists(
             );
             items.push(item);
         }
-        for (id, catalog, entry) in catalogs.unopened(&opened) {
+        for (id, catalog, entry) in catalogs.unopened(&opened, &state.query) {
             if layering && names_a_table(&entry.url) {
                 continue;
             }
@@ -388,6 +389,25 @@ pub fn rebuild_dataset_lists(
                 refuse,
             );
             items.push(item);
+        }
+        // A searched catalog has nothing to offer until asked, so it says what
+        // it is doing under its heading instead.
+        for (catalog, note) in catalogs.search_notes(&state.query) {
+            let Some(note) = note else { continue };
+            if section != Some(catalog) {
+                section = Some(catalog);
+                items.push(heading(&mut commands, catalog, items.len() == noted));
+            }
+            let note = note.text();
+            items.push(
+                commands
+                    .spawn_scene(bsn! {
+                        DatasetListContent
+                        text_dim(note, size::SMALL)
+                        Node { margin: { UiRect::axes(Val::Px(space::CONTROL_INSET), Val::Px(space::ITEM_INSET)) } }
+                    })
+                    .id(),
+            );
         }
         if items.len() == noted {
             let none = commands
@@ -488,6 +508,24 @@ fn item(
         commands.entity(item).insert(InteractionDisabled);
     }
     item
+}
+
+/// Hand what is typed into a picker to the searched catalogs, which ask once
+/// it settles.
+///
+/// Only the field being typed in: every other picker's field, empty in a
+/// frame just opened or cleared as its dropdown closed, would otherwise ask
+/// in its place and take its answer away.
+pub fn search_catalogs(
+    focus: Res<InputFocus>,
+    fields: Query<&EditableText, With<DatasetSearch>>,
+    mut catalogs: ResMut<Catalogs>,
+    time: Res<Time>,
+) {
+    let Some(text) = focus.get().and_then(|field| fields.get(field).ok()) else {
+        return;
+    };
+    catalogs.want(&text.value().to_string(), time.elapsed_secs());
 }
 
 /// Start each frame's dropdown afresh: once closed, whatever was typed into it is

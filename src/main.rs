@@ -44,7 +44,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.add_plugins(catalog::CatalogPlugin)
         .add_catalog(catalog::bkp::Bkp::production())
         .add_catalog(catalog::bkp::projects::SpecimenTables::production())
-        .add_catalog(catalog::examples::Examples);
+        .add_catalog(catalog::examples::Examples)
+        .add_catalog(catalog::registry::Registry::stage());
 
     // Each dataset named is registered exactly as one opened from the sidebar
     // is. Registration order decides which cell a source's frame opens in, and
