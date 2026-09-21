@@ -129,10 +129,10 @@ impl TablePaging {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableFilterValue {
     pub label: String,
-    /// How many rows hold it among those every other column admits: what
-    /// ticking it would bring back. Its own column is left out because values
-    /// in one column widen one another, so ticking one never takes another's
-    /// rows away.
+    /// How many rows hold it among those the filters admit, its own column's
+    /// included, as a cell property's values are counted: a value left
+    /// unticked while others are ticked counts none, because none of its rows
+    /// is on screen.
     pub count: u64,
     pub chosen: bool,
 }

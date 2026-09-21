@@ -695,9 +695,10 @@ fn labelled(groups: &[Grouped]) -> Vec<(String, u64)> {
 /// What one column is counted again under.
 struct Recounting {
     id: String,
-    /// Every term but the column's own. A column's values widen one another,
-    /// so a value's count is what ticking it would bring back among what the
-    /// other columns admit, whatever else in its own column is ticked.
+    /// What it is counted under, as the cell properties are counted: a
+    /// column of values under every term, its own too, so a value left
+    /// unticked counts none — the count is what is on screen. A span under
+    /// every term but its own, so its histogram keeps the shape outside it.
     terms: Vec<TableFilterTerm>,
     /// A span's bucket edges, kept so the histogram is recounted in the same
     /// buckets it was drawn in; nothing for a column of values.
@@ -734,7 +735,7 @@ fn recounting(filters: &TableFilters) -> Vec<Recounting> {
                 id: column.id.clone(),
                 terms: terms
                     .iter()
-                    .filter(|term| term.field() != column.id)
+                    .filter(|term| edges.is_none() || term.field() != column.id)
                     .cloned()
                     .collect(),
                 edges,
@@ -866,8 +867,8 @@ fn take_recount(filters: &mut TableFilters, recounted: Vec<Recounted>) {
 /// Count the filters again whenever what narrows the table changes, as the
 /// cell properties are counted again when theirs do.
 ///
-/// Only the columns whose other filters moved: dragging a span recounts
-/// everything but that span's own histogram, which it would not change.
+/// Only the columns whose terms moved: dragging a span recounts everything
+/// but that span's own histogram, which it would not change.
 ///
 /// One ask at a time. A change made while one is out is caught when it lands,
 /// since what it was asked under no longer matches — so a span dragged across
@@ -1517,11 +1518,10 @@ mod tests {
     }
 
     #[test]
-    fn a_column_is_counted_under_every_filter_but_its_own() {
+    fn values_are_counted_under_every_filter_and_a_span_under_all_but_its_own() {
         let columns = recounting(&narrowed());
         let donor = columns.iter().find(|it| it.id == "donor").unwrap();
-        assert!(donor.terms.iter().all(|term| term.field() == "age"));
-        assert_eq!(donor.terms.len(), 1);
+        assert_eq!(donor.terms, narrowed().chosen());
         let age = columns.iter().find(|it| it.id == "age").unwrap();
         assert!(age.terms.iter().all(|term| term.field() == "donor"));
     }
