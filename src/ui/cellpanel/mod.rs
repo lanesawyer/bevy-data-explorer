@@ -347,6 +347,7 @@ pub fn rebuild_cell_panel(
             PropertyKind::Numeric(range) => {
                 vec![range::spawn_range_control(
                     &mut commands,
+                    range::RangeOwner::CellProperty,
                     index,
                     range,
                     properties.ramp().as_ref().filter(|_| coloring),

@@ -25,13 +25,15 @@ use std::collections::BTreeMap;
 
 use bevy::prelude::*;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::app::net::{Fetching, fetching};
 use crate::app::schedule::Stage;
 use crate::source::SourceBusy;
+use crate::source::properties::NumericRange;
 use crate::source::table::{
-    SourceTable, TableColumn, TableFilter, TableFilterValue, TableFilters, TablePaging,
+    SourceTable, TableColumn, TableFilter, TableFilterTerm, TableFilterValue, TableFilters,
+    TablePaging,
 };
 
 use super::table::{PAGE_ROWS, Table};
@@ -69,6 +71,32 @@ const QUERY: &str = "query($project: [Filter], $specimens: [Filter],
     }
   }
 }";
+
+/// A floor below anything the platform holds, written out in full.
+///
+/// Its range parser takes plain decimals only: `-1e12` comes back "Invalid
+/// range format", and so does an edge that Rust would have printed in
+/// scientific notation, which is why the edges below are written to a fixed
+/// number of places.
+const FLOOR: &str = "-1000000000000";
+
+/// Buckets a column's distribution is drawn in.
+///
+/// Each one is a separate index query on the platform — about 0.14s apiece —
+/// so this is the width of a histogram traded against how long opening a
+/// column takes.
+const BUCKETS: usize = 20;
+
+/// How far past the values already in hand a distribution is asked for, as a
+/// fraction of their span.
+///
+/// The page on screen is the only sample of a column there is without asking,
+/// and a hundred rows of ten thousand will not hold either end. Asking wide
+/// and keeping the buckets that answered is cheaper than finding the ends
+/// first: the platform has no query that gives a column's extent —
+/// `measurementStats` sits on `aio_specimenFacetedSearchProperties`, which
+/// answers with an empty list for every project.
+const WIDEN: f64 = 0.5;
 
 /// What the API says went wrong, which arrives beside the data rather than as
 /// a status.
@@ -257,15 +285,15 @@ pub struct Specimens {
 /// One request: the project's title, how many specimens match, and a page of
 /// them.
 ///
-/// `values` are the ticked filters, as column and value. Two ticks in one
-/// column widen — the platform treats a field named twice as either — and
-/// ticks in different columns narrow each other, which is what a row of
-/// checkboxes is read to mean.
+/// `terms` are what has been asked of the table. Two terms on one column
+/// widen — the platform treats a field named twice as either — and terms on
+/// different columns narrow each other, which is what a row of checkboxes and
+/// a span beside it are read to mean.
 async fn ask(
     endpoint: &str,
     project: &str,
     offset: usize,
-    values: &[(String, String)],
+    terms: &[TableFilterTerm],
 ) -> Result<Data, String> {
     #[derive(Deserialize)]
     struct Response {
@@ -273,19 +301,11 @@ async fn ask(
         #[serde(default)]
         errors: Vec<GraphQlError>,
     }
-    let mut specimens = vec![json!({
-        "field": "projectReferenceIds", "operator": "EQ", "value": project
-    })];
-    specimens.extend(
-        values
-            .iter()
-            .map(|(field, value)| json!({ "field": field, "operator": "EQ", "value": value })),
-    );
     let body = json!({
         "query": QUERY,
         "variables": {
             "project": [{ "field": "referenceId", "operator": "EQ", "value": project }],
-            "specimens": specimens,
+            "specimens": specimen_filters(project, terms),
             "groupBy": ["projectReferenceIds"],
             "limit": PAGE,
             "offset": offset,
@@ -388,18 +408,19 @@ impl Plan {
         before != (self.annotations.len(), self.measurements.len())
     }
 
-    /// Every column that could be narrowed by, as the platform names it and
-    /// as the table heads it.
-    fn columns(&self) -> Vec<(String, String)> {
+    /// Every column that could be narrowed by, as the platform names it, as
+    /// the table heads it, and whether it is a measurement — which is to say
+    /// whether a span is worth offering when the platform cannot list it.
+    fn columns(&self) -> Vec<(String, String, bool)> {
         self.annotations
             .iter()
-            .map(|(id, title)| (id.clone(), title.clone()))
+            .map(|(id, title)| (id.clone(), title.clone(), false))
             .chain(
                 self.measurements
                     .iter()
-                    .map(|(id, title, _)| (id.clone(), title.clone())),
+                    .map(|(id, title, _)| (id.clone(), title.clone(), true)),
             )
-            .filter(|(id, _)| !id.is_empty())
+            .filter(|(id, ..)| !id.is_empty())
             .collect()
     }
 
@@ -497,12 +518,12 @@ fn measured(specimen: &Specimen, title: &str) -> String {
 async fn ask_values(
     endpoint: &str,
     project: &str,
-    columns: &[(String, String)],
+    columns: &[(String, String, bool)],
 ) -> Result<Vec<TableFilter>, String> {
     let fields: String = columns
         .iter()
         .enumerate()
-        .map(|(index, (id, _))| {
+        .map(|(index, (id, ..))| {
             format!(
                 "c{index}: aio_specimenCounts(filter: $specimens, groupBy: [\"{id}\"]) \
                  {{ count properties {{ property value }} }}"
@@ -553,8 +574,16 @@ async fn ask_values(
     }
 
     let mut filters = Vec::new();
-    for (index, (id, name)) in columns.iter().enumerate() {
+    for (index, (id, name, numeric)) in columns.iter().enumerate() {
         let Some(Some(groups)) = answers.get(&format!("c{index}")) else {
+            // The platform cannot group a column of numbers — it answers
+            // "Unable to cast object of type 'System.Double' to type
+            // 'System.String'" — so that is what marks one out, and a number
+            // is narrowed by taking a span of it rather than by ticking every
+            // reading anyone took.
+            if *numeric {
+                filters.push(TableFilter::range(id, name));
+            }
             continue;
         };
         let values: Vec<TableFilterValue> = groups
@@ -571,13 +600,130 @@ async fn ask_values(
         if values.is_empty() {
             continue;
         }
-        filters.push(TableFilter {
-            id: id.clone(),
-            name: name.clone(),
-            values,
-        });
+        filters.push(TableFilter::values(id, name, values));
     }
     Ok(filters)
+}
+
+/// Ask how a column's numbers are distributed, in one request.
+///
+/// A cumulative count at each bucket edge — how many rows hold less than this
+/// — since that is the one shape `aio_specimenRangeCounts` answers. Taking
+/// the differences gives the histogram, and the outermost buckets that hold
+/// anything give the extent.
+///
+/// `seen` is whatever values are already on screen, which is what the span
+/// asked about is built from.
+async fn ask_span(
+    endpoint: &str,
+    project: &str,
+    field: &str,
+    seen: &[f64],
+    terms: &[TableFilterTerm],
+) -> Result<NumericRange, String> {
+    let edges = bucket_edges(seen);
+    let fields: String = edges
+        .iter()
+        .enumerate()
+        .map(|(index, edge)| {
+            format!(
+                "e{index}: aio_specimenRangeCounts(filter: $specimens, \
+                 groupBy: {{ field: \"{field}\", range: \"[{FLOOR},{edge:.6}]\" }}) {{ count }}"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let query = format!("query($specimens: [Filter]) {{ {fields} }}");
+
+    #[derive(Deserialize)]
+    struct Response {
+        data: Option<BTreeMap<String, Option<Vec<Counted>>>>,
+        #[serde(default)]
+        errors: Vec<GraphQlError>,
+    }
+    #[derive(Deserialize)]
+    struct Counted {
+        count: Option<f64>,
+    }
+
+    let body = json!({
+        "query": query,
+        "variables": { "specimens": specimen_filters(project, terms) },
+    });
+    let text = crate::app::net::post_json(endpoint, body.to_string()).await?;
+    let response: Response =
+        serde_json::from_str(&text).map_err(|e| format!("parsing {endpoint}: {e}"))?;
+    let Some(answers) = response.data else {
+        return Err(response.errors.first().map_or_else(
+            || format!("{endpoint} answered with no distribution"),
+            |error| error.message.clone(),
+        ));
+    };
+
+    let cumulative: Vec<u32> = (0..edges.len())
+        .map(|index| {
+            answers
+                .get(&format!("e{index}"))
+                .and_then(|counted| counted.as_ref()?.first()?.count)
+                .unwrap_or_default() as u32
+        })
+        .collect();
+    histogram_of(&edges, &cumulative).ok_or_else(|| format!("{field} holds no numbers"))
+}
+
+/// The project, and whatever has been asked of it.
+fn specimen_filters(project: &str, terms: &[TableFilterTerm]) -> Value {
+    let mut filters = vec![json!({
+        "field": "projectReferenceIds", "operator": "EQ", "value": project
+    })];
+    filters.extend(terms.iter().map(|term| match term {
+        TableFilterTerm::Is { field, value } => {
+            json!({ "field": field, "operator": "EQ", "value": value })
+        }
+        // The platform takes a span as one string holding both ends.
+        TableFilterTerm::Between { field, low, high } => {
+            json!({ "field": field, "operator": "BETWEEN", "value": format!("[{low},{high}]") })
+        }
+    }));
+    Value::Array(filters)
+}
+
+/// The edges a distribution is asked about: [`BUCKETS`] buckets across what is
+/// on screen, widened at both ends for what is not.
+fn bucket_edges(seen: &[f64]) -> Vec<f64> {
+    let low = seen.iter().copied().fold(f64::INFINITY, f64::min);
+    let high = seen.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let (low, high) = if low.is_finite() && high.is_finite() {
+        (low, high)
+    } else {
+        (0.0, 1.0)
+    };
+    // A column of one value throughout still needs a span to draw across.
+    let span = (high - low)
+        .max(f64::EPSILON)
+        .max(high.abs().max(1.0) * 1e-6);
+    let (low, high) = (low - span * WIDEN, high + span * WIDEN);
+    let step = (high - low) / BUCKETS as f64;
+    (0..=BUCKETS).map(|i| low + step * i as f64).collect()
+}
+
+/// Turn cumulative counts at each edge into a histogram and the extent that
+/// holds it.
+///
+/// The outermost buckets holding anything are the extent, so a column asked
+/// about far wider than it runs is still drawn across what it has.
+fn histogram_of(edges: &[f64], cumulative: &[u32]) -> Option<NumericRange> {
+    let buckets: Vec<u32> = cumulative
+        .windows(2)
+        .map(|pair| pair[1].saturating_sub(pair[0]))
+        .collect();
+    let first = buckets.iter().position(|count| *count > 0)?;
+    let last = buckets.iter().rposition(|count| *count > 0)?;
+    Some(NumericRange::full(
+        edges[first] as f32,
+        edges[last + 1] as f32,
+        buckets[first..=last].to_vec(),
+    ))
 }
 
 /// The project a frame's specimen table came from, so a page it has not got
@@ -601,7 +747,9 @@ pub struct SpecimenPages {
     offered: bool,
     /// The values in force on the rows now on screen, so a tick that changes
     /// nothing does not refetch and one that does is noticed.
-    applied: Vec<(String, String)>,
+    applied: Vec<TableFilterTerm>,
+    /// The column whose distribution is being asked about, and the ask.
+    spanning: Option<(usize, Fetching<Result<NumericRange, String>>)>,
 }
 
 impl SpecimenPages {
@@ -614,6 +762,7 @@ impl SpecimenPages {
             offering: None,
             offered: false,
             applied: Vec::new(),
+            spanning: None,
         }
     }
 }
@@ -652,6 +801,81 @@ fn offer_filters(mut commands: Commands, mut sources: Query<(Entity, &mut Specim
             ask_values(&endpoint, &project, &columns).await
         }));
     }
+}
+
+/// Ask how a column's numbers are spread, once someone opens it.
+///
+/// Opening is the signal because a distribution is twenty-odd index queries:
+/// asking for every column of a table the moment it opened would be a minute
+/// of waiting for histograms nobody looked at.
+fn serve_spans(
+    mut sources: Query<(
+        &mut SpecimenPages,
+        &mut TableFilters,
+        &SourceTable,
+        &TablePaging,
+    )>,
+) {
+    for (mut pages, mut filters, rows, paging) in &mut sources {
+        if let Some((column, fetch)) = pages.spanning.as_mut()
+            && let Some(answer) = fetch.take()
+        {
+            let column = *column;
+            pages.spanning = None;
+            match answer {
+                Ok(span) => {
+                    if let Some(filter) = filters.columns.get_mut(column) {
+                        filter.kind = crate::source::table::TableFilterKind::Range {
+                            span: Some(span),
+                            wanted: true,
+                        };
+                    }
+                }
+                Err(e) => {
+                    // Asked once and left alone. Without this the column is
+                    // still open, still has no span, and is asked about again
+                    // every frame for as long as it is looked at.
+                    warn!("reading how a column is spread: {e}");
+                    if let Some(filter) = filters.columns.get_mut(column) {
+                        filter.want(false);
+                    }
+                }
+            }
+        }
+        if pages.spanning.is_some() {
+            continue;
+        }
+
+        let Some(column) = filters.columns.iter().position(TableFilter::awaiting_span) else {
+            continue;
+        };
+        let field = filters.columns[column].id.clone();
+        // What is on screen is the only sample of the column there is without
+        // asking, and it is what the span asked about is built around.
+        let seen = column_values(rows, &filters.columns[column].name);
+        let (endpoint, project) = (pages.endpoint.clone(), pages.project.clone());
+        let terms = filters.chosen();
+        let _ = paging;
+        pages.spanning = Some((
+            column,
+            fetching(async move { ask_span(&endpoint, &project, &field, &seen, &terms).await }),
+        ));
+    }
+}
+
+/// The numbers a column holds on the page in hand.
+fn column_values(rows: &SourceTable, name: &str) -> Vec<f64> {
+    let Some(index) = rows
+        .columns
+        .iter()
+        .position(|column| column.name == name || column.name.starts_with(&format!("{name} (")))
+    else {
+        return Vec::new();
+    };
+    rows.rows
+        .iter()
+        .filter_map(|row| row.get(index)?.trim().parse::<f64>().ok())
+        .collect()
 }
 
 /// Ask for the page a frame has turned to, and take it when it lands.
@@ -766,7 +990,9 @@ impl Plugin for SpecimenSystems {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (offer_filters, serve_pages).chain().in_set(Stage::Sources),
+            (offer_filters, serve_spans, serve_pages)
+                .chain()
+                .in_set(Stage::Sources),
         );
     }
 }
@@ -789,7 +1015,7 @@ pub fn spawn_source(world: &mut World, specimens: Specimens) -> Entity {
 /// Read a saved answer, for tests and for anything that has the JSON already.
 #[cfg(test)]
 fn from_answer(name: &str, text: &str) -> Result<Table, String> {
-    let value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    let value: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
     let data: Data = serde_json::from_value(value["data"].clone()).map_err(|e| e.to_string())?;
     let plan = Plan::of(&data.aio_specimen);
     Ok(Table::paged(
@@ -923,7 +1149,7 @@ mod tests {
     }
 
     fn specimens(text: &str) -> Vec<Specimen> {
-        let value: serde_json::Value = serde_json::from_str(text).unwrap();
+        let value: Value = serde_json::from_str(text).unwrap();
         let data: Data = serde_json::from_value(value["data"].clone()).unwrap();
         data.aio_specimen
     }
@@ -982,7 +1208,7 @@ mod tests {
         let text = r#"{"data":{"project":null,"total":null,"aio_specimen":[
             {"cRID":{"symbol":"X"},"specimenType":null,
              "annotations":null,"measurements":null}]}}"#;
-        let value: serde_json::Value = serde_json::from_str(text).unwrap();
+        let value: Value = serde_json::from_str(text).unwrap();
         let data: Data = serde_json::from_value(value["data"].clone()).unwrap();
         assert_eq!(data.aio_specimen.len(), 1);
         assert!(data.aio_specimen[0].annotations.is_empty());

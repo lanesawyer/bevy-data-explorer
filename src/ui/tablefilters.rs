@@ -17,15 +17,17 @@ use bevy_feathers::controls::FeathersCheckbox;
 use bevy_ui_widgets::{Activate, ValueChange};
 
 use crate::app::schedule::{Boot, Stage};
+use crate::app::theme::Palette;
 use crate::source::ShowsSource;
 use crate::source::compact_count;
-use crate::source::table::TableFilters;
+use crate::source::table::{TableFilter, TableFilterKind, TableFilters};
 use crate::ui::cellpanel::MAX_VALUE_ROWS;
+use crate::ui::cellpanel::range::{RangeOwner, spawn_range_control};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::{
-    BlocksFrameInput, Icon, SectionLevel, button_text, scroll_list, size, spawn_accordion,
-    spawn_header_button, text_dim,
+    Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, scroll_list, size,
+    spawn_accordion, spawn_header_button, text_dim,
 };
 
 /// Under the cell properties, which is where the same act on a point cloud
@@ -47,6 +49,13 @@ pub struct FilterBody;
 /// Anything built into the body, despawned wholesale on a rebuild.
 #[derive(Component, Clone, Default)]
 pub struct FilterContent;
+
+/// A column's own accordion, so opening it can say the column is being looked
+/// at — which is what asks for a span's numbers.
+#[derive(Component, Clone, Default)]
+pub struct FilterColumn {
+    pub column: usize,
+}
 
 /// Clears every tick on the selected frame's table.
 #[derive(Component, Clone, Default)]
@@ -95,12 +104,13 @@ fn selected(selected: &SelectedPanel, panels: &Query<&ShowsSource>) -> Option<En
 pub fn rebuild_filters(
     mut commands: Commands,
     selection: Res<SelectedPanel>,
+    palette: Res<Palette>,
     panels: Query<&ShowsSource>,
     filters: Query<&TableFilters>,
     mut sections: Query<&mut Node, With<FilterSection>>,
     body: Query<Entity, With<FilterBody>>,
     existing: Query<Entity, With<FilterContent>>,
-    mut built: Local<Option<(Entity, usize)>>,
+    mut built: Local<Option<(Entity, (usize, usize))>>,
 ) {
     let Ok(body) = body.single() else { return };
     let source = selected(&selection, &panels);
@@ -117,9 +127,19 @@ pub fn rebuild_filters(
         }
     }
 
-    // The columns of one table never change, so the source and how many
-    // columns it offers is enough to know whether these are the right rows.
-    let fingerprint = source.zip(table.map(|table| table.columns.len()));
+    // The columns of one table never change, but a span arrives after the
+    // column it belongs to is opened — so a control that was a note a moment
+    // ago is built once its numbers land.
+    let fingerprint = source.zip(table.map(|table| {
+        (
+            table.columns.len(),
+            table
+                .columns
+                .iter()
+                .filter(|it| it.span().is_some())
+                .count(),
+        )
+    }));
     if *built == fingerprint {
         return;
     }
@@ -134,39 +154,69 @@ pub fn rebuild_filters(
     for (index, column) in table.columns.iter().enumerate() {
         // Shut to begin with: a table offers a dozen columns and some of them
         // hold a value per row, so opening one is how you say which you mean.
-        let section = spawn_accordion(
-            &mut commands,
-            &format!("{} ({})", column.name, column.values.len()),
-            false,
-            SectionLevel::Group,
-        );
+        let section = spawn_accordion(&mut commands, &heading(column), false, SectionLevel::Group);
         commands.entity(section.section).insert(FilterContent);
 
-        let list = commands.spawn_scene(scroll_list(LIST_MAX_PX)).id();
-        let values: Vec<Entity> = column
-            .values
-            .iter()
-            .enumerate()
-            .take(MAX_VALUE_ROWS)
-            .map(|(place, value)| value_row(&mut commands, index, place, &value.label, value.count))
-            .collect();
-        commands.entity(list).add_children(&values);
-        commands.entity(section.body).add_child(list);
-
-        // A column holding a value per row runs to thousands. The cap is what
-        // keeps the sidebar from crawling; saying so is what keeps it from
-        // looking like the rest are not there.
-        if let Some(rest) = column.values.len().checked_sub(MAX_VALUE_ROWS)
-            && rest > 0
-        {
+        if let Some(span) = column.span() {
+            // The same control the cell properties use, over the same kind of
+            // histogram: a span of a number is a span of a number.
+            let control = spawn_range_control(
+                &mut commands,
+                RangeOwner::TableColumn,
+                index,
+                span,
+                None,
+                &palette,
+            );
+            commands.entity(section.body).add_child(control);
+        } else if matches!(column.kind, TableFilterKind::Range { .. }) {
+            // Opening the column is what asks for its numbers, and they are a
+            // round trip or two away.
             let note = commands
-                .spawn_scene(text_dim(format!("and {rest} more"), size::SMALL))
+                .spawn_scene(text_dim("reading the numbers\u{2026}", size::SMALL))
                 .id();
             commands.entity(section.body).add_child(note);
+        } else {
+            let list = commands.spawn_scene(scroll_list(LIST_MAX_PX)).id();
+            let values: Vec<Entity> = column
+                .listed()
+                .iter()
+                .enumerate()
+                .take(MAX_VALUE_ROWS)
+                .map(|(place, value)| {
+                    value_row(&mut commands, index, place, &value.label, value.count)
+                })
+                .collect();
+            commands.entity(list).add_children(&values);
+            commands.entity(section.body).add_child(list);
+
+            // A column holding a value per row runs to thousands. The cap is
+            // what keeps the sidebar from crawling; saying so is what keeps it
+            // from looking like the rest are not there.
+            if let Some(rest) = column.listed().len().checked_sub(MAX_VALUE_ROWS)
+                && rest > 0
+            {
+                let note = commands
+                    .spawn_scene(text_dim(format!("and {rest} more"), size::SMALL))
+                    .id();
+                commands.entity(section.body).add_child(note);
+            }
         }
+        commands
+            .entity(section.section)
+            .insert(FilterColumn { column: index });
         rows.push(section.section);
     }
     commands.entity(body).add_children(&rows);
+}
+
+/// A column's heading: its name, and how many values it offers. A span has no
+/// count to give until it has been asked about.
+fn heading(column: &TableFilter) -> String {
+    match column.listed().len() {
+        0 => column.name.clone(),
+        listed => format!("{} ({listed})", column.name),
+    }
 }
 
 /// One value: a checkbox naming it, with how many rows hold it beside.
@@ -223,12 +273,48 @@ pub fn on_value_toggled(
     let Some(value) = filters
         .columns
         .get_mut(box_.column)
-        .and_then(|column| column.values.get_mut(box_.value))
+        .and_then(|column| column.listed_mut().get_mut(box_.value))
     else {
         return;
     };
     if value.chosen != change.value {
         value.chosen = change.value;
+    }
+}
+
+/// Tell the table which of its columns are open.
+///
+/// A span costs a round trip or two to work out, so it is asked for when
+/// someone opens the column rather than when the table opens: most columns of
+/// most tables are never looked at.
+pub fn note_open_columns(
+    selection: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    mut filters: Query<&mut TableFilters>,
+    sections: Query<(&FilterColumn, &Accordion)>,
+) {
+    let Some(source) = selected(&selection, &panels) else {
+        return;
+    };
+    let Ok(mut filters) = filters.get_mut(source) else {
+        return;
+    };
+    for (section, accordion) in &sections {
+        let Some(column) = filters.columns.get(section.column) else {
+            continue;
+        };
+        // Written only when it changes: a mutable look marks the whole table
+        // changed, and the format takes that as a reason to refetch.
+        let asking = matches!(
+            column.kind,
+            TableFilterKind::Range {
+                wanted: true,
+                span: None
+            }
+        );
+        if accordion.open && !asking && column.span().is_none() {
+            filters.columns[section.column].want(true);
+        }
     }
 }
 
@@ -260,7 +346,7 @@ pub fn sync_filter_controls(
         let chosen = table
             .columns
             .get(box_.column)
-            .and_then(|column| column.values.get(box_.value))
+            .and_then(|column| column.listed().get(box_.value))
             .is_some_and(|value| value.chosen);
         if chosen == checked {
             continue;
@@ -303,6 +389,9 @@ impl Plugin for TableFilterPlugin {
             .add_observer(on_clear_pressed)
             .add_systems(Startup, spawn_filter_section.in_set(Boot::DockContent))
             .add_systems(Update, rebuild_filters.in_set(Stage::ControlsBuild))
-            .add_systems(Update, sync_filter_controls.in_set(Stage::ControlsPlace));
+            .add_systems(
+                Update,
+                (sync_filter_controls, note_open_columns).in_set(Stage::ControlsPlace),
+            );
     }
 }

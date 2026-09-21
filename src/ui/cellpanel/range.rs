@@ -23,6 +23,7 @@ use bevy_feathers::tokens;
 
 use crate::app::theme::{Palette, token};
 use crate::source::properties::{CellProperties, NumericRange, Ramp, RangeEnd};
+use crate::source::table::TableFilters;
 use crate::source::{ShowsSource, compact_count};
 use crate::view::SelectedPanel;
 use crate::widgets::{BlocksFrameInput, hold_drag_cursor, size};
@@ -32,9 +33,25 @@ const HISTOGRAM_PX: f32 = 44.0;
 const RANGE_TRACK_PX: f32 = 6.0;
 const RANGE_THUMB_PX: f32 = 12.0;
 
+/// Where a range control's numbers live.
+///
+/// The control draws and drags a [`NumericRange`], and two things hold one: a
+/// numeric cell property, and a column of a table narrowed by a span. Naming
+/// which keeps one widget serving both rather than a second one drifting away
+/// from this.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum RangeOwner {
+    /// A numeric property of the source's cells, by its place in them.
+    #[default]
+    CellProperty,
+    /// A column of the source's table, by its place in its filters.
+    TableColumn,
+}
+
 /// One end of a numeric range's control.
 #[derive(Component, Clone)]
 pub struct RangeHandle {
+    pub owner: RangeOwner,
     pub property: usize,
     pub end: RangeEnd,
 }
@@ -42,6 +59,7 @@ pub struct RangeHandle {
 impl Default for RangeHandle {
     fn default() -> Self {
         RangeHandle {
+            owner: RangeOwner::CellProperty,
             property: 0,
             end: RangeEnd::From,
         }
@@ -52,30 +70,35 @@ impl Default for RangeHandle {
 /// measured against.
 #[derive(Component, Clone, Default)]
 pub struct RangeTrack {
+    pub owner: RangeOwner,
     pub property: usize,
 }
 
 /// The readout under a numeric range.
 #[derive(Component, Clone, Default)]
 pub struct RangeReadout {
+    pub owner: RangeOwner,
     pub property: usize,
 }
 
 /// The filled span of a numeric range's rail.
 #[derive(Component, Clone, Default)]
 pub struct RangeFill {
+    pub owner: RangeOwner,
     pub property: usize,
 }
 
 /// How many cells the span admits, beside the readout.
 #[derive(Component, Clone, Default)]
 pub struct RangeCount {
+    pub owner: RangeOwner,
     pub property: usize,
 }
 
 /// One bar of a numeric range's histogram.
 #[derive(Component, Clone, Default)]
 pub struct RangeBar {
+    pub owner: RangeOwner,
     pub property: usize,
     pub bucket: usize,
 }
@@ -85,6 +108,7 @@ pub struct RangeBar {
 /// Clicked rather than the bar itself, which may be only a pixel or two high.
 #[derive(Component, Clone, Default)]
 pub struct RangeBucket {
+    pub owner: RangeOwner,
     pub property: usize,
     pub bucket: usize,
 }
@@ -96,10 +120,15 @@ pub struct RangeBucket {
 #[derive(Clone, Copy)]
 pub enum RangeDrag {
     /// One end, which may change as it is dragged past the other.
-    End { property: usize, end: RangeEnd },
+    End {
+        owner: RangeOwner,
+        property: usize,
+        end: RangeEnd,
+    },
     /// The whole span, from where it started and where along the track it was
     /// grabbed.
     Span {
+        owner: RangeOwner,
         property: usize,
         from: f32,
         grabbed: f32,
@@ -154,6 +183,7 @@ fn handle_placement(fraction: f32) -> (f32, f32) {
 /// being chosen reads against the shape of the data.
 pub fn spawn_range_control(
     commands: &mut Commands,
+    owner: RangeOwner,
     property: usize,
     range: &NumericRange,
     ramp: Option<&Ramp>,
@@ -164,7 +194,7 @@ pub fn spawn_range_control(
             let height = bar_height(range, bucket);
             commands
                 .spawn_scene(bsn! {
-                    RangeBucket { property: { property }, bucket: { bucket } }
+                    RangeBucket { owner: { owner }, property: { property }, bucket: { bucket } }
                     BlocksFrameInput
                     EntityCursor::System({ SystemCursorIcon::Pointer })
                     Node {
@@ -175,7 +205,7 @@ pub fn spawn_range_control(
                         margin: { UiRect::horizontal(Val::Px(0.5)) },
                     }
                     Children [(
-                        RangeBar { property: { property }, bucket: { bucket } }
+                        RangeBar { owner: { owner }, property: { property }, bucket: { bucket } }
                         // Its column takes the click, however short the bar.
                         template_value(Pickable::IGNORE)
                         Node {
@@ -202,7 +232,7 @@ pub fn spawn_range_control(
 
     let track = commands
         .spawn_scene(bsn! {
-            RangeTrack { property: { property } }
+            RangeTrack { owner: { owner }, property: { property } }
             BlocksFrameInput
             EntityCursor::System({ SystemCursorIcon::Grab })
             Node {
@@ -228,7 +258,7 @@ pub fn spawn_range_control(
             // The track takes the press, wherever along it, to slide the span.
             template_value(Pickable::IGNORE)
             Children [(
-                RangeFill { property: { property } }
+                RangeFill { owner: { owner }, property: { property } }
                 template_value(Pickable::IGNORE)
                 Node {
                     position_type: { PositionType::Absolute },
@@ -249,7 +279,7 @@ pub fn spawn_range_control(
                 // hover state, so it only needs to be pickable.
                 BlocksFrameInput
                 EntityCursor::System({ SystemCursorIcon::EwResize })
-                RangeHandle { property: { property }, end: { end } }
+                RangeHandle { owner: { owner }, property: { property }, end: { end } }
                 Node {
                     position_type: { PositionType::Absolute },
                     width: { Val::Px(RANGE_THUMB_PX) },
@@ -279,13 +309,13 @@ pub fn spawn_range_control(
             }
             Children [
                 (
-                    RangeReadout { property: { property } }
+                    RangeReadout { owner: { owner }, property: { property } }
                     Text({ span })
                     TextFont { font_size: { FontSize::Px(size::SMALL) } }
                     ThemeTextColor({ tokens::TEXT_DIM })
                 ),
                 (
-                    RangeCount { property: { property } }
+                    RangeCount { owner: { owner }, property: { property } }
                     Text({ count })
                     TextFont { font_size: { FontSize::Px(size::SMALL) } }
                     ThemeTextColor({ tokens::TEXT_DIM })
@@ -309,11 +339,33 @@ pub fn spawn_range_control(
     column
 }
 
-fn range_mut(properties: &mut CellProperties, property: usize) -> Option<&mut NumericRange> {
-    properties
-        .properties
-        .get_mut(property)
-        .and_then(|property| property.range_mut())
+/// The range a control acts on, wherever it lives.
+fn range_mut<'a>(
+    owner: RangeOwner,
+    property: usize,
+    properties: Option<&'a mut CellProperties>,
+    filters: Option<&'a mut TableFilters>,
+) -> Option<&'a mut NumericRange> {
+    match owner {
+        RangeOwner::CellProperty => properties?
+            .properties
+            .get_mut(property)
+            .and_then(|property| property.range_mut()),
+        RangeOwner::TableColumn => filters?.columns.get_mut(property)?.span_mut(),
+    }
+}
+
+/// The same, to read.
+fn range_of<'a>(
+    owner: RangeOwner,
+    property: usize,
+    properties: Option<&'a CellProperties>,
+    filters: Option<&'a TableFilters>,
+) -> Option<&'a NumericRange> {
+    match owner {
+        RangeOwner::CellProperty => properties?.properties.get(property)?.range(),
+        RangeOwner::TableColumn => filters?.columns.get(property)?.span(),
+    }
 }
 
 /// Drag either end of a numeric range, slide its span, or pick a bucket.
@@ -330,6 +382,7 @@ pub fn drag_range_handles(
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     mut sources: Query<&mut CellProperties>,
+    mut tables: Query<&mut TableFilters>,
     mut dragging: Local<Option<RangeDrag>>,
     mut held: Local<bool>,
     cursor: Option<ResMut<OverrideCursor>>,
@@ -344,11 +397,11 @@ pub fn drag_range_handles(
     let Some(pointer) = window.cursor_position() else {
         return;
     };
-    // How far along a property's track the pointer is, as a fraction.
-    let along = |property: usize| {
+    // How far along a control's track the pointer is, as a fraction.
+    let along = |owner: RangeOwner, property: usize| {
         let (_, node, transform) = tracks
             .iter()
-            .find(|(track, _, _)| track.property == property)?;
+            .find(|(track, _, _)| track.owner == owner && track.property == property)?;
         let scale = node.inverse_scale_factor();
         let width = node.size().x * scale;
         if width <= 0.0 {
@@ -357,13 +410,17 @@ pub fn drag_range_handles(
         let left = transform.translation.x * scale - width * 0.5;
         Some(((pointer.x - left) / width).clamp(0.0, 1.0))
     };
-    let Some(mut properties) = selected
+    // A source holds one or the other, never both, so both are taken and
+    // whichever the control names is the one written to.
+    let Some(source) = selected
         .0
         .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get_mut(shows.0).ok())
+        .map(|shows| shows.0)
     else {
         return;
     };
+    let mut properties = sources.get_mut(source).ok();
+    let mut filters = tables.get_mut(source).ok();
 
     if mouse.just_pressed(MouseButton::Left) {
         // Grabbed on the way down and held until release, so the pointer may
@@ -374,11 +431,17 @@ pub fn drag_range_handles(
             .collect();
         if let Some(handle) = hovered.iter().find_map(|entity| handles.get(*entity).ok()) {
             *dragging = Some(RangeDrag::End {
+                owner: handle.owner,
                 property: handle.property,
                 end: handle.end,
             });
         } else if let Some(bucket) = hovered.iter().find_map(|entity| buckets.get(*entity).ok()) {
-            if let Some(range) = range_mut(&mut properties, bucket.property) {
+            if let Some(range) = range_mut(
+                bucket.owner,
+                bucket.property,
+                properties.as_deref_mut(),
+                filters.as_deref_mut(),
+            ) {
                 let (from, to) = range.bucket_span(bucket.bucket);
                 range.from = from;
                 range.to = to;
@@ -386,10 +449,16 @@ pub fn drag_range_handles(
             return;
         } else if let Some((track, _, _)) =
             hovered.iter().find_map(|entity| tracks.get(*entity).ok())
-            && let Some(grabbed) = along(track.property)
-            && let Some(range) = range_mut(&mut properties, track.property)
+            && let Some(grabbed) = along(track.owner, track.property)
+            && let Some(range) = range_mut(
+                track.owner,
+                track.property,
+                properties.as_deref_mut(),
+                filters.as_deref_mut(),
+            )
         {
             *dragging = Some(RangeDrag::Span {
+                owner: track.owner,
                 property: track.property,
                 from: range.from,
                 grabbed,
@@ -406,24 +475,45 @@ pub fn drag_range_handles(
     hold_drag_cursor(true, &mut held, cursor, icon);
 
     match drag {
-        RangeDrag::End { property, end } => {
-            let (Some(fraction), Some(range)) =
-                (along(property), range_mut(&mut properties, property))
-            else {
+        RangeDrag::End {
+            owner,
+            property,
+            end,
+        } => {
+            let (Some(fraction), Some(range)) = (
+                along(owner, property),
+                range_mut(
+                    owner,
+                    property,
+                    properties.as_deref_mut(),
+                    filters.as_deref_mut(),
+                ),
+            ) else {
                 return;
             };
             let value = range.value_at(fraction);
             let end = range.drag_end(end, value);
-            *dragging = Some(RangeDrag::End { property, end });
+            *dragging = Some(RangeDrag::End {
+                owner,
+                property,
+                end,
+            });
         }
         RangeDrag::Span {
+            owner,
             property,
             from,
             grabbed,
         } => {
-            let (Some(fraction), Some(range)) =
-                (along(property), range_mut(&mut properties, property))
-            else {
+            let (Some(fraction), Some(range)) = (
+                along(owner, property),
+                range_mut(
+                    owner,
+                    property,
+                    properties.as_deref_mut(),
+                    filters.as_deref_mut(),
+                ),
+            ) else {
                 return;
             };
             let moved = (fraction - grabbed) * (range.high - range.low);
@@ -442,6 +532,7 @@ pub fn update_range_controls(
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     sources: Query<&CellProperties>,
+    tables: Query<&TableFilters>,
     mut fills: Query<(&RangeFill, &mut Node), (Without<RangeHandle>, Without<RangeBar>)>,
     mut handles: Query<(&RangeHandle, &mut Node), (Without<RangeFill>, Without<RangeBar>)>,
     mut bars: Query<
@@ -452,22 +543,21 @@ pub fn update_range_controls(
     counts: Query<(Entity, &RangeCount)>,
     mut texts: Query<&mut Text>,
 ) {
-    let Some(properties) = selected
+    // A source holds cell properties or a table, never both, so a control is
+    // read from whichever it names.
+    let Some(source) = selected
         .0
         .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get(shows.0).ok())
+        .map(|shows| shows.0)
     else {
         return;
     };
-    let range_of = |index: usize| {
-        properties
-            .properties
-            .get(index)
-            .and_then(|property| property.range())
-    };
+    let properties = sources.get(source).ok();
+    let filters = tables.get(source).ok();
+    let range_of = |owner: RangeOwner, index: usize| range_of(owner, index, properties, filters);
 
     for (fill, mut node) in &mut fills {
-        let Some(range) = range_of(fill.property) else {
+        let Some(range) = range_of(fill.owner, fill.property) else {
             continue;
         };
         let from = range.fraction_of(range.from);
@@ -477,7 +567,7 @@ pub fn update_range_controls(
     }
 
     for (handle, mut node) in &mut handles {
-        let Some(range) = range_of(handle.property) else {
+        let Some(range) = range_of(handle.owner, handle.property) else {
             continue;
         };
         let value = match handle.end {
@@ -489,16 +579,17 @@ pub fn update_range_controls(
         node.margin.left = Val::Px(nudge);
     }
 
-    let ramp = properties.ramp();
+    let ramp = properties.and_then(CellProperties::ramp);
     // Bars are redrawn as well as recolored: a histogram is counted again
     // among the cells the other filters admit whenever they change.
     for (bar, mut color, mut node) in &mut bars {
-        let Some(range) = range_of(bar.property) else {
+        let Some(range) = range_of(bar.owner, bar.property) else {
             continue;
         };
-        let ramp = ramp
-            .as_ref()
-            .filter(|_| properties.color_by == Some(bar.property));
+        let ramp = ramp.as_ref().filter(|_| {
+            bar.owner == RangeOwner::CellProperty
+                && properties.is_some_and(|it| it.color_by == Some(bar.property))
+        });
         let wanted = bar_color(range, bar.bucket, ramp, &palette);
         if color.0 != wanted {
             color.0 = wanted;
@@ -510,7 +601,7 @@ pub fn update_range_controls(
     }
 
     for (entity, readout) in &readouts {
-        let Some(range) = range_of(readout.property) else {
+        let Some(range) = range_of(readout.owner, readout.property) else {
             continue;
         };
         if let Ok(mut text) = texts.get_mut(entity) {
@@ -522,7 +613,7 @@ pub fn update_range_controls(
     }
 
     for (entity, count) in &counts {
-        let Some(range) = range_of(count.property) else {
+        let Some(range) = range_of(count.owner, count.property) else {
             continue;
         };
         if let Ok(mut text) = texts.get_mut(entity) {

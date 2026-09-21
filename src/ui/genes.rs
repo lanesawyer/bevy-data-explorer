@@ -21,7 +21,7 @@ use crate::app::theme::Palette;
 use crate::source::ShowsSource;
 use crate::source::genes::{GeneSearch, SearchState};
 use crate::source::properties::CellProperties;
-use crate::ui::cellpanel::range::spawn_range_control;
+use crate::ui::cellpanel::range::{RangeOwner, spawn_range_control};
 use crate::ui::cellpanel::{ClearPropertyButton, ColorByButton};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
@@ -338,7 +338,14 @@ pub fn rebuild_gene_list(
             let ramp = properties
                 .ramp()
                 .filter(|_| properties.color_by == Some(index));
-            let control = spawn_range_control(&mut commands, index, range, ramp.as_ref(), &palette);
+            let control = spawn_range_control(
+                &mut commands,
+                RangeOwner::CellProperty,
+                index,
+                range,
+                ramp.as_ref(),
+                &palette,
+            );
             commands.entity(sub.body).add_child(control);
         }
         sections.push(sub.section);

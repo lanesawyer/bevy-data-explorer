@@ -88,7 +88,13 @@ buttons write the page and the sidebar ticks the values, and whatever produced
 the rows serves them — `formats/table.rs` slices a table it read whole,
 `formats/specimens.rs` fetches one and narrows it at the platform. Neither
 knows about the controls, and `ui/tablefilters.rs` names no format: a second
-source of rows is filtered by it without a line changing there. `view/table.rs` fills
+source of rows is filtered by it without a line changing there.
+
+A numeric column is narrowed by a span, and that span is drawn by the same
+control the cell properties use. `ui/cellpanel/range.rs` takes a `RangeOwner`
+saying where its `NumericRange` lives — a cell property or a table column — so
+there is one histogram-and-two-ends widget rather than two that drift apart.
+Anything else that grows a numeric range should name itself there too. `view/table.rs` fills
 that frame with a scrolling table — there is nothing to pan over, so its frame
 scrolls rather than moves. Only the rows on screen are built. A format's whole
 job there is producing rows, which is why neither `formats/csv` nor

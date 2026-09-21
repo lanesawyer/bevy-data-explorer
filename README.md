@@ -869,16 +869,28 @@ per row — is cut to the same figure and says how many are left.
 
 Every column is asked about, annotations and measurements alike, and the
 platform decides which it can answer. A column it cannot comes back null beside
-the ones it could, so one column's failure costs only itself. Today that is the
-numeric measurements: grouping by one answers *"Unable to cast object of type
-'System.Double' to type 'System.String'"*, which is why the fMOST project
-offers six of the eight filters the platform's own page does — Age and Total
-Processed Subspecimens being the two numbers.
+the ones it could, so one column's failure costs only itself — and that null is
+also what marks a column out as numbers: grouping by one answers *"Unable to
+cast object of type 'System.Double' to type 'System.String'"*. A column of
+numbers is narrowed by taking a span of it rather than by ticking every reading
+anyone took, drawn with the same histogram and two-ended control the cell
+properties use.
 
-Numeric ranges are blocked on the same ground rather than on the widget. The
-extent a range would be drawn across lives in `measurementStats` on
-`aio_specimenFacetedSearchProperties`, and that query answers with an empty
-list for every project on the platform, filtered or not.
+A span is asked for when its column is opened, not when the table is. The
+platform has no query that gives a column's extent — `measurementStats` sits on
+`aio_specimenFacetedSearchProperties`, which answers with an empty list for
+every project — so a distribution is a cumulative count at each of twenty-odd
+bucket edges, one index query apiece at about 0.14s. Asking for every numeric
+column of the SEA-AD donors up front would be a minute of waiting for
+histograms nobody looked at.
+
+The edges are built around the numbers already on the page and widened by half
+their span at each end, since a hundred rows of ten thousand will not hold
+either end; the outermost buckets that hold anything are then the extent, so a
+column asked about far wider than it runs is still drawn across what it has.
+Two things its range parser will not take: scientific notation — `-1e12` comes
+back *"Invalid range format"* — and, as ever, a page it has decided is too far
+in.
 
 Two things the records do that only showed up on the last page, both now
 fixtured:
