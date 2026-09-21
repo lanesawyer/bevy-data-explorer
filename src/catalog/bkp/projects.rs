@@ -67,7 +67,7 @@ impl Catalog for SpecimenTables {
     }
 }
 
-async fn list(endpoint: String) -> Result<Vec<Entry>, String> {
+pub(super) async fn list(endpoint: String) -> Result<Vec<Entry>, String> {
     let mut entries = Vec::new();
     for page in 0..MAX_PAGES {
         let body = serde_json::json!({

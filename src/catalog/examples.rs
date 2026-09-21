@@ -48,7 +48,7 @@ pub struct Example {
     pub url: &'static str,
 }
 
-pub const EXAMPLES: [Example; 7] = [
+pub const EXAMPLES: [Example; 6] = [
     Example {
         name: "Epifluorescence whole slide",
         kind: "OME-Zarr image",
@@ -80,13 +80,5 @@ pub const EXAMPLES: [Example; 7] = [
         name: "Brain regions of interest",
         kind: "CSV table",
         url: "https://allen-brain-cell-atlas.s3.us-west-2.amazonaws.com/metadata/WMB-10X/20230830/region_of_interest_metadata.csv",
-    },
-    Example {
-        // Not a file: the platform's API, asked for one project's specimens.
-        // 84 donors of 30 features apiece, which is a table worth scrolling
-        // rather than one that fits on screen.
-        name: "SEA-AD donors and neuropathology",
-        kind: "BKP specimen table",
-        url: "https://idf-api-prod.aibs-idk-prod.net/?specimens=JGN327NUXRZSHEV88TN",
     },
 ];

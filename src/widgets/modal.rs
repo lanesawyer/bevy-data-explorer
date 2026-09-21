@@ -3,6 +3,10 @@
 //!
 //! Help and settings are both one of these, and open and close the same ways:
 //! the button that opens it, its own X, Escape, or a click outside the panel.
+//!
+//! The panel is centered in whatever the backdrop's padding leaves. That is
+//! set from above, by `ui::center_modals`, since what the frames occupy is the
+//! grid's business rather than a widget's.
 
 use bevy::prelude::*;
 use bevy::ui::{FocusPolicy, Interaction};
@@ -21,6 +25,11 @@ use crate::app::schedule::Stage;
 const MODAL_Z: i32 = 20;
 /// Space between the panel's edge and what is in it, on every side.
 const PADDING_PX: f32 = space::SCREEN_INSET;
+
+/// Marks every modal's backdrop, whichever modal it is, for what places them
+/// all alike.
+#[derive(Component, Clone, Default)]
+pub struct ModalScreen;
 
 /// Marks a modal's backdrop. `Toggle` marks every button that opens or closes
 /// it, its own X among them.
@@ -58,11 +67,11 @@ pub fn spawn_modal<M: Modal>(
                 justify_content: { JustifyContent::Center },
                 align_items: { AlignItems::Center },
             }
-            BackgroundColor({ Color::srgba(0.0, 0.0, 0.0, 0.5) })
+            BackgroundColor({ Color::srgba(0.0, 0.0, 0.0, 0.7) })
             GlobalZIndex({ MODAL_Z })
             InheritableFont { font_size: { 13.0f32 } }
         })
-        .insert(M::default())
+        .insert((ModalScreen, M::default()))
         .observe(close_on_backdrop::<M>)
         .id();
 

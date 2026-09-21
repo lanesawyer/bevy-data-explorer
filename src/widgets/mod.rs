@@ -32,7 +32,7 @@ pub use frame_input::BlocksFrameInput;
 pub use icons::{Icon, button_icon, icon_text};
 pub use link::link_button;
 pub use menu::{MENU_WIDTH, Menu, MenuButton, spawn_icon_menu, spawn_menu};
-pub use modal::{AddModal, Modal, set_modal_open, spawn_modal};
+pub use modal::{AddModal, Modal, ModalScreen, set_modal_open, spawn_modal};
 pub use scroll::{ScrollBoth, scroll_list};
 pub use search::{matches_search, spawn_search_field};
 pub use selectable::{SelectableText, has_selection};

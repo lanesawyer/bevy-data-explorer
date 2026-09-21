@@ -62,7 +62,7 @@ const QUERY: &str = "query($first: Int, $after: String) {
 /// lists, so each is matched to its entry and shows the platform's labels and
 /// colors — and, for the imputed genes, its gene search — once the listing
 /// lands.
-pub const EXAMPLES: [Example; 7] = [
+pub const EXAMPLES: [Example; 8] = [
     Example {
         name: "Whole mouse brain, 10x scRNA-seq",
         kind: "UMAP",
@@ -97,6 +97,14 @@ pub const EXAMPLES: [Example; 7] = [
         name: "Human basal ganglia spatial atlas",
         kind: "Grid of sections",
         url: "https://bkp-2d-visualizations.s3.amazonaws.com/bkppg-sfs-prod-hmba_bg_spatial_human_10012025-20251011165634/HZEYXSQOEDND2Q6M97M/ScatterBrain.json",
+    },
+    Example {
+        // Not a file: the platform's API, asked for one project's specimens.
+        // 84 donors of 30 features apiece, which is a table worth scrolling
+        // rather than one that fits on screen.
+        name: "SEA-AD donors and neuropathology",
+        kind: "Specimen table",
+        url: "https://idf-api-prod.aibs-idk-prod.net/?specimens=JGN327NUXRZSHEV88TN",
     },
 ];
 
@@ -337,7 +345,20 @@ mod tests {
         // re-ingest moves a visualization to a new address, and this is what
         // notices.
         let entries = crate::app::net::block_on(list(PRODUCTION.to_string())).unwrap();
-        for example in &EXAMPLES {
+        // A specimen table is a project rather than a visualization, and is
+        // listed by the query that finds those.
+        let (tables, visualizations): (Vec<_>, Vec<_>) = EXAMPLES
+            .iter()
+            .partition(|example| crate::formats::specimens::query_of(example.url).is_some());
+        let projects = crate::app::net::block_on(projects::list(PRODUCTION.to_string())).unwrap();
+        for example in tables {
+            assert!(
+                projects.iter().any(|entry| entry.url == example.url),
+                "{} is no longer listed",
+                example.name
+            );
+        }
+        for example in visualizations {
             let entry = entries.iter().find(|entry| entry.url == example.url);
             assert!(entry.is_some(), "{} is no longer listed", example.name);
             assert!(entry.unwrap().cells.is_some());
