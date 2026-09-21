@@ -37,7 +37,7 @@ use crate::widgets::{
 
 use super::chrome::BUTTON_PX;
 use super::overlay::PanelHeader;
-use super::{FrameArea, Panel};
+use super::{FrameArea, Panel, SelectedPanel};
 
 /// How tall one row is.
 const ROW_PX: f32 = 24.0;
@@ -519,6 +519,35 @@ fn spawn_cell(
     cell
 }
 
+/// Select a table's frame when it is pressed anywhere, as a view's frame is.
+///
+/// The table covers its frame and stops the pointer reaching it, so the frame
+/// never hears the press that would have selected it.
+pub fn select_pressed_tables(
+    buttons: Res<ButtonInput<MouseButton>>,
+    hover: Res<bevy::picking::hover::HoverMap>,
+    views: Query<&TableView>,
+    parents: Query<&ChildOf>,
+    mut selected: ResMut<SelectedPanel>,
+) {
+    if !buttons.any_just_pressed([MouseButton::Left, MouseButton::Middle, MouseButton::Right]) {
+        return;
+    }
+    let pressed = hover
+        .values()
+        .flat_map(|hits| hits.keys())
+        .find_map(|hovered| {
+            std::iter::once(*hovered)
+                .chain(parents.iter_ancestors(*hovered))
+                .find_map(|entity| views.get(entity).ok())
+        });
+    if let Some(view) = pressed
+        && selected.0 != Some(view.panel)
+    {
+        selected.0 = Some(view.panel);
+    }
+}
+
 /// Fit each table to the frame it fills, and hold its headings over the
 /// columns they name.
 pub fn place_tables(
@@ -729,6 +758,7 @@ pub struct TablePlugin;
 impl Plugin for TablePlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_page_pressed)
+            .add_systems(Update, select_pressed_tables.in_set(Stage::ControlsRead))
             .add_systems(Update, sync_tables.in_set(Stage::FrameChrome))
             .add_systems(
                 Update,
