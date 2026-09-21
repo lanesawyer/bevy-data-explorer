@@ -1,4 +1,5 @@
-//! Opening, closing and duplicating frames.
+//! Opening, closing and duplicating frames, and emptying one to browse for
+//! what it should show.
 //!
 //! Requests are messages rather than direct edits, so a button in any dock
 //! can ask for a frame without holding the world.
@@ -10,15 +11,15 @@ use super::grid::{MAX_PANELS, grid_for};
 use super::layers::{
     FrameLayers, LayerOf, LayerOpacity, can_add_layer, spawn_layer, stacked_sources,
 };
-use super::{FrameArea, Panel, SelectedPanel, View, spawn_panel};
+use super::{Browsing, FrameArea, Panel, SelectedPanel, View, spawn_browse_panel, spawn_panel};
 use crate::source::table::SourceTable;
 use crate::source::{DataSource, ShowsSource, SourceExtent, SourceUrl, ViewLimits};
 
 /// A change to the set of frames.
 ///
-/// Both a frame's own corner buttons and the sidebar's layout menu raise these,
-/// so the two routes cannot drift apart: the rules about what may be opened or
-/// closed live in one place.
+/// A frame's own corner buttons, its browser and the sidebar's New frame all
+/// raise these, so the routes cannot drift apart: the rules about what may be
+/// opened or closed live in one place.
 #[derive(Message, Clone, Copy)]
 pub enum PanelRequest {
     Duplicate(Entity),
@@ -42,6 +43,9 @@ pub enum PanelRequest {
         panel: Entity,
         source: Entity,
     },
+    /// Browse for a dataset: in a new, empty frame, or over what this frame
+    /// shows now, which stays until something else is chosen.
+    Browse(Option<Entity>),
     /// Move a source's layer one place up the stack, towards the top, or down.
     /// It never moves below the source the frame opened onto.
     MoveLayer {
@@ -96,6 +100,11 @@ pub struct PendingShow {
     pub name: String,
 }
 
+/// Why the dataset a frame last asked for could not be opened. Taken off once
+/// it shows one, or asks for another.
+#[derive(Component, Clone, Debug)]
+pub struct ShowFailed(pub String);
+
 /// Apply requested changes to the set of frames.
 pub fn apply_panel_requests(
     mut commands: Commands,
@@ -119,15 +128,18 @@ pub fn apply_panel_requests(
     pending: Query<&PendingShow>,
     urls: Query<&SourceUrl>,
     palette: Res<crate::app::theme::Palette>,
+    // Every frame, including an empty one, which `panels` cannot see: it
+    // shows no source.
+    frames: Query<(Entity, &Panel)>,
 ) {
     let requests: Vec<PanelRequest> = requests.read().copied().collect();
     if requests.is_empty() {
         return;
     }
 
-    let mut open: Vec<(usize, Entity)> = panels
+    let mut open: Vec<(usize, Entity)> = frames
         .iter()
-        .map(|(entity, panel, ..)| (panel.index, entity))
+        .map(|(entity, panel)| (panel.index, entity))
         .collect();
     open.sort_unstable();
 
@@ -210,14 +222,33 @@ pub fn apply_panel_requests(
                 spawned += 1;
             }
             PanelRequest::Close(panel) => {
-                if let Ok((_, _, shows, ..)) = panels.get(panel)
-                    && !closing.contains(&panel)
-                {
-                    let name = sources
-                        .get(shows.0)
-                        .map_or("a dataset", |(source, _)| source.name.as_str());
+                if frames.contains(panel) && !closing.contains(&panel) {
+                    let name = panels
+                        .get(panel)
+                        .ok()
+                        .and_then(|(_, _, shows, ..)| sources.get(shows.0).ok())
+                        .map_or("nothing", |(source, _)| source.name.as_str());
                     info!("closed the frame showing {name}");
                     closing.push(panel);
+                }
+            }
+            PanelRequest::Browse(None) => {
+                if open.len() + spawned >= MAX_PANELS {
+                    continue;
+                }
+                let panel =
+                    spawn_browse_panel(&mut commands, open.len() + spawned, palette.frame_bg);
+                selected.0 = Some(panel);
+                info!("opened an empty frame to browse from");
+                spawned += 1;
+            }
+            PanelRequest::Browse(Some(panel)) => {
+                if frames.contains(panel) {
+                    commands
+                        .entity(panel)
+                        .insert(Browsing)
+                        .remove::<ShowFailed>();
+                    selected.0 = Some(panel);
                 }
             }
             // Selecting is handled here so the inspector can simply follow the
@@ -228,8 +259,11 @@ pub fn apply_panel_requests(
                 }
             }
             PanelRequest::Show { panel, source } => {
-                let Ok((_, _, shows, _, _, _, layers, _)) = panels.get(panel) else {
-                    continue;
+                // An empty frame shows nothing yet, so has nothing stacked.
+                let (shows, layers) = match panels.get(panel) {
+                    Ok((_, _, shows, _, _, _, layers, _)) => (Some(shows.0), layers),
+                    Err(_) if frames.contains(panel) => (None, None),
+                    Err(_) => continue,
                 };
                 // Only the dataset the frame is waiting on settles the wait: a
                 // later choice may already have replaced it.
@@ -238,7 +272,8 @@ pub fn apply_panel_requests(
                 {
                     commands.entity(panel).remove::<PendingShow>();
                 }
-                if shows.0 == source {
+                if shows == Some(source) {
+                    commands.entity(panel).remove::<(Browsing, ShowFailed)>();
                     continue;
                 }
                 let Ok((data, extent)) = sources.get(source) else {
@@ -251,16 +286,19 @@ pub fn apply_panel_requests(
                 info!("frame now showing {}", data.name);
                 // In 2D, whatever it was: the new dataset may have no depth, and
                 // one that does has its own to be framed to.
-                commands.entity(panel).remove::<super::Orbit>().insert((
-                    ShowsSource(source),
-                    RenderLayers::layer(data.layer),
-                    limits,
-                    Transform::from_translation(limits.centre.extend(1000.0)),
-                    Projection::Orthographic(OrthographicProjection {
-                        scale: limits.fit_scale,
-                        ..OrthographicProjection::default_2d()
-                    }),
-                ));
+                commands
+                    .entity(panel)
+                    .remove::<(super::Orbit, Browsing, ShowFailed)>()
+                    .insert((
+                        ShowsSource(source),
+                        RenderLayers::layer(data.layer),
+                        limits,
+                        Transform::from_translation(limits.centre.extend(1000.0)),
+                        Projection::Orthographic(OrthographicProjection {
+                            scale: limits.fit_scale,
+                            ..OrthographicProjection::default_2d()
+                        }),
+                    ));
                 // The layers stay, over whatever is now underneath them —
                 // except one of the source now at the bottom, which would draw
                 // it twice, and all of them under a table, which has nothing
@@ -408,6 +446,7 @@ mod tests {
                 unit: unit.into(),
                 detail: String::new(),
                 stat: String::new(),
+                category: crate::source::Category::Image,
             },
             SourceExtent {
                 centre: Vec2::ZERO,
@@ -440,6 +479,51 @@ mod tests {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    #[test]
+    fn an_empty_frame_takes_a_cell_and_is_filled_by_what_is_chosen() {
+        let mut app = app();
+        let slide = source(&mut app, "Slide", "px");
+        request(&mut app, PanelRequest::Browse(None));
+        let panel = only_panel(&mut app);
+        assert!(app.world().get::<Browsing>(panel).is_some());
+        assert!(app.world().get::<ShowsSource>(panel).is_none());
+
+        request(
+            &mut app,
+            PanelRequest::Show {
+                panel,
+                source: slide,
+            },
+        );
+        assert_eq!(only_panel(&mut app), panel, "filled, not replaced");
+        assert_eq!(app.world().get::<ShowsSource>(panel).unwrap().0, slide);
+        assert!(app.world().get::<Browsing>(panel).is_none());
+    }
+
+    #[test]
+    fn a_frame_can_browse_and_an_empty_one_can_close() {
+        let mut app = app();
+        let slide = source(&mut app, "Slide", "px");
+        request(&mut app, PanelRequest::Open(slide));
+        let panel = only_panel(&mut app);
+        request(&mut app, PanelRequest::Browse(Some(panel)));
+        assert!(app.world().get::<Browsing>(panel).is_some());
+        assert_eq!(
+            app.world().get::<ShowsSource>(panel).unwrap().0,
+            slide,
+            "what it shows stays until something else is chosen"
+        );
+
+        request(&mut app, PanelRequest::Browse(None));
+        let mut empty = app
+            .world_mut()
+            .query_filtered::<(Entity, &Panel), Without<ShowsSource>>();
+        let (empty, cell) = empty.single(app.world()).unwrap();
+        assert_eq!(cell.index, 1, "after the frame already open");
+        request(&mut app, PanelRequest::Close(empty));
+        assert_eq!(only_panel(&mut app), panel);
     }
 
     #[test]

@@ -7,9 +7,9 @@
 
 use bevy::prelude::*;
 use bevy::ui::Checked;
-use bevy_feathers::controls::{FeathersCheckbox, FeathersToolButton};
+use bevy_feathers::controls::FeathersCheckbox;
 use bevy_feathers::theme::ThemeTextColor;
-use bevy_ui_widgets::{Activate, SliderRange, SliderValue, ValueChange};
+use bevy_ui_widgets::{SliderRange, SliderValue, ValueChange};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::render::points::{DEFAULT_POINT_PX, MAX_POINT_PX, MIN_POINT_PX, SourcePointSize};
@@ -19,10 +19,8 @@ use crate::source::{DataSource, ShowsSource};
 use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
-use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, caption, size, spawn_accordion,
-    spawn_menu, spawn_slider, text,
+    BlocksFrameInput, SectionLevel, button_text, size, spawn_accordion, spawn_slider, text,
 };
 
 /// The opacity slider runs 0..100, so its built-in readout is a percentage.
@@ -91,40 +89,6 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         .entity(accordion.section)
         .insert(SectionOrder(SECTION_ORDER));
     commands.entity(parent).add_child(accordion.section);
-    let menu = spawn_menu(&mut commands, accordion.header);
-    commands.entity(menu).insert(LayoutMenu);
-
-    // The frame rows are rebuilt wholesale, so they get a container of their
-    // own: the custom dataset field below them holds what has been typed into
-    // it, and would lose it every time a frame was opened or closed.
-    let rows = commands
-        .spawn_scene(bsn! {
-            LayoutRows
-            Node {
-                flex_direction: { FlexDirection::Column },
-                width: { Val::Percent(100.0) },
-                row_gap: { Val::Px(space::LIST_ITEMS) },
-            }
-        })
-        .id();
-    // The picker is outside the rows too, for the same reason: it holds its
-    // search. It is the one on every frame's title, opening into a new frame
-    // instead of repointing one.
-    let open = commands
-        .spawn_scene(bsn! {
-            text("Open a dataset", size::SECONDARY)
-            Node { margin: { UiRect::new(Val::Px(0.0), Val::Px(0.0), Val::Px(space::HEADING), Val::Px(space::STACKED)) } }
-        })
-        .id();
-    let picker = crate::view::dataset_menu::spawn_dataset_picker(
-        &mut commands,
-        crate::view::dataset_menu::PickerTarget::NewFrame,
-    );
-    let custom = crate::ui::add_source::spawn_custom_section(&mut commands);
-    commands
-        .entity(menu)
-        .add_children(&[rows, open, picker, custom]);
-
     let body = accordion.body;
 
     let name = commands
@@ -435,9 +399,7 @@ pub struct ViewConfigPlugin;
 
 impl Plugin for ViewConfigPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_layout_button)
-            .add_observer(on_slice_grid_toggled)
-            .add_systems(Update, rebuild_layout_menu.in_set(Stage::ControlsBuild))
+        app.add_observer(on_slice_grid_toggled)
             .add_systems(
                 Update,
                 (
@@ -451,201 +413,6 @@ impl Plugin for ViewConfigPlugin {
             )
             .add_systems(Startup, spawn_view_config.in_set(Boot::DockContent));
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The slider works in percent while opacity is a fraction, so the two
-    /// conversions have to agree or the value drifts every time the selection
-    /// changes.
-    #[test]
-    fn percent_and_opacity_round_trip() {
-        for opacity in [0.0f32, 0.25, 0.46, 0.5, 1.0] {
-            let shown = opacity * PERCENT;
-            assert!((shown / PERCENT - opacity).abs() < 1e-6);
-        }
-        assert_eq!(100.0 / PERCENT, 1.0);
-        assert_eq!(0.0 / PERCENT, 0.0);
-    }
-}
-
-/// The menu that edits which visualizations are on screen.
-#[derive(Component, Clone, Default)]
-pub struct LayoutMenu;
-
-/// Anything the menu rebuilds, so a rebuild can clear what it made.
-#[derive(Component, Clone, Default)]
-pub struct LayoutContent;
-
-/// The part of the menu that is rebuilt, which is everything above the custom
-/// dataset field.
-#[derive(Component, Clone, Default)]
-pub struct LayoutRows;
-
-/// What a button in the layout menu does.
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub enum LayoutAction {
-    #[default]
-    Clone,
-    Remove,
-}
-
-#[derive(Component, Clone)]
-pub struct LayoutButton {
-    pub panel: Entity,
-    pub action: LayoutAction,
-}
-
-impl Default for LayoutButton {
-    fn default() -> Self {
-        LayoutButton {
-            panel: Entity::PLACEHOLDER,
-            action: LayoutAction::Clone,
-        }
-    }
-}
-
-/// Rebuild the menu when the set of frames changes.
-///
-/// Rebuilding wholesale rather than reconciling row by row is fine at this
-/// size: the grid holds at most eight frames, and the list only changes when
-/// one is added or removed.
-pub fn rebuild_layout_menu(
-    mut commands: Commands,
-    menus: Query<Entity, With<LayoutRows>>,
-    panels: Query<(Entity, &crate::view::Panel, &ShowsSource)>,
-    sources: Query<(Entity, &DataSource)>,
-    content: Query<Entity, With<LayoutContent>>,
-    mut previous: Local<Option<Vec<(Entity, Entity)>>>,
-) {
-    let Ok(menu) = menus.single() else { return };
-
-    let mut frames: Vec<(usize, Entity, Entity)> = panels
-        .iter()
-        .map(|(entity, panel, shows)| (panel.index, entity, shows.0))
-        .collect();
-    frames.sort_by_key(|(index, _, _)| *index);
-    let current: Vec<(Entity, Entity)> = frames
-        .iter()
-        .map(|(_, panel, source)| (*panel, *source))
-        .collect();
-
-    if previous.as_ref() == Some(&current) {
-        return;
-    }
-    *previous = Some(current.clone());
-
-    for entity in &content {
-        commands.entity(entity).despawn();
-    }
-
-    let mut children = vec![heading(&mut commands, "Edit layout", 15.0, 0.0)];
-
-    for (panel, source) in &current {
-        let Ok((_, data)) = sources.get(*source) else {
-            continue;
-        };
-        children.push(frame_row(&mut commands, *panel, data));
-    }
-
-    commands.entity(menu).add_children(&children);
-}
-
-fn heading(commands: &mut Commands, content: &str, size: f32, gap: f32) -> Entity {
-    let content = content.to_string();
-    commands
-        .spawn_scene(bsn! {
-            LayoutContent
-            text(content, size)
-            Node { margin: { UiRect::top(Val::Px(gap)) } }
-        })
-        .id()
-}
-
-/// Name, description and headline figure for one dataset.
-fn summary(commands: &mut Commands, data: &DataSource) -> Entity {
-    let name = data.name.clone();
-    let row = commands
-        .spawn_scene(bsn! {
-            Node {
-                flex_direction: { FlexDirection::Column },
-                flex_grow: { 1.0_f32 },
-                row_gap: { Val::Px(space::STACKED) },
-            }
-            Children [(
-                text(name, size::BODY)
-            )]
-        })
-        .id();
-
-    // Provenance and headline figure, dimmed the way Feathers dims captions.
-    let detail = caption(commands, data.detail.clone());
-    let stat = caption(commands, data.stat.clone());
-    commands.entity(row).add_children(&[detail, stat]);
-    row
-}
-
-fn frame_row(commands: &mut Commands, panel: Entity, data: &DataSource) -> Entity {
-    let row = commands
-        .spawn_scene(bsn! {
-            LayoutContent
-            Node {
-                width: { Val::Percent(100.0) },
-                align_items: { AlignItems::Center },
-                column_gap: { Val::Px(space::CONTROLS) },
-                padding: { UiRect::vertical(Val::Px(space::ITEM_INSET)) },
-            }
-        })
-        .id();
-
-    let details = summary(commands, data);
-    let clone = action_button(commands, panel, LayoutAction::Clone, Icon::CopyPlus);
-    // Every frame offers to close, the last one included: the window it leaves
-    // behind offers the examples again.
-    let remove = action_button(commands, panel, LayoutAction::Remove, Icon::X);
-    commands.entity(row).add_children(&[details, clone, remove]);
-    row
-}
-
-fn action_button(
-    commands: &mut Commands,
-    panel: Entity,
-    action: LayoutAction,
-    icon: Icon,
-) -> Entity {
-    commands
-        .spawn_scene(bsn! {
-            @FeathersToolButton {
-                @caption: { bsn_list![button_icon(icon)] }
-            }
-            BlocksFrameInput
-            LayoutButton { panel: { panel }, action: { action } }
-        })
-        .id()
-}
-
-/// Clone or close a frame from the menu.
-///
-/// Feathers controls report a press by triggering [`Activate`] on themselves
-/// rather than by carrying an `Interaction`, so these are observers rather than
-/// systems polling for a changed interaction.
-///
-/// Both raise the same requests as a frame's own corner buttons, so the two
-/// routes cannot drift apart.
-pub fn on_layout_button(
-    activate: On<Activate>,
-    buttons: Query<&LayoutButton>,
-    mut requests: MessageWriter<crate::view::PanelRequest>,
-) {
-    let Ok(button) = buttons.get(activate.entity) else {
-        return;
-    };
-    requests.write(match button.action {
-        LayoutAction::Clone => crate::view::PanelRequest::Duplicate(button.panel),
-        LayoutAction::Remove => crate::view::PanelRequest::Close(button.panel),
-    });
 }
 
 /// Point the size slider at the selected source, and write its value back.
@@ -699,4 +466,22 @@ pub fn sync_point_size(
         size.0 = value.0;
     }
     *shown = Some(source);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The slider works in percent while opacity is a fraction, so the two
+    /// conversions have to agree or the value drifts every time the selection
+    /// changes.
+    #[test]
+    fn percent_and_opacity_round_trip() {
+        for opacity in [0.0f32, 0.25, 0.46, 0.5, 1.0] {
+            let shown = opacity * PERCENT;
+            assert!((shown / PERCENT - opacity).abs() < 1e-6);
+        }
+        assert_eq!(100.0 / PERCENT, 1.0);
+        assert_eq!(0.0 / PERCENT, 0.0);
+    }
 }

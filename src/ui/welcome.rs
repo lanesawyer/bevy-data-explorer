@@ -3,8 +3,9 @@
 //! Nothing is loaded at startup any more, so the frame area would otherwise be
 //! a cleared rectangle with no way into the app. This fills it: what the viewer
 //! is for, the bookmarks saved so far, every dataset it knows the address of —
-//! the Brain Knowledge Platform's beside the rest — the same URL field the
-//! sidebar carries, for anything else, and who made it.
+//! the Brain Knowledge Platform's beside the rest — a button opening the same
+//! empty frame the sidebar's New frame does, for anything else, and who made
+//! it.
 //!
 //! It is UI rather than frame chrome, but it is placed against
 //! [`FrameArea`] like the chrome is, so the docks take their space off it
@@ -22,9 +23,10 @@ use crate::app::schedule::{Boot, Stage};
 use crate::bookmark::store::SavedBookmarks;
 use crate::catalog::bkp;
 use crate::catalog::examples::{EXAMPLES, Example};
-use crate::ui::add_source::spawn_custom_section;
+use crate::ui::add_source::status_line;
 use crate::ui::bookmarks::BookmarkList;
 use crate::ui::help::{AUTHOR, LICENSE, LICENSE_URL, REPOSITORY};
+use crate::view::browse::new_frame_button;
 use crate::view::{FrameArea, Panel};
 use crate::widgets::space;
 use crate::widgets::{
@@ -152,16 +154,25 @@ pub fn spawn_welcome(mut commands: Commands) {
 
     let mut children = vec![title, blurb, bookmarks, columns];
 
-    // The same field, button and status line the sidebar's Edit layout menu
-    // carries: one dataset field spawned twice rather than two of them.
-    let custom = spawn_custom_section(&mut commands);
-    commands.entity(custom).insert(Node {
-        flex_direction: FlexDirection::Column,
-        width: Val::Px(COLUMN_PX),
-        row_gap: Val::Px(space::ROWS),
-        ..default()
-    });
-    children.push(custom);
+    // Everything else, and any address, is found in an empty frame: the same
+    // one the sidebar's New frame button opens.
+    let browse = commands
+        .spawn_scene(bsn! {
+            Node {
+                flex_direction: { FlexDirection::Column },
+                align_items: { AlignItems::Center },
+                width: { Val::Px(COLUMN_PX) },
+                max_width: { Val::Percent(100.0) },
+                row_gap: { Val::Px(space::ROWS) },
+            }
+            Children [
+                new_frame_button("Browse all datasets", ButtonVariant::Primary),
+                label_dim("Search every catalog, or paste the URL of a dataset."),
+                status_line(),
+            ]
+        })
+        .id();
+    children.push(browse);
 
     // Pushed to the foot of the screen by its auto margin, which with the
     // title's leaves the rest centred in what is between them.

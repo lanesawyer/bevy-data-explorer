@@ -102,6 +102,7 @@ mod tests {
                 }),
             }],
             selected: Some(0),
+            empty_frames: Vec::new(),
         }
     }
 

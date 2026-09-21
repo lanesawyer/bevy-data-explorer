@@ -21,6 +21,7 @@ use serde::Deserialize;
 
 use super::examples::Example;
 use super::{Catalog, CellService, Entry};
+use crate::source::Category;
 
 pub const PRODUCTION: &str = "https://idf-api-prod.aibs-idk-prod.net/";
 
@@ -66,36 +67,43 @@ pub const EXAMPLES: [Example; 8] = [
     Example {
         name: "Whole mouse brain, 10x scRNA-seq",
         kind: "UMAP",
+        category: Category::Cells,
         url: "https://bkp-2d-visualizations.s3.amazonaws.com/wmb_tenx_02082024-20240220165404/G4I4GFJXJB9ATZ3PTX1/ScatterBrain.json",
     },
     Example {
         name: "SEA-AD snRNA-seq, MTG and DLPFC",
         kind: "UMAP",
+        category: Category::Cells,
         url: "https://bkp-2d-visualizations.s3.amazonaws.com/bkppg-sfs-prod-sea-ad-tenx-updated-and-reingested-20250725-v2-20250728232258/98JE3Z1ILSDCIEMA6LQ/ScatterBrain.json",
     },
     Example {
         name: "Developing mouse visual cortex",
         kind: "UMAP",
+        category: Category::Cells,
         url: "https://bkp-2d-visualizations.s3.amazonaws.com/bkppg-abca-prod-dev-mouse-051826-20260518194401/592FE9657CFF611153/ScatterBrain.json",
     },
     Example {
         name: "Zhuang-ABCA-1 MERFISH",
         kind: "Coronal grid",
+        category: Category::Cells,
         url: "https://bkp-2d-visualizations.s3.amazonaws.com/zhuang1_01262024-20240216212536/MGA5LUTH4ETM859L5IM/ScatterBrain.json",
     },
     Example {
         name: "Zhuang-ABCA-3 MERFISH",
         kind: "Sagittal grid",
+        category: Category::Cells,
         url: "https://bkp-2d-visualizations.s3.amazonaws.com/zhuang3_01262024-20240216223831/040LTKC6FZ4NDT2ADYB/ScatterBrain.json",
     },
     Example {
         name: "MERFISH with imputed genes",
         kind: "Grid of sections",
+        category: Category::Cells,
         url: "https://bkp-2d-visualizations.s3.amazonaws.com/bkppg-sfs-prod-wmb-imputed-genes-20240926234907/6MT7UC6ETYECBWF50PK/ScatterBrain.json",
     },
     Example {
         name: "Human basal ganglia spatial atlas",
         kind: "Grid of sections",
+        category: Category::Cells,
         url: "https://bkp-2d-visualizations.s3.amazonaws.com/bkppg-sfs-prod-hmba_bg_spatial_human_10012025-20251011165634/HZEYXSQOEDND2Q6M97M/ScatterBrain.json",
     },
     Example {
@@ -104,6 +112,7 @@ pub const EXAMPLES: [Example; 8] = [
         // rather than one that fits on screen.
         name: "SEA-AD donors and neuropathology",
         kind: "Specimen table",
+        category: Category::Table,
         url: "https://idf-api-prod.aibs-idk-prod.net/?specimens=JGN327NUXRZSHEV88TN",
     },
 ];
@@ -239,6 +248,8 @@ fn parse_page(endpoint: &str, text: &str) -> Result<(Vec<Entry>, Option<String>)
             entries.push(Entry {
                 name,
                 kind: describe(&visualization.typename).to_string(),
+                // Every visualization the platform lists is of cells.
+                category: Category::Cells,
                 url,
                 keywords: format!("{} {}", dataset.title, visualization.title),
                 cells: Some(cells.clone()),

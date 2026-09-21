@@ -215,10 +215,33 @@ fn spawn_sidebar(mut commands: Commands) {
         ThemeBackgroundColor({ tokens::WINDOW_BG })
         Children [
             (
-                SidebarTitle
-                Text({ FULL_TITLE.to_string() })
-                TextFont { font_size: { FontSize::Px(size::DOCK_TITLE) } }
-                ThemeTextColor({ tokens::TEXT_MAIN })
+                // The title, and beside it the way to open a dataset: into a
+                // new frame, whose browser finds it.
+                Node {
+                    width: { Val::Percent(100.0) },
+                    align_items: { AlignItems::Center },
+                    justify_content: { JustifyContent::SpaceBetween },
+                    column_gap: { Val::Px(space::CONTROLS) },
+                }
+                Children [
+                    (
+                        SidebarTitle
+                        Text({ FULL_TITLE.to_string() })
+                        TextFont { font_size: { FontSize::Px(size::DOCK_TITLE) } }
+                        ThemeTextColor({ tokens::TEXT_MAIN })
+                    ),
+                    (
+                        @FeathersToolButton {
+                            @caption: { bsn_list![
+                                button_icon(Icon::Plus),
+                                (button_text("New frame") SidebarLabel),
+                            ] }
+                        }
+                        Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+                        crate::view::browse::NewFrameButton
+                        BlocksFrameInput
+                    ),
+                ]
             ),
             (
                 SidebarContent

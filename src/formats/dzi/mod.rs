@@ -267,6 +267,7 @@ pub fn spawn_source(world: &mut World, dzi: Arc<DeepZoom>, budget_bytes: usize) 
                 dzi.format.to_ascii_uppercase()
             ),
             stat: format!("{} x {} PX", dzi.width, dzi.height),
+            category: source::Category::Image,
         },
         SourceExtent {
             centre: Vec2::new(width * 0.5, -height * 0.5),

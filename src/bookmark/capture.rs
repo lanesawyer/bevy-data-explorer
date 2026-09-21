@@ -18,6 +18,23 @@ use crate::view::FrameRegion;
 use crate::view::{FrameArea, FrameLayers, LayerOpacity, Orbit, SelectedPanel};
 use crate::view::{Panel, View};
 
+/// Where the empty frames sit among every frame, in grid order.
+fn empty_positions(world: &mut World) -> (usize, Vec<usize>) {
+    let mut frames = world.query::<(&Panel, Has<ShowsSource>)>();
+    let mut all: Vec<(usize, bool)> = frames
+        .iter(world)
+        .map(|(panel, shows)| (panel.index, shows))
+        .collect();
+    all.sort_unstable();
+    let empty = all
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, shows))| !shows)
+        .map(|(position, _)| position)
+        .collect();
+    (all.len(), empty)
+}
+
 /// The address a dataset is saved under.
 ///
 /// A local path is made absolute, so the bookmark opens from wherever the app
@@ -93,7 +110,9 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
         Some(sources.len() - 1)
     };
 
-    let count = found.len();
+    // Counted with the empty frames, which take cells too, so a view is saved
+    // against the size its frame really had.
+    let (count, empty_frames) = empty_positions(world);
     let mut frames = Vec::new();
     let mut selected_frame = None;
     for (position, (entity, _, source, flat, orbit, layers, region)) in
@@ -160,6 +179,7 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
         sources,
         frames,
         selected: selected_frame,
+        empty_frames,
     })
 }
 

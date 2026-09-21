@@ -1,12 +1,8 @@
-//! Adding a dataset by typing its URL.
+//! Reading a dataset by its address, for whatever asked for one.
 //!
-//! Sits at the bottom of View configuration's **Edit layout** menu, under the
-//! datasets already loaded, because that menu is where what is on screen is
-//! chosen and this is one more thing to choose. The empty window spawns a
-//! second one, so the section is built by a function rather than being a place:
-//! each carries its own field, button and status line, and a button loads from
-//! the field it was spawned beside rather than from whichever field is found
-//! first.
+//! A [`DatasetRequest`] arrives from a picker — an entry of a catalog, or an
+//! address typed into its search — or from an example on the empty window.
+//! One already open is shown where it was asked for; anything else is read.
 //!
 //! What the URL points at is worked out by reading it rather than by asking:
 //! `formats::discover` recognises the format, and whatever it finds is
@@ -18,43 +14,18 @@
 //! drawing while it is in flight.
 
 use crate::app::net::{Fetching, fetching};
-use crate::widgets::space;
-use bevy::input::keyboard::KeyboardInput;
-use bevy::input_focus::FocusedInput;
 use bevy::prelude::*;
-use bevy::text::EditableText;
-use bevy::ui::InteractionDisabled;
-use bevy_feathers::controls::{FeathersButton, FeathersTextInput, FeathersTextInputContainer};
-use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::Stage;
 use crate::app::theme::Palette;
 use crate::formats::discover::{self, Discovered};
 use crate::formats::{LoadSettings, spawn_discovered};
 use crate::source::SourceUrl;
-use crate::view::{DatasetRequest, DatasetTarget, MAX_PANELS, Panel, PendingShow};
-use crate::widgets::{BlocksFrameInput, button_text, field_well, size, text, text_dim};
+use crate::view::{DatasetRequest, DatasetTarget, PendingShow, ShowFailed};
+use crate::widgets::size;
 
-/// The field a URL is typed into. On the inner text entity, which is the one
-/// holding the [`EditableText`], rather than on its container.
-#[derive(Component, Clone, Default)]
-pub struct CustomUrlInput;
-
-/// The button that opens whatever its own field names.
-#[derive(Component, Clone)]
-pub struct LoadCustomButton {
-    pub field: Entity,
-}
-
-impl Default for LoadCustomButton {
-    fn default() -> Self {
-        LoadCustomButton {
-            field: Entity::PLACEHOLDER,
-        }
-    }
-}
-
-/// The line under the field reporting how the last attempt went.
+/// A line reporting how the last read went, for a place with no frame of its
+/// own to say so: the empty window's examples.
 #[derive(Component, Clone, Default)]
 pub struct CustomStatus;
 
@@ -90,10 +61,6 @@ impl LoadStatus {
 #[derive(Resource, Default)]
 pub struct CustomLoad {
     task: Option<Fetching<Result<Discovered, String>>>,
-    /// The field the URL was typed into, so that opening it clears that field
-    /// and not one the user is still typing in elsewhere. Absent for a load
-    /// that came from a button rather than a field.
-    field: Option<Entity>,
     /// Where the dataset being read goes once it is open.
     target: DatasetTarget,
     /// Known datasets asked for while another was being read, in order.
@@ -146,31 +113,9 @@ impl CustomLoad {
             return;
         }
         if let Some((url, target)) = self.queued.pop_front() {
-            self.field = None;
             self.target = target;
             self.begin(url);
         }
-    }
-
-    /// Start reading what was typed into `field`, which is emptied once the
-    /// dataset is open.
-    ///
-    /// Refused rather than queued while something is being read: the status
-    /// line under the field says so, and a URL still in the field can simply
-    /// be loaded again.
-    pub fn start_from(&mut self, field: Entity, url: String, frames: usize) {
-        if self.is_loading() {
-            return;
-        }
-        if frames >= MAX_PANELS {
-            self.status = LoadStatus::Failed(format!(
-                "{MAX_PANELS} frames is the most the grid holds; close one to open another"
-            ));
-            return;
-        }
-        self.field = Some(field);
-        self.target = DatasetTarget::NewFrame;
-        self.begin(url);
     }
 
     fn begin(&mut self, url: String) {
@@ -188,134 +133,13 @@ impl CustomLoad {
     }
 }
 
-/// Build the section, for the menu to hang off its end.
-pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
-    let section = commands
-        .spawn_scene(bsn! {
-            Node {
-                flex_direction: { FlexDirection::Column },
-                width: { Val::Percent(100.0) },
-                row_gap: { Val::Px(space::ROWS) },
-                margin: { UiRect::top(Val::Px(space::GROUPS)) },
-            }
-        })
-        .id();
-    // The field and what it is for are set apart in a well, which is what
-    // lets the field show against the menu or the empty window around it.
-    let well = commands
-        .spawn_scene(bsn! {
-            field_well()
-            Children [
-                (
-                    text("Custom visualization", size::SECONDARY)
-                ),
-                (
-                    text_dim("An OME-Zarr store, Deep Zoom .dzi, Scatterbrain .json or .svg URL", size::SMALL)
-                ),
-            ]
-        })
-        .id();
-
-    // Spawned before the row so the button can be told which field it loads.
-    let field = commands
-        .spawn_scene(bsn! {
-            @FeathersTextInput
-            CustomUrlInput
-        })
-        .id();
-    let entry = commands
-        .spawn_scene(bsn! {
-            @FeathersTextInputContainer
-            BlocksFrameInput
-        })
-        .id();
-    commands.entity(entry).add_child(field);
-
-    let button = commands
-        .spawn_scene(bsn! {
-            @FeathersButton {
-                @caption: { bsn_list![button_text("Load")] }
-            }
-            BlocksFrameInput
-            LoadCustomButton { field: { field } }
-            // The field gives way instead, so a long URL never squeezes the
-            // button out of the row.
-            Node { flex_shrink: { 0.0_f32 } }
-        })
-        .id();
-
-    let row = commands
-        .spawn_scene(bsn! {
-            Node {
-                width: { Val::Percent(100.0) },
-                align_items: { AlignItems::Center },
-                column_gap: { Val::Px(space::CONTROLS) },
-            }
-        })
-        .id();
-    commands.entity(row).add_children(&[entry, button]);
-
-    let status = commands
-        .spawn_scene(bsn! {
-            CustomStatus
-            Text({ String::new() })
-            TextFont { font_size: { FontSize::Px(size::SMALL) } }
-            Node { display: { Display::None } }
-        })
-        .id();
-
-    commands.entity(well).add_child(row);
-    commands.entity(section).add_children(&[well, status]);
-    section
-}
-
-/// Open what the field names when the button is pressed.
-///
-/// Feathers controls report a press by triggering [`Activate`] on themselves
-/// and carry no `Interaction`, so this is an observer rather than a system
-/// polling for a changed interaction.
-pub fn on_load_pressed(
-    activate: On<Activate>,
-    buttons: Query<&LoadCustomButton>,
-    inputs: Query<&EditableText, With<CustomUrlInput>>,
-    panels: Query<(), With<Panel>>,
-    mut load: ResMut<CustomLoad>,
-) {
-    let Ok(button) = buttons.get(activate.entity) else {
-        return;
-    };
-    let Ok(typed) = inputs.get(button.field) else {
-        return;
-    };
-    load.start_from(
-        button.field,
-        typed.value().to_string(),
-        panels.iter().count(),
-    );
-}
-
-/// Open what the field names when return is pressed in it.
-///
-/// The field allows no newlines, so return is left unhandled by the widget and
-/// is free to mean "load this".
-pub fn on_url_submitted(
-    key: On<FocusedInput<KeyboardInput>>,
-    inputs: Query<&EditableText, With<CustomUrlInput>>,
-    panels: Query<(), With<Panel>>,
-    mut load: ResMut<CustomLoad>,
-) {
-    let Ok(typed) = inputs.get(key.focused_entity) else {
-        return;
-    };
-    if !key.input.state.is_pressed() {
-        return;
-    }
-    if matches!(key.input.key_code, KeyCode::Enter | KeyCode::NumpadEnter) {
-        load.start_from(
-            key.focused_entity,
-            typed.value().to_string(),
-            panels.iter().count(),
-        );
+/// The status line, for the empty window to place.
+pub fn status_line() -> impl Scene {
+    bsn! {
+        CustomStatus
+        Text({ String::new() })
+        TextFont { font_size: { FontSize::Px(size::SMALL) } }
+        Node { display: { Display::None } }
     }
 }
 
@@ -353,7 +177,6 @@ pub fn poll_custom_load(
     mut commands: Commands,
     mut load: ResMut<CustomLoad>,
     settings: Res<LoadSettings>,
-    mut inputs: Query<&mut EditableText, With<CustomUrlInput>>,
 ) {
     let Some(task) = load.task.as_mut() else {
         return;
@@ -377,44 +200,29 @@ pub fn poll_custom_load(
                 world.entity_mut(source).insert(SourceUrl(url));
                 world.write_message(target.request_for(source));
             });
-            // The URL has been opened, so leave the field ready for the next
-            // one rather than holding a value that would load a duplicate.
-            if let Some(mut text) = load.field.and_then(|field| inputs.get_mut(field).ok()) {
-                text.clear();
-            }
         }
         Err(message) => {
             bevy::log::warn!("{message}");
-            load.status = LoadStatus::Failed(message);
-            // A frame left waiting would say it is reading something forever.
+            load.status = LoadStatus::Failed(message.clone());
+            // A frame left waiting would say it is reading something forever,
+            // and one browsing for it says why it did not open.
             if let DatasetTarget::Show(panel) = std::mem::take(&mut load.target) {
-                commands.entity(panel).try_remove::<PendingShow>();
+                commands
+                    .entity(panel)
+                    .try_remove::<PendingShow>()
+                    .try_insert(ShowFailed(message));
             }
         }
     }
     load.start_queued();
 }
 
-/// Show how the last attempt went, and hold the button while one is in flight.
+/// Show how the last attempt went.
 pub fn sync_custom_status(
-    mut commands: Commands,
     load: Res<CustomLoad>,
     palette: Res<Palette>,
     mut labels: Query<(&mut Text, &mut TextColor, &mut Node), With<CustomStatus>>,
-    buttons: Query<(Entity, Has<InteractionDisabled>), With<LoadCustomButton>>,
-    panels: Query<(), With<Panel>>,
 ) {
-    // Held while a read is in flight, and while the grid has no room for the
-    // frame it would open.
-    let held = load.is_loading() || panels.iter().count() >= MAX_PANELS;
-    for (button, disabled) in &buttons {
-        if held && !disabled {
-            commands.entity(button).insert(InteractionDisabled);
-        } else if !held && disabled {
-            commands.entity(button).remove::<InteractionDisabled>();
-        }
-    }
-
     // The theme repaints what it knows about; this line is colored by what it
     // has to say, so it is repainted here instead.
     if !load.is_changed() && !palette.is_changed() {
@@ -440,14 +248,12 @@ pub fn sync_custom_status(
     }
 }
 
-/// The custom dataset field, and what it opens.
+/// Reading datasets by address.
 pub struct AddSourcePlugin;
 
 impl Plugin for AddSourcePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CustomLoad>()
-            .add_observer(on_load_pressed)
-            .add_observer(on_url_submitted)
             // Registering a source is the furthest-reaching thing a control
             // does, so it happens in the same stage as every other write
             // through to a source — and before `Stage::Sources`, so a dataset
@@ -498,21 +304,9 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_field_is_refused_rather_than_fetched() {
+    fn an_empty_address_is_refused_rather_than_fetched() {
         let mut load = CustomLoad::default();
-        load.start_from(Entity::PLACEHOLDER, "   ".into(), 0);
-        assert!(!load.is_loading());
-        assert!(matches!(load.status, LoadStatus::Failed(_)));
-    }
-
-    #[test]
-    fn a_full_grid_refuses_a_new_frame_rather_than_fetching_one() {
-        let mut load = CustomLoad::default();
-        load.start_from(
-            Entity::PLACEHOLDER,
-            "https://store/a.svg".into(),
-            MAX_PANELS,
-        );
+        load.request("   ".into(), DatasetTarget::NewFrame);
         assert!(!load.is_loading());
         assert!(matches!(load.status, LoadStatus::Failed(_)));
     }

@@ -20,6 +20,7 @@ use serde::Deserialize;
 
 use super::{Catalog, Entry, Found};
 use crate::app::prefs::Preferences;
+use crate::source::Category;
 
 /// The pre-production service. Introspection is open; everything else wants
 /// a token.
@@ -80,7 +81,16 @@ impl Catalog for Registry {
         true
     }
 
-    fn search(&self, text: String) -> BoxFuture<'static, Result<Found, String>> {
+    fn search(
+        &self,
+        text: String,
+        only: Option<Category>,
+    ) -> BoxFuture<'static, Result<Found, String>> {
+        // Only images are searched for so far, so any other filter has
+        // nothing to ask about.
+        if only.is_some_and(|only| only != Category::Image) {
+            return Box::pin(async { Ok(Found::default()) });
+        }
         let endpoint = self.endpoint.clone();
         let token = TOKEN.read().ok().and_then(|token| token.clone());
         Box::pin(async move {
@@ -146,6 +156,7 @@ fn entry(asset: Asset) -> Option<Entry> {
     Some(Entry {
         name: asset.name,
         kind: kind.to_string(),
+        category: Category::Image,
         url,
         keywords: keywords.join(" "),
         cells: None,

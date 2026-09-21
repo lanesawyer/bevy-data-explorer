@@ -697,6 +697,7 @@ pub fn spawn_source(world: &mut World, cloud: Arc<Scatterbrain>, budget: usize) 
             unit: cloud.unit.clone(),
             detail: format!("Scatterbrain, {} sections", cloud.slides.len()),
             stat: format!("{} CELLS", source::compact_count(cloud.total_points())),
+            category: source::Category::Cells,
         },
         // Replaced on the first update by `publish_extent`, once the grid
         // layout is known.

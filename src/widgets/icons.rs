@@ -49,6 +49,7 @@ pub enum Icon {
     PanelLeftClose,
     PanelLeftOpen,
     Pencil,
+    Plus,
     RotateCcw,
     ScrollText,
     Settings,
@@ -60,7 +61,7 @@ pub enum Icon {
 
 impl Icon {
     #[cfg(test)]
-    const ALL: [Icon; 35] = [
+    const ALL: [Icon; 36] = [
         Icon::BookmarkPlus,
         Icon::BoxSelect,
         Icon::Bug,
@@ -89,6 +90,7 @@ impl Icon {
         Icon::PanelLeftClose,
         Icon::PanelLeftOpen,
         Icon::Pencil,
+        Icon::Plus,
         Icon::RotateCcw,
         Icon::ScrollText,
         Icon::Settings,
@@ -130,6 +132,7 @@ impl Icon {
             Icon::PanelLeftClose => "\u{e21c}",
             Icon::PanelLeftOpen => "\u{e21d}",
             Icon::Pencil => "\u{e1f9}",
+            Icon::Plus => "\u{e13d}",
             Icon::RotateCcw => "\u{e148}",
             Icon::ScrollText => "\u{e45f}",
             Icon::Settings => "\u{e154}",

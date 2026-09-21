@@ -113,6 +113,8 @@ fn flip(color: Color) -> Color {
 pub mod token {
     use bevy_feathers::theme::ThemeToken;
 
+    /// What a frame clears to, for UI standing in for one.
+    pub const FRAME_BG: ThemeToken = ThemeToken::new_static("explorer.frame.bg");
     /// The translucent panel a frame's header and status sit on.
     pub const OVERLAY_BG: ThemeToken = ThemeToken::new_static("explorer.overlay.bg");
     pub const OVERLAY_TEXT: ThemeToken = ThemeToken::new_static("explorer.overlay.text");
@@ -211,6 +213,7 @@ impl Palette {
     /// repaints them along with its own.
     fn into_theme(self, theme: &mut ThemeProps) {
         for (name, color) in [
+            (token::FRAME_BG, self.frame_bg),
             (token::OVERLAY_BG, self.overlay_bg),
             (token::OVERLAY_TEXT, self.overlay_text),
             (token::OVERLAY_DIM, self.overlay_dim),

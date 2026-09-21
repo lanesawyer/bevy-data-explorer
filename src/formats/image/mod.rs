@@ -462,6 +462,7 @@ pub fn spawn_source(
                 dataset.channels.len()
             ),
             stat: format!("{} x {} PX", level.width, level.height),
+            category: source::Category::Image,
         },
         SourceExtent {
             // World y is negated so the image reads top-down.

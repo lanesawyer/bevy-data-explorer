@@ -43,7 +43,7 @@ use crate::view::grid::{MAX_LAYERS, MAX_PANELS};
 use crate::view::layers::spawn_layer;
 use crate::view::{
     FrameArea, FrameRegion, LayerOpacity, Orbit, Panel, SelectMode, SelectedPanel, View,
-    spawn_panel,
+    spawn_browse_panel, spawn_panel,
 };
 
 /// How long a dataset's cell settings wait for its properties before being
@@ -239,9 +239,26 @@ pub fn drive_restore(
         }
     }
 
-    let count = frames.len();
+    // The empty frames go back where they were, and the others fill the
+    // cells between them in order.
+    let count = (frames.len() + bookmark.empty_frames.len()).min(MAX_PANELS);
+    let empty: Vec<usize> = bookmark
+        .empty_frames
+        .iter()
+        .copied()
+        .filter(|position| *position < count)
+        .collect();
+    let mut cells = (0..count).filter(|position| !empty.contains(position));
+    if !frames.is_empty() {
+        for position in &empty {
+            spawn_browse_panel(&mut commands, *position, palette.frame_bg);
+        }
+    }
     let mut spawned = Vec::new();
-    for (position, (at, frame, base, (data, extent, volume))) in frames.into_iter().enumerate() {
+    for (at, frame, base, (data, extent, volume)) in frames {
+        let Some(position) = cells.next() else {
+            break;
+        };
         let cell = area.cell(count, position).size();
         let limits = extent.limits(cell);
         let flat = View {
@@ -620,6 +637,7 @@ mod tests {
                 unit: "px".into(),
                 detail: String::new(),
                 stat: String::new(),
+                category: crate::source::Category::Image,
             },
             SourceExtent {
                 centre: Vec2::ZERO,
@@ -708,6 +726,40 @@ mod tests {
             *world.resource::<BookmarkNotice>(),
             BookmarkNotice::Done("restored test".into())
         );
+    }
+
+    #[test]
+    fn an_empty_frame_comes_back_in_its_cell() {
+        let mut app = app();
+        let slide = source(&mut app, "Slide", "https://store/slide.dzi");
+        app.world_mut().write_message(PanelRequest::Browse(None));
+        app.update();
+        app.world_mut().write_message(PanelRequest::Open(slide));
+        app.update();
+
+        let bookmark = capture(app.world_mut(), "test".into()).unwrap();
+        assert_eq!(bookmark.frames.len(), 1);
+        assert_eq!(bookmark.empty_frames, [0]);
+
+        for panel in panels(&mut app) {
+            app.world_mut().write_message(PanelRequest::Close(panel));
+        }
+        app.update();
+        assert!(panels(&mut app).is_empty());
+
+        app.insert_resource(Restoring::new(bookmark));
+        app.update();
+        app.update();
+
+        let mut query = app
+            .world_mut()
+            .query::<(&Panel, Option<&crate::source::ShowsSource>)>();
+        let mut restored: Vec<(usize, Option<Entity>)> = query
+            .iter(app.world())
+            .map(|(panel, shows)| (panel.index, shows.map(|shows| shows.0)))
+            .collect();
+        restored.sort_unstable();
+        assert_eq!(restored, [(0, None), (1, Some(slide))]);
     }
 
     fn cells(genes: &[(&str, u32)]) -> CellProperties {

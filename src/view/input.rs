@@ -288,7 +288,9 @@ fn probe_target(
         return None;
     }
 
-    let count = panels.iter().count();
+    // Every frame, not only those showing something: an empty one still
+    // takes a cell.
+    let count = panel_entities.iter().count();
     let index = panel_under_cursor(local, area.size, count);
     let (panel_entity, _) = panel_entities
         .iter()

@@ -4,6 +4,7 @@
 use futures::future::BoxFuture;
 
 use super::{Catalog, Entry};
+use crate::source::Category;
 
 pub struct Examples;
 
@@ -18,6 +19,7 @@ impl Catalog for Examples {
             .map(|example| Entry {
                 name: example.name.to_string(),
                 kind: example.kind.to_string(),
+                category: example.category,
                 url: example.url.to_string(),
                 keywords: String::new(),
                 // The examples are read for what their files hold, whoever
@@ -45,6 +47,7 @@ pub struct Example {
     pub name: &'static str,
     /// What kind of dataset it is, in the words shown beside it.
     pub kind: &'static str,
+    pub category: Category,
     pub url: &'static str,
 }
 
@@ -52,26 +55,31 @@ pub const EXAMPLES: [Example; 6] = [
     Example {
         name: "Epifluorescence whole slide",
         kind: "OME-Zarr image",
+        category: Category::Image,
         url: "https://h301-scanning-802451596237-us-west-2.s3.us-west-2.amazonaws.com/2402091625/ome_zarr_conversion/1458501514.zarr/",
     },
     Example {
         name: "Epifluorescence, Zarr v2",
         kind: "OME-Zarr image",
+        category: Category::Image,
         url: "https://allen-genetic-tools.s3.us-west-2.amazonaws.com/epifluorescence/1401210938/ome_zarr_conversion/1401210938.zarr/",
     },
     Example {
         name: "Tissuecyte, 142 sections",
         kind: "OME-Zarr image stack",
+        category: Category::Image,
         url: "zarr2://s3://allen-genetic-tools/tissuecyte/1219090168/ome_zarr_conversion/1219090168.zarr/",
     },
     Example {
         name: "SEA-AD pathology slide",
         kind: "Deep Zoom image",
+        category: Category::Image,
         url: "https://idk-etl-prod-download-bucket.s3.amazonaws.com/idf-23-10-pathology-images/pat_images_JGCXWER774NLNWX2NNR/H20.33.040-A12-I6-primary/H20.33.040-A12-I6-primary.dzi",
     },
     Example {
         name: "SEA-AD pathology annotations",
         kind: "SVG annotations",
+        category: Category::Annotations,
         url: "https://idk-etl-prod-download-bucket.s3.amazonaws.com/idf-23-10-pathology-images/pat_images_JGCXWER774NLNWX2NNR/H20.33.040-A12-I6-primary/annotation.svg",
     },
     Example {
@@ -79,6 +87,7 @@ pub const EXAMPLES: [Example; 6] = [
         // than behind a scroll, which is what an example of a new kind is for.
         name: "Brain regions of interest",
         kind: "CSV table",
+        category: Category::Table,
         url: "https://allen-brain-cell-atlas.s3.us-west-2.amazonaws.com/metadata/WMB-10X/20230830/region_of_interest_metadata.csv",
     },
 ];

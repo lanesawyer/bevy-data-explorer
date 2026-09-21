@@ -109,6 +109,7 @@ mod tests {
                 unit: "mm".into(),
                 detail: "test".into(),
                 stat: "0".into(),
+                category: crate::source::Category::Image,
             },
             SourceExtent {
                 centre: Vec2::ZERO,

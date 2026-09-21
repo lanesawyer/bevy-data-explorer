@@ -156,6 +156,7 @@ pub fn spawn_source(world: &mut World, svg: Arc<Svg>) -> Entity {
             unit: "px".into(),
             detail: format!("SVG annotations, {} x {} px", width, height),
             stat: format!("{} OUTLINES", svg.shapes.len()),
+            category: source::Category::Annotations,
         },
         SourceExtent {
             centre: Vec2::new(width * 0.5, -height * 0.5),

@@ -48,6 +48,37 @@ impl ViewLimits {
     }
 }
 
+/// What a dataset is drawn as, which is what someone looking for one picks
+/// by: nobody chooses between OME-Zarr and Deep Zoom, only whether they want
+/// an image.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum Category {
+    Image,
+    /// Cells drawn as points, whether a cloud or a grid of sections.
+    Cells,
+    Table,
+    Annotations,
+}
+
+impl Category {
+    pub const ALL: [Category; 4] = [
+        Category::Image,
+        Category::Cells,
+        Category::Table,
+        Category::Annotations,
+    ];
+
+    /// What several of them are called, on the button that filters by it.
+    pub fn plural(self) -> &'static str {
+        match self {
+            Category::Image => "Images",
+            Category::Cells => "Cells",
+            Category::Table => "Tables",
+            Category::Annotations => "Annotations",
+        }
+    }
+}
+
 /// A loaded dataset that a frame can display.
 #[derive(Component, Debug, Clone)]
 pub struct DataSource {
@@ -59,6 +90,7 @@ pub struct DataSource {
     pub detail: String,
     /// The headline figure for this dataset, e.g. its point count.
     pub stat: String,
+    pub category: Category,
     /// Render layer this source's geometry is drawn on. Allocated at
     /// registration so that two sources can never collide.
     pub layer: usize,
@@ -84,6 +116,7 @@ pub struct SourceInfo {
     pub unit: String,
     pub detail: String,
     pub stat: String,
+    pub category: Category,
 }
 
 /// How much world a source occupies, in display coordinates, used to frame a
@@ -167,6 +200,7 @@ pub fn register_in(world: &mut World, info: SourceInfo, extent: SourceExtent) ->
                 unit: info.unit,
                 detail: info.detail,
                 stat: info.stat,
+                category: info.category,
                 layer,
             },
             extent,
@@ -267,6 +301,7 @@ mod tests {
             unit: unit.into(),
             detail: "test".into(),
             stat: "0".into(),
+            category: Category::Image,
         }
     }
 

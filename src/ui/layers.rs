@@ -93,7 +93,7 @@ pub fn spawn_layers_section(mut commands: Commands, content: Query<Entity, With<
 /// Rebuild the rows when the selection, its stack, or the sources on offer
 /// change.
 ///
-/// Wholesale, like the layout menu: a stack is at most eight deep and changes
+/// Wholesale: a stack is at most eight deep and changes
 /// only when someone asks it to.
 pub fn rebuild_layers(
     mut commands: Commands,

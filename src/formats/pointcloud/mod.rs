@@ -370,6 +370,7 @@ pub fn spawn_source(
             unit: cloud.unit.clone(),
             detail: format!("Scatterbrain octree, depth {}", cloud.max_depth()),
             stat: format!("{} CELLS", source::compact_count(cloud.total_points())),
+            category: source::Category::Cells,
         },
         SourceExtent {
             // World y is negated for display, matching the image panel.
@@ -753,6 +754,7 @@ mod tests {
             unit: "um".into(),
             detail: String::new(),
             stat: String::new(),
+            category: source::Category::Cells,
             layer: 1,
         };
         let properties = CellProperties::ready(vec![CellProperty {

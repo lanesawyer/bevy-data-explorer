@@ -37,6 +37,7 @@ use crate::source::{DataSource, ShowsSource, SourceStatus};
 use crate::view::layers::stacked_sources;
 use crate::view::{
     DatasetRequest, DatasetTarget, FrameLayers, LayerOf, Panel, PanelRequest, PendingShow,
+    ShowFailed,
 };
 use crate::widgets::{BlocksFrameInput, Icon, button_icon, size, spawn_menu, text, text_dim};
 
@@ -143,7 +144,15 @@ pub enum ChoiceAction {
     /// Read a dataset from a catalog, and draw it over the frame once it
     /// lands.
     LayerCatalog(EntryId),
+    /// Read what is at the address on the item's [`ChoiceUrl`], and put it
+    /// where the target says.
+    Address(DatasetTarget),
 }
+
+/// The address an [`ChoiceAction::Address`] item reads, which is typed rather
+/// than listed anywhere, so the item carries it.
+#[derive(Component, Clone, Default)]
+pub struct ChoiceUrl(pub String);
 
 impl Default for SourceChoice {
     fn default() -> Self {
@@ -539,12 +548,12 @@ pub fn on_info_pressed(
 pub fn on_source_chosen(
     activate: On<Activate>,
     mut commands: Commands,
-    choices: Query<&SourceChoice>,
+    choices: Query<(&SourceChoice, Option<&ChoiceUrl>)>,
     catalogs: Res<Catalogs>,
     mut requests: MessageWriter<PanelRequest>,
     mut datasets: MessageWriter<DatasetRequest>,
 ) {
-    let Ok(choice) = choices.get(activate.entity) else {
+    let Ok((choice, address)) = choices.get(activate.entity) else {
         return;
     };
     let (panel, source) = (choice.panel, choice.source);
@@ -556,10 +565,13 @@ pub fn on_source_chosen(
         ChoiceAction::MoveLayer { up } => PanelRequest::MoveLayer { panel, source, up },
         ChoiceAction::ShowCatalog(id) => {
             if let Some(entry) = catalogs.get(id) {
-                commands.entity(panel).insert(PendingShow {
-                    url: entry.url.clone(),
-                    name: entry.name.clone(),
-                });
+                commands
+                    .entity(panel)
+                    .remove::<ShowFailed>()
+                    .insert(PendingShow {
+                        url: entry.url.clone(),
+                        name: entry.name.clone(),
+                    });
                 datasets.write(DatasetRequest {
                     url: entry.url.clone(),
                     target: DatasetTarget::Show(panel),
@@ -574,6 +586,25 @@ pub fn on_source_chosen(
                     target: DatasetTarget::NewFrame,
                 });
             }
+            return;
+        }
+        ChoiceAction::Address(target) => {
+            let Some(ChoiceUrl(url)) = address else {
+                return;
+            };
+            if let DatasetTarget::Show(panel) = target {
+                commands
+                    .entity(panel)
+                    .remove::<ShowFailed>()
+                    .insert(PendingShow {
+                        url: url.clone(),
+                        name: url.clone(),
+                    });
+            }
+            datasets.write(DatasetRequest {
+                url: url.clone(),
+                target,
+            });
             return;
         }
         ChoiceAction::LayerCatalog(id) => {
@@ -805,6 +836,8 @@ impl Plugin for OverlayPlugin {
         app.add_observer(on_info_pressed)
             .add_observer(on_source_chosen)
             .add_observer(super::dataset_menu::on_search_key)
+            .add_observer(super::dataset_menu::on_filter_chip)
+            .add_observer(super::dataset_menu::on_browse_item)
             .add_systems(Update, sync_hud.in_set(Stage::FrameChrome))
             .add_systems(
                 Update,
@@ -814,6 +847,7 @@ impl Plugin for OverlayPlugin {
                     super::dataset_menu::clear_closed_searches,
                     super::dataset_menu::search_catalogs,
                     super::dataset_menu::rebuild_dataset_lists,
+                    super::dataset_menu::sync_filter_chips,
                 )
                     .chain()
                     .in_set(Stage::Chrome),

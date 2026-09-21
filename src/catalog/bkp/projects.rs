@@ -17,6 +17,7 @@ use serde::Deserialize;
 
 use super::PRODUCTION;
 use crate::catalog::{Catalog, Entry};
+use crate::source::Category;
 
 /// Projects asked for in one request. The platform held 172 of them when this
 /// was written, so one page is normally the whole inventory.
@@ -126,7 +127,7 @@ fn tabulated(capabilities: &[String]) -> bool {
 ///
 /// The endpoint with the project on its query string, which is exactly what
 /// [`crate::formats::specimens`] takes apart again — so an entry chosen from
-/// the dropdown and the same address pasted into the URL field reach the same
+/// the dropdown and the same address pasted into a search reach the same
 /// source rather than opening it twice.
 fn address(endpoint: &str, project: &str) -> String {
     format!("{endpoint}?specimens={project}")
@@ -159,6 +160,7 @@ fn parse_page(endpoint: &str, text: &str) -> Result<(Vec<Entry>, usize), String>
             Entry {
                 name: title.unwrap_or_else(|| project.reference_id.clone()),
                 kind: "Specimen table".into(),
+                category: Category::Table,
                 url: address(endpoint, &project.reference_id),
                 keywords: short,
                 // Specimens are records, not cells: nothing here describes

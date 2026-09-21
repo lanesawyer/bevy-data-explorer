@@ -383,6 +383,7 @@ mod tests {
             unit: unit.into(),
             detail: String::new(),
             stat: String::new(),
+            category: crate::source::Category::Cells,
             layer: 1,
         }
     }

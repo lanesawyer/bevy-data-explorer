@@ -91,7 +91,12 @@ pub fn update_loading_bars(
     time: Res<Time>,
     area: Res<FrameArea>,
     selected: Res<SelectedPanel>,
-    panels: Query<(&Panel, &ShowsSource, Option<&FrameLayers>, Has<PendingShow>)>,
+    panels: Query<(
+        &Panel,
+        Option<&ShowsSource>,
+        Option<&FrameLayers>,
+        Has<PendingShow>,
+    )>,
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     busy: Query<&SourceBusy>,
     mut bars: Query<(&mut LoadingBar, &mut Node)>,
@@ -102,10 +107,13 @@ pub fn update_loading_bars(
         let Ok((panel, shows, layers, pending)) = panels.get(bar.panel) else {
             continue;
         };
+        // An empty frame has nothing streaming, only what it is waiting on.
         let fetching = pending
-            || stacked_sources(shows, layers, &layer_cameras)
-                .iter()
-                .any(|source| busy.get(*source).is_ok_and(|busy| busy.0));
+            || shows.is_some_and(|shows| {
+                stacked_sources(shows, layers, &layer_cameras)
+                    .iter()
+                    .any(|source| busy.get(*source).is_ok_and(|busy| busy.0))
+            });
         bar.idle_for = if fetching {
             0.0
         } else {

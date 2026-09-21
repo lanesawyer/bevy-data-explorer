@@ -262,6 +262,7 @@ mod tests {
             sources: Vec::new(),
             frames: Vec::new(),
             selected: None,
+            empty_frames: Vec::new(),
         }
     }
 

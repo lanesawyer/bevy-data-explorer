@@ -62,8 +62,8 @@ against a v3 one, a flat image against a stack of sections, a single cloud
 against a sectioned one. Each goes through exactly the path a typed URL does.
 
 The command line is not the only way in either: a dataset can be opened by URL
-from the sidebar at any time, without restarting. See **Custom visualization**
-below.
+at any time, without restarting, by pasting it into a new frame's search. See
+**New frame** below.
 
 Above the collapse control is a button naming the theme it would switch to.
 Bevy reports the desktop's preference on the window, and that is where the
@@ -202,13 +202,19 @@ to, since those say where they mean. The outline appears only once there is more
 than one frame — drawn round the whole grid it reads as a border on the window
 rather than as an answer to a question nobody asked.
 
-Its menu is **Edit layout**: the frames that are open, and under **Open a
-dataset** every dataset the app knows the address of. That second list is what
-fills the grid without pasting a URL. One that has not been opened yet is
-fetched; one that has — including one whose frames have all been closed — gets
-a frame onto the source it already is, rather than being downloaded again to
-arrive at the same dataset twice. A catalogue served over HTTP will fill that
-list later.
+**New frame**, beside the sidebar's title, opens a frame with nothing in it
+yet, and an empty frame is where a dataset is
+found: a search over everything open and everything the catalogs offer — the
+examples, the Brain Knowledge Platform, the BKP Registry — with buttons
+narrowing it to images, cells, tables or annotations. Each result names the
+catalog it came from, under that catalog's heading and on its own row, so a
+filtered list still says where each one is from. Choosing one fills the frame;
+closing the browser closes the frame. One that has not been opened yet is
+fetched; one that has — including one whose frames have all been closed — is
+shown as the source it already is, rather than being downloaded again to arrive
+at the same dataset twice. A frame that already shows something can browse too,
+from **Browse all datasets…** on its title's dropdown, and keeps what it shows
+until something else is chosen.
 
 Point clouds draw each point as a screen-space quad rather than with point
 topology, because the hardware fixes point primitives at one pixel and offers
@@ -253,18 +259,16 @@ The app starts maximized, since several frames beside a sidebar need the room.
 
 Each accordion can carry a menu button on the right that opens a popup. A menu
 is capped at the bottom of the window and scrolls once its contents no longer
-fit. View
-configuration's is an **Edit layout** menu listing every frame with its dataset
-name, provenance and headline figure, and buttons to clone or close it, over the
-list of datasets to open. Both that menu and a frame's own corner buttons raise
-the same `PanelRequest`, so the rules about what may be opened or closed live in
-one place and the two routes cannot drift apart.
+fit. Frames are opened, cloned and closed by `PanelRequest`, whichever button
+asks — the sidebar's New frame, a frame's own corner buttons, its browser — so
+the rules about what may be opened or closed live in one place and the routes
+cannot drift apart.
 
-At the bottom of that menu is **Custom visualization**: a text field for the
-URL of a dataset that was not named on the command line. Nothing asks which
-format it is — the URL is read and the format worked out from what comes back,
-so an OME-Zarr store, a single point cloud and a sectioned dataset are all
-pasted into the same field. A `.dzi`, `.svg`, `.csv` or `.tsv` is named by its
+The search in a frame's browser also takes an address: anything typed that looks
+like a URL or a path is offered first as one to read, so Enter opens what was
+pasted. Nothing asks which format it is — the address is read and the format
+worked out from what comes back, so an OME-Zarr store, a single point cloud and
+a sectioned dataset are all pasted into the same search. A `.dzi`, `.svg`, `.csv` or `.tsv` is named by its
 extension, since nothing else uses those. A `.json` is tried as Scatterbrain
 metadata first and as an image manifest second; anything else is tried as a
 Zarr store. A
@@ -272,14 +276,14 @@ sectioned dataset is recognised by its metadata listing more than one slide.
 The command line reads what it is given the same way, so `--points` and
 `--slices` say only that a dataset gets a frame of its own, not what it is.
 
-Whatever is recognised is registered as a source like any other and opens into
-a new frame, so it is indistinguishable afterwards from one named on the
-command line — it appears in the list above, carries its own transparency and
-point size, and offers its cell properties in the sidebar. A URL that matches
-nothing leaves the reason under the field, naming what was tried rather than
-failing silently. The read is a blocking fetch and parse, so it runs on a task
-and the window keeps drawing while it is in flight; the field takes one at a
-time.
+Whatever is recognised is registered as a source like any other and fills the
+frame it was chosen in, so it is indistinguishable afterwards from one named on
+the command line — it appears in every picker, carries its own transparency and
+point size, and offers its cell properties in the sidebar. An address that
+matches nothing leaves the reason in the browser, naming what was tried rather
+than failing silently. The read is a blocking fetch and parse, so it runs on a
+task and the window keeps drawing while it is in flight; reads are taken one at
+a time, in the order they were asked for.
 
 A text field takes the keyboard while it has focus, so the frame shortcuts —
 `r`, the digits, the arrows — stand down for as long as something is being

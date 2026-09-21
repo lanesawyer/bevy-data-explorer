@@ -15,6 +15,7 @@
 //! same layer, which is why duplicating costs no extra geometry: the two
 //! cameras draw the same entities from different viewpoints.
 
+pub mod browse;
 pub mod camera;
 pub mod capture;
 pub mod chrome;
@@ -53,7 +54,7 @@ pub use grid::{MAX_PANELS, grid_for};
 pub use input::TextEntryFocused;
 pub use layers::{FrameLayers, LayerOf, LayerOpacity, OpensAsLayer};
 pub use orbit::Orbit;
-pub use requests::{DatasetRequest, DatasetTarget, PanelRequest, PendingShow};
+pub use requests::{DatasetRequest, DatasetTarget, PanelRequest, PendingShow, ShowFailed};
 pub use select::{FrameRegion, SelectMode};
 
 /// The frame the sidebar's controls act on.
@@ -141,6 +142,45 @@ pub struct Panel {
     pub index: usize,
 }
 
+/// A frame browsing for what to show, with the browser drawn over it.
+///
+/// One with no [`ShowsSource`] is an empty frame, closed when the browser is;
+/// one that shows a source keeps it until another is chosen, and goes back to
+/// it when the browser is closed. Either way it is a frame like any other, in
+/// a cell of the grid.
+#[derive(Component, Clone, Default)]
+pub struct Browsing;
+
+/// Spawn an empty frame in cell `index`, browsing for what to show.
+///
+/// A camera like any other frame's, drawing nothing, so the grid counts it,
+/// lays it out and gives it the clearing job in cell 0 without knowing it is
+/// empty. Its limits are the identity, so a gesture over it moves nothing
+/// anywhere odd.
+pub fn spawn_browse_panel(commands: &mut Commands, index: usize, background: Color) -> Entity {
+    let limits = ViewLimits {
+        min_scale: 1.0,
+        max_scale: 1.0,
+        fit_scale: 1.0,
+        centre: Vec2::ZERO,
+    };
+    commands
+        .spawn_scene(bsn! {
+            Camera2d
+            Camera {
+                clear_color: { clear_color_for(index, background) },
+                order: { grid::camera_order(index, 0) },
+            }
+            template_value(Projection::Orthographic(OrthographicProjection::default_2d()))
+            template_value(RenderLayers::none())
+            Transform { translation: { Vec3::new(0.0, 0.0, 1000.0) } }
+            Panel { index: { index } }
+            Browsing
+            template_value(limits)
+        })
+        .id()
+}
+
 /// The view a panel is currently showing, used when duplicating it.
 #[derive(Clone, Copy, Debug)]
 pub struct View {
@@ -192,6 +232,7 @@ impl Plugin for ViewPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             overlay::OverlayPlugin,
+            browse::BrowsePlugin,
             capture::CapturePlugin,
             table::TablePlugin,
         ))

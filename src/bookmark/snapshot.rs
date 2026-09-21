@@ -37,6 +37,11 @@ pub struct Bookmark {
     /// Index into `frames` of the frame the sidebar was acting on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected: Option<usize>,
+    /// Where in the grid an empty frame sat, browsing for a dataset, counted
+    /// across every frame, empty or not. The frames in `frames` fill the
+    /// other cells in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub empty_frames: Vec<usize>,
 }
 
 /// One dataset, and how it was being shown. Settings the dataset does not

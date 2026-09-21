@@ -264,6 +264,7 @@ pub fn spawn_source(world: &mut World, table: Table) -> Entity {
             unit: String::new(),
             detail: table.detail,
             stat: format!("{} ROWS", source::compact_count(rows as u64)),
+            category: source::Category::Table,
         },
         // Nominal: a table occupies no space, and its frame never looks at the
         // world. It is still registered with one because every source is

@@ -338,7 +338,7 @@ pub fn on_save_token(
     }
 }
 
-/// Return in the field saves it, as it loads a URL in the URL field.
+/// Return in the field saves it, as it reads an address typed into a search.
 pub fn on_token_submitted(
     key: On<FocusedInput<KeyboardInput>>,
     mut inputs: Query<&mut EditableText, With<RegistryTokenInput>>,
