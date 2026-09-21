@@ -98,7 +98,7 @@ pub fn spawn_bookmarks_section(
     content: Query<Entity, With<SidebarContent>>,
 ) {
     let Ok(parent) = content.single() else { return };
-    let accordion = spawn_accordion(&mut commands, "Bookmarks", false, SectionLevel::Pane);
+    let accordion = spawn_accordion(&mut commands, "Bookmarks", true, SectionLevel::Pane);
     commands
         .entity(accordion.section)
         .insert(SectionOrder(SECTION_ORDER));
