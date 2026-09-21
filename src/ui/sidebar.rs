@@ -207,7 +207,16 @@ fn spawn_sidebar(mut commands: Commands) {
             height: { Val::Percent(100.0) },
             flex_direction: { FlexDirection::Column },
             row_gap: { Val::Px(space::ROWS) },
-            padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
+            // The drag handle straddles the right edge, so half of it lies
+            // over this padding. The edge is where the handle begins, and the
+            // padding is measured from there, or the scrollbar kept clear of
+            // the edge would end up against the handle.
+            padding: {
+                UiRect {
+                    right: Val::Px(space::PANEL_INSET + HANDLE_PX * 0.5),
+                    ..UiRect::all(Val::Px(space::PANEL_INSET))
+                }
+            },
         }
         // Through a token rather than a literal: the theme repaints everything
         // that names one, and a dock painted by hand would stay dark while the

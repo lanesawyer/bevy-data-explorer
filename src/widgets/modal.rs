@@ -16,7 +16,6 @@ use bevy_feathers::theme::ThemeBackgroundColor;
 use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
-use super::scrollbar::GUTTER_PX;
 use super::space;
 use super::{BlocksFrameInput, Icon, button_icon, size, text};
 use crate::app::schedule::Stage;
@@ -83,17 +82,8 @@ pub fn spawn_modal<M: Modal>(
                 max_height: { Val::Percent(90.0) },
                 flex_direction: { FlexDirection::Column },
                 row_gap: { Val::Px(space::ROWS) },
-                // The scrollbar's gutter is reserved inside the right padding
-                // whether or not the bar shows, so that side gives it up to
-                // look the same as the left.
-                padding: {
-                    UiRect {
-                        left: Val::Px(PADDING_PX),
-                        right: Val::Px(PADDING_PX - GUTTER_PX),
-                        top: Val::Px(PADDING_PX),
-                        bottom: Val::Px(PADDING_PX),
-                    }
-                },
+                // The scrollbar takes its lane out of the right padding.
+                padding: { UiRect::all(Val::Px(PADDING_PX)) },
                 border_radius: { BorderRadius::all(Val::Px(8.0)) },
                 overflow: { Overflow::scroll_y() },
             }

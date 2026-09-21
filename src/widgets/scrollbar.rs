@@ -20,6 +20,13 @@
 //! can reach under the bar. The gutter is kept whether or not the bar is
 //! showing, so that a section growing long enough to scroll does not shunt
 //! every row beside it sideways.
+//!
+//! That lane is taken out of padding rather than out of the rows, so a list
+//! that scrolls ends where everything beside it ends and its bar sits in the
+//! margin. An area with padding of its own gives up its right padding to the
+//! bar. One without reaches out into the padding of whatever holds it, by as
+//! much as that padding allows: the sidebar's sections, a picker's list and a
+//! property's values all end flush with the controls above them.
 
 use bevy::ecs::template::EntityTemplate;
 use bevy::prelude::*;
@@ -27,19 +34,29 @@ use bevy::ui::IgnoreScroll;
 use bevy_feathers::controls::FeathersScrollbar;
 use bevy_ui_widgets::{ControlOrientation, ScrollArea};
 
-use super::space;
+use super::spacing::step;
 use super::{BlocksFrameInput, scroll::ScrollBoth, scroll::ScrollList};
 
 /// How thick a bar is, across the axis it scrolls.
-const BAR_PX: f32 = 8.0;
+const BAR_PX: f32 = 6.0;
 
 /// Clear space kept between the content and the bar, so that a row ending in
 /// a number does not end against it.
-const GAP_PX: f32 = space::CONTROLS;
+const GAP_PX: f32 = step::XXS;
 
-/// What a scrolling area gives up to the bar it holds: the bar and the gap
-/// beside it.
-pub(super) const GUTTER_PX: f32 = BAR_PX + GAP_PX;
+/// Clear space kept between the bar and the edge of what holds it, so the bar
+/// reads as sitting in the margin rather than as a border drawn along it.
+const EDGE_GAP_PX: f32 = step::XS;
+
+/// What a scrolling area gives up to the bar it holds: the bar and the space
+/// either side of it. As wide as a panel's inset, so a bar fits in the
+/// padding of the dock or menu it scrolls.
+const GUTTER_PX: f32 = GAP_PX + BAR_PX + EDGE_GAP_PX;
+
+/// How far up from an area to look for padding to put its bar in. Far enough
+/// to pass the unpadded columns a picker is built from, and no further, since
+/// padding beyond that belongs to something unrelated.
+const PADDING_SEARCH_DEPTH: usize = 4;
 
 /// How much taller than its area a content has to be before a bar is worth
 /// showing.
@@ -71,18 +88,119 @@ impl Default for ScrollbarFor {
     }
 }
 
+/// Where a vertical bar's lane comes from.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Lane {
+    /// The area's own right padding, cut down by this much.
+    OwnPadding(f32),
+    /// The padding around it, reached into by this much.
+    Around(f32),
+    /// Neither: the lane comes out of the rows.
+    Rows,
+}
+
+/// Where the lane for a bar in an area laid out like `node` comes from, given
+/// the right padding of each of its ancestors, nearest first, and whether its
+/// parent stretches it across.
+fn lane_for(node: &Node, stretched: bool, ancestors: &[AncestorEdge]) -> Lane {
+    if let Val::Px(own) = node.padding.right
+        && own > 0.0
+    {
+        return Lane::OwnPadding(own.min(GUTTER_PX));
+    }
+    // Only an area its parent stretches can grow past its siblings, and only
+    // one whose width is left to that stretch.
+    if !stretched || !matches!(node.width, Val::Auto | Val::Percent(100.0)) {
+        return Lane::Rows;
+    }
+    for edge in ancestors.iter().take(PADDING_SEARCH_DEPTH) {
+        match edge {
+            AncestorEdge::Padded(padding) => return Lane::Around(padding.min(GUTTER_PX)),
+            // What clips would hide a bar that reached past it.
+            AncestorEdge::Clips => return Lane::Rows,
+            AncestorEdge::Open => {}
+        }
+    }
+    Lane::Rows
+}
+
+/// What an ancestor offers an area reaching out past its right edge.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum AncestorEdge {
+    Padded(f32),
+    Clips,
+    Open,
+}
+
+fn edge_of(node: &Node) -> AncestorEdge {
+    match node.padding.right {
+        Val::Px(padding) if padding > 0.0 => AncestorEdge::Padded(padding),
+        _ if node.overflow.x != OverflowAxis::Visible => AncestorEdge::Clips,
+        _ => AncestorEdge::Open,
+    }
+}
+
+/// Whether a child of `parent` is stretched across it by default.
+fn stretches_children(parent: &Node) -> bool {
+    matches!(
+        parent.flex_direction,
+        FlexDirection::Column | FlexDirection::ColumnReverse
+    ) && matches!(
+        parent.align_items,
+        AlignItems::Default | AlignItems::Stretch
+    )
+}
+
 /// Give every scrolling area that has no bar yet a bar.
 pub fn add_scrollbars(
     mut commands: Commands,
-    mut areas: Query<
-        (Entity, &mut Node),
+    new: Query<
+        Entity,
         (
             Or<(With<ScrollArea>, With<ScrollList>, With<ScrollBoth>)>,
             Without<HasScrollbar>,
         ),
     >,
+    parents: Query<&ChildOf>,
+    mut nodes: Query<&mut Node>,
 ) {
-    for (area, mut node) in &mut areas {
+    for area in &new {
+        let Ok(node) = nodes.get(area) else {
+            continue;
+        };
+        let lane = if node.overflow.y == OverflowAxis::Scroll {
+            let stretched = parents
+                .get(area)
+                .ok()
+                .and_then(|parent| nodes.get(parent.parent()).ok())
+                .is_some_and(|parent| {
+                    stretches_children(parent)
+                        && matches!(node.align_self, AlignSelf::Auto | AlignSelf::Stretch)
+                });
+            let edges: Vec<AncestorEdge> = parents
+                .iter_ancestors(area)
+                .take(PADDING_SEARCH_DEPTH)
+                .filter_map(|ancestor| nodes.get(ancestor).ok().map(edge_of))
+                .collect();
+            lane_for(node, stretched, &edges)
+        } else {
+            Lane::Rows
+        };
+        let Ok(mut node) = nodes.get_mut(area) else {
+            continue;
+        };
+        match lane {
+            Lane::OwnPadding(given) => {
+                if let Val::Px(own) = node.padding.right {
+                    node.padding.right = Val::Px(own - given);
+                }
+            }
+            Lane::Around(reach) => {
+                node.width = Val::Auto;
+                node.margin.right = Val::Px(-reach);
+            }
+            Lane::Rows => {}
+        }
         let mut bars = Vec::new();
         if node.overflow.y == OverflowAxis::Scroll {
             bars.push(spawn_bar(&mut commands, area, ControlOrientation::Vertical));
@@ -112,17 +230,19 @@ fn spawn_bar(commands: &mut Commands, area: Entity, orientation: ControlOrientat
     // The inset it is pushed out by is negative because taffy resolves the
     // insets of an absolute child against the box *inside* the gutter — the
     // same reservation that keeps the content clear would otherwise leave the
-    // bar sitting on the content's edge and the gutter empty.
+    // bar sitting on the content's edge and the gutter empty. It stops short
+    // of the far side of the gutter by the gap kept from the edge.
+    let out = -(GUTTER_PX - EDGE_GAP_PX);
     let (right, bottom, width, height) = match orientation {
         ControlOrientation::Vertical => (
-            Val::Px(-GUTTER_PX),
+            Val::Px(out),
             Val::Px(0.0),
             Val::Px(BAR_PX),
             Val::Percent(100.0),
         ),
         ControlOrientation::Horizontal => (
             Val::Px(0.0),
-            Val::Px(-GUTTER_PX),
+            Val::Px(out),
             Val::Percent(100.0),
             Val::Px(BAR_PX),
         ),
@@ -181,6 +301,7 @@ fn overflows(content: f32, visible: f32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::widgets::space;
     use bevy_ui_widgets::Scrollbar;
 
     /// An app with just enough of Bevy to resolve a scene.
@@ -247,7 +368,7 @@ mod tests {
         let area = scrolling(&mut app, Overflow::scroll_y());
         let (bar, _) = bar_of(&mut app, area).expect("a bar");
         let node = app.world().entity(bar).get::<Node>().unwrap();
-        assert_eq!(node.right, Val::Px(-GUTTER_PX));
+        assert_eq!(node.right, Val::Px(-(GUTTER_PX - EDGE_GAP_PX)));
         assert_eq!(node.width, Val::Px(BAR_PX));
     }
 
@@ -277,6 +398,92 @@ mod tests {
         app.update();
         app.update();
         assert_eq!(app.world().entity(area).get::<Children>().unwrap().len(), 1);
+    }
+
+    fn column(width: Val) -> Node {
+        Node {
+            width,
+            overflow: Overflow::scroll_y(),
+            ..default()
+        }
+    }
+
+    #[test]
+    fn a_bar_and_the_space_around_it_fit_a_panels_inset() {
+        assert_eq!(GUTTER_PX, space::PANEL_INSET);
+    }
+
+    #[test]
+    fn an_area_with_padding_gives_the_bar_its_own() {
+        let padded = Node {
+            padding: UiRect::all(Val::Px(space::SCREEN_GAP)),
+            ..column(Val::Auto)
+        };
+        assert_eq!(lane_for(&padded, true, &[]), Lane::OwnPadding(GUTTER_PX));
+        let thin = Node {
+            padding: UiRect::all(Val::Px(space::CONTROLS)),
+            ..column(Val::Auto)
+        };
+        assert_eq!(
+            lane_for(&thin, true, &[]),
+            Lane::OwnPadding(space::CONTROLS)
+        );
+    }
+
+    #[test]
+    fn an_area_reaches_into_the_padding_of_what_holds_it() {
+        // The sidebar's sections: straight inside the padded dock.
+        let edges = [AncestorEdge::Padded(12.0)];
+        assert_eq!(
+            lane_for(&column(Val::Percent(100.0)), true, &edges),
+            Lane::Around(GUTTER_PX)
+        );
+        // A picker's list: through the unpadded columns it is built from.
+        let edges = [
+            AncestorEdge::Open,
+            AncestorEdge::Open,
+            AncestorEdge::Padded(8.0),
+        ];
+        assert_eq!(
+            lane_for(&column(Val::Auto), true, &edges),
+            Lane::Around(8.0),
+            "no further than the padding allows"
+        );
+    }
+
+    #[test]
+    fn an_area_that_cannot_reach_out_keeps_its_lane_in_its_rows() {
+        let edges = [AncestorEdge::Padded(12.0)];
+        // Not stretched, or holding a width of its own, it cannot grow.
+        assert_eq!(lane_for(&column(Val::Auto), false, &edges), Lane::Rows);
+        assert_eq!(lane_for(&column(Val::Px(300.0)), true, &edges), Lane::Rows);
+        // Something between that clips would hide the bar.
+        let edges = [AncestorEdge::Clips, AncestorEdge::Padded(12.0)];
+        assert_eq!(lane_for(&column(Val::Auto), true, &edges), Lane::Rows);
+        // And with no padding anywhere near there is nowhere else for it.
+        assert_eq!(lane_for(&column(Val::Auto), true, &[]), Lane::Rows);
+    }
+
+    #[test]
+    fn a_list_in_a_padded_column_ends_flush_with_its_siblings() {
+        let mut app = app();
+        let parent = app
+            .world_mut()
+            .spawn(Node {
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(space::PANEL_INSET)),
+                ..default()
+            })
+            .id();
+        let area = app
+            .world_mut()
+            .spawn((ScrollArea, column(Val::Percent(100.0)), ChildOf(parent)))
+            .id();
+        app.update();
+        let node = app.world().entity(area).get::<Node>().unwrap();
+        assert_eq!(node.margin.right, Val::Px(-GUTTER_PX));
+        assert_eq!(node.width, Val::Auto);
+        assert_eq!(node.scrollbar_width, GUTTER_PX);
     }
 
     #[test]
