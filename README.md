@@ -861,16 +861,24 @@ page after it are of the narrowed table.
 
 Ticks within one column widen and columns narrow each other, which is what a
 row of checkboxes is read to mean and, as it happens, exactly what the platform
-does with a field named twice. A column is offered only if it holds between two
-and sixty values: one value narrows nothing, and the SEA-AD donors carry a
-"Donor ID" annotation with one value per donor, which as a list of checkboxes
-is eighty-four ways of picking one row. The counts beside each value are of the
-whole project rather than of what is on screen, so a count says what ticking it
-would bring back and does not shift under the pointer while ticking.
+does with a field named twice. The counts beside each value are of the whole
+project rather than of what is on screen, so a count says what ticking it would
+bring back and does not shift under the pointer while ticking. A column holding
+more values than the cell properties above it will list — a donor id, say, one
+per row — is cut to the same figure and says how many are left.
 
-Only the annotations are offered. A measurement is a number, and a number wants
-a range rather than a list of every reading anyone took; the API has
-`aio_specimenRangeCounts` for exactly that, and it is the obvious next step.
+Every column is asked about, annotations and measurements alike, and the
+platform decides which it can answer. A column it cannot comes back null beside
+the ones it could, so one column's failure costs only itself. Today that is the
+numeric measurements: grouping by one answers *"Unable to cast object of type
+'System.Double' to type 'System.String'"*, which is why the fMOST project
+offers six of the eight filters the platform's own page does — Age and Total
+Processed Subspecimens being the two numbers.
+
+Numeric ranges are blocked on the same ground rather than on the widget. The
+extent a range would be drawn across lives in `measurementStats` on
+`aio_specimenFacetedSearchProperties`, and that query answers with an empty
+list for every project on the platform, filtered or not.
 
 Two things the records do that only showed up on the last page, both now
 fixtured:

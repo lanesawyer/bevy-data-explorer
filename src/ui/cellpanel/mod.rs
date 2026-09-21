@@ -159,6 +159,8 @@ const SECTION_ORDER: u32 = 20;
 /// The most values listed under one property at once. A whole-brain taxonomy
 /// has thousands of clusters, and a checkbox apiece makes the sidebar crawl;
 /// its coarser levels, or a search, are the way in.
+///
+/// The table filters hold themselves to the same figure, for the same reason.
 pub const MAX_VALUE_ROWS: usize = 300;
 
 /// Placeholder rows shown while the properties are on their way, about as

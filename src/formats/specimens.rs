@@ -63,7 +63,7 @@ const QUERY: &str = "query($project: [Filter], $specimens: [Filter],
       taxons { symbol }
     }
     measurements {
-      featureType { title }
+      featureType { referenceId title }
       value
       unit
     }
@@ -76,14 +76,6 @@ const QUERY: &str = "query($project: [Filter], $specimens: [Filter],
 struct GraphQlError {
     message: String,
 }
-
-/// The fewest and most values a column may hold to be worth filtering by.
-///
-/// One value narrows nothing — every row has it. Many values and it is an
-/// identifier rather than a category: the SEA-AD donors carry a "Donor ID"
-/// annotation with one value per donor, which as a list of checkboxes is
-/// eighty-four ways of picking one row.
-const FILTER_VALUES: std::ops::RangeInclusive<usize> = 2..=60;
 
 /// The query parameter that names a project's specimens.
 const PARAMETER: &str = "specimens";
@@ -325,9 +317,9 @@ pub struct Plan {
     /// Each annotation's feature — what the platform calls it, which is what
     /// a filter narrows by, and what the column is headed.
     annotations: Vec<(String, String)>,
-    /// Each measurement's feature and the unit it is recorded in, which names
-    /// the column rather than every cell in it.
-    measurements: Vec<(String, Option<String>)>,
+    /// Each measurement's feature, its title, and the unit it is recorded in
+    /// — which names the column rather than every cell in it.
+    measurements: Vec<(String, String, Option<String>)>,
 }
 
 impl Plan {
@@ -343,7 +335,7 @@ impl Plan {
     /// columns on screen wrong until they are rebuilt.
     fn extend(&mut self, specimens: &[Specimen]) -> bool {
         let mut annotations: BTreeMap<&str, &str> = BTreeMap::new();
-        let mut measurements: BTreeMap<&str, Option<&str>> = BTreeMap::new();
+        let mut measurements: BTreeMap<&str, (&str, Option<&str>)> = BTreeMap::new();
         for specimen in specimens {
             for annotation in &specimen.annotations {
                 if let Some(title) = annotation.feature_type.title.as_deref() {
@@ -361,9 +353,16 @@ impl Plan {
                 if let Some(title) = measurement.feature_type.title.as_deref() {
                     // The unit belongs to the feature rather than to the
                     // reading, so the first one seen names the column.
-                    measurements
-                        .entry(title)
-                        .or_insert_with(|| measurement.unit.as_deref().filter(|it| !it.is_empty()));
+                    measurements.entry(title).or_insert_with(|| {
+                        (
+                            measurement
+                                .feature_type
+                                .reference_id
+                                .as_deref()
+                                .unwrap_or(""),
+                            measurement.unit.as_deref().filter(|it| !it.is_empty()),
+                        )
+                    });
                 }
             }
         }
@@ -375,21 +374,39 @@ impl Plan {
                     .push(((*id).to_string(), (*title).to_string()));
             }
         }
-        for (title, unit) in &measurements {
-            if !self.measurements.iter().any(|(known, _)| known == title) {
-                self.measurements
-                    .push(((*title).to_string(), unit.map(str::to_string)));
+        for (title, (id, unit)) in &measurements {
+            if !self.measurements.iter().any(|(_, known, _)| known == title) {
+                self.measurements.push((
+                    (*id).to_string(),
+                    (*title).to_string(),
+                    unit.map(str::to_string),
+                ));
             }
         }
         self.annotations.sort_by(|a, b| a.1.cmp(&b.1));
-        self.measurements.sort();
+        self.measurements.sort_by(|a, b| a.1.cmp(&b.1));
         before != (self.annotations.len(), self.measurements.len())
+    }
+
+    /// Every column that could be narrowed by, as the platform names it and
+    /// as the table heads it.
+    fn columns(&self) -> Vec<(String, String)> {
+        self.annotations
+            .iter()
+            .map(|(id, title)| (id.clone(), title.clone()))
+            .chain(
+                self.measurements
+                    .iter()
+                    .map(|(id, title, _)| (id.clone(), title.clone())),
+            )
+            .filter(|(id, _)| !id.is_empty())
+            .collect()
     }
 
     fn headers(&self) -> Vec<String> {
         let mut headers = vec![SPECIMEN.to_string(), KIND.to_string()];
         headers.extend(self.annotations.iter().map(|(_, title)| title.clone()));
-        headers.extend(self.measurements.iter().map(|(title, unit)| match unit {
+        headers.extend(self.measurements.iter().map(|(_, title, unit)| match unit {
             Some(unit) => format!("{title} ({unit})"),
             None => title.clone(),
         }));
@@ -420,7 +437,7 @@ impl Plan {
                 row.extend(
                     self.measurements
                         .iter()
-                        .map(|(title, _)| measured(specimen, title)),
+                        .map(|(_, title, _)| measured(specimen, title)),
                 );
                 row
             })
@@ -459,11 +476,19 @@ fn measured(specimen: &Specimen, title: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Ask what every filterable column holds, in one request.
+/// Ask what every column holds, in one request.
 ///
 /// A root field per column, aliased, since the counts come back grouped by
 /// whichever column was asked about and there is no way to ask for several
 /// groupings at once.
+///
+/// Every column is asked about and the platform decides which it can answer.
+/// A column it cannot comes back null beside the ones it could, so the answer
+/// is read for what is in it rather than refused whole — which is what keeps
+/// one column's failure from costing the rest. Numeric measurements are the
+/// ones that fail today: grouping by one answers "Unable to cast object of
+/// type 'System.Double' to type 'System.String'", so the platform's own
+/// filters offer Age where these cannot.
 ///
 /// The counts are of the whole project rather than of what is on screen. A
 /// count then says what ticking a value would bring back, which is the
@@ -489,7 +514,7 @@ async fn ask_values(
 
     #[derive(Deserialize)]
     struct Response {
-        data: Option<BTreeMap<String, Vec<Grouped>>>,
+        data: Option<BTreeMap<String, Option<Vec<Grouped>>>>,
         #[serde(default)]
         errors: Vec<GraphQlError>,
     }
@@ -515,16 +540,21 @@ async fn ask_values(
     let text = crate::app::net::post_json(endpoint, body.to_string()).await?;
     let response: Response =
         serde_json::from_str(&text).map_err(|e| format!("parsing {endpoint}: {e}"))?;
-    if let Some(error) = response.errors.first() {
-        return Err(error.message.clone());
+    // Only when nothing at all came back: a column the platform could not
+    // group by is reported beside the ones it could, and costs only itself.
+    let Some(answers) = response.data else {
+        return Err(response.errors.first().map_or_else(
+            || format!("{endpoint} answered with no data"),
+            |error| error.message.clone(),
+        ));
+    };
+    for error in &response.errors {
+        debug!("a column cannot be grouped by: {}", error.message);
     }
-    let answers = response
-        .data
-        .ok_or_else(|| format!("{endpoint} answered with no data"))?;
 
     let mut filters = Vec::new();
     for (index, (id, name)) in columns.iter().enumerate() {
-        let Some(groups) = answers.get(&format!("c{index}")) else {
+        let Some(Some(groups)) = answers.get(&format!("c{index}")) else {
             continue;
         };
         let values: Vec<TableFilterValue> = groups
@@ -538,7 +568,7 @@ async fn ask_values(
                 })
             })
             .collect();
-        if !FILTER_VALUES.contains(&values.len()) {
+        if values.is_empty() {
             continue;
         }
         filters.push(TableFilter {
@@ -615,7 +645,9 @@ fn offer_filters(mut commands: Commands, mut sources: Query<(Entity, &mut Specim
         }
         pages.offered = true;
         let (endpoint, project) = (pages.endpoint.clone(), pages.project.clone());
-        let columns = pages.plan.annotations.clone();
+        // Every column, not only the annotations: the platform answers for
+        // whichever of them it can group by.
+        let columns = pages.plan.columns();
         pages.offering = Some(fetching(async move {
             ask_values(&endpoint, &project, &columns).await
         }));

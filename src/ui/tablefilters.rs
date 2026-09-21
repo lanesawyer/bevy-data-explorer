@@ -20,16 +20,21 @@ use crate::app::schedule::{Boot, Stage};
 use crate::source::ShowsSource;
 use crate::source::compact_count;
 use crate::source::table::TableFilters;
+use crate::ui::cellpanel::MAX_VALUE_ROWS;
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::{
-    BlocksFrameInput, Icon, SectionLevel, button_text, size, spawn_accordion, spawn_header_button,
-    text_dim,
+    BlocksFrameInput, Icon, SectionLevel, button_text, scroll_list, size, spawn_accordion,
+    spawn_header_button, text_dim,
 };
 
 /// Under the cell properties, which is where the same act on a point cloud
 /// sits, and above the genes.
 const SECTION_ORDER: u32 = 22;
+
+/// Tallest a column's list grows before it scrolls, as the cell properties
+/// above it do: the sidebar has other columns to show.
+const LIST_MAX_PX: f32 = 300.0;
 
 /// The section itself, hidden for a frame with nothing to narrow.
 #[derive(Component, Clone, Default)]
@@ -127,11 +132,37 @@ pub fn rebuild_filters(
 
     let mut rows = Vec::new();
     for (index, column) in table.columns.iter().enumerate() {
-        let section = spawn_accordion(&mut commands, &column.name, false, SectionLevel::Group);
+        // Shut to begin with: a table offers a dozen columns and some of them
+        // hold a value per row, so opening one is how you say which you mean.
+        let section = spawn_accordion(
+            &mut commands,
+            &format!("{} ({})", column.name, column.values.len()),
+            false,
+            SectionLevel::Group,
+        );
         commands.entity(section.section).insert(FilterContent);
-        for (place, value) in column.values.iter().enumerate() {
-            let row = value_row(&mut commands, index, place, &value.label, value.count);
-            commands.entity(section.body).add_child(row);
+
+        let list = commands.spawn_scene(scroll_list(LIST_MAX_PX)).id();
+        let values: Vec<Entity> = column
+            .values
+            .iter()
+            .enumerate()
+            .take(MAX_VALUE_ROWS)
+            .map(|(place, value)| value_row(&mut commands, index, place, &value.label, value.count))
+            .collect();
+        commands.entity(list).add_children(&values);
+        commands.entity(section.body).add_child(list);
+
+        // A column holding a value per row runs to thousands. The cap is what
+        // keeps the sidebar from crawling; saying so is what keeps it from
+        // looking like the rest are not there.
+        if let Some(rest) = column.values.len().checked_sub(MAX_VALUE_ROWS)
+            && rest > 0
+        {
+            let note = commands
+                .spawn_scene(text_dim(format!("and {rest} more"), size::SMALL))
+                .id();
+            commands.entity(section.body).add_child(note);
         }
         rows.push(section.section);
     }
