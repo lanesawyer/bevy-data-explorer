@@ -21,9 +21,9 @@ use bevy_ui_widgets::{Activate, ValueChange};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::Palette;
-use crate::source::ShowsSource;
 use crate::source::properties::PropertyValue;
 use crate::source::table::{TableFilter, TableFilterKind, TableFilters, TablePaging};
+use crate::source::{ShowsSource, compact_count};
 use crate::ui::cellpanel::range::{RangeOwner, spawn_range_control};
 use crate::ui::cellpanel::tree::Unveil;
 use crate::ui::cellpanel::values::{LIST_MAX_PX, SEARCH_FROM, note_for, set_display};
@@ -80,6 +80,14 @@ pub struct ClearColumnButton {
 /// One value's checkbox, naming where to write the tick back.
 #[derive(Component, Clone, Default)]
 pub struct FilterValueBox {
+    pub column: usize,
+    pub value: usize,
+}
+
+/// The count beside one value, written in as the table counts it again under
+/// the other filters.
+#[derive(Component, Clone, Default)]
+pub struct FilterValueCount {
     pub column: usize,
     pub value: usize,
 }
@@ -353,7 +361,10 @@ pub fn sync_value_lists(
                     column: list.column,
                     value: index,
                 },
-                (),
+                FilterValueCount {
+                    column: list.column,
+                    value: index,
+                },
                 ValueColumn::default(),
             );
             let position = list.rows.range(..index).count();
@@ -497,14 +508,15 @@ pub fn note_open_columns(
     }
 }
 
-/// Show each checkbox as ticked or not, and offer each clear button only while
-/// there is something for it to clear.
+/// Show each checkbox as ticked or not with its count as last counted, and
+/// offer each clear button only while there is something for it to clear.
 pub fn sync_filter_controls(
     mut commands: Commands,
     selection: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     filters: Query<&TableFilters>,
     boxes: Query<(Entity, &FilterValueBox, Has<Checked>)>,
+    mut counts: Query<(&FilterValueCount, &mut Text)>,
     mut clear_all: Query<&mut Node, (With<ClearFiltersButton>, Without<ClearColumnButton>)>,
     mut clear_column: Query<(&ClearColumnButton, &mut Node), Without<ClearFiltersButton>>,
 ) {
@@ -535,6 +547,19 @@ pub fn sync_filter_controls(
     }
 
     let Some(table) = table else { return };
+    for (count, mut text) in &mut counts {
+        let Some(value) = table
+            .columns
+            .get(count.column)
+            .and_then(|column| column.listed().get(count.value))
+        else {
+            continue;
+        };
+        let wanted = compact_count(value.count);
+        if text.0 != wanted {
+            text.0 = wanted;
+        }
+    }
     for (entity, box_, checked) in &boxes {
         let chosen = table
             .columns

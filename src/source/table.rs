@@ -129,10 +129,10 @@ impl TablePaging {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableFilterValue {
     pub label: String,
-    /// How many rows of the whole table hold it. Counted once, against the
-    /// unfiltered table, so a count says the same thing however the table has
-    /// been narrowed since — what ticking a value would bring back, not what
-    /// is on screen.
+    /// How many rows hold it among those every other column admits: what
+    /// ticking it would bring back. Its own column is left out because values
+    /// in one column widen one another, so ticking one never takes another's
+    /// rows away.
     pub count: u64,
     pub chosen: bool,
 }
@@ -284,6 +284,15 @@ pub enum TableFilterTerm {
     Is { field: String, value: String },
     /// The column's number falls between these, inclusive.
     Between { field: String, low: f32, high: f32 },
+}
+
+impl TableFilterTerm {
+    /// The column it narrows.
+    pub fn field(&self) -> &str {
+        match self {
+            TableFilterTerm::Is { field, .. } | TableFilterTerm::Between { field, .. } => field,
+        }
+    }
 }
 
 /// How a table can be narrowed, and how it has been.
