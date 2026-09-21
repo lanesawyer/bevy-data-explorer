@@ -16,7 +16,7 @@ use futures::future::BoxFuture;
 use serde::Deserialize;
 
 use super::PRODUCTION;
-use crate::catalog::{Catalog, Entry};
+use crate::catalog::{Catalog, Entry, Provider};
 use crate::source::Category;
 
 /// Projects asked for in one request. The platform held 172 of them when this
@@ -61,6 +61,10 @@ impl SpecimenTables {
 impl Catalog for SpecimenTables {
     fn name(&self) -> &str {
         "BKP specimen tables"
+    }
+
+    fn provider(&self) -> Option<Provider> {
+        Some(super::PROVIDER)
     }
 
     fn list(&self) -> BoxFuture<'static, Result<Vec<Entry>, String>> {

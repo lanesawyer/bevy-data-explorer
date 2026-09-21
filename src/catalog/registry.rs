@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 
-use super::{Catalog, Entry, Found};
+use super::{Catalog, Entry, Found, Provider};
 use crate::app::prefs::Preferences;
 use crate::source::Category;
 
@@ -68,9 +68,20 @@ impl Registry {
     }
 }
 
+pub const PROVIDER: Provider = Provider {
+    key: "bkp-registry",
+    name: "BKP Registry",
+    about: "The Institute's internal record of data assets. Pre-production, and needs a token.",
+    examples: &[],
+};
+
 impl Catalog for Registry {
     fn name(&self) -> &str {
         "BKP Registry"
+    }
+
+    fn provider(&self) -> Option<Provider> {
+        Some(PROVIDER)
     }
 
     fn list(&self) -> BoxFuture<'static, Result<Vec<Entry>, String>> {

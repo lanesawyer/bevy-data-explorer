@@ -20,7 +20,7 @@ use futures::future::BoxFuture;
 use serde::Deserialize;
 
 use super::examples::Example;
-use super::{Catalog, CellService, Entry};
+use super::{Catalog, CellService, Entry, Provider};
 use crate::source::Category;
 
 pub const PRODUCTION: &str = "https://idf-api-prod.aibs-idk-prod.net/";
@@ -129,9 +129,21 @@ impl Bkp {
     }
 }
 
+/// Both of the platform's catalogs, turned off together.
+pub const PROVIDER: Provider = Provider {
+    key: "bkp",
+    name: "Brain Knowledge Platform",
+    about: "The Allen Institute's public visualizations and specimen tables.",
+    examples: &EXAMPLES,
+};
+
 impl Catalog for Bkp {
     fn name(&self) -> &str {
         "Brain Knowledge Platform"
+    }
+
+    fn provider(&self) -> Option<Provider> {
+        Some(PROVIDER)
     }
 
     fn list(&self) -> BoxFuture<'static, Result<Vec<Entry>, String>> {

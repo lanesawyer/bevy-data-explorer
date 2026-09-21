@@ -6,7 +6,7 @@
 //! write rather than one a frame. A file that cannot be read is reported and set
 //! aside for the defaults, never allowed to stop the app starting.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use bevy::prelude::*;
@@ -69,6 +69,9 @@ pub struct Preferences {
     /// The bearer token for the BKP Registry, pasted in settings. Kept in
     /// plain text, like anything else in this file.
     pub registry_token: Option<String>,
+    /// The data sources turned off, by `Provider::key`. Kept as what is off
+    /// rather than what is on, so a source added later starts on.
+    pub sources_off: BTreeSet<String>,
 }
 
 impl Default for Preferences {
@@ -79,6 +82,7 @@ impl Default for Preferences {
             theme: None,
             filtered_points: None,
             registry_token: None,
+            sources_off: BTreeSet::new(),
         }
     }
 }

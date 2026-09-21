@@ -2,7 +2,8 @@
 //! way to make it forget.
 //!
 //! A modal, like the help screen: opened from the sidebar, and closed by its
-//! own X, Escape, or a click outside it.
+//! own X, Escape, or a click outside it. Its pages are picked from a list down
+//! its left side: general settings, and the data sources offered to search.
 
 use bevy::input::keyboard::KeyboardInput;
 use bevy::input_focus::FocusedInput;
@@ -12,6 +13,7 @@ use bevy::ui::{Checked, InteractionDisabled};
 use bevy::window::WindowTheme;
 use bevy_feathers::controls::{
     ButtonVariant, FeathersButton, FeathersCheckbox, FeathersTextInput, FeathersTextInputContainer,
+    FeathersToggleSwitch,
 };
 use bevy_feathers::display::label_dim;
 use bevy_feathers::rounded_corners::RoundedCorners;
@@ -21,6 +23,7 @@ use crate::app::net::{Fetching, fetching};
 use crate::app::prefs::{Preferences, PreferencesFile};
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::{Palette, ThemeMode};
+use crate::catalog::Catalogs;
 use crate::catalog::registry::{self, AssetSample};
 use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::ui::log_panel::LogPanel;
@@ -30,7 +33,9 @@ use crate::widgets::{
     size, spawn_modal, text,
 };
 
-const PANEL_PX: f32 = 440.0;
+const PANEL_PX: f32 = 620.0;
+/// The list of pages down the left.
+const NAV_PX: f32 = 140.0;
 
 /// The dimmed backdrop, which is the whole screen.
 #[derive(Component, Clone, Default)]
@@ -88,29 +93,122 @@ fn theme_option(
     }
 }
 
+/// One page of the screen: the row that picks it, and the column it shows.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum SettingsPage {
+    #[default]
+    General,
+    DataSources,
+}
+
+impl SettingsPage {
+    fn title(self) -> &'static str {
+        match self {
+            SettingsPage::General => "General",
+            SettingsPage::DataSources => "Data sources",
+        }
+    }
+}
+
+/// The page shown, which stays put while the screen is closed.
+#[derive(Resource, Default)]
+pub struct ShownPage(SettingsPage);
+
+/// The button that shows `page`, drawn as primary while it is shown.
+fn page_button(page: SettingsPage) -> impl Scene {
+    bsn! {
+        @FeathersButton {
+            @variant: { ButtonVariant::Plain },
+            @caption: { bsn_list![button_text(page.title())] }
+        }
+        Node { justify_content: { JustifyContent::Start } }
+        template_value(page)
+    }
+}
+
+/// The switch turning a data source on or off, by `Provider::key`.
+#[derive(Component, Clone, Default)]
+pub struct SourceSwitch(pub &'static str);
+
+/// Shown only while the data source keyed is on, such as the registry's token
+/// or a provider's examples on the welcome screen.
+///
+/// Carries the display it is shown with, since not everything so marked is a
+/// flex box: the welcome screen's example columns are grids.
+#[derive(Component, Clone)]
+pub struct WhileSourceOn {
+    pub key: &'static str,
+    pub shown: Display,
+}
+
 #[derive(Component, Clone, Default)]
 pub struct ResetLayoutButton;
 
 #[derive(Component, Clone, Default)]
 pub struct ResetPointCloudButton;
 
-pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
+pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>, catalogs: Res<Catalogs>) {
     let saved_in = format!("Saved in {}", file.0.display());
     let modal = spawn_modal::<SettingsScreen>(&mut commands, "Settings", PANEL_PX);
-    let body = commands
+    // A subtitle, so it is drawn closer to the title than the panel's gap
+    // would put it.
+    let subtitle = commands
         .spawn_scene(bsn! {
-            Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(space::ROWS) } }
+            label_dim(saved_in)
+            Node { margin: { UiRect::top(Val::Px(space::STACKED - space::ROWS)) } }
+        })
+        .id();
+    let nav = commands
+        .spawn_scene(bsn! {
+            Node {
+                width: { Val::Px(NAV_PX) },
+                flex_shrink: { 0.0_f32 },
+                flex_direction: { FlexDirection::Column },
+                justify_content: { JustifyContent::SpaceBetween },
+                row_gap: { Val::Px(space::GROUPS) },
+            }
             Children [
-                // A subtitle, so it is drawn closer to the title than the
-                // panel's gap would put it.
                 (
-                    label_dim(saved_in)
-                    Node { margin: { UiRect::top(Val::Px(space::STACKED - space::ROWS)) } }
+                    Node {
+                        flex_direction: { FlexDirection::Column },
+                        row_gap: { Val::Px(space::LIST_ITEMS) },
+                    }
+                    Children [
+                        page_button(SettingsPage::General),
+                        page_button(SettingsPage::DataSources),
+                    ]
                 ),
+                // Not a setting, so it sits apart from them, in the corner.
                 (
-                    text("Layout", size::DOCK_TITLE)
-                    Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
+                    Node { align_items: { AlignItems::Start } }
+                    Children [(
+                        @FeathersButton {
+                            @caption: { bsn_list![
+                                button_icon(Icon::ScrollText),
+                                button_text("Logs"),
+                            ] }
+                        }
+                        Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+                        ShowLogsButton
+                    )]
                 ),
+            ]
+        })
+        .id();
+    let general = commands
+        .spawn_scene(bsn! {
+            template_value(SettingsPage::General)
+            // Every page in the one cell, so the stack is as tall as the
+            // tallest and the screen keeps its size from page to page.
+            Node {
+                grid_row: { GridPlacement::start(1) },
+                grid_column: { GridPlacement::start(1) },
+                flex_direction: { FlexDirection::Column },
+                min_width: { Val::Px(0.0) },
+                row_gap: { Val::Px(space::ROWS) },
+            }
+            Children [
+                text("Layout", size::DOCK_TITLE),
                 (
                     @FeathersCheckbox {
                         @caption: { bsn_list![button_text("Remember panel sizes")] }
@@ -172,28 +270,98 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
             ]
         })
         .id();
-    let registry = spawn_registry_section(&mut commands);
-    let logs = commands
+    let sources = commands
         .spawn_scene(bsn! {
-            // Not a setting, so it sits apart from them, in the corner.
+            template_value(SettingsPage::DataSources)
+            // Every page in the one cell, so the stack is as tall as the
+            // tallest and the screen keeps its size from page to page.
             Node {
-                justify_content: { JustifyContent::End },
-                margin: { UiRect::top(Val::Px(space::HEADING)) },
+                grid_row: { GridPlacement::start(1) },
+                grid_column: { GridPlacement::start(1) },
+                flex_direction: { FlexDirection::Column },
+                min_width: { Val::Px(0.0) },
+                row_gap: { Val::Px(space::ROWS) },
             }
-            Children [(
-                @FeathersButton {
-                    @caption: { bsn_list![
-                        button_icon(Icon::ScrollText),
-                        button_text("Logs"),
-                    ] }
-                }
-                Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-                ShowLogsButton
-            )]
+            Children [
+                text("Data sources", size::DOCK_TITLE),
+                label_dim(
+                    "What search offers. A source turned off is neither listed nor \
+                     searched; anything already open from it stays open."
+                ),
+            ]
         })
         .id();
-    commands.entity(body).add_children(&[registry, logs]);
-    commands.entity(modal.panel).add_child(body);
+    for provider in catalogs.providers() {
+        let row = spawn_source_switch(&mut commands, provider.key, provider.name, provider.about);
+        commands.entity(sources).add_child(row);
+        if provider.key == registry::PROVIDER.key {
+            let details = spawn_registry_section(&mut commands);
+            commands.entity(details).insert(WhileSourceOn {
+                key: provider.key,
+                shown: Display::Flex,
+            });
+            commands.entity(sources).add_child(details);
+        }
+    }
+    let stack = commands
+        .spawn(Node {
+            display: Display::Grid,
+            flex_grow: 1.0,
+            min_width: Val::Px(0.0),
+            grid_template_columns: vec![GridTrack::flex(1.0)],
+            ..default()
+        })
+        .add_children(&[general, sources])
+        .id();
+    let pages = commands
+        .spawn(Node {
+            column_gap: Val::Px(space::SCREEN_INSET),
+            ..default()
+        })
+        .add_children(&[nav, stack])
+        .id();
+    commands
+        .entity(modal.panel)
+        .add_children(&[subtitle, pages]);
+}
+
+/// A data source's name and what it offers, with the switch that turns it on
+/// or off.
+fn spawn_source_switch(
+    commands: &mut Commands,
+    key: &'static str,
+    name: &'static str,
+    about: &'static str,
+) -> Entity {
+    commands
+        .spawn_scene(bsn! {
+            Node {
+                width: { Val::Percent(100.0) },
+                align_items: { AlignItems::Center },
+                column_gap: { Val::Px(space::CONTROLS) },
+                margin: { UiRect::top(Val::Px(space::HEADING)) },
+            }
+            Children [
+                (
+                    Node {
+                        flex_direction: { FlexDirection::Column },
+                        flex_grow: { 1.0_f32 },
+                        min_width: { Val::Px(0.0) },
+                        row_gap: { Val::Px(space::STACKED) },
+                    }
+                    Children [
+                        text(name, size::BODY),
+                        label_dim(about),
+                    ]
+                ),
+                (
+                    @FeathersToggleSwitch
+                    Node { flex_shrink: { 0.0_f32 } }
+                    template_value(SourceSwitch(key))
+                ),
+            ]
+        })
+        .id()
 }
 
 /// Where the BKP Registry token is pasted, and the button that tries it.
@@ -205,11 +373,7 @@ fn spawn_registry_section(commands: &mut Commands) -> Entity {
         .spawn_scene(bsn! {
             Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(space::ROWS) } }
             Children [
-                (
-                    text("BKP Registry", size::DOCK_TITLE)
-                    Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
-                ),
-                label_dim("Pre-production. Paste a bearer token to use it."),
+                label_dim("Paste a bearer token to use it."),
                 (
                     field_well()
                     Children [
@@ -514,6 +678,94 @@ pub fn on_reset_point_cloud(
     }
 }
 
+pub fn on_page_picked(
+    activate: On<Activate>,
+    buttons: Query<&SettingsPage, With<FeathersButton>>,
+    mut shown: ResMut<ShownPage>,
+) {
+    if let Ok(&page) = buttons.get(activate.entity)
+        && shown.0 != page
+    {
+        shown.0 = page;
+    }
+}
+
+/// Show the page picked, and mark its button.
+///
+/// The others are hidden rather than taken out of the layout, so they still
+/// hold the screen at the size of the tallest.
+pub fn sync_page(
+    shown: Res<ShownPage>,
+    mut buttons: Query<(&SettingsPage, &mut ButtonVariant)>,
+    mut pages: Query<(&SettingsPage, &mut Visibility), Without<ButtonVariant>>,
+) {
+    let shown = shown.0;
+    for (page, mut variant) in &mut buttons {
+        variant.set_if_neq(if *page == shown {
+            ButtonVariant::Primary
+        } else {
+            ButtonVariant::Plain
+        });
+    }
+    for (page, mut visibility) in &mut pages {
+        visibility.set_if_neq(if *page == shown {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+    }
+}
+
+pub fn on_source_switch(
+    change: On<ValueChange<bool>>,
+    switches: Query<&SourceSwitch>,
+    mut prefs: ResMut<Preferences>,
+) {
+    let Ok(SourceSwitch(key)) = switches.get(change.source) else {
+        return;
+    };
+    let off = prefs.sources_off.contains(*key);
+    if change.value == off {
+        if change.value {
+            prefs.sources_off.remove(*key);
+        } else {
+            prefs.sources_off.insert(key.to_string());
+        }
+        info!(
+            "turned the {key} data source {}",
+            if change.value { "on" } else { "off" }
+        );
+    }
+}
+
+/// Each switch as its source stands, and what belongs to a source shown only
+/// while it is on.
+pub fn sync_sources(
+    mut commands: Commands,
+    prefs: Res<Preferences>,
+    switches: Query<(Entity, &SourceSwitch, Has<Checked>)>,
+    mut details: Query<(&WhileSourceOn, &mut Node)>,
+) {
+    if !prefs.is_changed() {
+        return;
+    }
+    for (entity, SourceSwitch(key), checked) in &switches {
+        let on = !prefs.sources_off.contains(*key);
+        if on && !checked {
+            commands.entity(entity).insert(Checked);
+        } else if !on && checked {
+            commands.entity(entity).remove::<Checked>();
+        }
+    }
+    for (details, mut node) in &mut details {
+        node.display = if prefs.sources_off.contains(details.key) {
+            Display::None
+        } else {
+            details.shown
+        };
+    }
+}
+
 /// Forgetting the sizes as well as no longer noting them, so turning this off
 /// is enough for the next launch to open at the defaults.
 pub fn on_remember_layout(
@@ -594,6 +846,9 @@ pub struct SettingsPlugin;
 impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
         app.add_modal::<SettingsScreen>()
+            .init_resource::<ShownPage>()
+            .add_observer(on_page_picked)
+            .add_observer(on_source_switch)
             .add_observer(on_show_logs)
             .add_observer(on_reset_layout)
             .add_observer(on_reset_point_cloud)
@@ -607,7 +862,8 @@ impl Plugin for SettingsPlugin {
             .add_systems(Update, poll_registry_probe.in_set(Stage::ControlsApply))
             .add_systems(
                 Update,
-                (sync_settings, sync_registry).in_set(Stage::ControlsPlace),
+                (sync_settings, sync_registry, sync_page, sync_sources)
+                    .in_set(Stage::ControlsPlace),
             )
             .add_systems(Startup, spawn_settings.in_set(Boot::Shell));
     }

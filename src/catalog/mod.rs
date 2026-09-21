@@ -20,6 +20,13 @@
 //! A catalog too large to list, such as the BKP Registry, is searched instead:
 //! it lists nothing, and is asked again whenever what is typed into a picker
 //! settles. What it answers replaces what it answered before.
+//!
+//! A catalog may belong to a [`Provider`], which settings can turn off. One
+//! turned off offers nothing to a picker and is never searched, but is still
+//! listed: a bookmark or a pasted address may name a dataset it knows, and
+//! that dataset should still be named, and its cells described, as the
+//! catalog has them. A catalog with no provider, like the examples, is always
+//! on.
 
 pub mod bkp;
 pub mod cells;
@@ -27,18 +34,20 @@ pub mod examples;
 pub mod genes;
 pub mod registry;
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use bevy::prelude::*;
 use futures::future::BoxFuture;
 
 use crate::app::net::{Fetching, fetching};
+use crate::app::prefs::Preferences;
 use crate::app::schedule::Stage;
 use crate::source::genes::Gene;
 use crate::source::properties::{CellColumns, CellProperties, CellProperty};
 use crate::source::region::SelectedRegion;
 use crate::source::{Category, DataSource, SourceUrl};
+use examples::Example;
 
 /// One dataset a catalog offers.
 #[derive(Clone, Debug)]
@@ -250,10 +259,29 @@ impl std::fmt::Debug for CellService {
     }
 }
 
+/// Whoever runs a catalog, as settings offers it to be turned off. Several
+/// catalogs may share one, and are turned off together.
+#[derive(Clone, Copy)]
+pub struct Provider {
+    /// What the preferences remember it by. Never change one: a user who
+    /// turned it off would find it back on.
+    pub key: &'static str,
+    pub name: &'static str,
+    /// A line on what it offers, under its switch.
+    pub about: &'static str,
+    /// What an empty window offers from it, under its name, while it is on.
+    pub examples: &'static [Example],
+}
+
 /// Somewhere datasets are listed.
 pub trait Catalog: Send + Sync + 'static {
     /// What to call it, in search and in the log.
     fn name(&self) -> &str;
+
+    /// Who runs it, if it can be turned off.
+    fn provider(&self) -> Option<Provider> {
+        None
+    }
 
     /// Everything it offers. Run once, off the main thread.
     fn list(&self) -> BoxFuture<'static, Result<Vec<Entry>, String>>;
@@ -303,6 +331,9 @@ pub struct EntryId {
 
 struct Slot {
     name: String,
+    provider: Option<Provider>,
+    catalog: Arc<dyn Catalog>,
+    on: bool,
     entries: Vec<Entry>,
     listing: Option<Fetching<Result<Vec<Entry>, String>>>,
     search: Option<Search>,
@@ -310,7 +341,6 @@ struct Slot {
 
 /// A searched catalog's side of its slot.
 struct Search {
-    catalog: Arc<dyn Catalog>,
     /// The text last asked about, whether or not it has answered, and the
     /// category it was narrowed to.
     asked: String,
@@ -383,35 +413,67 @@ pub struct Catalogs {
     wanted: String,
     wanted_only: Option<Category>,
     wanted_at: f32,
+    /// The keys of the providers turned off.
+    off: BTreeSet<String>,
 }
 
 impl Catalogs {
     /// Register `catalog` and start listing it, unless it is searched.
     pub fn add(&mut self, catalog: impl Catalog) {
-        let name = catalog.name().to_string();
-        if catalog.searched() {
-            self.slots.push(Slot {
-                name,
-                entries: Vec::new(),
-                listing: None,
-                search: Some(Search {
-                    catalog: Arc::new(catalog),
-                    asked: String::new(),
-                    asked_only: None,
-                    asking: None,
-                    total: 0,
-                    problem: None,
-                    seen: HashMap::new(),
-                }),
-            });
+        let provider = catalog.provider();
+        let search = catalog.searched().then(|| Search {
+            asked: String::new(),
+            asked_only: None,
+            asking: None,
+            total: 0,
+            problem: None,
+            seen: HashMap::new(),
+        });
+        self.slots.push(Slot {
+            name: catalog.name().to_string(),
+            on: provider.is_none_or(|provider| !self.off.contains(provider.key)),
+            provider,
+            listing: search.is_none().then(|| fetching(catalog.list())),
+            catalog: Arc::new(catalog),
+            entries: Vec::new(),
+            search,
+        });
+    }
+
+    /// Turn off the catalogs of the providers keyed in `off`, and on the
+    /// rest.
+    pub fn turn_off(&mut self, off: &BTreeSet<String>) {
+        if self.off == *off {
             return;
         }
-        self.slots.push(Slot {
-            name,
-            entries: Vec::new(),
-            listing: Some(fetching(catalog.list())),
-            search: None,
-        });
+        self.off.clone_from(off);
+        for slot in &mut self.slots {
+            slot.on = slot
+                .provider
+                .is_none_or(|provider| !off.contains(provider.key));
+            if !slot.on
+                && let Some(search) = slot.search.as_mut()
+            {
+                // Forgotten, so it is asked afresh when turned back on.
+                search.asking = None;
+                search.asked.clear();
+                search.asked_only = None;
+                search.total = 0;
+                slot.entries.clear();
+            }
+        }
+        self.generation += 1;
+    }
+
+    /// Every provider some catalog names, once each, in the order registered.
+    pub fn providers(&self) -> Vec<Provider> {
+        let mut providers: Vec<Provider> = Vec::new();
+        for provider in self.slots.iter().filter_map(|slot| slot.provider) {
+            if !providers.iter().any(|known| known.key == provider.key) {
+                providers.push(provider);
+            }
+        }
+        providers
     }
 
     /// Note what a picker's search now says. The searched catalogs are asked
@@ -435,6 +497,7 @@ impl Catalogs {
         let text = text.trim();
         self.slots
             .iter()
+            .filter(|slot| slot.on)
             .filter_map(|slot| {
                 let search = slot.search.as_ref()?;
                 let note = if text.chars().count() < SEARCH_MIN_CHARS {
@@ -471,7 +534,7 @@ impl Catalogs {
         let text = self.wanted.clone();
         let only = self.wanted_only;
         let long_enough = text.chars().count() >= SEARCH_MIN_CHARS;
-        for slot in &mut self.slots {
+        for slot in self.slots.iter_mut().filter(|slot| slot.on) {
             let Some(search) = slot.search.as_mut() else {
                 continue;
             };
@@ -483,8 +546,7 @@ impl Catalogs {
             search.problem = None;
             search.total = 0;
             slot.entries.clear();
-            search.asking =
-                long_enough.then(|| fetching(search.catalog.search(text.clone(), only)));
+            search.asking = long_enough.then(|| fetching(slot.catalog.search(text.clone(), only)));
             self.generation += 1;
         }
     }
@@ -577,9 +639,11 @@ impl Catalogs {
             .iter()
             .enumerate()
             .filter(move |(_, slot)| {
-                slot.search
-                    .as_ref()
-                    .is_none_or(|search| search.answers(query, only))
+                slot.on
+                    && slot
+                        .search
+                        .as_ref()
+                        .is_none_or(|search| search.answers(query, only))
             })
             .flat_map(|(catalog, slot)| {
                 slot.entries.iter().enumerate().map(move |(entry, found)| {
@@ -617,9 +681,14 @@ pub trait AppCatalogs {
 
 impl AppCatalogs for App {
     fn add_catalog(&mut self, catalog: impl Catalog) -> &mut Self {
-        self.world_mut()
-            .get_resource_or_init::<Catalogs>()
-            .add(catalog);
+        let off = self
+            .world()
+            .get_resource::<Preferences>()
+            .map(|prefs| prefs.sources_off.clone())
+            .unwrap_or_default();
+        let mut catalogs = self.world_mut().get_resource_or_init::<Catalogs>();
+        catalogs.turn_off(&off);
+        catalogs.add(catalog);
         self
     }
 }
@@ -632,6 +701,7 @@ impl Plugin for CatalogPlugin {
         app.init_resource::<Catalogs>().add_systems(
             Update,
             (
+                turn_off_sources,
                 take_listings,
                 search_catalogs,
                 registry::sync_token,
@@ -678,6 +748,12 @@ fn name_sources(
     }
 }
 
+fn turn_off_sources(prefs: Res<Preferences>, mut catalogs: ResMut<Catalogs>) {
+    if prefs.is_changed() && catalogs.off != prefs.sources_off {
+        catalogs.turn_off(&prefs.sources_off);
+    }
+}
+
 fn take_listings(mut catalogs: ResMut<Catalogs>) {
     if catalogs.listing() {
         catalogs.take_listings();
@@ -688,7 +764,7 @@ fn search_catalogs(mut catalogs: ResMut<Catalogs>, time: Res<Time>) {
     // Checked before writing, so a frame with nothing to do leaves the
     // resource unchanged.
     let now = time.elapsed_secs();
-    let due = catalogs.slots.iter().any(|slot| {
+    let due = catalogs.slots.iter().filter(|slot| slot.on).any(|slot| {
         slot.search.as_ref().is_some_and(|search| {
             search.asking.is_some() || !search.asked_for(&catalogs.wanted, catalogs.wanted_only)
         })
@@ -861,6 +937,56 @@ mod tests {
         let (id, name, _) = catalogs.unopened(&[], "", None).last().unwrap();
         assert_eq!(name, "second");
         assert_eq!(catalogs.get(id).unwrap().url, "c");
+    }
+
+    struct Provided(Fixed);
+
+    const PROVIDER: Provider = Provider {
+        key: "provided",
+        name: "Provided",
+        about: "",
+        examples: &[],
+    };
+
+    impl Catalog for Provided {
+        fn name(&self) -> &str {
+            self.0.name()
+        }
+
+        fn provider(&self) -> Option<Provider> {
+            Some(PROVIDER)
+        }
+
+        fn list(&self) -> BoxFuture<'static, Result<Vec<Entry>, String>> {
+            self.0.list()
+        }
+    }
+
+    #[test]
+    fn a_provider_turned_off_offers_nothing_but_still_names_what_it_knows() {
+        let off = BTreeSet::from([PROVIDER.key.to_string()]);
+        let mut catalogs = Catalogs::default();
+        catalogs.turn_off(&off);
+        catalogs.add(Provided(Fixed("provided", vec!["a"])));
+        catalogs.add(Fixed("always", vec!["b"]));
+        let keys: Vec<&str> = catalogs.providers().iter().map(|p| p.key).collect();
+        assert_eq!(keys, [PROVIDER.key]);
+        listed(&mut catalogs);
+        assert_eq!(catalogs.unopened(&[], "", None).count(), 1);
+        assert!(
+            catalogs.find("a").is_some(),
+            "still listed, so what it knows is named after it"
+        );
+
+        catalogs.turn_off(&BTreeSet::new());
+        assert_eq!(catalogs.unopened(&[], "", None).count(), 2);
+
+        catalogs.turn_off(&off);
+        let urls: Vec<&str> = catalogs
+            .unopened(&[], "", None)
+            .map(|(_, _, entry)| entry.url.as_str())
+            .collect();
+        assert_eq!(urls, ["b"]);
     }
 
     #[test]

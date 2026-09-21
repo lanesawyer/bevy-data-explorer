@@ -3,7 +3,7 @@
 //! Nothing is loaded at startup any more, so the frame area would otherwise be
 //! a cleared rectangle with no way into the app. This fills it: what the viewer
 //! is for, the bookmarks saved so far, every dataset it knows the address of —
-//! the Brain Knowledge Platform's beside the rest — a button opening the same
+//! each data source's that is on beside the rest — a button opening the same
 //! empty frame the sidebar's New frame does, for anything else, and who made
 //! it.
 //!
@@ -21,11 +21,12 @@ use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::bookmark::store::SavedBookmarks;
-use crate::catalog::bkp;
+use crate::catalog::Catalogs;
 use crate::catalog::examples::{EXAMPLES, Example};
 use crate::ui::add_source::status_line;
 use crate::ui::bookmarks::BookmarkList;
 use crate::ui::help::{AUTHOR, LICENSE, LICENSE_URL, REPOSITORY};
+use crate::ui::settings::WhileSourceOn;
 use crate::view::browse::new_frame_button;
 use crate::view::{FrameArea, Panel};
 use crate::widgets::space;
@@ -65,7 +66,7 @@ pub const BLURB: &str = "An experimental streaming explorer for large scientific
                      annotations, CSV and TSV tables, and specimen records from the \
                      Brain Knowledge Platform.";
 
-pub fn spawn_welcome(mut commands: Commands) {
+pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
     let screen = commands
         .spawn_scene(bsn! {
             WelcomeScreen
@@ -135,10 +136,22 @@ pub fn spawn_welcome(mut commands: Commands) {
         })
         .id();
 
-    // The platform's own visualizations lead, since they are what most people
-    // come to look at; the formats the viewer reads follow beside them.
-    let bkp = example_column(&mut commands, "Brain Knowledge Platform", &bkp::EXAMPLES);
-    let others = example_column(&mut commands, "Other examples", &EXAMPLES);
+    // Each data source's own examples lead, since they are what most people
+    // come to look at, each shown while its source is on; the formats the
+    // viewer reads follow beside them.
+    let mut examples = Vec::new();
+    for provider in catalogs.providers() {
+        if provider.examples.is_empty() {
+            continue;
+        }
+        let column = example_column(&mut commands, provider.name, provider.examples);
+        commands.entity(column).insert(WhileSourceOn {
+            key: provider.key,
+            shown: Display::Grid,
+        });
+        examples.push(column);
+    }
+    examples.push(example_column(&mut commands, "Other examples", &EXAMPLES));
     let columns = commands
         .spawn_scene(bsn! {
             Node {
@@ -150,7 +163,7 @@ pub fn spawn_welcome(mut commands: Commands) {
             }
         })
         .id();
-    commands.entity(columns).add_children(&[bkp, others]);
+    commands.entity(columns).add_children(&examples);
 
     let mut children = vec![title, blurb, bookmarks, columns];
 
@@ -346,6 +359,7 @@ impl Plugin for WelcomePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::bkp;
 
     #[test]
     fn every_kind_the_viewer_draws_is_offered() {
