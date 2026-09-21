@@ -304,6 +304,9 @@ fn parse_sample(text: &str) -> Result<AssetSample, String> {
             .as_ref()
             .and_then(|extensions| extensions.code.as_deref());
         return Err(match code {
+            Some(code) if code.starts_with("AUTH_") => {
+                "BKP Registry: not authorized. Update your token in Settings.".to_string()
+            }
             Some(code) => format!("BKP Registry: {} ({code})", error.message),
             None => format!("BKP Registry: {}", error.message),
         });
@@ -379,12 +382,13 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_token_is_reported_with_its_code() {
+    fn a_missing_token_points_to_the_settings() {
         // As the stage service answered without one, on 2026-09-21.
         let text = r#"{"errors":[{"message":"The current user is not authorized to access this resource.","locations":[{"line":1,"column":22}],"path":["dataAssets"],"extensions":{"code":"AUTH_NOT_AUTHENTICATED","category":"Unauthorized","statusCode":"401"}}],"data":{"dataAssets":null}}"#;
         let error = parse_sample(text).unwrap_err();
         assert!(error.contains("not authorized"));
-        assert!(error.contains("AUTH_NOT_AUTHENTICATED"));
+        assert!(error.contains("Settings"));
+        assert!(!error.contains("AUTH_NOT_AUTHENTICATED"));
     }
 
     #[test]
