@@ -74,6 +74,17 @@ pub trait Dock: Resource + Component<Mutability = Mutable> + FromWorld {
     /// may have been edited by hand, or a reset.
     fn set_size(&mut self, size: f32);
 
+    /// Whether it is at its default, which is not saved: a later change to the
+    /// default then still reaches anyone who never dragged it.
+    fn at_default(&self) -> bool {
+        self.size() == Self::DEFAULT_SIZE
+    }
+
+    /// Back to its default size.
+    fn reset(&mut self) {
+        self.set_size(Self::DEFAULT_SIZE);
+    }
+
     /// Size the dock for a drag reaching `reach` in from its edge, in a window
     /// `span` across that way.
     fn drag_to(&mut self, reach: f32, span: f32);
@@ -200,7 +211,7 @@ fn remember_dock_size<D: Dock>(dock: Res<D>, mut prefs: ResMut<Preferences>) {
         return;
     }
     let size = dock.size();
-    if size == D::DEFAULT_SIZE {
+    if dock.at_default() {
         if prefs.docks.contains_key(D::KEY) {
             prefs.docks.remove(D::KEY);
         }
@@ -214,7 +225,7 @@ fn reset_dock_size<D: Dock>(
     mut dock: ResMut<D>,
     mut prefs: ResMut<Preferences>,
 ) {
-    dock.set_size(D::DEFAULT_SIZE);
+    dock.reset();
     if prefs.docks.contains_key(D::KEY) {
         prefs.docks.remove(D::KEY);
     }

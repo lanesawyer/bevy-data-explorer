@@ -250,15 +250,6 @@ impl ThemeMode {
         matches!(self.mode, WindowTheme::Dark)
     }
 
-    /// Switch by hand, which is also what stops the desktop switching back.
-    pub fn toggle(&mut self) {
-        self.choose(if self.is_dark() {
-            WindowTheme::Light
-        } else {
-            WindowTheme::Dark
-        });
-    }
-
     /// Wear `mode` from now on, whatever the desktop says.
     pub fn choose(&mut self, mode: WindowTheme) {
         self.mode = mode;
@@ -496,7 +487,7 @@ mod tests {
         mode.follow(WindowTheme::Light);
         assert!(!mode.is_dark(), "no choice made yet, so the desktop wins");
 
-        mode.toggle();
+        mode.choose(WindowTheme::Dark);
         assert!(mode.is_dark());
         mode.follow(WindowTheme::Light);
         assert!(mode.is_dark(), "a chosen theme is not taken back");

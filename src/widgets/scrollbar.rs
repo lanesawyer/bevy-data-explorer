@@ -38,7 +38,7 @@ const GAP_PX: f32 = 4.0;
 
 /// What a scrolling area gives up to the bar it holds: the bar and the gap
 /// beside it.
-const GUTTER_PX: f32 = BAR_PX + GAP_PX;
+pub(super) const GUTTER_PX: f32 = BAR_PX + GAP_PX;
 
 /// How much taller than its area a content has to be before a bar is worth
 /// showing.

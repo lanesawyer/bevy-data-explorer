@@ -1,7 +1,7 @@
 //! The debug panel: the log, where a user can see it.
 //!
-//! Docked along the bottom, closed until asked for with `F12` or the button in
-//! the sidebar's footer, and dragged taller or shorter by its top edge. It
+//! Docked along the bottom, closed until asked for with `F12` or the Logs button
+//! in settings, and dragged taller or shorter by its top edge. It
 //! takes its height off the frame grid like the sidebar takes its width, so the frames shrink rather than being covered:
 //! whatever a report is about is usually still on screen while the log
 //! explaining it is being read.

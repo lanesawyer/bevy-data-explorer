@@ -10,13 +10,13 @@
 //! nothing over there has to know the sidebar exists.
 
 use bevy::prelude::*;
+use bevy::window::{Monitor, OnMonitor, PrimaryMonitor};
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::schedule::{Boot, Stage};
-use crate::app::theme::ThemeMode;
 use crate::view::FrameArea;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, button_text,
@@ -25,9 +25,12 @@ use crate::widgets::{
 
 /// Width when collapsed. Enough for the short title and the toggle beneath it.
 const RIBBON_PX: f32 = 52.0;
-/// Expanded width until it is dragged. Room for a section's controls and a
-/// dataset name beside them without either wrapping.
-const WIDTH_PX: f32 = 360.0;
+/// Expanded width until it is dragged, when the screen is too small or not yet
+/// known to size it by. Room for a section's controls and a dataset name
+/// beside them without either wrapping.
+const WIDTH_PX: f32 = 400.0;
+/// Until it is dragged, it takes this share of the screen's width.
+const SCREEN_FRACTION: f32 = 0.2;
 /// Narrowest useful expanded width.
 const MIN_PX: f32 = 220.0;
 /// The sidebar never takes more than this fraction of the window.
@@ -39,20 +42,14 @@ const COLLAPSE_BELOW_PX: f32 = 120.0;
 const FULL_TITLE: &str = "Bevy Data Explorer";
 const SHORT_TITLE: &str = "BDE";
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct Sidebar {
-    /// Width when expanded. Kept across a collapse so reopening restores it.
-    pub width: f32,
+    /// Width when expanded, once dragged. Kept across a collapse so reopening
+    /// restores it; until then it follows the screen.
+    pub width: Option<f32>,
     pub collapsed: bool,
-}
-
-impl Default for Sidebar {
-    fn default() -> Self {
-        Sidebar {
-            width: WIDTH_PX,
-            collapsed: false,
-        }
-    }
+    /// The logical width of the screen the window is on, once known.
+    pub screen: Option<f32>,
 }
 
 impl Sidebar {
@@ -64,8 +61,17 @@ impl Sidebar {
         if self.collapsed {
             RIBBON_PX
         } else {
-            self.width.min(max_width(window_width))
+            self.width
+                .unwrap_or_else(|| self.default_width())
+                .min(max_width(window_width))
         }
+    }
+
+    /// The expanded width until it is dragged: a share of the screen, but
+    /// never narrower than the fixed default.
+    fn default_width(&self) -> f32 {
+        self.screen
+            .map_or(WIDTH_PX, |screen| (screen * SCREEN_FRACTION).max(WIDTH_PX))
     }
 
     pub fn title(&self) -> &'static str {
@@ -97,18 +103,26 @@ impl Dock for Sidebar {
 
     /// The expanded width, collapsed or not: collapsing is not a size.
     fn size(&self) -> f32 {
-        self.width
+        self.width.unwrap_or_else(|| self.default_width())
     }
 
     fn set_size(&mut self, size: f32) {
-        self.width = size.max(MIN_PX);
+        self.width = Some(size.max(MIN_PX));
+    }
+
+    fn at_default(&self) -> bool {
+        self.width.is_none()
+    }
+
+    fn reset(&mut self) {
+        self.width = None;
     }
 
     fn drag_to(&mut self, reach: f32, span: f32) {
         match Sidebar::width_for_drag(reach, span) {
             Some(width) => {
                 self.collapsed = false;
-                self.width = width;
+                self.width = Some(width);
             }
             None => self.collapsed = true,
         }
@@ -128,10 +142,6 @@ pub struct SidebarTitle;
 
 #[derive(Component, Clone, Default)]
 pub struct SidebarToggle;
-
-/// The button that switches between the light and dark themes.
-#[derive(Component, Clone, Default)]
-pub struct ThemeButton;
 
 /// A button's words beside its icon, hidden when the dock is a ribbon.
 #[derive(Component, Clone, Default)]
@@ -238,40 +248,6 @@ fn spawn_sidebar(mut commands: Commands) {
                 Children [(
                     @FeathersToolButton {
                         @caption: { bsn_list![
-                            button_icon(Icon::ScrollText),
-                            (button_text("Logs") SidebarLabel),
-                        ] }
-                    }
-                    Node { column_gap: { Val::Px(6.0) } }
-                    crate::ui::log_panel::LogPanelToggle
-                    BlocksFrameInput
-                )]
-            ),
-            (
-                Node {
-                    width: { Val::Percent(100.0) },
-                    align_items: { AlignItems::Center },
-                }
-                Children [(
-                    @FeathersToolButton {
-                        @caption: { bsn_list![
-                            button_icon(Icon::Sun),
-                            (button_text("Light mode") SidebarLabel),
-                        ] }
-                    }
-                    Node { column_gap: { Val::Px(6.0) } }
-                    ThemeButton
-                    BlocksFrameInput
-                )]
-            ),
-            (
-                Node {
-                    width: { Val::Percent(100.0) },
-                    align_items: { AlignItems::Center },
-                }
-                Children [(
-                    @FeathersToolButton {
-                        @caption: { bsn_list![
                             button_icon(Icon::Settings),
                             (button_text("Settings") SidebarLabel),
                         ] }
@@ -300,7 +276,7 @@ fn spawn_sidebar(mut commands: Commands) {
             ),
             (
                 // The footer sits on the bottom edge: the margin above belongs
-                // to the theme row now, so both stay down there whether the
+                // to the settings row now, so both stay down there whether the
                 // sections are showing or the dock is collapsed to its ribbon.
                 Node {
                     width: { Val::Percent(100.0) },
@@ -444,46 +420,26 @@ pub fn show_labels(sidebar: Res<Sidebar>, mut labels: Query<&mut Node, With<Side
     }
 }
 
-/// Switch the theme when the button is pressed.
-pub fn on_theme_pressed(
-    activate: On<Activate>,
-    buttons: Query<(), With<ThemeButton>>,
-    mut mode: ResMut<ThemeMode>,
+/// Note how wide the screen is, which the sidebar opens at a share of.
+///
+/// Monitors arrive from the windowing backend after startup, and the window
+/// can be moved to another, so this is read every frame rather than once.
+pub fn measure_screen(
+    mut sidebar: ResMut<Sidebar>,
+    windows: Query<Option<&OnMonitor>, With<Window>>,
+    monitors: Query<(&Monitor, Has<PrimaryMonitor>)>,
 ) {
-    if buttons.get(activate.entity).is_ok() {
-        mode.toggle();
-        info!(
-            "switched to the {} theme",
-            if mode.is_dark() { "dark" } else { "light" }
-        );
-    }
-}
-
-/// Keep the theme button showing the theme it would switch to.
-pub fn sync_theme_button(
-    mode: Res<ThemeMode>,
-    buttons: Query<&Children, With<ThemeButton>>,
-    mut icons: Query<&mut Text, Without<SidebarLabel>>,
-    mut labels: Query<&mut Text, With<SidebarLabel>>,
-) {
-    let (icon, label) = if mode.is_dark() {
-        (Icon::Sun, "Light mode")
-    } else {
-        (Icon::Moon, "Dark mode")
-    };
-    for children in &buttons {
-        for child in children.iter() {
-            if let Ok(mut text) = icons.get_mut(child)
-                && text.0 != icon.glyph()
-            {
-                text.0 = icon.glyph().to_string();
-            }
-            if let Ok(mut text) = labels.get_mut(child)
-                && text.0 != label
-            {
-                text.0 = label.to_string();
-            }
-        }
+    let on = windows.single().ok().flatten().map(|on| on.0);
+    let monitor = on
+        .and_then(|entity| monitors.get(entity).ok())
+        .or_else(|| monitors.iter().find(|(_, primary)| *primary))
+        .or_else(|| monitors.iter().next())
+        .map(|(monitor, _)| monitor);
+    let screen = monitor
+        .filter(|monitor| monitor.scale_factor > 0.0)
+        .map(|monitor| (f64::from(monitor.physical_width) / monitor.scale_factor) as f32);
+    if sidebar.screen != screen {
+        sidebar.screen = screen;
     }
 }
 
@@ -494,13 +450,15 @@ impl Plugin for SidebarPlugin {
     fn build(&self, app: &mut App) {
         app.add_dock::<Sidebar>()
             .add_observer(toggle_sidebar)
-            .add_observer(on_theme_pressed)
-            .add_systems(Update, reserve_space.in_set(Stage::DockReserve))
             .add_systems(
                 Update,
-                (update_sidebar, show_labels, sync_theme_button)
+                (measure_screen, reserve_space)
                     .chain()
-                    .in_set(Stage::Chrome),
+                    .in_set(Stage::DockReserve),
+            )
+            .add_systems(
+                Update,
+                (update_sidebar, show_labels).chain().in_set(Stage::Chrome),
             )
             .add_systems(Startup, spawn_sidebar.in_set(Boot::Shell))
             .add_systems(Startup, order_sections.in_set(Boot::DockOrder));
@@ -523,8 +481,9 @@ mod tests {
     #[test]
     fn collapsing_keeps_the_expanded_width_for_reopening() {
         let mut sidebar = Sidebar {
-            width: 320.0,
+            width: Some(320.0),
             collapsed: true,
+            ..Default::default()
         };
         assert_eq!(sidebar.current_width(1600.0), RIBBON_PX);
         sidebar.collapsed = false;
@@ -536,11 +495,36 @@ mod tests {
         // Dragged to half a wide window, then the window halved: left at its
         // width, it and the inspector could cover every frame between them.
         let sidebar = Sidebar {
-            width: 800.0,
+            width: Some(800.0),
             ..Default::default()
         };
         assert_eq!(sidebar.current_width(1600.0), 800.0);
         assert_eq!(sidebar.current_width(800.0), 400.0);
+    }
+
+    #[test]
+    fn it_opens_at_a_fifth_of_a_large_screen() {
+        let mut sidebar = Sidebar::default();
+        assert_eq!(sidebar.current_width(2560.0), WIDTH_PX);
+        sidebar.screen = Some(2560.0);
+        assert_eq!(sidebar.current_width(2560.0), 512.0);
+        // A small screen's fifth would be cramped, so the default holds.
+        sidebar.screen = Some(1366.0);
+        assert_eq!(sidebar.current_width(1366.0), WIDTH_PX);
+    }
+
+    #[test]
+    fn a_dragged_width_outlasts_the_screen_and_a_reset_forgets_it() {
+        let mut sidebar = Sidebar {
+            screen: Some(2560.0),
+            ..Default::default()
+        };
+        assert!(sidebar.at_default());
+        sidebar.drag_to(300.0, 2560.0);
+        assert_eq!(sidebar.current_width(2560.0), 300.0);
+        assert!(!sidebar.at_default());
+        sidebar.reset();
+        assert_eq!(sidebar.current_width(2560.0), 512.0);
     }
 
     #[test]

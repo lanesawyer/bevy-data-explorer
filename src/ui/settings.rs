@@ -1,32 +1,27 @@
 //! The settings screen: what the app remembers between sessions, and the
 //! way to make it forget.
 //!
-//! Laid over the whole window like the help screen, and opened and closed the
-//! same ways: its sidebar button, its own X, Escape, or a click outside it.
+//! A modal, like the help screen: opened from the sidebar, and closed by its
+//! own X, Escape, or a click outside it.
 
 use bevy::prelude::*;
-use bevy::ui::{Checked, FocusPolicy, Interaction, InteractionDisabled};
+use bevy::ui::{Checked, InteractionDisabled};
 use bevy::window::WindowTheme;
-use bevy_feathers::controls::{
-    ButtonVariant, FeathersButton, FeathersCheckbox, FeathersToolButton,
-};
+use bevy_feathers::controls::{ButtonVariant, FeathersButton, FeathersCheckbox};
 use bevy_feathers::display::label_dim;
-use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::rounded_corners::RoundedCorners;
-use bevy_feathers::theme::ThemeBackgroundColor;
-use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ValueChange};
 
 use crate::app::prefs::{Preferences, PreferencesFile};
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::ThemeMode;
 use crate::ui::filtered::{FilteredTarget, filtered_controls};
+use crate::ui::log_panel::LogPanel;
 use crate::widgets::{
-    BlocksFrameInput, Icon, ResetDockSizes, button_icon, button_text, size, text,
+    AddModal, Icon, Modal, ResetDockSizes, button_icon, button_text, set_modal_open, size,
+    spawn_modal, text,
 };
 
-/// With the help screen: both cover everything a menu could open over.
-const SETTINGS_Z: i32 = 20;
 const PANEL_PX: f32 = 440.0;
 
 /// The dimmed backdrop, which is the whole screen.
@@ -36,6 +31,14 @@ pub struct SettingsScreen;
 /// The sidebar button that opens it, and the one inside it that closes it.
 #[derive(Component, Clone, Default)]
 pub struct SettingsToggle;
+
+impl Modal for SettingsScreen {
+    type Toggle = SettingsToggle;
+}
+
+/// Opens the log panel, closing this screen so the log can be seen.
+#[derive(Component, Clone, Default)]
+pub struct ShowLogsButton;
 
 #[derive(Component, Clone, Default)]
 pub struct RememberLayoutBox;
@@ -85,62 +88,11 @@ pub struct ResetPointCloudButton;
 
 pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
     let saved_in = format!("Saved in {}", file.0.display());
-    let screen = commands
+    let modal = spawn_modal::<SettingsScreen>(&mut commands, "Settings", PANEL_PX);
+    let body = commands
         .spawn_scene(bsn! {
-            SettingsScreen
-            BlocksFrameInput
-            // The backdrop holds no buttons of its own, and a click on it has
-            // to stop there rather than reach a frame.
-            Interaction
-            template_value(FocusPolicy::Block)
-            Node {
-                position_type: { PositionType::Absolute },
-                display: { Display::None },
-                width: { Val::Percent(100.0) },
-                height: { Val::Percent(100.0) },
-                justify_content: { JustifyContent::Center },
-                align_items: { AlignItems::Center },
-            }
-            BackgroundColor({ Color::srgba(0.0, 0.0, 0.0, 0.5) })
-            GlobalZIndex({ SETTINGS_Z })
-            InheritableFont { font_size: { 13.0f32 } }
-        })
-        .observe(close_on_backdrop)
-        .id();
-
-    let panel = commands
-        .spawn_scene(bsn! {
-            Node {
-                width: { Val::Px(PANEL_PX) },
-                max_width: { Val::Percent(90.0) },
-                max_height: { Val::Percent(90.0) },
-                flex_direction: { FlexDirection::Column },
-                row_gap: { Val::Px(10.0) },
-                padding: { UiRect::all(Val::Px(18.0)) },
-                border_radius: { BorderRadius::all(Val::Px(8.0)) },
-                overflow: { Overflow::scroll_y() },
-            }
-            bevy_ui_widgets::ScrollArea
-            ThemeBackgroundColor({ tokens::WINDOW_BG })
+            Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(10.0) } }
             Children [
-                (
-                    Node {
-                        width: { Val::Percent(100.0) },
-                        align_items: { AlignItems::Center },
-                    }
-                    Children [
-                        (
-                            text("Settings", size::SCREEN_HEADING)
-                            Node { flex_grow: { 1.0_f32 } }
-                        ),
-                        (
-                            @FeathersToolButton {
-                                @caption: { bsn_list![button_icon(Icon::X)] }
-                            }
-                            SettingsToggle
-                        ),
-                    ]
-                ),
                 // A subtitle, so it is drawn closer to the title than the
                 // panel's gap would put it.
                 (
@@ -209,48 +161,38 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
                         ResetPointCloudButton
                     )]
                 ),
+                (
+                    // Not a setting, so it sits apart from them, in the corner.
+                    Node {
+                        justify_content: { JustifyContent::End },
+                        margin: { UiRect::top(Val::Px(6.0)) },
+                    }
+                    Children [(
+                        @FeathersButton {
+                            @caption: { bsn_list![
+                                button_icon(Icon::ScrollText),
+                                button_text("Logs"),
+                            ] }
+                        }
+                        Node { column_gap: { Val::Px(6.0) } }
+                        ShowLogsButton
+                    )]
+                ),
             ]
         })
-        // A click on the panel is not a click on the backdrop behind it.
-        .observe(|mut click: On<Pointer<Click>>| click.propagate(false))
         .id();
-    commands.entity(screen).add_child(panel);
+    commands.entity(modal.panel).add_child(body);
 }
 
-fn set_open(screens: &mut Query<&mut Node, With<SettingsScreen>>, open: Option<bool>) {
-    for mut node in screens {
-        let now_open = open.unwrap_or(node.display == Display::None);
-        node.display = if now_open {
-            Display::Flex
-        } else {
-            Display::None
-        };
-    }
-}
-
-pub fn on_settings_toggle(
+pub fn on_show_logs(
     activate: On<Activate>,
-    toggles: Query<(), With<SettingsToggle>>,
+    buttons: Query<(), With<ShowLogsButton>>,
     mut screens: Query<&mut Node, With<SettingsScreen>>,
+    mut logs: ResMut<LogPanel>,
 ) {
-    if toggles.contains(activate.entity) {
-        set_open(&mut screens, None);
-    }
-}
-
-fn close_on_backdrop(
-    _click: On<Pointer<Click>>,
-    mut screens: Query<&mut Node, With<SettingsScreen>>,
-) {
-    set_open(&mut screens, Some(false));
-}
-
-pub fn close_on_escape(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut screens: Query<&mut Node, With<SettingsScreen>>,
-) {
-    if keys.just_pressed(KeyCode::Escape) {
-        set_open(&mut screens, Some(false));
+    if buttons.contains(activate.entity) {
+        set_modal_open::<SettingsScreen>(&mut screens, Some(false));
+        logs.open = true;
     }
 }
 
@@ -316,7 +258,7 @@ pub fn on_theme_option(
 }
 
 /// Show each control as what it stands for, which can change from outside
-/// this screen: the sidebar's theme button picks light or dark by hand.
+/// this screen: the desktop's theme, while it is followed.
 pub fn sync_settings(
     mut commands: Commands,
     prefs: Res<Preferences>,
@@ -356,12 +298,12 @@ pub struct SettingsPlugin;
 
 impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_settings_toggle)
+        app.add_modal::<SettingsScreen>()
+            .add_observer(on_show_logs)
             .add_observer(on_reset_layout)
             .add_observer(on_reset_point_cloud)
             .add_observer(on_remember_layout)
             .add_observer(on_theme_option)
-            .add_systems(Update, close_on_escape.in_set(Stage::ControlsRead))
             .add_systems(Update, sync_settings.in_set(Stage::ControlsPlace))
             .add_systems(Startup, spawn_settings.in_set(Boot::Shell));
     }

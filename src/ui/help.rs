@@ -5,16 +5,11 @@
 //! closes on its own button, on Escape, or on a click outside it.
 
 use bevy::prelude::*;
-use bevy::ui::{FocusPolicy, Interaction};
-use bevy_feathers::controls::{ButtonVariant, FeathersToolButton};
+use bevy_feathers::controls::ButtonVariant;
 use bevy_feathers::display::{label, label_dim};
-use bevy_feathers::font_styles::InheritableFont;
-use bevy_feathers::theme::ThemeBackgroundColor;
-use bevy_feathers::tokens;
-use bevy_ui_widgets::Activate;
 
-use crate::app::schedule::{Boot, Stage};
-use crate::widgets::{BlocksFrameInput, Icon, button_icon, link_button, size, text};
+use crate::app::schedule::Boot;
+use crate::widgets::{AddModal, Icon, Modal, link_button, size, spawn_modal, text};
 
 /// Taken from the manifest, like the version, so the two cannot disagree.
 pub const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
@@ -25,8 +20,6 @@ const NEW_ISSUE_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/issues/new")
 const RELEASES_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/releases");
 const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 
-/// Above the menus, since it covers everything they could open over.
-const HELP_Z: i32 = 20;
 const PANEL_PX: f32 = 520.0;
 
 /// Keys and gestures, and what each does. Kept to what works in every frame
@@ -53,67 +46,19 @@ pub struct HelpScreen;
 #[derive(Component, Clone, Default)]
 pub struct HelpToggle;
 
-pub fn spawn_help(mut commands: Commands) {
-    let screen = commands
-        .spawn_scene(bsn! {
-            HelpScreen
-            BlocksFrameInput
-            // It holds buttons, but the backdrop around them does not, and a
-            // click there has to stop at it rather than reach a frame.
-            Interaction
-            template_value(FocusPolicy::Block)
-            Node {
-                position_type: { PositionType::Absolute },
-                display: { Display::None },
-                width: { Val::Percent(100.0) },
-                height: { Val::Percent(100.0) },
-                justify_content: { JustifyContent::Center },
-                align_items: { AlignItems::Center },
-            }
-            BackgroundColor({ Color::srgba(0.0, 0.0, 0.0, 0.5) })
-            GlobalZIndex({ HELP_Z })
-            InheritableFont { font_size: { 13.0f32 } }
-        })
-        .observe(close_on_backdrop)
-        .id();
+impl Modal for HelpScreen {
+    type Toggle = HelpToggle;
+}
 
-    let panel = commands
+pub fn spawn_help(mut commands: Commands) {
+    let modal = spawn_modal::<HelpScreen>(&mut commands, "Bevy Data Explorer", PANEL_PX);
+    let version = commands.spawn_scene(bsn! { label_dim(VERSION) }).id();
+    commands.entity(modal.header).insert_children(1, &[version]);
+    let panel = modal.panel;
+    let intro = commands
         .spawn_scene(bsn! {
-            Node {
-                width: { Val::Px(PANEL_PX) },
-                max_width: { Val::Percent(90.0) },
-                max_height: { Val::Percent(90.0) },
-                flex_direction: { FlexDirection::Column },
-                row_gap: { Val::Px(10.0) },
-                padding: { UiRect::all(Val::Px(18.0)) },
-                border_radius: { BorderRadius::all(Val::Px(8.0)) },
-                overflow: { Overflow::scroll_y() },
-            }
-            bevy_ui_widgets::ScrollArea
-            ThemeBackgroundColor({ tokens::WINDOW_BG })
+            Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(10.0) } }
             Children [
-                (
-                    Node {
-                        width: { Val::Percent(100.0) },
-                        align_items: { AlignItems::Center },
-                        column_gap: { Val::Px(8.0) },
-                    }
-                    Children [
-                        (
-                            text("Bevy Data Explorer", size::SCREEN_HEADING)
-                        ),
-                        (
-                            label_dim(VERSION)
-                            Node { flex_grow: { 1.0_f32 } }
-                        ),
-                        (
-                            @FeathersToolButton {
-                                @caption: { bsn_list![button_icon(Icon::X)] }
-                            }
-                            HelpToggle
-                        ),
-                    ]
-                ),
                 label_dim(crate::ui::welcome::BLURB),
                 (
                     text("Getting around", size::DOCK_TITLE)
@@ -121,8 +66,6 @@ pub fn spawn_help(mut commands: Commands) {
                 ),
             ]
         })
-        // A click on the panel is not a click on the backdrop behind it.
-        .observe(|mut click: On<Pointer<Click>>| click.propagate(false))
         .id();
 
     let mut rows = Vec::new();
@@ -181,44 +124,10 @@ pub fn spawn_help(mut commands: Commands) {
         })
         .id();
 
-    let mut children = rows;
+    let mut children = vec![intro];
+    children.extend(rows);
     children.push(links);
     commands.entity(panel).add_children(&children);
-    commands.entity(screen).add_child(panel);
-}
-
-fn set_open(screens: &mut Query<&mut Node, With<HelpScreen>>, open: Option<bool>) {
-    for mut node in screens {
-        let now_open = open.unwrap_or(node.display == Display::None);
-        node.display = if now_open {
-            Display::Flex
-        } else {
-            Display::None
-        };
-    }
-}
-
-pub fn on_help_toggle(
-    activate: On<Activate>,
-    toggles: Query<(), With<HelpToggle>>,
-    mut screens: Query<&mut Node, With<HelpScreen>>,
-) {
-    if toggles.get(activate.entity).is_ok() {
-        set_open(&mut screens, None);
-    }
-}
-
-fn close_on_backdrop(_click: On<Pointer<Click>>, mut screens: Query<&mut Node, With<HelpScreen>>) {
-    set_open(&mut screens, Some(false));
-}
-
-pub fn close_on_escape(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut screens: Query<&mut Node, With<HelpScreen>>,
-) {
-    if keys.just_pressed(KeyCode::Escape) {
-        set_open(&mut screens, Some(false));
-    }
 }
 
 /// The help screen and the button that opens it.
@@ -226,8 +135,7 @@ pub struct HelpPlugin;
 
 impl Plugin for HelpPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_help_toggle)
-            .add_systems(Update, close_on_escape.in_set(Stage::ControlsRead))
+        app.add_modal::<HelpScreen>()
             .add_systems(Startup, spawn_help.in_set(Boot::Shell));
     }
 }

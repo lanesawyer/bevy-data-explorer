@@ -56,29 +56,17 @@ pub fn update_viewports(
     let count = panels.iter().count();
     let (columns, rows) = grid_for(count);
 
-    // Viewports are physical; the area is tracked in logical pixels.
+    // Viewports are physical; the area is tracked in logical pixels. Each edge
+    // is rounded the way UI layout rounds a node's, so the viewport covers
+    // exactly the pixels the selection outline and the chrome are drawn over,
+    // and neighbors share their edge without a gap.
     let scale = window.scale_factor();
-    let origin = (area.origin * scale).as_uvec2();
-    let size = (area.size * scale).as_uvec2().max(UVec2::ONE);
-
+    let limit = window.physical_size();
     for (panel, mut camera) in &mut panels {
-        let (col, row) = (panel.index % columns, panel.index / columns);
-        let width = size.x / columns as u32;
-        let height = size.y / rows as u32;
-        // Give the last column and row any remainder so no cell goes unpainted.
-        let this_width = if col + 1 == columns {
-            size.x - width * (columns as u32 - 1)
-        } else {
-            width
-        };
-        let this_height = if row + 1 == rows {
-            size.y - height * (rows as u32 - 1)
-        } else {
-            height
-        };
+        let (min, max) = physical_cell(area.cell(count, panel.index), scale, limit);
         camera.viewport = Some(Viewport {
-            physical_position: origin + UVec2::new(width * col as u32, height * row as u32),
-            physical_size: UVec2::new(this_width.max(1), this_height.max(1)),
+            physical_position: min,
+            physical_size: (max.saturating_sub(min)).max(UVec2::ONE),
             ..default()
         });
     }
@@ -120,6 +108,13 @@ pub fn update_viewports(
         node.left = Val::Px(cell.max.x - from_right);
         node.top = Val::Px(cell.min.y + 8.0);
     }
+}
+
+/// A logical cell's corners in physical pixels, held inside the window.
+fn physical_cell(cell: Rect, scale: f32, limit: UVec2) -> (UVec2, UVec2) {
+    let corner = |at: Vec2| (at * scale).round().max(Vec2::ZERO).as_uvec2().min(limit);
+    let max = corner(cell.max);
+    (corner(cell.min).min(max.saturating_sub(UVec2::ONE)), max)
 }
 
 /// Clear the window from the UI camera while there is no frame to do it.
@@ -194,5 +189,52 @@ pub fn normalize_panels(
         // leaves nothing clearing the window, and every frame then paints over
         // the last one instead of replacing it.
         camera.clear_color = clear_color_for(position, background.frame_bg);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn neighbors_share_an_edge_at_any_scale() {
+        // An odd width at a fractional scale: flooring each width and handing
+        // the last the remainder put the viewports a pixel or two off the
+        // outline drawn over them.
+        let area = FrameArea {
+            origin: Vec2::new(361.3, 0.0),
+            size: Vec2::new(1001.0, 701.0),
+        };
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            let limit = ((area.origin + area.size) * scale).ceil().as_uvec2();
+            for count in 2..=super::super::grid::MAX_PANELS {
+                let (columns, _) = grid_for(count);
+                let cell = |index| physical_cell(area.cell(count, index), scale, limit);
+                for index in 0..count {
+                    let (min, max) = cell(index);
+                    let logical = area.cell(count, index);
+                    assert_eq!(min, (logical.min * scale).round().as_uvec2());
+                    assert_eq!(max, (logical.max * scale).round().as_uvec2().min(limit));
+                    if (index + 1) % columns != 0 && index + 1 < count {
+                        assert_eq!(max.x, cell(index + 1).0.x, "{count} frames at {scale}");
+                    }
+                    if index + columns < count {
+                        assert_eq!(
+                            max.y,
+                            cell(index + columns).0.y,
+                            "{count} frames at {scale}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_cell_never_leaves_the_window() {
+        let cell = Rect::new(0.0, 0.0, 1000.0, 800.0);
+        let (min, max) = physical_cell(cell, 2.0, UVec2::new(1999, 1600));
+        assert_eq!(min, UVec2::ZERO);
+        assert_eq!(max, UVec2::new(1999, 1600));
     }
 }

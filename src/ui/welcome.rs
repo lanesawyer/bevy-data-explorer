@@ -2,9 +2,9 @@
 //!
 //! Nothing is loaded at startup any more, so the frame area would otherwise be
 //! a cleared rectangle with no way into the app. This fills it: what the viewer
-//! is for, every dataset it knows the address of — the Brain Knowledge
-//! Platform's beside the rest — the same URL field the sidebar carries, for
-//! anything else, and who made it.
+//! is for, the bookmarks saved so far, every dataset it knows the address of —
+//! the Brain Knowledge Platform's beside the rest — the same URL field the
+//! sidebar carries, for anything else, and who made it.
 //!
 //! It is UI rather than frame chrome, but it is placed against
 //! [`FrameArea`] like the chrome is, so the docks take their space off it
@@ -19,9 +19,11 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::schedule::{Boot, Stage};
+use crate::bookmark::store::SavedBookmarks;
 use crate::catalog::bkp;
 use crate::catalog::examples::{EXAMPLES, Example};
 use crate::ui::add_source::spawn_custom_section;
+use crate::ui::bookmarks::BookmarkList;
 use crate::ui::help::{AUTHOR, LICENSE, LICENSE_URL, REPOSITORY};
 use crate::view::{FrameArea, Panel};
 use crate::widgets::{
@@ -31,6 +33,10 @@ use crate::widgets::{
 /// The empty-state panel itself.
 #[derive(Component, Clone, Default)]
 pub struct WelcomeScreen;
+
+/// The saved bookmarks, shown only when there are some.
+#[derive(Component, Clone, Default)]
+pub struct WelcomeBookmarks;
 
 /// A button that opens an example, by its address.
 #[derive(Component, Clone, Default)]
@@ -99,6 +105,34 @@ pub fn spawn_welcome(mut commands: Commands) {
         })
         .id();
 
+    // Above the examples: someone with bookmarks has been here before, and is
+    // more likely back for one of them than for an example.
+    let bookmarks = commands
+        .spawn_scene(bsn! {
+            WelcomeBookmarks
+            Node {
+                display: { Display::None },
+                flex_direction: { FlexDirection::Column },
+                width: { Val::Px(COLUMN_PX) },
+                max_width: { Val::Percent(100.0) },
+                margin: { UiRect::top(Val::Px(10.0)) },
+            }
+            Children [
+                (
+                    text("Bookmarks", size::BODY)
+                    Node { margin: { UiRect::bottom(Val::Px(4.0)) } }
+                ),
+                (
+                    BookmarkList { compact: true }
+                    Node {
+                        flex_direction: { FlexDirection::Column },
+                        width: { Val::Percent(100.0) },
+                    }
+                ),
+            ]
+        })
+        .id();
+
     // The platform's own visualizations lead, since they are what most people
     // come to look at; the formats the viewer reads follow beside them.
     let bkp = example_column(&mut commands, "Brain Knowledge Platform", &bkp::EXAMPLES);
@@ -117,7 +151,7 @@ pub fn spawn_welcome(mut commands: Commands) {
         .id();
     commands.entity(columns).add_children(&[bkp, others]);
 
-    let mut children = vec![title, blurb, columns];
+    let mut children = vec![title, blurb, bookmarks, columns];
 
     // The same field, button and status line the sidebar's Edit layout menu
     // carries: one dataset field spawned twice rather than two of them.
@@ -269,6 +303,23 @@ pub fn place_welcome(
     }
 }
 
+/// Show the bookmarks only when something has been saved.
+pub fn show_welcome_bookmarks(
+    saved: Res<SavedBookmarks>,
+    mut columns: Query<&mut Node, With<WelcomeBookmarks>>,
+) {
+    let wanted = if saved.list.is_empty() {
+        Display::None
+    } else {
+        Display::Flex
+    };
+    for mut node in &mut columns {
+        if node.display != wanted {
+            node.display = wanted;
+        }
+    }
+}
+
 /// The empty window, and the examples it offers.
 pub struct WelcomePlugin;
 
@@ -278,6 +329,7 @@ impl Plugin for WelcomePlugin {
             // Placed with the rest of the chrome that measures against the
             // frame area, once the docks have taken their share of it.
             .add_systems(Update, place_welcome.in_set(Stage::Chrome))
+            .add_systems(Update, show_welcome_bookmarks.in_set(Stage::ControlsPlace))
             .add_systems(Startup, spawn_welcome.in_set(Boot::Shell));
     }
 }
