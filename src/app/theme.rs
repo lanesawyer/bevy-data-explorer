@@ -11,11 +11,16 @@
 //! change back under you because the desktop said so is worse than not
 //! following it at all. The choice is remembered in [`Preferences`] until the
 //! settings screen hands the theme back to the desktop.
+//!
+//! The accent is the desktop's too, where [`super::accent`] can find one and
+//! settings has not turned that off. Unlike the theme it is not watched, only
+//! asked once.
 
 use bevy::prelude::*;
 use bevy::window::{WindowTheme, WindowThemeChanged};
 use bevy_feathers::theme::{ThemeProps, UiTheme};
 
+use crate::app::net::{Fetching, fetching};
 use crate::app::prefs::{Preferences, ThemeChoice};
 use crate::app::schedule::Stage;
 
@@ -90,6 +95,54 @@ const STAYS_PUT: [bevy_feathers::theme::ThemeToken; 6] = {
 
 /// How saturated a color may be and still count as neutral chrome.
 const NEUTRAL_CHROMA: f32 = 0.03;
+
+/// How far a token's hue may be from Feathers' accent and still be one of its
+/// shades rather than a color of its own, such as an axis color.
+const ACCENT_HUE_SPREAD: f32 = 25.0;
+
+/// An accent this light or lighter, such as a yellow, takes dark text rather
+/// than white.
+const PALE_ACCENT: f32 = 0.75;
+
+/// The text drawn on the accent itself, which has to turn dark on a pale one.
+const ON_ACCENT: [bevy_feathers::theme::ThemeToken; 2] = {
+    use bevy_feathers::tokens::*;
+    [BUTTON_PRIMARY_TEXT, CHECKBOX_MARK]
+};
+
+/// `color` moved onto `accent`, if it is one of the accent's shades.
+///
+/// Feathers derives its hover and pressed accents as lighter or darker steps
+/// from the one color, so each shade keeps its step from Feathers' accent and
+/// takes the new one's hue and saturation. Anything neutral, or of another
+/// hue, is left as it was.
+fn onto_accent(color: Color, accent: Color) -> Color {
+    let from = Oklcha::from(bevy_feathers::palette::ACCENT);
+    let to = Oklcha::from(accent);
+    let shade = Oklcha::from(color);
+    let hue_gap = (shade.hue - from.hue + 180.0).rem_euclid(360.0) - 180.0;
+    if shade.chroma <= NEUTRAL_CHROMA || hue_gap.abs() > ACCENT_HUE_SPREAD {
+        return color;
+    }
+    Color::from(Oklcha {
+        lightness: (shade.lightness + to.lightness - from.lightness).clamp(0.0, 1.0),
+        chroma: shade.chroma * to.chroma / from.chroma,
+        hue: to.hue,
+        alpha: shade.alpha,
+    })
+}
+
+/// Wear `accent` wherever Feathers wears its own.
+fn recolor(theme: &mut ThemeProps, accent: Color) {
+    for color in theme.color.values_mut() {
+        *color = onto_accent(*color, accent);
+    }
+    if Oklcha::from(accent).lightness >= PALE_ACCENT {
+        for token in ON_ACCENT {
+            theme.color.insert(token, bevy_feathers::palette::BLACK);
+        }
+    }
+}
 
 fn flip(color: Color) -> Color {
     let oklch = Oklcha::from(color);
@@ -209,6 +262,12 @@ impl Palette {
         }
     }
 
+    /// The selection and the filled part of a range, which are the accent's.
+    fn recolor(&mut self, accent: Color) {
+        self.selection = onto_accent(self.selection, accent);
+        self.fill = onto_accent(self.fill, accent);
+    }
+
     /// Hand the colors that sit on controls to the theme, so that Feathers
     /// repaints them along with its own.
     fn into_theme(self, theme: &mut ThemeProps) {
@@ -290,6 +349,68 @@ impl ThemeMode {
     }
 }
 
+/// The desktop's accent, once it has answered, and while settings follows it.
+#[derive(Resource, Default)]
+pub struct Accent {
+    pub color: Option<Color>,
+    asking: Option<Fetching<Option<Color>>>,
+}
+
+/// The theme and palette for `mode`, in `accent` if there is one.
+fn build(mode: &ThemeMode, accent: Option<Color>) -> (Palette, ThemeProps) {
+    let mut palette = Palette::of(mode);
+    let mut props = if mode.is_dark() { dark() } else { light() };
+    if let Some(accent) = accent {
+        recolor(&mut props, accent);
+        palette.recolor(accent);
+    }
+    palette.into_theme(&mut props);
+    (palette, props)
+}
+
+/// Ask the desktop for its accent whenever settings starts following it, and
+/// drop it when settings stops.
+fn follow_accent(
+    prefs: Res<Preferences>,
+    mut accent: ResMut<Accent>,
+    mut following: Local<Option<bool>>,
+) {
+    if *following == Some(prefs.system_accent) {
+        return;
+    }
+    *following = Some(prefs.system_accent);
+    if prefs.system_accent {
+        accent.asking = Some(fetching(async {
+            tokio::task::spawn_blocking(super::accent::system_accent)
+                .await
+                .ok()
+                .flatten()
+        }));
+    } else {
+        accent.asking = None;
+        accent.color = None;
+    }
+}
+
+fn take_accent(mut accent: ResMut<Accent>) {
+    // Polled without marking it changed, so the theme is rebuilt only when
+    // an answer lands.
+    let Some(answer) = accent
+        .bypass_change_detection()
+        .asking
+        .as_mut()
+        .and_then(Fetching::take)
+    else {
+        return;
+    };
+    match answer {
+        Some(color) => info!("wearing the desktop's accent, {:?}", color.to_srgba()),
+        None => info!("the desktop has no accent to wear"),
+    }
+    accent.asking = None;
+    accent.color = answer;
+}
+
 /// Take the desktop's preference as the starting theme.
 ///
 /// The window carries it only if the platform reports one, so no answer means
@@ -332,13 +453,16 @@ fn remember_theme(mode: Res<ThemeMode>, mut prefs: ResMut<Preferences>) {
 /// changes, so swapping the resource is the whole of applying a theme — for
 /// controls that take their colors from tokens. Colors written as literals
 /// are not reached, which is why the frames stay dark.
-fn apply_theme(mut commands: Commands, mode: Res<ThemeMode>, mut theme: ResMut<UiTheme>) {
-    if !mode.is_changed() {
+fn apply_theme(
+    mut commands: Commands,
+    mode: Res<ThemeMode>,
+    accent: Res<Accent>,
+    mut theme: ResMut<UiTheme>,
+) {
+    if !mode.is_changed() && !accent.is_changed() {
         return;
     }
-    let palette = Palette::of(&mode);
-    let mut props = if mode.is_dark() { dark() } else { light() };
-    palette.into_theme(&mut props);
+    let (palette, props) = build(&mode, accent.color);
     theme.0 = props;
     commands.insert_resource(palette);
 }
@@ -353,11 +477,10 @@ impl Plugin for ThemePlugin {
                 .get_resource::<Preferences>()
                 .and_then(|prefs| prefs.theme),
         );
-        let palette = Palette::of(&mode);
-        let mut props = if mode.is_dark() { dark() } else { light() };
-        palette.into_theme(&mut props);
+        let (palette, props) = build(&mode, None);
 
         app.insert_resource(mode)
+            .init_resource::<Accent>()
             .insert_resource(palette)
             .insert_resource(UiTheme(props))
             // With the controls, which is what a theme is made of, and after
@@ -365,7 +488,13 @@ impl Plugin for ThemePlugin {
             // frame it happened.
             .add_systems(
                 Update,
-                (follow_window_theme, apply_theme, remember_theme)
+                (
+                    follow_window_theme,
+                    follow_accent,
+                    take_accent,
+                    apply_theme,
+                    remember_theme,
+                )
                     .chain()
                     .in_set(Stage::ControlsApply),
             )
@@ -379,6 +508,7 @@ impl Plugin for ThemePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy_feathers::tokens;
 
     fn lightness(color: Color) -> f32 {
         Oklcha::from(color).lightness
@@ -471,6 +601,43 @@ mod tests {
         assert_ne!(Palette::dark().problem, Palette::light().problem);
         assert!(lightness(Palette::light().problem) < lightness(Palette::light().frame_bg));
         assert!(lightness(Palette::dark().problem) > lightness(Palette::dark().frame_bg));
+    }
+
+    #[test]
+    fn an_accent_reaches_every_shade_of_feathers_own_and_nothing_else() {
+        let purple = Color::srgb(0.568627, 0.254902, 0.67451);
+        let (palette, theme) = build(&ThemeMode::default(), Some(purple));
+        let hue = |color: Color| Oklcha::from(color).hue;
+        let want = hue(purple);
+        for token in [
+            tokens::BUTTON_PRIMARY_BG,
+            tokens::BUTTON_PRIMARY_BG_HOVER,
+            tokens::SWITCH_BG_CHECKED,
+            tokens::CHECKBOX_BG_CHECKED,
+            tokens::SLIDER_BAR,
+        ] {
+            assert!((hue(theme.color[&token]) - want).abs() < 1.0, "{token:?}");
+        }
+        assert!((hue(palette.selection) - want).abs() < 1.0);
+        assert!((hue(palette.fill) - want).abs() < 1.0);
+        let (_, plain) = build(&ThemeMode::default(), None);
+        for token in [tokens::WINDOW_BG, tokens::TEXT_MAIN, tokens::BUTTON_BG] {
+            assert_eq!(theme.color[&token], plain.color[&token], "{token:?}");
+        }
+        assert!(
+            lightness(theme.color[&tokens::BUTTON_PRIMARY_BG_HOVER])
+                > lightness(theme.color[&tokens::BUTTON_PRIMARY_BG]),
+            "hover still lifts"
+        );
+    }
+
+    #[test]
+    fn a_pale_accent_takes_dark_text() {
+        let yellow = Color::srgb_u8(255, 204, 0);
+        let (_, theme) = build(&ThemeMode::default(), Some(yellow));
+        assert!(lightness(theme.color[&tokens::BUTTON_PRIMARY_TEXT]) < 0.2);
+        let (_, blue) = build(&ThemeMode::default(), Some(Color::srgb_u8(0, 122, 255)));
+        assert!(lightness(blue.color[&tokens::BUTTON_PRIMARY_TEXT]) > 0.95);
     }
 
     #[test]

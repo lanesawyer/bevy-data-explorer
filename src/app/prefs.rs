@@ -72,6 +72,8 @@ pub struct Preferences {
     /// The data sources turned off, by `Provider::key`. Kept as what is off
     /// rather than what is on, so a source added later starts on.
     pub sources_off: BTreeSet<String>,
+    /// Whether the accent is the desktop's rather than Feathers' blue.
+    pub system_accent: bool,
 }
 
 impl Default for Preferences {
@@ -83,6 +85,7 @@ impl Default for Preferences {
             filtered_points: None,
             registry_token: None,
             sources_off: BTreeSet::new(),
+            system_accent: true,
         }
     }
 }

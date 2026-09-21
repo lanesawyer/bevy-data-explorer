@@ -56,6 +56,9 @@ pub struct ShowLogsButton;
 #[derive(Component, Clone, Default)]
 pub struct RememberLayoutBox;
 
+#[derive(Component, Clone, Default)]
+pub struct SystemAccentBox;
+
 /// One button of the theme group.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum ThemeOption {
@@ -245,6 +248,16 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>, catalo
                     ]
                 ),
                 label_dim("System follows your operating system's light or dark setting."),
+                (
+                    @FeathersCheckbox {
+                        @caption: { bsn_list![button_text("Use the system accent color")] }
+                    }
+                    SystemAccentBox
+                ),
+                label_dim(
+                    "Buttons, switches and the selection take your operating system's \
+                     accent, where it has one."
+                ),
                 (
                     text("Point clouds", size::DOCK_TITLE)
                     Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
@@ -782,6 +795,16 @@ pub fn on_remember_layout(
     }
 }
 
+pub fn on_system_accent(
+    change: On<ValueChange<bool>>,
+    boxes: Query<(), With<SystemAccentBox>>,
+    mut prefs: ResMut<Preferences>,
+) {
+    if boxes.contains(change.source) && prefs.system_accent != change.value {
+        prefs.system_accent = change.value;
+    }
+}
+
 pub fn on_theme_option(
     activate: On<Activate>,
     options: Query<&ThemeOption>,
@@ -811,6 +834,7 @@ pub fn sync_settings(
     prefs: Res<Preferences>,
     mode: Res<ThemeMode>,
     remember: Query<(Entity, Has<Checked>), With<RememberLayoutBox>>,
+    accent: Query<(Entity, Has<Checked>), With<SystemAccentBox>>,
     mut options: Query<(&ThemeOption, &mut ButtonVariant)>,
     resets: Query<(Entity, Has<InteractionDisabled>), With<ResetPointCloudButton>>,
 ) {
@@ -827,6 +851,13 @@ pub fn sync_settings(
         if prefs.remember_layout && !checked {
             commands.entity(entity).insert(Checked);
         } else if !prefs.remember_layout && checked {
+            commands.entity(entity).remove::<Checked>();
+        }
+    }
+    for (entity, checked) in &accent {
+        if prefs.system_accent && !checked {
+            commands.entity(entity).insert(Checked);
+        } else if !prefs.system_accent && checked {
             commands.entity(entity).remove::<Checked>();
         }
     }
@@ -854,6 +885,7 @@ impl Plugin for SettingsPlugin {
             .add_observer(on_reset_point_cloud)
             .add_observer(on_remember_layout)
             .add_observer(on_theme_option)
+            .add_observer(on_system_accent)
             .init_resource::<RegistryProbe>()
             .add_observer(on_save_token)
             .add_observer(on_token_submitted)

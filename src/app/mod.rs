@@ -8,6 +8,7 @@ use bevy::app::{TaskPoolOptions, TaskPoolPlugin, TaskPoolThreadAssignmentPolicy}
 use bevy::prelude::*;
 use bevy::window::PresentMode;
 
+pub mod accent;
 pub mod logs;
 pub mod net;
 pub mod prefs;
