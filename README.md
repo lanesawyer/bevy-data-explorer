@@ -479,7 +479,7 @@ Saved bookmarks are one JSON file each, in
 `$XDG_DATA_HOME/bevy-data-explorer/bookmarks` (or `~/.local/share/...`).
 Choose one in the list to restore it. The buttons beside it copy it to the
 clipboard as a single `bde1:` line, export it through a save dialog, or delete
-it. **Paste** and **Import…** take either form back, add it to the list and
+it. **Load from clipboard** and **Import…** take either form back, add it to the list and
 open it. `--bookmark` does the same from the command line.
 
 A bookmark is not a dump of the ECS. Frames point at source entities and

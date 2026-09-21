@@ -37,8 +37,8 @@ use crate::source::{DataSource, ShowsSource, SourceExtent, ViewLimits};
 
 use camera::{clear_when_empty, follow_theme, normalize_panels, spawn_ui_camera, update_viewports};
 use chrome::{
-    panel_buttons, spawn_dividers, spawn_selection_border, sync_panel_buttons,
-    update_selection_border,
+    panel_buttons, spawn_dividers, spawn_selection_border, sync_duplicate_buttons,
+    sync_panel_buttons, update_selection_border,
 };
 use grid::clear_color_for;
 use input::{
@@ -250,7 +250,10 @@ impl Plugin for ViewPlugin {
             )
                 .in_set(Stage::Chrome),
         )
-        .add_systems(Update, update_selection_border.in_set(Stage::ControlsPlace))
+        .add_systems(
+            Update,
+            (update_selection_border, sync_duplicate_buttons).in_set(Stage::ControlsPlace),
+        )
         // Paging writes through to the source it pages, which is what every
         // other control does in this stage — and being here is what has the
         // new slice streaming the same frame it was asked for.

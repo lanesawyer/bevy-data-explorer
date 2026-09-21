@@ -30,6 +30,8 @@ use bevy_feathers::controls::{
     FeathersMenu, FeathersMenuButton, FeathersMenuItem, FeathersMenuPopup,
 };
 use bevy_feathers::display::label_dim;
+use bevy_feathers::theme::ThemeTextColor;
+use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, MenuAction, MenuEvent, ScrollArea};
 
 use super::grid::MAX_LAYERS;
@@ -297,6 +299,23 @@ pub fn rebuild_dataset_lists(
         };
 
         let mut items = Vec::new();
+        // Said once, above the dimmed items, so they read as held rather than
+        // broken.
+        if matches!(list.target, PickerTarget::NewFrame) && !state.room {
+            items.push(
+                commands
+                    .spawn_scene(bsn! {
+                        DatasetListContent
+                        text_dim(
+                            format!("The grid is full at {MAX_PANELS} frames. Close one to open another."),
+                            size::SMALL
+                        )
+                        Node { margin: { UiRect::axes(Val::Px(8.0), Val::Px(4.0)) } }
+                    })
+                    .id(),
+            );
+        }
+        let noted = items.len();
         let mut section = None;
         for (entity, data, url) in &listed {
             // A layer is offered only if it could go on top: not what the
@@ -310,7 +329,7 @@ pub fn rebuild_dataset_lists(
             }
             if section.is_none() {
                 section = Some("Open");
-                items.push(heading(&mut commands, "Open", items.is_empty()));
+                items.push(heading(&mut commands, "Open", items.len() == noted));
             }
             // Drawn anyway, since nothing rescales a layer, so say why it may
             // not line up rather than leave the two to look aligned by
@@ -331,12 +350,10 @@ pub fn rebuild_dataset_lists(
                     source: *entity,
                     action: show,
                 },
+                // Listed so the frame's own dataset is there to be found, but
+                // choosing it would change nothing.
+                refuse || (!layering && state.stack.first() == Some(entity)),
             );
-            // Listed so the frame's own dataset is there to be found, but
-            // choosing it would change nothing.
-            if refuse || (!layering && state.stack.first() == Some(entity)) {
-                commands.entity(item).insert(InteractionDisabled);
-            }
             items.push(item);
         }
         for (id, catalog, entry) in catalogs.unopened(&opened) {
@@ -357,7 +374,7 @@ pub fn rebuild_dataset_lists(
             }
             if section != Some(catalog) {
                 section = Some(catalog);
-                items.push(heading(&mut commands, catalog, items.is_empty()));
+                items.push(heading(&mut commands, catalog, items.len() == noted));
             }
             let item = item(
                 &mut commands,
@@ -368,13 +385,11 @@ pub fn rebuild_dataset_lists(
                     source: Entity::PLACEHOLDER,
                     action: show_catalog(id),
                 },
+                refuse,
             );
-            if refuse {
-                commands.entity(item).insert(InteractionDisabled);
-            }
             items.push(item);
         }
-        if items.is_empty() {
+        if items.len() == noted {
             let none = commands
                 .spawn_scene(bsn! {
                     DatasetListContent
@@ -405,10 +420,35 @@ fn heading(commands: &mut Commands, content: &str, first: bool) -> Entity {
 /// One dataset: its name, and what it is on a dimmer line under it.
 ///
 /// Both are cut to fit rather than wrapped, as the layers menu's rows are.
-fn item(commands: &mut Commands, name: &str, note: &str, choice: SourceChoice) -> Entity {
+///
+/// A disabled item is dimmed here rather than left to Feathers: it greys an
+/// item's text through the color the caption inherits, and these lines name
+/// their own colors, so an item it had disabled looked no different. It is
+/// also left out of picking, item and caption alike, since Feathers lights a
+/// hovered item whether or not it can be chosen.
+fn item(
+    commands: &mut Commands,
+    name: &str,
+    note: &str,
+    choice: SourceChoice,
+    disabled: bool,
+) -> Entity {
     let name = truncate_to_width(name, ITEM_TEXT_PX, 13.0);
     let note = truncate_to_width(note, ITEM_TEXT_PX, 11.0);
-    commands
+    let (name_color, note_color) = if disabled {
+        (
+            tokens::MENUITEM_TEXT_DISABLED,
+            tokens::MENUITEM_TEXT_DISABLED,
+        )
+    } else {
+        (tokens::TEXT_MAIN, tokens::TEXT_DIM)
+    };
+    let pickable = if disabled {
+        Pickable::IGNORE
+    } else {
+        Pickable::default()
+    };
+    let item = commands
         .spawn_scene(bsn! {
             @FeathersMenuItem {
                 @caption: { bsn_list![(
@@ -417,27 +457,37 @@ fn item(commands: &mut Commands, name: &str, note: &str, choice: SourceChoice) -
                         min_width: { Val::Px(0.0) },
                         overflow: { Overflow::clip() },
                     }
+                    template_value(pickable)
                     Children [
                         (
                             text(name, size::BODY)
+                            ThemeTextColor({ name_color })
                             TextLayout { linebreak: { LineBreak::NoWrap } }
+                            template_value(pickable)
                         ),
                         (
                             text_dim(note, size::SMALL)
+                            ThemeTextColor({ note_color })
                             TextLayout { linebreak: { LineBreak::NoWrap } }
+                            template_value(pickable)
                         ),
                     ]
                 )] }
             }
             DatasetListContent
             template_value(choice)
+            template_value(pickable)
             // Two lines rather than the one a Feathers item is sized for.
             Node {
                 height: { Val::Auto },
                 padding: { UiRect::axes(Val::Px(8.0), Val::Px(4.0)) },
             }
         })
-        .id()
+        .id();
+    if disabled {
+        commands.entity(item).insert(InteractionDisabled);
+    }
+    item
 }
 
 /// Start each frame's dropdown afresh: once closed, whatever was typed into it is

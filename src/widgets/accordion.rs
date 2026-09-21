@@ -22,6 +22,8 @@ use bevy_ui_widgets::Activate;
 
 use super::{BlocksFrameInput, CORNER_PX, Icon, button_icon, icon_text, size, truncate_to_width};
 
+/// Space between a body's sides and what is in it, the same on both so its
+/// contents sit centred in the box rather than against its right edge.
 pub const ACCORDION_INDENT: f32 = 8.0;
 /// Size the accordion titles are drawn at, which sets how many characters fit.
 const TITLE_FONT: f32 = size::BODY;
@@ -315,7 +317,7 @@ fn body_patch(accordion: Entity, open: bool) -> impl Scene {
             border: { UiRect::new(Val::Px(1.0), Val::Px(1.0), Val::Px(0.0), Val::Px(1.0)) },
             padding: { UiRect::new(
                 Val::Px(ACCORDION_INDENT),
-                Val::Px(2.0),
+                Val::Px(ACCORDION_INDENT),
                 Val::Px(6.0),
                 Val::Px(6.0),
             ) },

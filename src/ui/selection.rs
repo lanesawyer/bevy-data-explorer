@@ -61,10 +61,14 @@ const MAX_FRACTION: f32 = 0.5;
 /// with any count worth reading.
 const MAX_ROWS: usize = 100;
 
-/// How tall the list of values may grow before it scrolls within the dock.
-/// Taller than any window, so it scrolls against the dock's own height rather
-/// than at some arbitrary point up the panel.
+/// How tall the lists may grow before they scroll within the dock. Taller than
+/// any window, so each scrolls against the room the dock leaves it rather than
+/// at some arbitrary point up the panel.
 const LIST_MAX_PX: f32 = 2000.0;
+
+/// The most of the dock the categories take once one is drilled into, leaving
+/// the rest to its cells. Until then they may have all of it.
+const CATEGORIES_SHARE: f32 = 25.0;
 
 #[derive(Resource)]
 pub struct SelectionDock {
@@ -142,9 +146,15 @@ pub struct SelectionClose;
 #[derive(Component, Clone, Default)]
 pub struct SelectionTitle;
 
-/// The body the buckets and their detail are built into.
+/// The list the categories are built into, which scrolls on its own so they
+/// stay in reach while their cells are read below.
 #[derive(Component, Clone, Default)]
 pub struct SelectionBody;
+
+/// The cells of the category drilled into, which take what the categories
+/// leave and scroll on their own.
+#[derive(Component, Clone, Default)]
+pub struct SelectionDetail;
 
 /// Marks what a rebuild replaces.
 #[derive(Component, Clone, Default)]
@@ -276,6 +286,16 @@ fn spawn_selection_dock(mut commands: Commands) {
             (
                 SelectionBody
                 scroll_list(LIST_MAX_PX)
+                Node { flex_shrink: { 0.0_f32 } }
+            ),
+            (
+                SelectionDetail
+                scroll_list(LIST_MAX_PX)
+                Node {
+                    display: { Display::None },
+                    flex_grow: { 1.0_f32 },
+                    min_height: { Val::ZERO },
+                }
             ),
         ]
     });
@@ -429,11 +449,17 @@ pub fn rebuild_selection_dock(
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     sources: Query<(&CellProperties, &RegionSummary, Option<&RegionFocus>)>,
-    body: Query<Entity, With<SelectionBody>>,
+    mut body: Query<(Entity, &mut Node), (With<SelectionBody>, Without<SelectionDetail>)>,
+    mut detail: Query<(Entity, &mut Node), (With<SelectionDetail>, Without<SelectionBody>)>,
     existing: Query<Entity, With<SelectionContent>>,
     mut shown: Local<Option<Built>>,
 ) {
-    let Ok(body) = body.single() else { return };
+    let Ok((body, mut body_node)) = body.single_mut() else {
+        return;
+    };
+    let Ok((detail, mut detail_node)) = detail.single_mut() else {
+        return;
+    };
     let source = selected
         .0
         .and_then(|panel| panels.get(panel).ok())
@@ -471,6 +497,19 @@ pub fn rebuild_selection_dock(
     for entity in &existing {
         commands.entity(entity).despawn();
     }
+    let drilled = focus.is_some() && summary.state == SummaryState::Ready && colored.is_some();
+    body_node.max_height = if drilled {
+        Val::Percent(CATEGORIES_SHARE)
+    } else {
+        Val::Px(LIST_MAX_PX)
+    };
+    body_node.flex_shrink = if drilled { 0.0 } else { 1.0 };
+    body_node.min_height = Val::ZERO;
+    detail_node.display = if drilled {
+        Display::Flex
+    } else {
+        Display::None
+    };
     if summary.state != SummaryState::Ready {
         return;
     }
@@ -521,13 +560,8 @@ pub fn rebuild_selection_dock(
             .iter()
             .find(|value| value.label == focus.label)
             .and_then(|value| summary.counted_in(&column, value.code));
-        rows.extend(spawn_detail(
-            &mut commands,
-            properties,
-            summary,
-            focus,
-            held,
-        ));
+        let cells = spawn_detail(&mut commands, properties, summary, focus, held);
+        commands.entity(detail).add_children(&cells);
     }
     commands.entity(body).add_children(&rows);
 }

@@ -137,7 +137,7 @@ pub fn spawn_bookmarks_section(
     let paste = command_button(
         &mut commands,
         Icon::ClipboardPaste,
-        "Paste",
+        "Load from clipboard",
         BookmarkCommand::Paste,
     );
     let import = command_button(
@@ -146,8 +146,19 @@ pub fn spawn_bookmarks_section(
         "Import\u{2026}",
         BookmarkCommand::Import,
     );
+    // Wrapped, since the two no longer fit side by side in a narrow sidebar.
     let share_row = row(&mut commands);
-    commands.entity(share_row).add_children(&[paste, import]);
+    commands
+        .entity(share_row)
+        .insert(Node {
+            width: Val::Percent(100.0),
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(6.0),
+            row_gap: Val::Px(6.0),
+            flex_wrap: FlexWrap::Wrap,
+            ..default()
+        })
+        .add_children(&[paste, import]);
 
     let status = commands
         .spawn_scene(bsn! {

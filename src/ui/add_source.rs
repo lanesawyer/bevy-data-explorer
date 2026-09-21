@@ -31,7 +31,7 @@ use crate::app::theme::Palette;
 use crate::formats::discover::{self, Discovered};
 use crate::formats::{LoadSettings, spawn_discovered};
 use crate::source::SourceUrl;
-use crate::view::{DatasetRequest, DatasetTarget, PendingShow};
+use crate::view::{DatasetRequest, DatasetTarget, MAX_PANELS, Panel, PendingShow};
 use crate::widgets::{BlocksFrameInput, button_text, field_well, size, text, text_dim};
 
 /// The field a URL is typed into. On the inner text entity, which is the one
@@ -157,8 +157,14 @@ impl CustomLoad {
     /// Refused rather than queued while something is being read: the status
     /// line under the field says so, and a URL still in the field can simply
     /// be loaded again.
-    pub fn start_from(&mut self, field: Entity, url: String) {
+    pub fn start_from(&mut self, field: Entity, url: String, frames: usize) {
         if self.is_loading() {
+            return;
+        }
+        if frames >= MAX_PANELS {
+            self.status = LoadStatus::Failed(format!(
+                "{MAX_PANELS} frames is the most the grid holds; close one to open another"
+            ));
             return;
         }
         self.field = Some(field);
@@ -271,6 +277,7 @@ pub fn on_load_pressed(
     activate: On<Activate>,
     buttons: Query<&LoadCustomButton>,
     inputs: Query<&EditableText, With<CustomUrlInput>>,
+    panels: Query<(), With<Panel>>,
     mut load: ResMut<CustomLoad>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
@@ -279,7 +286,11 @@ pub fn on_load_pressed(
     let Ok(typed) = inputs.get(button.field) else {
         return;
     };
-    load.start_from(button.field, typed.value().to_string());
+    load.start_from(
+        button.field,
+        typed.value().to_string(),
+        panels.iter().count(),
+    );
 }
 
 /// Open what the field names when return is pressed in it.
@@ -289,6 +300,7 @@ pub fn on_load_pressed(
 pub fn on_url_submitted(
     key: On<FocusedInput<KeyboardInput>>,
     inputs: Query<&EditableText, With<CustomUrlInput>>,
+    panels: Query<(), With<Panel>>,
     mut load: ResMut<CustomLoad>,
 ) {
     let Ok(typed) = inputs.get(key.focused_entity) else {
@@ -298,7 +310,11 @@ pub fn on_url_submitted(
         return;
     }
     if matches!(key.input.key_code, KeyCode::Enter | KeyCode::NumpadEnter) {
-        load.start_from(key.focused_entity, typed.value().to_string());
+        load.start_from(
+            key.focused_entity,
+            typed.value().to_string(),
+            panels.iter().count(),
+        );
     }
 }
 
@@ -384,8 +400,20 @@ pub fn sync_custom_status(
     load: Res<CustomLoad>,
     palette: Res<Palette>,
     mut labels: Query<(&mut Text, &mut TextColor, &mut Node), With<CustomStatus>>,
-    buttons: Query<Entity, With<LoadCustomButton>>,
+    buttons: Query<(Entity, Has<InteractionDisabled>), With<LoadCustomButton>>,
+    panels: Query<(), With<Panel>>,
 ) {
+    // Held while a read is in flight, and while the grid has no room for the
+    // frame it would open.
+    let held = load.is_loading() || panels.iter().count() >= MAX_PANELS;
+    for (button, disabled) in &buttons {
+        if held && !disabled {
+            commands.entity(button).insert(InteractionDisabled);
+        } else if !held && disabled {
+            commands.entity(button).remove::<InteractionDisabled>();
+        }
+    }
+
     // The theme repaints what it knows about; this line is colored by what it
     // has to say, so it is repainted here instead.
     if !load.is_changed() && !palette.is_changed() {
@@ -407,14 +435,6 @@ pub fn sync_custom_status(
         }
         if text_color.0 != color {
             text_color.0 = color;
-        }
-    }
-
-    for button in &buttons {
-        if load.is_loading() {
-            commands.entity(button).insert(InteractionDisabled);
-        } else {
-            commands.entity(button).remove::<InteractionDisabled>();
         }
     }
 }
@@ -479,7 +499,19 @@ mod tests {
     #[test]
     fn an_empty_field_is_refused_rather_than_fetched() {
         let mut load = CustomLoad::default();
-        load.start_from(Entity::PLACEHOLDER, "   ".into());
+        load.start_from(Entity::PLACEHOLDER, "   ".into(), 0);
+        assert!(!load.is_loading());
+        assert!(matches!(load.status, LoadStatus::Failed(_)));
+    }
+
+    #[test]
+    fn a_full_grid_refuses_a_new_frame_rather_than_fetching_one() {
+        let mut load = CustomLoad::default();
+        load.start_from(
+            Entity::PLACEHOLDER,
+            "https://store/a.svg".into(),
+            MAX_PANELS,
+        );
         assert!(!load.is_loading());
         assert!(matches!(load.status, LoadStatus::Failed(_)));
     }

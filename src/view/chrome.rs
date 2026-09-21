@@ -2,6 +2,7 @@
 //! round the selected frame, and each frame's row of buttons.
 
 use bevy::prelude::*;
+use bevy::ui::InteractionDisabled;
 use bevy_feathers::controls::{ButtonVariant, FeathersToolButton};
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeBorderColor};
 
@@ -9,7 +10,7 @@ use crate::app::theme::token;
 use crate::widgets::{BlocksFrameInput, Icon, button_icon};
 use bevy_ui_widgets::Activate;
 
-use super::grid::{MAX_COLUMNS, MAX_ROWS};
+use super::grid::{MAX_COLUMNS, MAX_PANELS, MAX_ROWS};
 use super::{FrameArea, Panel, PanelRequest, SelectedPanel};
 
 /// Width of the rule drawn between panels, in logical pixels.
@@ -216,6 +217,25 @@ pub fn sync_panel_buttons(
                 Node { position_type: { PositionType::Absolute } }
                 PanelButton { panel: { panel }, action: { action } }
             });
+        }
+    }
+}
+
+/// Hold the duplicate buttons while the grid has no room for another frame.
+pub fn sync_duplicate_buttons(
+    mut commands: Commands,
+    panels: Query<(), With<Panel>>,
+    buttons: Query<(Entity, &PanelButton, Has<InteractionDisabled>)>,
+) {
+    let full = panels.iter().count() >= MAX_PANELS;
+    for (entity, button, disabled) in &buttons {
+        if button.action != PanelAction::Duplicate || disabled == full {
+            continue;
+        }
+        if full {
+            commands.entity(entity).insert(InteractionDisabled);
+        } else {
+            commands.entity(entity).remove::<InteractionDisabled>();
         }
     }
 }
