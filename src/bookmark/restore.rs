@@ -20,8 +20,8 @@ use bevy::prelude::*;
 use super::BookmarkNotice;
 use super::capture::saved_address;
 use super::snapshot::{
-    Bookmark, CellsState, SourceState, apply_cells, apply_channels, apply_slice, clamp_point_size,
-    genes_missing,
+    Bookmark, CellsState, SourceState, apply_cells, apply_channels, apply_slice, apply_table,
+    ask_saved_spans, clamp_point_size, genes_missing,
 };
 use crate::app::net::{Fetching, fetching};
 use crate::app::theme::Palette;
@@ -36,6 +36,7 @@ use crate::source::channels::SourceChannels;
 use crate::source::genes::{GeneSearch, ReadsGenes};
 use crate::source::properties::{CellColumns, CellProperties, PropertyState};
 use crate::source::stack::{SliceGrid, SliceStack};
+use crate::source::table::{TableFilters, TablePaging};
 use crate::source::volume::SourceVolume;
 use crate::source::{DataSource, SourceExtent, SourceUrl};
 use crate::view::grid::{MAX_LAYERS, MAX_PANELS};
@@ -95,6 +96,16 @@ pub struct PendingSettings {
     since: f32,
     /// Whether the bookmark's genes have been asked to be added.
     genes_asked: bool,
+    /// Whether the table's saved spans have been asked to be worked out.
+    spans_asked: bool,
+}
+
+/// What a restore needs of a source to put its table back.
+#[derive(QueryData)]
+#[query_data(mutable)]
+pub struct TableAccess {
+    paging: Option<&'static mut TablePaging>,
+    filters: Option<&'static mut TableFilters>,
 }
 
 /// What a restore needs of a source to put its genes back.
@@ -143,6 +154,7 @@ pub fn drive_restore(
                             state: state.clone(),
                             since: now,
                             genes_asked: false,
+                            spans_asked: false,
                         });
                         Slot::Open(*entity)
                     }
@@ -176,6 +188,7 @@ pub fn drive_restore(
                             state,
                             since: now,
                             genes_asked: false,
+                            spans_asked: false,
                         },
                     ));
                     match world.get_resource_mut::<Restoring>() {
@@ -359,6 +372,7 @@ pub fn apply_pending_settings(
         Has<CellColumns>,
         Has<Described>,
         GeneAccess,
+        TableAccess,
     )>,
 ) {
     for (
@@ -373,6 +387,7 @@ pub fn apply_pending_settings(
         has_columns,
         described,
         mut genes,
+        mut table,
     ) in &mut sources
     {
         let pending = pending.into_inner();
@@ -456,10 +471,72 @@ pub fn apply_pending_settings(
                 false
             }
         };
+        let patient = time.elapsed_secs() - since <= CELLS_PATIENCE_SECS;
+        let waiting =
+            waiting | restore_table(data, state, &mut table, &mut pending.spans_asked, patient);
         if !waiting {
             commands.entity(entity).remove::<PendingSettings>();
         }
     }
+}
+
+/// Put a table back on its page, narrowed as it was, and say whether that is
+/// still waiting on the table.
+///
+/// The page is set with the filters, never before them: whatever produced
+/// the rows fetches the two together, and a page set first would be fetched
+/// from the unfiltered table.
+fn restore_table(
+    data: &DataSource,
+    state: &mut SourceState,
+    table: &mut TableAccessItem<'_, '_>,
+    spans_asked: &mut bool,
+    patient: bool,
+) -> bool {
+    let Some(saved) = state.table.take() else {
+        return false;
+    };
+    let Some(paging) = table.paging.as_mut() else {
+        warn!("bookmark: {} is no longer a table", data.name);
+        return false;
+    };
+    if !saved.filters.is_empty() {
+        let Some(filters) = table.filters.as_mut().filter(|filters| !filters.pending) else {
+            if patient {
+                state.table = Some(saved);
+                return true;
+            }
+            warn!(
+                "bookmark: gave up waiting for {}'s table filters",
+                data.name
+            );
+            return false;
+        };
+        let ask = !*spans_asked;
+        *spans_asked = true;
+        if ask_saved_spans(filters, &saved.filters, ask) && patient {
+            state.table = Some(saved);
+            return true;
+        }
+        let missing = apply_table(filters, &saved.filters);
+        if !missing.is_empty() {
+            warn!(
+                "bookmark: {} could not narrow {} as saved",
+                data.name,
+                missing.join(", ")
+            );
+        }
+    }
+    // The total is the unfiltered table's until the narrowed one is counted,
+    // so a page past its end is left for the format to bring back.
+    let page = match paging.total {
+        Some(_) if saved.filters.is_empty() => paging.clamped(saved.page),
+        _ => saved.page,
+    };
+    if paging.page != page {
+        paging.page = page;
+    }
+    false
 }
 
 /// Ask for the genes a bookmark adds, and say whether any are still coming.
@@ -669,6 +746,7 @@ mod tests {
                 },
                 since: 0.0,
                 genes_asked: false,
+                spans_asked: false,
             },
         ));
         app.update();
@@ -708,6 +786,60 @@ mod tests {
         let properties = world.get::<CellProperties>(source).unwrap();
         assert_eq!(properties.color_by, Some(1));
         assert_eq!(properties.properties[1].range().unwrap().from, 2.0);
+    }
+
+    #[test]
+    fn a_tables_page_waits_for_the_filters_it_was_saved_with() {
+        use crate::bookmark::snapshot::{ColumnFilter, TableFilterState, TableState};
+        use crate::source::table::{TableFilter, TableFilterValue};
+
+        let mut app = app();
+        let source = source(&mut app, "Specimens", "https://store/specimens");
+        app.world_mut().entity_mut(source).insert((
+            TablePaging::new(100, Some(1000)),
+            TableFilters::pending(),
+            PendingSettings {
+                state: SourceState {
+                    table: Some(TableState {
+                        page: 2,
+                        filters: vec![ColumnFilter {
+                            id: "sex".into(),
+                            filter: TableFilterState::Values {
+                                values: vec!["F".into()],
+                            },
+                        }],
+                    }),
+                    ..default()
+                },
+                since: 0.0,
+                genes_asked: false,
+                spans_asked: false,
+            },
+        ));
+        app.update();
+        assert_eq!(app.world().get::<TablePaging>(source).unwrap().page, 0);
+        assert!(app.world().get::<PendingSettings>(source).is_some());
+
+        // The columns land.
+        let value = |label: &str| TableFilterValue {
+            label: label.into(),
+            count: 1,
+            chosen: false,
+        };
+        app.world_mut()
+            .entity_mut(source)
+            .insert(TableFilters::ready(vec![TableFilter::values(
+                "sex",
+                "Sex",
+                vec![value("F"), value("M")],
+            )]));
+        app.update();
+
+        let world = app.world();
+        assert!(world.get::<PendingSettings>(source).is_none());
+        assert_eq!(world.get::<TablePaging>(source).unwrap().page, 2);
+        let filters = world.get::<TableFilters>(source).unwrap();
+        assert!(filters.columns[0].listed()[0].chosen);
     }
 
     #[test]

@@ -915,6 +915,12 @@ fn serve_pages(
                         paging.total = Some(0);
                     }
                     take_page(&mut pages, &mut rows, page * paging.size, &data);
+                    // A page restored from a bookmark can be past the end of
+                    // the table its filters narrow to.
+                    let last = paging.clamped(paging.page);
+                    if paging.total.is_some() && paging.page != last {
+                        paging.page = last;
+                    }
                 }
                 Err(e) => {
                     // The rows on screen are left alone — a page that could
@@ -931,12 +937,9 @@ fn serve_pages(
             }
         }
 
-        // A tick is a new table, so it starts at the top rather than on
-        // whichever page the old one happened to be showing.
+        // Whatever narrows the table puts it back on its first page, not this:
+        // a bookmark restores its filters and its page together.
         let narrowed = pages.applied != wanted_values;
-        if narrowed && paging.page != 0 {
-            paging.page = 0;
-        }
 
         let wanted = paging.first();
         let asking = pages.fetching.as_ref().map(|(page, _)| page * paging.size);

@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use super::snapshot::{
     Bookmark, FocusState, FrameState, LayerState, OrbitState, RegionState, SourceState, VERSION,
-    ViewState, cells_of, channels_of,
+    ViewState, cells_of, channels_of, table_of,
 };
 use crate::catalog::RegionFocus;
 use crate::render::points::SourcePointSize;
@@ -12,6 +12,7 @@ use crate::render::settings::SourceOpacity;
 use crate::source::channels::SourceChannels;
 use crate::source::properties::{CellProperties, FilteredPoints, PropertyState, Provenance};
 use crate::source::stack::{SliceGrid, SliceStack};
+use crate::source::table::{TableFilters, TablePaging};
 use crate::source::{ShowsSource, SourceUrl};
 use crate::view::FrameRegion;
 use crate::view::{FrameArea, FrameLayers, LayerOpacity, Orbit, SelectedPanel};
@@ -184,5 +185,8 @@ fn source_state(source: EntityRef, url: String) -> SourceState {
                     && !matches!(properties.provenance, Provenance::Fetching(_))
             })
             .map(cells_of),
+        table: source
+            .get::<TablePaging>()
+            .and_then(|paging| table_of(paging, source.get::<TableFilters>())),
     }
 }

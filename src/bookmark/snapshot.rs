@@ -15,6 +15,7 @@ use crate::source::channels::{MAX_GAIN, SourceChannels};
 use crate::source::genes::Gene;
 use crate::source::properties::{CellProperties, PropertyKind, SavedFiltered};
 use crate::source::stack::SliceStack;
+use crate::source::table::{TableFilterKind, TableFilters, TablePaging};
 
 /// The format a bookmark is written in. Raised whenever a field changes
 /// meaning; a field merely added is read as its default by older files.
@@ -56,6 +57,34 @@ pub struct SourceState {
     pub channels: Vec<ChannelState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cells: Option<CellsState>,
+    /// The page a table was on and what it was narrowed by.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<TableState>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct TableState {
+    /// Counted from zero.
+    #[serde(default)]
+    pub page: usize,
+    /// Only the columns that narrow anything, by the id the table narrows by.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filters: Vec<ColumnFilter>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ColumnFilter {
+    pub id: String,
+    pub filter: TableFilterState,
+}
+
+/// What a table's column admits. Values by label, since a table's values are
+/// its labels: there is no code behind them to save instead.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TableFilterState {
+    Values { values: Vec<String> },
+    Span { from: f32, to: f32 },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -383,6 +412,104 @@ pub fn apply_cells(properties: &mut CellProperties, saved: &CellsState) -> Vec<S
     missing
 }
 
+/// A table's page and filters, or nothing if it is on its first page and
+/// narrowed by nothing.
+///
+/// Filters still on their way have nothing chosen against them, so a table
+/// saved then is saved by its page alone.
+pub fn table_of(paging: &TablePaging, filters: Option<&TableFilters>) -> Option<TableState> {
+    let filters: Vec<ColumnFilter> = filters
+        .map(|filters| {
+            filters
+                .columns
+                .iter()
+                .filter(|column| column.restricts())
+                .filter_map(|column| {
+                    let filter = match &column.kind {
+                        TableFilterKind::Values(_) => TableFilterState::Values {
+                            values: column.chosen().map(|value| value.label.clone()).collect(),
+                        },
+                        TableFilterKind::Range { span, .. } => {
+                            let span = span.as_ref()?;
+                            TableFilterState::Span {
+                                from: span.from,
+                                to: span.to,
+                            }
+                        }
+                    };
+                    Some(ColumnFilter {
+                        id: column.id.clone(),
+                        filter,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    (paging.page > 0 || !filters.is_empty()).then_some(TableState {
+        page: paging.page,
+        filters,
+    })
+}
+
+/// Ask for the spans a bookmark narrows by, which a table works out only when
+/// asked. Returns whether any is still to come.
+pub fn ask_saved_spans(filters: &mut TableFilters, saved: &[ColumnFilter], ask: bool) -> bool {
+    let mut coming = false;
+    for setting in saved {
+        if !matches!(setting.filter, TableFilterState::Span { .. }) {
+            continue;
+        }
+        let Some(column) = filters.columns.iter_mut().find(|it| it.id == setting.id) else {
+            continue;
+        };
+        if ask && column.span().is_none() && !column.awaiting_span() {
+            column.want(true);
+        }
+        coming |= column.awaiting_span();
+    }
+    coming
+}
+
+/// Put saved filters onto a table.
+///
+/// Every column is cleared first, so what narrows the table is what was saved.
+/// Columns are matched by id and values by label; one that no longer exists,
+/// or a span whose numbers never came, is skipped and its id returned.
+pub fn apply_table(filters: &mut TableFilters, saved: &[ColumnFilter]) -> Vec<String> {
+    let mut missing = Vec::new();
+    filters.clear();
+    for setting in saved {
+        let Some(column) = filters.columns.iter_mut().find(|it| it.id == setting.id) else {
+            missing.push(setting.id.clone());
+            continue;
+        };
+        match (&mut column.kind, &setting.filter) {
+            (TableFilterKind::Values(values), TableFilterState::Values { values: wanted }) => {
+                let wanted: HashSet<&str> = wanted.iter().map(String::as_str).collect();
+                let mut found = 0;
+                for value in values {
+                    value.chosen = wanted.contains(value.label.as_str());
+                    found += usize::from(value.chosen);
+                }
+                if found < wanted.len() {
+                    missing.push(setting.id.clone());
+                }
+            }
+            (
+                TableFilterKind::Range {
+                    span: Some(span), ..
+                },
+                TableFilterState::Span { from, to },
+            ) => {
+                span.from = from.clamp(span.low, span.high);
+                span.to = to.clamp(span.from, span.high);
+            }
+            _ => missing.push(setting.id.clone()),
+        }
+    }
+    missing
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -592,5 +719,106 @@ mod tests {
         assert_eq!(view.scale_in([400.0, 300.0]), 2.0);
         // A narrower one zooms out to keep the width.
         assert_eq!(view.scale_in([200.0, 300.0]), 4.0);
+    }
+
+    fn table_filters() -> TableFilters {
+        use crate::source::table::{TableFilter, TableFilterValue};
+        let value = |label: &str| TableFilterValue {
+            label: label.into(),
+            count: 1,
+            chosen: false,
+        };
+        let mut age = TableFilter::range("age", "Age");
+        age.kind = TableFilterKind::Range {
+            span: Some(NumericRange::full(60.0, 100.0, vec![1, 2, 3])),
+            wanted: true,
+        };
+        TableFilters::ready(vec![
+            TableFilter::values("sex", "Sex", vec![value("F"), value("M")]),
+            age,
+            TableFilter::range("pmi", "PMI"),
+        ])
+    }
+
+    #[test]
+    fn a_table_comes_back_on_its_page_narrowed_as_it_was() {
+        let mut edited = table_filters();
+        edited.columns[0].listed_mut()[1].chosen = true;
+        edited.columns[1].span_mut().unwrap().from = 70.0;
+        let paging = TablePaging {
+            page: 3,
+            size: 100,
+            total: Some(1000),
+        };
+        let saved = table_of(&paging, Some(&edited)).unwrap();
+        assert_eq!(saved.page, 3);
+
+        let mut restored = table_filters();
+        restored.columns[0].listed_mut()[0].chosen = true;
+        assert!(apply_table(&mut restored, &saved.filters).is_empty());
+        assert_eq!(restored.chosen(), edited.chosen());
+    }
+
+    #[test]
+    fn a_table_on_its_first_page_narrowed_by_nothing_saves_nothing() {
+        let paging = TablePaging::new(100, Some(1000));
+        assert_eq!(table_of(&paging, Some(&table_filters())), None);
+        assert_eq!(table_of(&paging, None), None);
+    }
+
+    #[test]
+    fn a_saved_span_is_held_to_the_data() {
+        let mut restored = table_filters();
+        let saved = [ColumnFilter {
+            id: "age".into(),
+            filter: TableFilterState::Span {
+                from: -5.0,
+                to: 500.0,
+            },
+        }];
+        assert!(apply_table(&mut restored, &saved).is_empty());
+        let span = restored.columns[1].span().unwrap();
+        assert_eq!((span.from, span.to), (60.0, 100.0));
+    }
+
+    #[test]
+    fn a_span_not_yet_worked_out_is_asked_for_once() {
+        let mut filters = table_filters();
+        let saved = [ColumnFilter {
+            id: "pmi".into(),
+            filter: TableFilterState::Span { from: 1.0, to: 2.0 },
+        }];
+        assert!(ask_saved_spans(&mut filters, &saved, true));
+        // The ask failed: the table stops waiting, and asking is not repeated.
+        filters.columns[2].want(false);
+        assert!(!ask_saved_spans(&mut filters, &saved, false));
+        assert_eq!(apply_table(&mut filters, &saved), ["pmi"]);
+    }
+
+    #[test]
+    fn a_column_or_value_the_table_lost_is_reported() {
+        let mut restored = table_filters();
+        let saved = [
+            ColumnFilter {
+                id: "gone".into(),
+                filter: TableFilterState::Values {
+                    values: vec!["x".into()],
+                },
+            },
+            ColumnFilter {
+                id: "sex".into(),
+                filter: TableFilterState::Values {
+                    values: vec!["F".into(), "X".into()],
+                },
+            },
+        ];
+        assert_eq!(apply_table(&mut restored, &saved), ["gone", "sex"]);
+        assert!(restored.columns[0].listed()[0].chosen);
+    }
+
+    #[test]
+    fn a_bookmark_from_before_tables_still_reads() {
+        let saved: SourceState = serde_json::from_str(r#"{"url":"a"}"#).unwrap();
+        assert_eq!(saved.table, None);
     }
 }

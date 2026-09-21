@@ -23,7 +23,7 @@ use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::Palette;
 use crate::source::ShowsSource;
 use crate::source::properties::PropertyValue;
-use crate::source::table::{TableFilter, TableFilterKind, TableFilters};
+use crate::source::table::{TableFilter, TableFilterKind, TableFilters, TablePaging};
 use crate::ui::cellpanel::range::{RangeOwner, spawn_range_control};
 use crate::ui::cellpanel::tree::Unveil;
 use crate::ui::cellpanel::values::{LIST_MAX_PX, SEARCH_FROM, note_for, set_display};
@@ -440,6 +440,7 @@ pub fn on_value_toggled(
     selection: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     mut filters: Query<&mut TableFilters>,
+    mut pagings: Query<&mut TablePaging>,
 ) {
     let Ok(box_) = boxes.get(change.source) else {
         return;
@@ -459,6 +460,7 @@ pub fn on_value_toggled(
     };
     if value.chosen != change.value {
         value.chosen = change.value;
+        to_first_page(&mut pagings, source);
     }
 }
 
@@ -557,6 +559,7 @@ pub fn on_clear_pressed(
     selection: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     mut filters: Query<&mut TableFilters>,
+    mut pagings: Query<&mut TablePaging>,
 ) {
     if buttons.get(activate.entity).is_err() {
         return;
@@ -568,6 +571,7 @@ pub fn on_clear_pressed(
         && filters.restricts()
     {
         filters.clear();
+        to_first_page(&mut pagings, source);
     }
 }
 
@@ -578,6 +582,7 @@ pub fn on_clear_column(
     selection: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     mut filters: Query<&mut TableFilters>,
+    mut pagings: Query<&mut TablePaging>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
         return;
@@ -594,6 +599,17 @@ pub fn on_clear_column(
         .is_some_and(TableFilter::restricts)
     {
         filters.columns[button.column].clear();
+        to_first_page(&mut pagings, source);
+    }
+}
+
+/// A narrowed table is a new table, so it starts at the top rather than on
+/// whichever page the old one happened to be showing.
+pub fn to_first_page(pagings: &mut Query<&mut TablePaging>, source: Entity) {
+    if let Ok(mut paging) = pagings.get_mut(source)
+        && paging.page != 0
+    {
+        paging.page = 0;
     }
 }
 
