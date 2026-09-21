@@ -1,17 +1,20 @@
 //! Per-frame overlays.
 //!
-//! Each frame carries a header in its top corner: the dataset's name, which
+//! Each frame carries a row of buttons along its top: the dataset's name, which
 //! opens a menu for pointing the frame at a different dataset, a button that
-//! opens the inspector on it, and a menu of what is layered over it. The status
-//! its plugin reports sits underneath.
+//! opens the inspector on it, a menu of what is layered over it, and at the far
+//! end the buttons that duplicate and close the frame. The status its plugin
+//! reports sits underneath.
 //!
 //! The overlay knows nothing about any particular format. It reads the name and
 //! status off whichever source entity a panel points at, and adds the lines
 //! only a panel can know — its own zoom, which differs between two frames
 //! showing the same source.
 //!
-//! Everything sits on a translucent panel, because it is drawn over imagery
-//! that is bright in places and black in others.
+//! The status sits on a translucent panel, because it is drawn over imagery
+//! that is bright in places and black in others. The buttons carry their own
+//! backgrounds and sit outside it, so that every one of them lines up along
+//! the same edge whichever end of the row it is at.
 
 use bevy::prelude::*;
 use bevy::text::FontSourceTemplate;
@@ -36,7 +39,9 @@ use crate::view::{
 };
 use crate::widgets::{BlocksFrameInput, Icon, button_icon, size, spawn_menu, text, text_dim};
 
-/// The translucent panel a frame's header and status sit on.
+use super::chrome::CHROME_GAP;
+
+/// A frame's chrome: its row of buttons, and the status under them.
 #[derive(Component, Clone)]
 pub struct PanelHeader {
     pub panel: Entity,
@@ -49,6 +54,24 @@ impl Default for PanelHeader {
         }
     }
 }
+
+/// The translucent panel a frame's status sits on, hidden while there is
+/// nothing to say.
+#[derive(Component, Clone)]
+pub struct PanelStatusBox {
+    pub panel: Entity,
+}
+
+impl Default for PanelStatusBox {
+    fn default() -> Self {
+        PanelStatusBox {
+            panel: Entity::PLACEHOLDER,
+        }
+    }
+}
+
+/// How far a frame's chrome sits in from the edges of its cell.
+const CHROME_INSET: f32 = 8.0;
 
 /// The dataset's name, at the start of a frame's header.
 #[derive(Component, Clone, Default)]
@@ -222,31 +245,31 @@ fn spawn_tooltip(commands: &mut Commands, panel: Entity) {
     });
 }
 
-/// Build one frame's overlay: a header row over the status it reports.
+/// Build one frame's overlay: a row of buttons over the status it reports.
 fn spawn_overlay(commands: &mut Commands, panel: Entity) {
-    let box_ = commands
+    let root = commands
         .spawn_scene(bsn! {
             PanelHeader { panel: { panel } }
+            // Spans the cell's width, so it must let the pointer through to
+            // the frame everywhere but on the buttons it holds.
+            template_value(Pickable::IGNORE)
             Node {
                 position_type: { PositionType::Absolute },
                 flex_direction: { FlexDirection::Column },
-                row_gap: { Val::Px(2.0) },
-                padding: { UiRect::axes(Val::Px(8.0), Val::Px(6.0)) },
-                border_radius: { BorderRadius::all(Val::Px(5.0)) },
+                align_items: { AlignItems::Start },
+                row_gap: { Val::Px(CHROME_GAP) },
             }
-            // Translucent, and on the same side as the theme: over imagery
-            // rather than over the window, so a dark panel in a light theme
-            // would read as a hole punched in the picture.
-            ThemeBackgroundColor({ token::OVERLAY_BG })
             InheritableFont { font_size: { 13.0f32 } }
         })
         .id();
 
     let header = commands
         .spawn_scene(bsn! {
+            template_value(Pickable::IGNORE)
             Node {
+                width: { Val::Percent(100.0) },
                 align_items: { AlignItems::Center },
-                column_gap: { Val::Px(4.0) },
+                column_gap: { Val::Px(CHROME_GAP) },
             }
         })
         .id();
@@ -282,6 +305,38 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
         .entity(menu)
         .insert(SourceMenu { panel })
         .add_child(picker);
+    // The frame's own buttons end the row, pushed there by what is left of it.
+    let spacer = commands
+        .spawn((
+            Node {
+                flex_grow: 1.0,
+                ..default()
+            },
+            Pickable::IGNORE,
+        ))
+        .id();
+    let corner = super::chrome::spawn_corner_buttons(commands, panel);
+    commands
+        .entity(header)
+        .add_child(spacer)
+        .add_children(&corner);
+
+    let box_ = commands
+        .spawn_scene(bsn! {
+            PanelStatusBox { panel: { panel } }
+            Node {
+                flex_direction: { FlexDirection::Column },
+                max_width: { Val::Percent(100.0) },
+                row_gap: { Val::Px(2.0) },
+                padding: { UiRect::axes(Val::Px(8.0), Val::Px(6.0)) },
+                border_radius: { BorderRadius::all(Val::Px(5.0)) },
+            }
+            // Translucent, and on the same side as the theme: over imagery
+            // rather than over the window, so a dark panel in a light theme
+            // would read as a hole punched in the picture.
+            ThemeBackgroundColor({ token::OVERLAY_BG })
+        })
+        .id();
 
     let status = commands
         .spawn_scene(bsn! {
@@ -295,8 +350,9 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
         })
         .id();
 
-    commands.entity(box_).add_children(&[header, status]);
+    commands.entity(box_).add_child(status);
     super::capture::spawn_capture_notice(commands, box_, panel);
+    commands.entity(root).add_children(&[header, box_]);
 }
 
 /// Keep each overlay over its panel's cell.
@@ -311,10 +367,9 @@ pub fn position_hud(
             continue;
         };
         let cell = area.cell(count, panel.index);
-        node.left = Val::Px(cell.min.x + 10.0);
-        node.top = Val::Px(cell.min.y + 8.0);
-        // Clear of the frame's own buttons in the opposite corner.
-        node.max_width = Val::Px((cell.width() - 90.0).max(120.0));
+        node.left = Val::Px(cell.min.x + CHROME_INSET);
+        node.top = Val::Px(cell.min.y + CHROME_INSET);
+        node.width = Val::Px((cell.width() - 2.0 * CHROME_INSET).max(0.0));
     }
 }
 
@@ -445,6 +500,25 @@ pub fn update_hud(
             && text.0 != source.name
         {
             text.0 = source.name.clone();
+        }
+    }
+}
+
+/// Hide a status panel with nothing in it, which would otherwise be an empty
+/// pill under the buttons.
+pub fn show_status_boxes(
+    mut boxes: Query<(&Children, &mut Node), With<PanelStatusBox>>,
+    lines: Query<(&Text, &Node), Without<PanelStatusBox>>,
+) {
+    for (children, mut node) in &mut boxes {
+        let said = children.iter().any(|child| {
+            lines
+                .get(child)
+                .is_ok_and(|(text, line)| line.display != Display::None && !text.0.is_empty())
+        });
+        let wanted = if said { Display::Flex } else { Display::None };
+        if node.display != wanted {
+            node.display = wanted;
         }
     }
 }
@@ -744,7 +818,12 @@ impl Plugin for OverlayPlugin {
             )
             .add_systems(
                 Update,
-                (update_hud, position_tooltips, update_tooltips)
+                (
+                    update_hud,
+                    show_status_boxes,
+                    position_tooltips,
+                    update_tooltips,
+                )
                     .chain()
                     .in_set(Stage::Overlay),
             );

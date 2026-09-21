@@ -6,7 +6,7 @@ use bevy::camera::{ClearColorConfig, Viewport};
 use bevy::prelude::*;
 use bevy::ui::IsDefaultUiCamera;
 
-use super::chrome::{Axis, BUTTON_GAP, BUTTON_PX, DIVIDER_PX, PanelButton, PanelDivider};
+use super::chrome::{Axis, DIVIDER_PX, PanelDivider};
 use super::grid::{UI_CAMERA_ORDER, assign_cells, camera_order, clear_color_for, grid_for};
 use super::{FrameArea, Panel};
 use crate::app::theme::Palette;
@@ -39,14 +39,12 @@ pub(super) fn spawn_ui_camera(mut commands: Commands) {
     });
 }
 
-/// Keep each panel's viewport, and the UI drawn over it, matched to the grid.
+/// Keep each panel's viewport, and the rules between them, matched to the grid.
 pub fn update_viewports(
     windows: Query<&Window>,
     area: Res<FrameArea>,
     mut panels: Query<(&Panel, &mut Camera)>,
-    mut dividers: Query<(&PanelDivider, &mut Node), Without<PanelButton>>,
-    mut buttons: Query<(&PanelButton, &mut Node), Without<PanelDivider>>,
-    indices: Query<&Panel>,
+    mut dividers: Query<(&PanelDivider, &mut Node)>,
 ) {
     let Ok(window) = windows.single() else { return };
     if window.physical_size().x == 0 || window.physical_size().y == 0 {
@@ -97,16 +95,6 @@ pub fn update_viewports(
                 node.height = Val::Px(DIVIDER_PX);
             }
         }
-    }
-
-    for (button, mut node) in &mut buttons {
-        let Ok(panel) = indices.get(button.panel) else {
-            continue;
-        };
-        let cell = area.cell(count, panel.index);
-        let from_right = (BUTTON_PX + BUTTON_GAP) * button.action.slot() + BUTTON_PX + 8.0;
-        node.left = Val::Px(cell.max.x - from_right);
-        node.top = Val::Px(cell.min.y + 8.0);
     }
 }
 

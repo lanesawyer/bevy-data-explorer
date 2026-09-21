@@ -130,7 +130,9 @@ pub(super) const SELECTION_PX: f32 = 2.0;
 pub(super) const SELECTION_Z: i32 = 1;
 
 pub(super) const BUTTON_PX: f32 = 22.0;
-pub(super) const BUTTON_GAP: f32 = 4.0;
+/// Space between the buttons over a frame, and between them and the status
+/// under them.
+pub(super) const CHROME_GAP: f32 = 4.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PanelAction {
@@ -139,18 +141,10 @@ pub enum PanelAction {
 }
 
 impl PanelAction {
-    /// Only the two that manage the frame itself. Inspecting sits with the
-    /// dataset's name in the header, where it reads as being about the data
-    /// rather than about the frame.
+    /// Only the two that manage the frame itself, left to right. Inspecting
+    /// sits with the dataset's name in the header, where it reads as being
+    /// about the data rather than about the frame.
     const ALL: [PanelAction; 2] = [PanelAction::Duplicate, PanelAction::Close];
-
-    /// Buttons are laid out right to left from the panel's top corner.
-    pub(super) fn slot(self) -> f32 {
-        match self {
-            PanelAction::Close => 0.0,
-            PanelAction::Duplicate => 1.0,
-        }
-    }
 
     fn icon(self) -> Icon {
         match self {
@@ -186,39 +180,25 @@ fn variant_for(_action: PanelAction) -> ButtonVariant {
     ButtonVariant::Normal
 }
 
-/// Keep one button per action on every panel, and drop the buttons of panels
-/// that have gone away.
-pub fn sync_panel_buttons(
-    mut commands: Commands,
-    panels: Query<Entity, With<Panel>>,
-    buttons: Query<(Entity, &PanelButton)>,
-) {
-    for (entity, button) in &buttons {
-        if panels.get(button.panel).is_err() {
-            commands.entity(entity).despawn();
-        }
-    }
-
-    for panel in &panels {
-        for action in PanelAction::ALL {
-            if buttons
-                .iter()
-                .any(|(_, b)| b.panel == panel && b.action == action)
-            {
-                continue;
-            }
+/// The buttons that manage a frame, for the end of its header row.
+pub(super) fn spawn_corner_buttons(commands: &mut Commands, panel: Entity) -> Vec<Entity> {
+    PanelAction::ALL
+        .into_iter()
+        .map(|action| {
             let icon = action.icon();
-            commands.spawn_scene(bsn! {
-                @FeathersToolButton {
-                    @caption: { bsn_list![button_icon(icon)] },
-                    @variant: { variant_for(action) }
-                }
-                BlocksFrameInput
-                Node { position_type: { PositionType::Absolute } }
-                PanelButton { panel: { panel }, action: { action } }
-            });
-        }
-    }
+            commands
+                .spawn_scene(bsn! {
+                    @FeathersToolButton {
+                        @caption: { bsn_list![button_icon(icon)] },
+                        @variant: { variant_for(action) }
+                    }
+                    BlocksFrameInput
+                    Node { flex_shrink: { 0.0_f32 } }
+                    PanelButton { panel: { panel }, action: { action } }
+                })
+                .id()
+        })
+        .collect()
 }
 
 /// Hold the duplicate buttons while the grid has no room for another frame.
@@ -297,26 +277,9 @@ mod tests {
     }
 
     #[test]
-    fn the_buttons_do_not_overlap() {
-        let mut slots: Vec<f32> = PanelAction::ALL.iter().map(|a| a.slot()).collect();
-        slots.sort_by(f32::total_cmp);
-        for pair in slots.windows(2) {
-            // Slots are measured in button widths from the right edge, so
-            // adjacent slots must be at least one button plus its gap apart.
-            let spacing = (pair[1] - pair[0]) * (BUTTON_PX + BUTTON_GAP);
-            assert!(spacing >= BUTTON_PX, "buttons at {pair:?} would overlap");
-        }
-    }
-
-    #[test]
-    fn every_action_has_its_own_slot_and_icon() {
-        let slots: std::collections::HashSet<u32> = PanelAction::ALL
-            .iter()
-            .map(|a| a.slot().to_bits())
-            .collect();
+    fn every_action_has_its_own_icon() {
         let icons: std::collections::HashSet<Icon> =
             PanelAction::ALL.iter().map(|a| a.icon()).collect();
-        assert_eq!(slots.len(), PanelAction::ALL.len());
         assert_eq!(icons.len(), PanelAction::ALL.len());
     }
 }

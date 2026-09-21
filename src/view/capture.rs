@@ -41,7 +41,7 @@ use bevy_feathers::theme::ThemeTextColor;
 use crate::app::schedule::Stage;
 use crate::source::{DataSource, ShowsSource};
 use crate::view::Panel;
-use crate::view::chrome::{PanelButton, SelectionBorder};
+use crate::view::chrome::SelectionBorder;
 use crate::view::loading::LoadingBar;
 use crate::view::overlay::{PanelHeader, PanelTooltip};
 use crate::widgets::{BlocksFrameInput, Icon, button_icon, size};
@@ -209,7 +209,6 @@ pub fn drive_capture(
     sources: Query<&DataSource>,
     headers: Query<(Entity, &PanelHeader)>,
     tooltips: Query<(Entity, &PanelTooltip)>,
-    buttons: Query<(Entity, &PanelButton)>,
     bars: Query<(Entity, &LoadingBar)>,
     outline: Query<Entity, With<SelectionBorder>>,
     hidden: Query<Entity, With<HiddenForCapture>>,
@@ -234,11 +233,6 @@ pub fn drive_capture(
             }
             for (entity, tooltip) in &tooltips {
                 if tooltip.panel == panel {
-                    hide(entity);
-                }
-            }
-            for (entity, button) in &buttons {
-                if button.panel == panel {
                     hide(entity);
                 }
             }

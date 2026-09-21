@@ -132,6 +132,12 @@ fn save(folder: &Path, bookmark: &Bookmark) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// The most bytes a stem keeps. Filesystems cap a file name at 255 bytes, and
+/// a name left blank is made of every dataset on screen, which with a full
+/// grid is well past that. Enough to tell bookmarks apart by, with room left
+/// for the timestamp and extension.
+const STEM_BYTES: usize = 80;
+
 /// A name made safe to be a file's, keeping it recognisable.
 pub fn file_stem(name: &str) -> String {
     let stem: String = name
@@ -145,11 +151,19 @@ pub fn file_stem(name: &str) -> String {
             }
         })
         .collect();
-    let stem = stem
+    let mut stem = stem
         .split('-')
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join("-");
+    if stem.len() > STEM_BYTES {
+        let mut end = STEM_BYTES;
+        while !stem.is_char_boundary(end) {
+            end -= 1;
+        }
+        stem.truncate(end);
+        stem.truncate(stem.trim_end_matches('-').len());
+    }
     if stem.is_empty() {
         "bookmark".into()
     } else {
@@ -256,6 +270,19 @@ mod tests {
         assert_eq!(file_stem("Cortex, layer 5/6"), "cortex-layer-5-6");
         assert_eq!(file_stem("  ??  "), "bookmark");
         assert_eq!(file_stem("MERFISH_v2"), "merfish_v2");
+    }
+
+    #[test]
+    fn a_long_name_still_makes_a_file_name_the_filesystem_takes() {
+        // What a blank name becomes with a full grid of different datasets.
+        let long = ["Whole mouse brain MERFISH, sagittal sections"; 8].join(" + ");
+        let stem = file_stem(&long);
+        assert!(stem.len() <= STEM_BYTES);
+        assert!(!stem.ends_with('-'));
+        assert!(stem.starts_with("whole-mouse-brain-merfish"));
+        // Cut on a character, never through one.
+        let wide = file_stem(&"é".repeat(200));
+        assert!(wide.len() <= STEM_BYTES && !wide.is_empty());
     }
 
     #[test]

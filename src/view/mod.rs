@@ -38,7 +38,7 @@ use crate::source::{DataSource, ShowsSource, SourceExtent, ViewLimits};
 use camera::{clear_when_empty, follow_theme, normalize_panels, spawn_ui_camera, update_viewports};
 use chrome::{
     panel_buttons, spawn_dividers, spawn_selection_border, sync_duplicate_buttons,
-    sync_panel_buttons, update_selection_border,
+    update_selection_border,
 };
 use grid::clear_color_for;
 use input::{
@@ -213,12 +213,7 @@ impl Plugin for ViewPlugin {
         )
         .add_systems(
             Update,
-            (
-                sync_panel_buttons,
-                loading::sync_loading_bars,
-                select::sync_region_outlines,
-            )
-                .in_set(Stage::FrameChrome),
+            (loading::sync_loading_bars, select::sync_region_outlines).in_set(Stage::FrameChrome),
         )
         .add_systems(
             Update,

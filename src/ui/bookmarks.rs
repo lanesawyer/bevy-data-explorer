@@ -185,6 +185,26 @@ pub fn spawn_bookmarks_section(
         .add_children(&[well, share_row, status, list]);
 }
 
+/// How tall a saved bookmark's row is, whether it shows its name and detail
+/// or the field it is renamed in, so renaming one shifts nothing under it.
+const LIST_ROW_PX: f32 = 40.0;
+
+/// A row of the saved list.
+fn list_row(commands: &mut Commands) -> Entity {
+    let line = row(commands);
+    commands.entity(line).insert((
+        Node {
+            width: Val::Percent(100.0),
+            min_height: Val::Px(LIST_ROW_PX),
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(6.0),
+            ..default()
+        },
+        BookmarkListContent,
+    ));
+    line
+}
+
 fn row(commands: &mut Commands) -> Entity {
     commands
         .spawn_scene(bsn! {
@@ -256,7 +276,6 @@ fn fill_list(
         let bookmark = &entry.bookmark;
         if !compact && renaming.0.as_ref() == Some(&entry.path) {
             let line = rename_row(commands, entry.path.clone(), bookmark.name.clone());
-            commands.entity(line).insert(BookmarkListContent);
             commands.entity(list).add_child(line);
             continue;
         }
@@ -317,8 +336,7 @@ fn fill_list(
             .collect()
         };
 
-        let line = row(commands);
-        commands.entity(line).insert(BookmarkListContent);
+        let line = list_row(commands);
         commands.entity(line).add_child(open).add_children(&buttons);
         commands.entity(list).add_child(line);
     }
@@ -372,7 +390,7 @@ fn rename_row(commands: &mut Commands, path: PathBuf, name: String) -> Entity {
         BookmarkAction::ConfirmRename,
     );
     let cancel = row_button(commands, Icon::X, path, BookmarkAction::CancelRename);
-    let line = row(commands);
+    let line = list_row(commands);
     commands
         .entity(line)
         .add_children(&[entry, confirm, cancel]);
