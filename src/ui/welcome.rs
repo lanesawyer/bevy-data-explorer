@@ -21,7 +21,7 @@ use bevy_ui_widgets::{Activate, ScrollArea};
 use crate::app::schedule::{Boot, Stage};
 use crate::catalog::bkp;
 use crate::catalog::examples::{EXAMPLES, Example};
-use crate::ui::addsource::spawn_custom_section;
+use crate::ui::add_source::spawn_custom_section;
 use crate::ui::help::{AUTHOR, LICENSE, LICENSE_URL, REPOSITORY};
 use crate::view::{FrameArea, Panel};
 use crate::widgets::{

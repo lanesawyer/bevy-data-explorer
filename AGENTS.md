@@ -87,11 +87,11 @@ place writes a `SourceTable` and draws nothing at all. `TablePaging` and
 buttons write the page and the sidebar ticks the values, and whatever produced
 the rows serves them — `formats/table.rs` slices a table it read whole,
 `formats/specimens.rs` fetches one and narrows it at the platform. Neither
-knows about the controls, and `ui/tablefilters.rs` names no format: a second
+knows about the controls, and `ui/table_filters.rs` names no format: a second
 source of rows is filtered by it without a line changing there.
 
 A numeric column is narrowed by a span, and that span is drawn by the same
-control the cell properties use. `ui/cellpanel/range.rs` takes a `RangeOwner`
+control the cell properties use. `ui/cell_panel/range.rs` takes a `RangeOwner`
 saying where its `NumericRange` lives — a cell property or a table column — so
 there is one histogram-and-two-ends widget rather than two that drift apart.
 Anything else that grows a numeric range should name itself there too. `view/table.rs` fills

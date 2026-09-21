@@ -243,7 +243,7 @@ fn spawn_sidebar(mut commands: Commands) {
                         ] }
                     }
                     Node { column_gap: { Val::Px(6.0) } }
-                    crate::ui::logpanel::LogPanelToggle
+                    crate::ui::log_panel::LogPanelToggle
                     BlocksFrameInput
                 )]
             ),

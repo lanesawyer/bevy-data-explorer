@@ -25,6 +25,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use bevy::prelude::*;
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use crate::app::net::{Fetching, fetching};
@@ -103,6 +104,33 @@ const WIDEN: f64 = 0.5;
 #[derive(Deserialize)]
 struct GraphQlError {
     message: String,
+}
+
+/// An answer from the API: whatever data it could give, and what went wrong.
+#[derive(Deserialize)]
+struct Response<T> {
+    data: Option<T>,
+    #[serde(default)]
+    errors: Vec<GraphQlError>,
+}
+
+impl<T> Response<T> {
+    /// The data, or the first error if there is none. Errors beside data are
+    /// left for the caller, since some queries answer part of what they ask.
+    fn data(self, endpoint: &str) -> Result<T, String> {
+        self.data.ok_or_else(|| {
+            self.errors.first().map_or_else(
+                || format!("{endpoint} answered with no data"),
+                |error| error.message.clone(),
+            )
+        })
+    }
+}
+
+/// Send a query and read the answer.
+async fn post<T: DeserializeOwned>(endpoint: &str, body: Value) -> Result<Response<T>, String> {
+    let text = crate::app::net::post_json(endpoint, body.to_string()).await?;
+    serde_json::from_str(&text).map_err(|e| format!("parsing {endpoint}: {e}"))
 }
 
 /// The query parameter that names a project's specimens.
@@ -295,12 +323,6 @@ async fn ask(
     offset: usize,
     terms: &[TableFilterTerm],
 ) -> Result<Data, String> {
-    #[derive(Deserialize)]
-    struct Response {
-        data: Option<Data>,
-        #[serde(default)]
-        errors: Vec<GraphQlError>,
-    }
     let body = json!({
         "query": QUERY,
         "variables": {
@@ -311,15 +333,11 @@ async fn ask(
             "offset": offset,
         }
     });
-    let text = crate::app::net::post_json(endpoint, body.to_string()).await?;
-    let response: Response =
-        serde_json::from_str(&text).map_err(|e| format!("parsing {endpoint}: {e}"))?;
+    let response: Response<Data> = post(endpoint, body).await?;
     if let Some(error) = response.errors.first() {
         return Err(error.message.clone());
     }
-    response
-        .data
-        .ok_or_else(|| format!("{endpoint} answered with no data"))
+    response.data(endpoint)
 }
 
 /// Which columns a specimen table has, and in what order.
@@ -531,35 +549,17 @@ async fn ask_values(
         .join(" ");
     let query = format!("query($specimens: [Filter]) {{ {fields} }}");
 
-    #[derive(Deserialize)]
-    struct Response {
-        data: Option<BTreeMap<String, Option<Vec<Grouped>>>>,
-        #[serde(default)]
-        errors: Vec<GraphQlError>,
-    }
-
     let body = json!({
         "query": query,
-        "variables": {
-            "specimens": [{
-                "field": "projectReferenceIds", "operator": "EQ", "value": project
-            }],
-        }
+        "variables": { "specimens": specimen_filters(project, &[]) }
     });
-    let text = crate::app::net::post_json(endpoint, body.to_string()).await?;
-    let response: Response =
-        serde_json::from_str(&text).map_err(|e| format!("parsing {endpoint}: {e}"))?;
-    // Only when nothing at all came back: a column the platform could not
-    // group by is reported beside the ones it could, and costs only itself.
-    let Some(answers) = response.data else {
-        return Err(response.errors.first().map_or_else(
-            || format!("{endpoint} answered with no data"),
-            |error| error.message.clone(),
-        ));
-    };
+    let response: Response<BTreeMap<String, Option<Vec<Grouped>>>> = post(endpoint, body).await?;
+    // A column the platform could not group by is reported beside the ones it
+    // could, and costs only itself.
     for error in &response.errors {
         debug!("a column cannot be grouped by: {}", error.message);
     }
+    let answers = response.data(endpoint)?;
 
     let mut filters = Vec::new();
     for (index, (id, name, numeric)) in columns.iter().enumerate() {
@@ -632,30 +632,12 @@ async fn ask_cumulative(
         .join(" ");
     let query = format!("query($specimens: [Filter]) {{ {fields} }}");
 
-    #[derive(Deserialize)]
-    struct Response {
-        data: Option<BTreeMap<String, Option<Vec<Counted>>>>,
-        #[serde(default)]
-        errors: Vec<GraphQlError>,
-    }
-    #[derive(Deserialize)]
-    struct Counted {
-        count: Option<f64>,
-    }
-
     let body = json!({
         "query": query,
         "variables": { "specimens": filters },
     });
-    let text = crate::app::net::post_json(endpoint, body.to_string()).await?;
-    let response: Response =
-        serde_json::from_str(&text).map_err(|e| format!("parsing {endpoint}: {e}"))?;
-    let Some(answers) = response.data else {
-        return Err(response.errors.first().map_or_else(
-            || format!("{endpoint} answered with no distribution"),
-            |error| error.message.clone(),
-        ));
-    };
+    let response: Response<BTreeMap<String, Option<Vec<Aggregate>>>> = post(endpoint, body).await?;
+    let answers = response.data(endpoint)?;
 
     Ok((0..edges.len())
         .map(|index| {
@@ -787,22 +769,10 @@ async fn ask_recount(
             })
             .collect();
 
-        #[derive(Deserialize)]
-        struct Response {
-            data: Option<BTreeMap<String, Option<Vec<Grouped>>>>,
-            #[serde(default)]
-            errors: Vec<GraphQlError>,
-        }
         let body = json!({ "query": query, "variables": variables });
-        let text = crate::app::net::post_json(endpoint, body.to_string()).await?;
-        let response: Response =
-            serde_json::from_str(&text).map_err(|e| format!("parsing {endpoint}: {e}"))?;
-        let Some(answers) = response.data else {
-            return Err(response.errors.first().map_or_else(
-                || format!("{endpoint} answered with no counts"),
-                |error| error.message.clone(),
-            ));
-        };
+        let response: Response<BTreeMap<String, Option<Vec<Grouped>>>> =
+            post(endpoint, body).await?;
+        let answers = response.data(endpoint)?;
         for (index, column) in values.into_iter().enumerate() {
             // A column that could not be counted keeps the counts it had.
             if let Some(Some(groups)) = answers.get(&format!("c{index}")) {
@@ -820,11 +790,7 @@ async fn ask_recount(
             &edges,
         )
         .await?;
-        let histogram = cumulative
-            .windows(2)
-            .map(|pair| pair[1].saturating_sub(pair[0]))
-            .collect();
-        recounted.push(Recounted::Span(column.id, histogram));
+        recounted.push(Recounted::Span(column.id, buckets_of(&cumulative)));
     }
     Ok(recounted)
 }
@@ -953,16 +919,22 @@ fn bucket_edges(seen: &[f64]) -> Vec<f64> {
     (0..=BUCKETS).map(|i| low + step * i as f64).collect()
 }
 
+/// How many rows fall between each pair of edges, from how many fall below
+/// each.
+fn buckets_of(cumulative: &[u32]) -> Vec<u32> {
+    cumulative
+        .windows(2)
+        .map(|pair| pair[1].saturating_sub(pair[0]))
+        .collect()
+}
+
 /// Turn cumulative counts at each edge into a histogram and the extent that
 /// holds it.
 ///
 /// The outermost buckets holding anything are the extent, so a column asked
 /// about far wider than it runs is still drawn across what it has.
 fn histogram_of(edges: &[f64], cumulative: &[u32]) -> Option<NumericRange> {
-    let buckets: Vec<u32> = cumulative
-        .windows(2)
-        .map(|pair| pair[1].saturating_sub(pair[0]))
-        .collect();
+    let buckets = buckets_of(cumulative);
     let first = buckets.iter().position(|count| *count > 0)?;
     let last = buckets.iter().rposition(|count| *count > 0)?;
     Some(NumericRange::full(
@@ -1031,9 +1003,6 @@ impl SpecimenPages {
 
 /// Ask the platform what each column holds, once per source, and offer the
 /// answer as filters.
-///
-/// Only the annotations: a measurement is a number, and a number wants a range
-/// rather than a list of every reading anyone took.
 fn offer_filters(mut commands: Commands, mut sources: Query<(Entity, &mut SpecimenPages)>) {
     for (source, mut pages) in &mut sources {
         if let Some(fetch) = pages.offering.as_mut()
@@ -1076,15 +1045,8 @@ fn offer_filters(mut commands: Commands, mut sources: Query<(Entity, &mut Specim
 /// Opening is the signal because a distribution is twenty-odd index queries:
 /// asking for every column of a table the moment it opened would be a minute
 /// of waiting for histograms nobody looked at.
-fn serve_spans(
-    mut sources: Query<(
-        &mut SpecimenPages,
-        &mut TableFilters,
-        &SourceTable,
-        &TablePaging,
-    )>,
-) {
-    for (mut pages, mut filters, rows, paging) in &mut sources {
+fn serve_spans(mut sources: Query<(&mut SpecimenPages, &mut TableFilters, &SourceTable)>) {
+    for (mut pages, mut filters, rows) in &mut sources {
         if let Some((_, _, fetch)) = pages.spanning.as_mut()
             && let Some(answer) = fetch.take()
         {
@@ -1122,9 +1084,8 @@ fn serve_spans(
         // asking, and it is what the span asked about is built around.
         let seen = column_values(rows, &filters.columns[column].name);
         let (endpoint, project) = (pages.endpoint.clone(), pages.project.clone());
-        let terms = filters.chosen();
-        let _ = paging;
         // A column with no span yet has no term of its own among these.
+        let terms = filters.chosen();
         let asked = terms.clone();
         pages.spanning = Some((
             column,

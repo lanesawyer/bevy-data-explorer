@@ -22,12 +22,14 @@ use bevy_ui_widgets::{Activate, ValueChange};
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::Palette;
 use crate::source::properties::PropertyValue;
-use crate::source::table::{TableFilter, TableFilterKind, TableFilters, TablePaging};
+use crate::source::table::{
+    TableFilter, TableFilterKind, TableFilters, TablePaging, to_first_page,
+};
 use crate::source::{ShowsSource, compact_count};
-use crate::ui::cellpanel::range::{RangeOwner, spawn_range_control};
-use crate::ui::cellpanel::tree::Unveil;
-use crate::ui::cellpanel::values::{LIST_MAX_PX, SEARCH_FROM, note_for, set_display};
-use crate::ui::cellpanel::{MAX_VALUE_ROWS, ValueColumn, spawn_value_row};
+use crate::ui::cell_panel::range::{RangeOwner, spawn_range_control};
+use crate::ui::cell_panel::tree::Unveil;
+use crate::ui::cell_panel::values::{LIST_MAX_PX, SEARCH_FROM, note_for, set_display};
+use crate::ui::cell_panel::{MAX_VALUE_ROWS, ValueColumn, spawn_value_row};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::{
@@ -471,7 +473,7 @@ pub fn on_value_toggled(
     };
     if value.chosen != change.value {
         value.chosen = change.value;
-        to_first_page(&mut pagings, source);
+        to_first_page(pagings.get_mut(source).ok());
     }
 }
 
@@ -596,7 +598,7 @@ pub fn on_clear_pressed(
         && filters.restricts()
     {
         filters.clear();
-        to_first_page(&mut pagings, source);
+        to_first_page(pagings.get_mut(source).ok());
     }
 }
 
@@ -624,17 +626,7 @@ pub fn on_clear_column(
         .is_some_and(TableFilter::restricts)
     {
         filters.columns[button.column].clear();
-        to_first_page(&mut pagings, source);
-    }
-}
-
-/// A narrowed table is a new table, so it starts at the top rather than on
-/// whichever page the old one happened to be showing.
-pub fn to_first_page(pagings: &mut Query<&mut TablePaging>, source: Entity) {
-    if let Ok(mut paging) = pagings.get_mut(source)
-        && paging.page != 0
-    {
-        paging.page = 0;
+        to_first_page(pagings.get_mut(source).ok());
     }
 }
 

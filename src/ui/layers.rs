@@ -16,7 +16,7 @@ use bevy_ui_widgets::{Activate, SliderValue};
 use crate::app::schedule::{Boot, Stage};
 use crate::source::table::SourceTable;
 use crate::source::{DataSource, ShowsSource};
-use crate::ui::addsource::CustomLoad;
+use crate::ui::add_source::CustomLoad;
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::dataset_menu::{PickerTarget, spawn_dataset_picker};
 use crate::view::grid::MAX_LAYERS;

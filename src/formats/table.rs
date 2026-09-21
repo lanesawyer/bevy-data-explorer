@@ -59,10 +59,10 @@ impl Table {
         name: impl Into<String>,
         detail: impl Into<String>,
         headers: Vec<String>,
-        mut rows: Vec<Vec<String>>,
+        rows: Vec<Vec<String>>,
         note: Option<String>,
     ) -> Table {
-        Table::paged(name, detail, headers, rows_taken(&mut rows), note, None)
+        Table::paged(name, detail, headers, rows, note, None)
     }
 
     /// A table whose rows are a page of `total`, read from somewhere that will
@@ -117,13 +117,6 @@ impl Table {
             },
         }
     }
-}
-
-/// Hands the rows back untouched. Only here so [`Table::new`] and
-/// [`Table::paged`] can share one body without one of them moving the rows
-/// twice.
-fn rows_taken(rows: &mut Vec<Vec<String>>) -> Vec<Vec<String>> {
-    std::mem::take(rows)
 }
 
 /// Every row of a table that was read whole, out of sight of the frame.

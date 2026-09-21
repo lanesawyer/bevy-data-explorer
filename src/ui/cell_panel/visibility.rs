@@ -20,7 +20,7 @@ use bevy_ui_widgets::ValueChange;
 
 use crate::source::ShowsSource;
 use crate::source::properties::CellProperties;
-use crate::ui::cellpanel::{CellPanelMenu, PropertySection};
+use crate::ui::cell_panel::{CellPanelMenu, PropertySection};
 use crate::view::SelectedPanel;
 use crate::widgets::{BlocksFrameInput, button_text, size, text};
 

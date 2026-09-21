@@ -43,7 +43,7 @@ use crate::catalog::{CellRecord, RegionFocus, RegionSummary, SummaryState};
 use crate::source::properties::{CellProperties, PropertyKind, PropertyValue};
 use crate::source::region::SelectedRegion;
 use crate::source::{ShowsSource, compact_count};
-use crate::ui::cellpanel::spawn_more_note;
+use crate::ui::cell_panel::spawn_more_note;
 use crate::ui::inspector::Inspector;
 use crate::view::{FrameArea, FrameRegion, SelectMode, SelectedPanel};
 use crate::widgets::{

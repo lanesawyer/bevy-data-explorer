@@ -13,7 +13,7 @@ when something has already gone wrong.
 ## Step 1: Decide where it lives
 
 - **A setting on the selected frame's dataset** goes in "View configuration"
-  (`src/ui/viewconfig.rs`), or in the cell panel if it's about cells.
+  (`src/ui/view_config.rs`), or in the cell panel if it's about cells.
 - **A new group of controls** is a new sidebar section: its own module under
   `src/ui/` and its own plugin.
 - **A panel hung from a window edge** is a dock (step 5).
@@ -60,7 +60,7 @@ gets a file of its own there, re-exported from `widgets/mod.rs`.
   (resize handles, slider thumbs). Filter on `Changed<Interaction>`, since
   `Pressed` reads true on every frame the button is held.
 - **Acting on the selected frame**: resolve the target through
-  `SelectedPanel` then `ShowsSource`, as `viewconfig.rs` does. When the
+  `SelectedPanel` then `ShowsSource`, as `view_config.rs` does. When the
   selection moves, load the new source's value *into* the control, so the
   previous source's value doesn't leak across (see `sync_opacity_slider`).
 - **Capabilities**: show a control only when the selected source carries

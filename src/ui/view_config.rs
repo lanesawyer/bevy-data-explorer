@@ -119,7 +119,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         &mut commands,
         crate::view::dataset_menu::PickerTarget::NewFrame,
     );
-    let custom = crate::ui::addsource::spawn_custom_section(&mut commands);
+    let custom = crate::ui::add_source::spawn_custom_section(&mut commands);
     commands
         .entity(menu)
         .add_children(&[rows, open, picker, custom]);

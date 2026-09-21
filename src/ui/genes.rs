@@ -21,8 +21,8 @@ use crate::app::theme::Palette;
 use crate::source::ShowsSource;
 use crate::source::genes::{GeneSearch, SearchState};
 use crate::source::properties::CellProperties;
-use crate::ui::cellpanel::range::{RangeOwner, spawn_range_control};
-use crate::ui::cellpanel::{ClearPropertyButton, ColorByButton};
+use crate::ui::cell_panel::range::{RangeOwner, spawn_range_control};
+use crate::ui::cell_panel::{ClearPropertyButton, ColorByButton};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::{

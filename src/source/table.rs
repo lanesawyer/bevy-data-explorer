@@ -125,6 +125,16 @@ impl TablePaging {
     }
 }
 
+/// Put a table back on its first page.
+///
+/// A narrowed table is a new table, so it starts at the top rather than on
+/// whichever page the old one happened to be showing.
+pub fn to_first_page(paging: Option<Mut<TablePaging>>) {
+    if let Some(mut paging) = paging {
+        paging.set_if_neq(TablePaging { page: 0, ..*paging });
+    }
+}
+
 /// One value a column holds, and whether it has been ticked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableFilterValue {

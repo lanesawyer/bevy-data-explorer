@@ -23,7 +23,7 @@ use bevy_feathers::tokens;
 
 use crate::app::theme::{Palette, token};
 use crate::source::properties::{CellProperties, NumericRange, Ramp, RangeEnd};
-use crate::source::table::{TableFilters, TablePaging};
+use crate::source::table::{TableFilters, TablePaging, to_first_page};
 use crate::source::{ShowsSource, compact_count};
 use crate::view::SelectedPanel;
 use crate::widgets::{BlocksFrameInput, hold_drag_cursor, size};
@@ -422,16 +422,6 @@ pub fn drag_range_handles(
     let mut properties = sources.get_mut(source).ok();
     let (mut filters, mut paging) = tables.get_mut(source).ok().unzip();
     let paging = paging.take().flatten();
-    // A narrowed table is a new table, so it starts at the top rather than on
-    // whichever page the old one happened to be showing.
-    let to_first_page = |owner: RangeOwner, paging: Option<Mut<TablePaging>>| {
-        if owner == RangeOwner::TableColumn
-            && let Some(mut paging) = paging
-            && paging.page != 0
-        {
-            paging.page = 0;
-        }
-    };
 
     if mouse.just_pressed(MouseButton::Left) {
         // Grabbed on the way down and held until release, so the pointer may
@@ -456,7 +446,7 @@ pub fn drag_range_handles(
                 let (from, to) = range.bucket_span(bucket.bucket);
                 range.from = from;
                 range.to = to;
-                to_first_page(bucket.owner, paging);
+                to_first_page(paging);
             }
             return;
         } else if let Some((track, _, _)) =
@@ -510,7 +500,7 @@ pub fn drag_range_handles(
                 property,
                 end,
             });
-            to_first_page(owner, paging);
+            to_first_page(paging);
         }
         RangeDrag::Span {
             owner,
@@ -531,7 +521,7 @@ pub fn drag_range_handles(
             };
             let moved = (fraction - grabbed) * (range.high - range.low);
             range.slide_to(from + moved);
-            to_first_page(owner, paging);
+            to_first_page(paging);
         }
     }
 }

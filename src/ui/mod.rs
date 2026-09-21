@@ -3,21 +3,21 @@
 
 use bevy::prelude::*;
 
-pub mod addsource;
+pub mod add_source;
 pub mod bookmarks;
-pub mod cellpanel;
+pub mod cell_panel;
 pub mod channels;
 pub mod filtered;
 pub mod genes;
 pub mod help;
 pub mod inspector;
 pub mod layers;
-pub mod logpanel;
+pub mod log_panel;
 pub mod selection;
 pub mod settings;
 pub mod sidebar;
-pub mod tablefilters;
-pub mod viewconfig;
+pub mod table_filters;
+pub mod view_config;
 pub mod welcome;
 
 /// The docks and everything in them.
@@ -31,22 +31,22 @@ impl Plugin for UiPlugin {
         app.add_plugins((
             sidebar::SidebarPlugin,
             inspector::InspectorPlugin,
-            viewconfig::ViewConfigPlugin,
+            view_config::ViewConfigPlugin,
             channels::ChannelControlsPlugin,
             filtered::FilteredControlsPlugin,
             layers::LayersPlugin,
-            addsource::AddSourcePlugin,
+            add_source::AddSourcePlugin,
             bookmarks::BookmarksPlugin,
-            cellpanel::CellPanelPlugin,
+            cell_panel::CellPanelPlugin,
             selection::SelectionPanelPlugin,
             genes::GenePanelPlugin,
         ))
         // Split because a plugin tuple caps at sixteen, the way a system
         // tuple caps at twenty.
         .add_plugins((
-            tablefilters::TableFilterPlugin,
+            table_filters::TableFilterPlugin,
             welcome::WelcomePlugin,
-            logpanel::LogPanelPlugin,
+            log_panel::LogPanelPlugin,
             help::HelpPlugin,
             settings::SettingsPlugin,
         ));
