@@ -781,12 +781,17 @@ fn offer_filters(mut commands: Commands, mut sources: Query<(Entity, &mut Specim
             match answer {
                 Ok(columns) if !columns.is_empty() => {
                     info!("{} columns to narrow specimens by", columns.len());
-                    commands.entity(source).insert(TableFilters { columns });
+                    commands.entity(source).insert(TableFilters::ready(columns));
                 }
                 // Nothing to narrow by is not a failure: the section simply
                 // does not appear.
-                Ok(_) => {}
-                Err(e) => warn!("asking what specimens can be narrowed by: {e}"),
+                Ok(_) => {
+                    commands.entity(source).remove::<TableFilters>();
+                }
+                Err(e) => {
+                    warn!("asking what specimens can be narrowed by: {e}");
+                    commands.entity(source).remove::<TableFilters>();
+                }
             }
         }
         if pages.offered {
@@ -797,6 +802,7 @@ fn offer_filters(mut commands: Commands, mut sources: Query<(Entity, &mut Specim
         // Every column, not only the annotations: the platform answers for
         // whichever of them it can group by.
         let columns = pages.plan.columns();
+        commands.entity(source).insert(TableFilters::pending());
         pages.offering = Some(fetching(async move {
             ask_values(&endpoint, &project, &columns).await
         }));

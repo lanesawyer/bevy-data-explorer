@@ -24,12 +24,12 @@ use crate::view::SelectedPanel;
 use crate::widgets::{matches_search, scroll_list, size, spawn_search_field, text_dim};
 
 /// Fewest values a property has before it offers a search. Below this the
-/// whole list is in view anyway.
-const SEARCH_FROM: usize = 12;
+/// whole list is in view anyway. The table filters go by the same figure.
+pub const SEARCH_FROM: usize = 12;
 
 /// Tallest a property's list grows before it scrolls. About a dozen rows: the
 /// sidebar has other properties to show.
-const LIST_MAX_PX: f32 = 300.0;
+pub const LIST_MAX_PX: f32 = 300.0;
 
 /// The field a property's values are searched from. On the inner text entity,
 /// which holds the [`EditableText`].
@@ -228,7 +228,7 @@ pub fn sync_value_lists(
     }
 }
 
-fn set_display(nodes: &mut Query<&mut Node>, entity: Entity, shown: bool) {
+pub fn set_display(nodes: &mut Query<&mut Node>, entity: Entity, shown: bool) {
     let wanted = if shown { Display::Flex } else { Display::None };
     if let Ok(mut node) = nodes.get_mut(entity)
         && node.display != wanted
@@ -239,7 +239,7 @@ fn set_display(nodes: &mut Query<&mut Node>, entity: Entity, shown: bool) {
 
 /// The line under a list: that nothing matched, or that more did than are
 /// listed.
-fn note_for(query: &str, browsing: bool, matched: usize) -> String {
+pub fn note_for(query: &str, browsing: bool, matched: usize) -> String {
     if browsing {
         String::new()
     } else if matched == 0 && !query.is_empty() {

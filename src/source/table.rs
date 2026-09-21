@@ -298,9 +298,28 @@ pub enum TableFilterTerm {
 #[derive(Component, Debug, Default)]
 pub struct TableFilters {
     pub columns: Vec<TableFilter>,
+    /// Whatever produced the rows is still working out what they can be
+    /// narrowed by, so the sidebar holds a place for the columns rather than
+    /// having them appear from nowhere.
+    pub pending: bool,
 }
 
 impl TableFilters {
+    /// Columns still on their way.
+    pub fn pending() -> Self {
+        TableFilters {
+            columns: Vec::new(),
+            pending: true,
+        }
+    }
+
+    pub fn ready(columns: Vec<TableFilter>) -> Self {
+        TableFilters {
+            columns,
+            pending: false,
+        }
+    }
+
     pub fn restricts(&self) -> bool {
         self.columns.iter().any(TableFilter::restricts)
     }
@@ -416,20 +435,18 @@ mod tests {
             count,
             chosen: false,
         };
-        TableFilters {
-            columns: vec![
-                TableFilter::values(
-                    "A",
-                    "Cognitive status",
-                    vec![value("Dementia", 42), value("No dementia", 42)],
-                ),
-                TableFilter::values(
-                    "B",
-                    "Braak stage",
-                    vec![value("Braak 0", 2), value("Braak IV", 23)],
-                ),
-            ],
-        }
+        TableFilters::ready(vec![
+            TableFilter::values(
+                "A",
+                "Cognitive status",
+                vec![value("Dementia", 42), value("No dementia", 42)],
+            ),
+            TableFilter::values(
+                "B",
+                "Braak stage",
+                vec![value("Braak 0", 2), value("Braak IV", 23)],
+            ),
+        ])
     }
 
     #[test]
@@ -476,9 +493,7 @@ mod tests {
 
     #[test]
     fn a_span_narrows_only_once_it_is_moved_off_its_ends() {
-        let mut filters = TableFilters {
-            columns: vec![TableFilter::range("C", "Age at death")],
-        };
+        let mut filters = TableFilters::ready(vec![TableFilter::range("C", "Age at death")]);
         // Nothing to narrow by until the numbers have been asked for.
         assert!(!filters.restricts());
         assert!(filters.chosen().is_empty());
