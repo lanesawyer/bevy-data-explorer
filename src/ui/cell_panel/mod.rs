@@ -49,17 +49,13 @@ use crate::source::properties::{
     Provenance,
 };
 use crate::source::{DataSource, ShowsSource, compact_count};
-use crate::ui::sidebar::{SectionOrder, SidebarContent};
+use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::space;
 use crate::widgets::{
     Accordion, BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, size,
     spawn_accordion, spawn_header_button, spawn_icon_menu, spawn_menu, spawn_skeleton, text_dim,
 };
-
-/// The section itself, hidden for sources with no properties to show.
-#[derive(Component, Clone, Default)]
-pub struct CellPanel;
 
 /// The section's own menu, for controls that act on all of its properties.
 #[derive(Component, Clone, Default)]
@@ -173,16 +169,10 @@ pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<Side
     let Ok(parent) = content.single() else { return };
 
     let accordion = spawn_accordion(&mut commands, "Cell properties", true, SectionLevel::Pane);
-    commands
-        .entity(accordion.section)
-        .insert(CellPanel)
-        .insert(SectionOrder(SECTION_ORDER))
-        .insert(Node {
-            flex_direction: FlexDirection::Column,
-            width: Val::Percent(100.0),
-            display: Display::None,
-            ..default()
-        });
+    commands.entity(accordion.section).insert((
+        SectionOrder(SECTION_ORDER),
+        SectionFor(|source| source.contains::<CellProperties>()),
+    ));
     commands.entity(parent).add_child(accordion.section);
     commands.entity(accordion.body).insert(CellPanelBody);
 
@@ -212,7 +202,6 @@ pub fn rebuild_cell_panel(
         Has<Described>,
     )>,
     body: Query<Entity, With<CellPanelBody>>,
-    mut section: Query<&mut Node, With<CellPanel>>,
     existing: Query<Entity, With<CellPanelContent>>,
     open: Res<OpenSections>,
     mut shown: Local<Option<(Entity, Vec<String>, Provenance, PropertyState, bool)>>,
@@ -223,17 +212,6 @@ pub fn rebuild_cell_panel(
         .0
         .and_then(|panel| panels.get(panel).ok())
         .and_then(|shows| sources.get(shows.0).ok().map(|found| (shows.0, found)));
-
-    for mut node in &mut section {
-        let wanted = if source.is_some() {
-            Display::Flex
-        } else {
-            Display::None
-        };
-        if node.display != wanted {
-            node.display = wanted;
-        }
-    }
 
     let Some((entity, (_, properties, has_columns, described))) = source else {
         *shown = None;

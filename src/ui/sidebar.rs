@@ -17,7 +17,8 @@ use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::schedule::{Boot, Stage};
-use crate::view::FrameArea;
+use crate::source::{DataSource, ShowsSource};
+use crate::view::{Browsing, FrameArea, Panel, SelectedPanel};
 use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, button_text,
@@ -175,6 +176,41 @@ pub struct SidebarContent;
 /// reshuffle the ones already there.
 #[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SectionOrder(pub u32);
+
+/// Which sources a section applies to, asked of the selected frame's source.
+///
+/// Stated where the section is spawned, as a test of what the source carries,
+/// so what a frame shows decides what appears here and one system hides the
+/// rest. A section without it is the app's rather than a frame's, and always
+/// shows.
+#[derive(Component, Clone, Copy)]
+pub struct SectionFor(pub fn(EntityRef) -> bool);
+
+/// Show the sections that apply to the selected frame's source, and no others.
+///
+/// A frame choosing what to show, or with nothing selected at all, has none:
+/// its picker is the whole of what it offers.
+pub fn show_sections(
+    selected: Res<SelectedPanel>,
+    panels: Query<&ShowsSource, (With<Panel>, Without<Browsing>)>,
+    sources: Query<EntityRef, With<DataSource>>,
+    mut sections: Query<(&SectionFor, &mut Node), Without<DataSource>>,
+) {
+    let source = selected
+        .0
+        .and_then(|panel| panels.get(panel).ok())
+        .and_then(|shows| sources.get(shows.0).ok());
+    for (applies, mut node) in &mut sections {
+        let wanted = if source.is_some_and(|source| (applies.0)(source)) {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != wanted {
+            node.display = wanted;
+        }
+    }
+}
 
 /// Put the sections in their stated order, once they have all been spawned.
 fn order_sections(
@@ -491,7 +527,9 @@ impl Plugin for SidebarPlugin {
             )
             .add_systems(
                 Update,
-                (update_sidebar, show_labels).chain().in_set(Stage::Chrome),
+                (update_sidebar, show_labels, show_sections)
+                    .chain()
+                    .in_set(Stage::Chrome),
             )
             .add_systems(Startup, spawn_sidebar.in_set(Boot::Shell))
             .add_systems(Startup, order_sections.in_set(Boot::DockOrder));

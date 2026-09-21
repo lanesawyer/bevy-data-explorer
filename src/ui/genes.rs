@@ -23,7 +23,7 @@ use crate::source::genes::{GeneSearch, SearchState};
 use crate::source::properties::CellProperties;
 use crate::ui::cell_panel::range::{RangeOwner, spawn_range_control};
 use crate::ui::cell_panel::{ClearPropertyButton, ColorByButton};
-use crate::ui::sidebar::{SectionOrder, SidebarContent};
+use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::space;
 use crate::widgets::{
@@ -34,10 +34,6 @@ use crate::widgets::{
 /// Under the cell properties, whose numeric controls these are, and above the
 /// bookmarks, which apply to everything on screen.
 const SECTION_ORDER: u32 = 25;
-
-/// The section itself, hidden for sources with no genes to offer.
-#[derive(Component, Clone, Default)]
-pub struct GenePanel;
 
 /// The field a gene's symbol is typed into. On the inner text entity, which
 /// holds the [`EditableText`].
@@ -79,16 +75,10 @@ pub fn spawn_gene_panel(mut commands: Commands, content: Query<Entity, With<Side
     let Ok(parent) = content.single() else { return };
 
     let accordion = spawn_accordion(&mut commands, "Genes", true, SectionLevel::Pane);
-    commands
-        .entity(accordion.section)
-        .insert(GenePanel)
-        .insert(SectionOrder(SECTION_ORDER))
-        .insert(Node {
-            flex_direction: FlexDirection::Column,
-            width: Val::Percent(100.0),
-            display: Display::None,
-            ..default()
-        });
+    commands.entity(accordion.section).insert((
+        SectionOrder(SECTION_ORDER),
+        SectionFor(|source| source.contains::<GeneSearch>()),
+    ));
     commands.entity(parent).add_child(accordion.section);
 
     let search = spawn_search_field(&mut commands, "Search genes, such as Gad1");
@@ -353,27 +343,14 @@ pub fn rebuild_gene_list(
     commands.entity(list).add_children(&sections);
 }
 
-/// Show the section only for a source offering genes, and say how its search
-/// is going.
+/// Say how the selected source's gene search is going.
 pub fn update_gene_panel(
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     sources: Query<&GeneSearch>,
-    mut section: Query<&mut Node, (With<GenePanel>, Without<GeneStatus>)>,
-    mut status: Query<(&mut Text, &mut Node), (With<GeneStatus>, Without<GenePanel>)>,
+    mut status: Query<(&mut Text, &mut Node), With<GeneStatus>>,
 ) {
     let search = selected_source(&selected, &panels).and_then(|source| sources.get(source).ok());
-
-    for mut node in &mut section {
-        let wanted = if search.is_some() {
-            Display::Flex
-        } else {
-            Display::None
-        };
-        if node.display != wanted {
-            node.display = wanted;
-        }
-    }
 
     let message = search.map(status_of).unwrap_or_default();
     for (mut text, mut node) in &mut status {

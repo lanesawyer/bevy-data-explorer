@@ -36,7 +36,7 @@ use crate::ui::cell_panel::range::{RangeOwner, spawn_range_control};
 use crate::ui::cell_panel::tree::Unveil;
 use crate::ui::cell_panel::values::{LIST_MAX_PX, SEARCH_FROM, note_for, set_display};
 use crate::ui::cell_panel::{MAX_VALUE_ROWS, ValueColumn, spawn_value_row};
-use crate::ui::sidebar::{SectionOrder, SidebarContent};
+use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::space;
 use crate::widgets::{
@@ -57,10 +57,6 @@ const SKELETON_ROW_PX: f32 = 26.0;
 /// About as tall as the histogram, track and readout a span's placeholder
 /// stands in for, so the column does not jump when its numbers land.
 const SPAN_SKELETON_PX: f32 = 72.0;
-
-/// The section itself, hidden for a frame that is not showing a table.
-#[derive(Component, Clone, Default)]
-pub struct FilterSection;
 
 /// The body the columns are built into.
 #[derive(Component, Clone, Default)]
@@ -158,16 +154,10 @@ pub fn spawn_filter_section(mut commands: Commands, content: Query<Entity, With<
     let Ok(parent) = content.single() else { return };
 
     let accordion = spawn_accordion(&mut commands, "Table filters", true, SectionLevel::Pane);
-    commands
-        .entity(accordion.section)
-        .insert(FilterSection)
-        .insert(SectionOrder(SECTION_ORDER))
-        .insert(Node {
-            flex_direction: FlexDirection::Column,
-            width: Val::Percent(100.0),
-            display: Display::None,
-            ..default()
-        });
+    commands.entity(accordion.section).insert((
+        SectionOrder(SECTION_ORDER),
+        SectionFor(|source| source.contains::<SourceTable>()),
+    ));
     commands.entity(parent).add_child(accordion.section);
     commands.entity(accordion.body).insert(FilterBody);
 
@@ -195,7 +185,6 @@ pub fn rebuild_filters(
     selection: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     tables: Query<Option<&TableFilters>, With<SourceTable>>,
-    mut sections: Query<&mut Node, With<FilterSection>>,
     body: Query<Entity, With<FilterBody>>,
     existing: Query<Entity, With<FilterContent>>,
     mut built: Local<Option<(Entity, Option<(usize, bool)>)>>,
@@ -203,17 +192,6 @@ pub fn rebuild_filters(
     let Ok(body) = body.single() else { return };
     let source = selected(&selection, &panels).filter(|source| tables.contains(*source));
     let filters = source.and_then(|source| tables.get(source).ok().flatten());
-
-    let wanted = if source.is_some() {
-        Display::Flex
-    } else {
-        Display::None
-    };
-    for mut node in &mut sections {
-        if node.display != wanted {
-            node.display = wanted;
-        }
-    }
 
     let fingerprint = source.map(|source| {
         (

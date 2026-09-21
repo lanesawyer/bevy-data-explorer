@@ -15,9 +15,10 @@ use crate::app::schedule::{Boot, Stage};
 use crate::render::points::{DEFAULT_POINT_PX, MAX_POINT_PX, MIN_POINT_PX, SourcePointSize};
 use crate::render::settings::SourceOpacity;
 use crate::source::stack::{SliceGrid, SliceStack};
+use crate::source::table::SourceTable;
 use crate::source::{DataSource, ShowsSource};
 use crate::ui::filtered::{FilteredTarget, filtered_controls};
-use crate::ui::sidebar::{SectionOrder, SidebarContent};
+use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::{
     BlocksFrameInput, SectionLevel, button_text, size, spawn_accordion, spawn_slider, text,
@@ -63,18 +64,15 @@ pub struct SliceReadout;
 #[derive(Component, Clone, Default)]
 pub struct SliceGridBox;
 
-/// A control that acts on the selected frame, and so has nothing to act on
-/// while none is selected.
-///
-/// The point size row carries its own rule — a source may have no point size to
-/// set even when it is selected — and that rule already covers there being no
-/// selection at all, so it is not marked with this.
-#[derive(Component, Clone, Default)]
-pub struct FrameControl;
-
 /// Above the per-dataset sections: it acts on the selected frame whatever
 /// that frame is showing.
 const SECTION_ORDER: u32 = 10;
+
+/// Everything but a table, whose rows are chrome drawn over the frame rather
+/// than into it, so there is nothing to fade, size or page.
+fn applies(source: EntityRef) -> bool {
+    !source.contains::<SourceTable>()
+}
 
 pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
     let Ok(parent) = content.single() else { return };
@@ -87,7 +85,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     );
     commands
         .entity(accordion.section)
-        .insert(SectionOrder(SECTION_ORDER));
+        .insert((SectionOrder(SECTION_ORDER), SectionFor(applies)));
     commands.entity(parent).add_child(accordion.section);
     let body = accordion.body;
 
@@ -101,18 +99,13 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         .id();
 
     let transparency = commands
-        .spawn_scene(bsn! {
-            FrameControl
-            text("Transparency", size::SECONDARY)
-        })
+        .spawn_scene(text("Transparency", size::SECONDARY))
         .id();
 
     // Percent rather than a fraction, so the slider's own readout is a whole
     // number that means something without a separate caption beside it.
     let slider = spawn_slider(&mut commands, 100.0, (0.0, PERCENT), 0);
-    commands
-        .entity(slider)
-        .insert((OpacitySlider, FrameControl));
+    commands.entity(slider).insert(OpacitySlider);
 
     let size_label = commands
         .spawn_scene(bsn! {
@@ -325,10 +318,8 @@ pub fn sync_opacity_slider(
     selected: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
     mut sources: Query<(&DataSource, Option<&mut SourceOpacity>)>,
-    tables: Query<(), With<crate::source::table::SourceTable>>,
     slider: Query<(Entity, &SliderValue), With<OpacitySlider>>,
     mut names: Query<&mut Text, With<SelectedName>>,
-    mut controls: Query<&mut Node, With<FrameControl>>,
     mut shown: Local<Option<Entity>>,
 ) {
     let source = selected
@@ -336,30 +327,10 @@ pub fn sync_opacity_slider(
         .and_then(|panel| panels.get(panel).ok())
         .map(|shows| shows.0);
 
-    // A control with nothing to act on is worse than no control: it invites a
-    // drag that changes nothing. With no frame selected the section says so and
-    // shows nothing else — and a frame full of rows has no geometry to fade,
-    // since its table is chrome drawn over the frame rather than into it.
-    let wanted = if source.is_some_and(|source| !tables.contains(source)) {
-        Display::Flex
-    } else {
-        Display::None
-    };
-    for mut node in &mut controls {
-        if node.display != wanted {
-            node.display = wanted;
-        }
-    }
-
     let Ok((slider_entity, value)) = slider.single() else {
         return;
     };
-    let Some(source) = source else {
-        for mut text in &mut names {
-            text.0 = "no frame selected".into();
-        }
-        return;
-    };
+    let Some(source) = source else { return };
     let Ok((data, opacity)) = sources.get_mut(source) else {
         return;
     };
