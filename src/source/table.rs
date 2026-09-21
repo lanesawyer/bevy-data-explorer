@@ -12,7 +12,10 @@
 //! [`hover`]: super::hover
 //! [`region`]: super::region
 
+use std::collections::BTreeSet;
+
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use super::properties::NumericRange;
 
@@ -134,6 +137,72 @@ pub fn to_first_page(paging: Option<Mut<TablePaging>>) {
         paging.set_if_neq(TablePaging { page: 0, ..*paging });
     }
 }
+
+/// One column a table is ordered by, and which way.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SortKey {
+    /// The column's heading, which is what a frame knows it by.
+    pub column: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub descending: bool,
+}
+
+/// How a table's rows are ordered: by the first key, then by the second among
+/// rows the first leaves tied, and so on.
+///
+/// Another of the questions the grid asks and a format answers. A frame's
+/// headings write it; whatever produced the rows orders them — a format
+/// holding the whole table sorts it, and one reading a page at a time asks
+/// for the page in order. A source without one cannot be sorted, and its
+/// headings are not offered as buttons.
+#[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
+pub struct TableSort(pub Vec<SortKey>);
+
+impl TableSort {
+    /// Where `column` falls among the keys, and the key itself.
+    pub fn key(&self, column: &str) -> Option<(usize, &SortKey)> {
+        self.0
+            .iter()
+            .enumerate()
+            .find(|(_, key)| key.column == column)
+    }
+
+    /// A heading was pressed: ascending, then descending, then unsorted.
+    ///
+    /// With `add`, the column is turned over in place among the others, or
+    /// joins the end of them. Without, it becomes the only key — unless it
+    /// already was, in which case it is turned over the same way.
+    pub fn press(&mut self, column: &str, add: bool) {
+        let current = self.key(column).map(|(_, key)| key.descending);
+        if !add {
+            let several = self.0.len() > 1;
+            self.0.retain(|key| key.column == column);
+            if several && current.is_some() {
+                self.0[0].descending = false;
+                return;
+            }
+        }
+        match current {
+            None => self.0.push(SortKey {
+                column: column.to_string(),
+                descending: false,
+            }),
+            Some(false) => {
+                if let Some(key) = self.0.iter_mut().find(|key| key.column == column) {
+                    key.descending = true;
+                }
+            }
+            Some(true) => self.0.retain(|key| key.column != column),
+        }
+    }
+}
+
+/// The columns a table is drawn without, by heading.
+///
+/// Nothing a format answers: the rows still hold them, and a filter or a sort
+/// on one still applies. Only the frame leaves them out.
+#[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
+pub struct HiddenColumns(pub BTreeSet<String>);
 
 /// One value a column holds, and whether it has been ticked.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -550,6 +619,54 @@ mod tests {
         filters.columns[0].listed_mut()[0].chosen = true;
         filters.clear();
         assert!(!filters.restricts());
+    }
+
+    fn sorted(sort: &TableSort) -> Vec<(&str, bool)> {
+        sort.0
+            .iter()
+            .map(|key| (key.column.as_str(), key.descending))
+            .collect()
+    }
+
+    #[test]
+    fn pressing_a_heading_turns_it_ascending_descending_then_off() {
+        let mut sort = TableSort::default();
+        sort.press("Age", false);
+        assert_eq!(sorted(&sort), [("Age", false)]);
+        sort.press("Age", false);
+        assert_eq!(sorted(&sort), [("Age", true)]);
+        sort.press("Age", false);
+        assert!(sort.0.is_empty());
+    }
+
+    #[test]
+    fn pressing_another_heading_sorts_by_it_alone() {
+        let mut sort = TableSort::default();
+        sort.press("Age", false);
+        sort.press("Sex", false);
+        assert_eq!(sorted(&sort), [("Sex", false)]);
+    }
+
+    #[test]
+    fn adding_a_heading_sorts_within_the_ones_already_sorted() {
+        let mut sort = TableSort::default();
+        sort.press("Braak", false);
+        sort.press("Age", true);
+        assert_eq!(sorted(&sort), [("Braak", false), ("Age", false)]);
+        // Turned over where it stands, not moved to the end.
+        sort.press("Braak", true);
+        assert_eq!(sorted(&sort), [("Braak", true), ("Age", false)]);
+        sort.press("Braak", true);
+        assert_eq!(sorted(&sort), [("Age", false)]);
+    }
+
+    #[test]
+    fn pressing_one_of_several_keys_alone_starts_over_from_it() {
+        let mut sort = TableSort::default();
+        sort.press("Braak", false);
+        sort.press("Age", true);
+        sort.press("Age", false);
+        assert_eq!(sorted(&sort), [("Age", false)]);
     }
 
     #[test]

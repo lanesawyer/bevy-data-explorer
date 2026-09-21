@@ -36,7 +36,7 @@ use crate::source::channels::SourceChannels;
 use crate::source::genes::{GeneSearch, ReadsGenes};
 use crate::source::properties::{CellColumns, CellProperties, PropertyState};
 use crate::source::stack::{SliceGrid, SliceStack};
-use crate::source::table::{TableFilters, TablePaging};
+use crate::source::table::{HiddenColumns, TableFilters, TablePaging, TableSort};
 use crate::source::volume::SourceVolume;
 use crate::source::{DataSource, SourceExtent, SourceUrl};
 use crate::view::grid::{MAX_LAYERS, MAX_PANELS};
@@ -106,6 +106,8 @@ pub struct PendingSettings {
 pub struct TableAccess {
     paging: Option<&'static mut TablePaging>,
     filters: Option<&'static mut TableFilters>,
+    sort: Option<&'static mut TableSort>,
+    hidden: Option<&'static mut HiddenColumns>,
 }
 
 /// What a restore needs of a source to put its genes back.
@@ -480,8 +482,8 @@ pub fn apply_pending_settings(
     }
 }
 
-/// Put a table back on its page, narrowed as it was, and say whether that is
-/// still waiting on the table.
+/// Put a table back on its page, narrowed, sorted and drawing the columns it
+/// drew, and say whether that is still waiting on the table.
 ///
 /// The page is set with the filters, never before them: whatever produced
 /// the rows fetches the two together, and a page set first would be fetched
@@ -526,6 +528,12 @@ fn restore_table(
                 missing.join(", ")
             );
         }
+    }
+    if let Some(sort) = table.sort.as_mut() {
+        sort.set_if_neq(TableSort(saved.sort.clone()));
+    }
+    if let Some(hidden) = table.hidden.as_mut() {
+        hidden.set_if_neq(HiddenColumns(saved.hidden.iter().cloned().collect()));
     }
     // The total is the unfiltered table's until the narrowed one is counted,
     // so a page past its end is left for the format to bring back.
@@ -791,13 +799,15 @@ mod tests {
     #[test]
     fn a_tables_page_waits_for_the_filters_it_was_saved_with() {
         use crate::bookmark::snapshot::{ColumnFilter, TableFilterState, TableState};
-        use crate::source::table::{TableFilter, TableFilterValue};
+        use crate::source::table::{SortKey, TableFilter, TableFilterValue};
 
         let mut app = app();
         let source = source(&mut app, "Specimens", "https://store/specimens");
         app.world_mut().entity_mut(source).insert((
             TablePaging::new(100, Some(1000)),
             TableFilters::pending(),
+            TableSort::default(),
+            HiddenColumns::default(),
             PendingSettings {
                 state: SourceState {
                     table: Some(TableState {
@@ -808,6 +818,11 @@ mod tests {
                                 values: vec!["F".into()],
                             },
                         }],
+                        sort: vec![SortKey {
+                            column: "Age".into(),
+                            descending: true,
+                        }],
+                        hidden: vec!["Donor ID".into()],
                     }),
                     ..default()
                 },
@@ -818,6 +833,9 @@ mod tests {
         ));
         app.update();
         assert_eq!(app.world().get::<TablePaging>(source).unwrap().page, 0);
+        // Sorted with the filters rather than before them, for the same
+        // reason the page is.
+        assert!(app.world().get::<TableSort>(source).unwrap().0.is_empty());
         assert!(app.world().get::<PendingSettings>(source).is_some());
 
         // The columns land.
@@ -840,6 +858,16 @@ mod tests {
         assert_eq!(world.get::<TablePaging>(source).unwrap().page, 2);
         let filters = world.get::<TableFilters>(source).unwrap();
         assert!(filters.columns[0].listed()[0].chosen);
+        let sort = &world.get::<TableSort>(source).unwrap().0;
+        assert_eq!(sort[0].column, "Age");
+        assert!(sort[0].descending);
+        assert!(
+            world
+                .get::<HiddenColumns>(source)
+                .unwrap()
+                .0
+                .contains("Donor ID")
+        );
     }
 
     #[test]

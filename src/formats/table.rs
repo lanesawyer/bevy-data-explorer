@@ -10,10 +10,12 @@
 //! way: how wide its widest value is, and whether every value in it is a
 //! number.
 
+use std::cmp::Ordering;
+
 use bevy::prelude::*;
 
 use crate::app::schedule::Stage;
-use crate::source::table::{SourceTable, TableColumn, TablePaging};
+use crate::source::table::{HiddenColumns, SourceTable, TableColumn, TablePaging, TableSort};
 use crate::source::{self, SourceExtent, SourceStatus};
 
 /// Rows kept, past which a table is read as far as this and says so.
@@ -125,33 +127,113 @@ impl Table {
 /// for. A format that reads a page at a time from somewhere else has no such
 /// component; it answers the same question its own way.
 #[derive(Component)]
-pub struct WholeTable(pub Vec<Vec<String>>);
+pub struct WholeTable {
+    /// In the order they were read, which is what a table goes back to when
+    /// it is no longer sorted.
+    pub rows: Vec<Vec<String>>,
+    /// Where each row falls as the table is sorted now: `rows[order[0]]` is
+    /// the first on the first page.
+    pub order: Vec<usize>,
+}
 
-/// Put the page a frame is asking for into the rows it draws.
+impl WholeTable {
+    fn new(rows: Vec<Vec<String>>) -> Self {
+        WholeTable {
+            order: (0..rows.len()).collect(),
+            rows,
+        }
+    }
+}
+
+/// Put the page a frame is asking for into the rows it draws, in the order
+/// the table is sorted.
 ///
 /// Slicing rather than fetching, because this serves the tables that were
 /// read whole. The page is clamped here rather than where it is written, so a
 /// frame asking past the end lands on the last page instead of an empty one.
 fn serve_pages(
-    mut tables: Query<(&WholeTable, &mut TablePaging, &mut SourceTable), Changed<TablePaging>>,
+    mut tables: Query<
+        (
+            &mut WholeTable,
+            &mut TablePaging,
+            &mut SourceTable,
+            Ref<TableSort>,
+        ),
+        Or<(Changed<TablePaging>, Changed<TableSort>)>,
+    >,
 ) {
-    for (whole, mut paging, mut rows) in &mut tables {
+    for (mut whole, mut paging, mut rows, sort) in &mut tables {
+        if sort.is_changed() {
+            whole.order = order_of(&whole.rows, &rows.columns, &sort);
+        }
         let page = paging.clamped(paging.page);
         if page != paging.page {
             paging.page = page;
         }
         let first = paging.first();
         let wanted: Vec<Vec<String>> = whole
-            .0
+            .order
             .iter()
             .skip(first)
             .take(paging.size)
-            .cloned()
+            .map(|&row| whole.rows[row].clone())
             .collect();
         if rows.first != first || rows.rows != wanted {
             rows.first = first;
             rows.rows = wanted;
         }
+    }
+}
+
+/// The order `rows` fall in when sorted by `sort`: each key in turn, the next
+/// deciding only among rows the ones before leave tied. Rows tied on every
+/// key stay in the order they were read.
+fn order_of(rows: &[Vec<String>], columns: &[TableColumn], sort: &TableSort) -> Vec<usize> {
+    let keys: Vec<(usize, bool, bool)> = sort
+        .0
+        .iter()
+        .filter_map(|key| {
+            let at = columns
+                .iter()
+                .position(|column| column.name == key.column)?;
+            Some((at, columns[at].numeric, key.descending))
+        })
+        .collect();
+    let mut order: Vec<usize> = (0..rows.len()).collect();
+    let value = |row: usize, at: usize| rows[row].get(at).map_or("", String::as_str);
+    order.sort_by(|&a, &b| {
+        keys.iter()
+            .map(|&(at, numeric, descending)| {
+                compare(value(a, at), value(b, at), numeric, descending)
+            })
+            .find(|ordering| ordering.is_ne())
+            .unwrap_or(Ordering::Equal)
+    });
+    order
+}
+
+/// Two values of one column. A gap goes after every value whichever way the
+/// column runs, so turning a sort over does not bring the empty rows to the
+/// top.
+fn compare(a: &str, b: &str, numeric: bool, descending: bool) -> Ordering {
+    let (a, b) = (a.trim(), b.trim());
+    let ordering = match (a.is_empty(), b.is_empty()) {
+        (true, true) => return Ordering::Equal,
+        (true, false) => return Ordering::Greater,
+        (false, true) => return Ordering::Less,
+        _ if numeric => {
+            let number = |value: &str| value.parse::<f64>().unwrap_or(f64::NAN);
+            number(a).total_cmp(&number(b))
+        }
+        _ => a
+            .chars()
+            .flat_map(char::to_lowercase)
+            .cmp(b.chars().flat_map(char::to_lowercase)),
+    };
+    if descending {
+        ordering.reverse()
+    } else {
+        ordering
     }
 }
 
@@ -207,13 +289,18 @@ pub fn spawn_source(world: &mut World, table: Table) -> Entity {
     let mut page = table.rows;
     let paging = TablePaging::new(PAGE_ROWS, Some(rows));
     let mut entity = world.entity_mut(source);
-    entity.insert((SourceStatus(status), paging));
+    entity.insert((
+        SourceStatus(status),
+        paging,
+        TableSort::default(),
+        HiddenColumns::default(),
+    ));
     if !paged {
         // Everything is already in hand, so the whole table is put aside and
         // the first page of it is what the frame draws.
         let whole = std::mem::take(&mut page.rows);
         page.rows = whole.iter().take(PAGE_ROWS).cloned().collect();
-        entity.insert(WholeTable(whole));
+        entity.insert(WholeTable::new(whole));
     }
     entity.insert(page);
     source
@@ -305,7 +392,7 @@ mod tests {
         assert_eq!(page.rows[0][0], "0");
         // The rest is held rather than thrown away or drawn.
         assert_eq!(
-            world.get::<WholeTable>(source).unwrap().0.len(),
+            world.get::<WholeTable>(source).unwrap().rows.len(),
             PAGE_ROWS + 30
         );
         let paging = world.get::<TablePaging>(source).unwrap();
@@ -335,6 +422,57 @@ mod tests {
         let page = app.world().get::<SourceTable>(source).unwrap();
         assert_eq!(page.first, 200);
         assert_eq!(page.rows.len(), 50);
+    }
+
+    #[test]
+    fn a_sorted_table_is_served_in_order_from_its_first_page() {
+        let mut app = App::new();
+        app.add_systems(Update, serve_pages);
+        let table = Table::new(
+            "t",
+            "test",
+            headers(&["name", "age"]),
+            rows(&[&["b", "9"], &["a", ""], &["C", "10"], &["a", "2"]]),
+            None,
+        );
+        let source = spawn_source(app.world_mut(), table);
+        let column = |app: &App, at: usize| -> Vec<String> {
+            let page = app.world().get::<SourceTable>(source).unwrap();
+            page.rows.iter().map(|row| row[at].clone()).collect()
+        };
+
+        // Numbers as numbers, so 10 comes after 9, and the gap last.
+        app.world_mut()
+            .get_mut::<TableSort>(source)
+            .unwrap()
+            .press("age", false);
+        app.update();
+        assert_eq!(column(&app, 1), ["2", "9", "10", ""]);
+        // Turned over, the gap stays last.
+        app.world_mut()
+            .get_mut::<TableSort>(source)
+            .unwrap()
+            .press("age", false);
+        app.update();
+        assert_eq!(column(&app, 1), ["10", "9", "2", ""]);
+
+        // Words without regard to case, then the second key among ties.
+        let mut sort = app.world_mut().get_mut::<TableSort>(source).unwrap();
+        sort.press("name", false);
+        sort.press("age", true);
+        sort.press("age", true);
+        app.update();
+        assert_eq!(column(&app, 0), ["a", "a", "b", "C"]);
+        assert_eq!(column(&app, 1), ["2", "", "9", "10"]);
+
+        // Unsorted, it is back in the order it was read.
+        app.world_mut()
+            .get_mut::<TableSort>(source)
+            .unwrap()
+            .0
+            .clear();
+        app.update();
+        assert_eq!(column(&app, 0), ["b", "a", "C", "a"]);
     }
 
     #[test]

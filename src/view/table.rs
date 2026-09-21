@@ -22,17 +22,20 @@ use std::ops::Range;
 
 use bevy::prelude::*;
 use bevy::ui::{InteractionDisabled, ScrollPosition};
+use bevy::window::SystemCursorIcon;
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::theme::ThemeBackgroundColor;
+use bevy_feathers::cursor::EntityCursor;
+use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
+use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::Stage;
 use crate::app::theme::{Palette, token};
-use crate::source::table::{SourceTable, TablePaging};
+use crate::source::table::{HiddenColumns, SourceTable, TablePaging, TableSort, to_first_page};
 use crate::source::{ShowsSource, grouped};
 use crate::widgets::{
-    BlocksFrameInput, Icon, ScrollBoth, button_icon, size, text, text_dim, truncate_to_width,
-    width_of,
+    BlocksFrameInput, Icon, ScrollBoth, button_icon, icon_text, size, text, text_dim,
+    truncate_to_width, width_of,
 };
 
 use super::chrome::BUTTON_PX;
@@ -74,6 +77,10 @@ const CHROME_TOP_PX: f32 = 8.0;
 /// How tall the strip of paging buttons along the bottom is.
 const FOOTER_PX: f32 = 32.0;
 
+/// Room a heading keeps beside its name for the arrow saying which way the
+/// column is sorted, and the number saying where it falls among several.
+const SORT_MARK_PX: f32 = 24.0;
+
 /// The table filling one frame.
 #[derive(Component)]
 pub struct TableView {
@@ -92,8 +99,10 @@ pub struct TableView {
     /// says which rows are on screen.
     footer: Entity,
     readout: Entity,
-    /// Where each column starts, the numbering gutter first, with the whole
-    /// width on the end.
+    /// The columns drawn, as places in the source's own, in order.
+    visible: Vec<usize>,
+    /// Where each drawn column starts, the numbering gutter first, with the
+    /// whole width on the end.
     edges: Vec<f32>,
     /// The rows on screen, by their place on the page.
     live: HashMap<usize, Entity>,
@@ -105,12 +114,27 @@ impl TableView {
     }
 }
 
-/// How a cell is set: a heading, a value, or the number in the gutter.
+/// How a cell is set: a value, or the number in the gutter.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Cell {
-    Heading,
     Value,
     Number,
+}
+
+/// A heading that sorts its table when pressed.
+#[derive(Component)]
+pub struct TableHeading {
+    panel: Entity,
+    column: String,
+}
+
+/// Beside a heading, what says how its column is sorted: the arrow, or with
+/// `rank`, where it falls among several columns sorted at once.
+#[derive(Component)]
+pub struct SortMark {
+    panel: Entity,
+    column: String,
+    rank: bool,
 }
 
 /// Which way a button moves through the pages.
@@ -169,21 +193,54 @@ impl Default for TablePageButton {
     }
 }
 
-/// Where each column starts, the numbering gutter first, with the full width
-/// last.
+/// The columns of `table` a frame draws: all but the hidden ones.
+fn visible_of(table: &SourceTable, hidden: Option<&HiddenColumns>) -> Vec<usize> {
+    (0..table.columns.len())
+        .filter(|&at| hidden.is_none_or(|hidden| !hidden.0.contains(&table.columns[at].name)))
+        .collect()
+}
+
+/// Where each drawn column starts, the numbering gutter first, with the full
+/// width last.
 ///
 /// Sized from the characters a format already counted rather than from laying
 /// the text out, which would mean reacting to the measurement a frame later.
 /// The gutter is sized for the *last* row number rather than the page's, since
-/// the numbers carry on across pages.
-fn edges_of(table: &SourceTable, total: usize) -> Vec<f32> {
+/// the numbers carry on across pages. A table that sorts keeps room in every
+/// heading for the mark saying how.
+fn edges_of(table: &SourceTable, visible: &[usize], total: usize, sorts: bool) -> Vec<f32> {
     let gutter = width_of(total.max(1).to_string().len(), size::SMALL) + PAD_PX * 2.0;
+    let mark = if sorts { SORT_MARK_PX } else { 0.0 };
     let mut edges = vec![0.0, gutter];
-    for column in &table.columns {
+    for &at in visible {
         let last = edges.last().copied().unwrap_or_default();
-        edges.push(last + width_of(column.chars, size::SECONDARY) + PAD_PX * 2.0);
+        let chars = width_of(table.columns[at].chars, size::SECONDARY);
+        edges.push(last + chars + mark + PAD_PX * 2.0);
     }
     edges
+}
+
+/// What a frame's table is laid out from, asked of its source.
+type LayoutQuery = (
+    &'static SourceTable,
+    &'static TablePaging,
+    Option<&'static HiddenColumns>,
+    Has<TableSort>,
+);
+
+/// The answer: the rows, the paging, what is hidden, and whether it sorts.
+type Layout<'a> = (
+    &'a SourceTable,
+    &'a TablePaging,
+    Option<&'a HiddenColumns>,
+    bool,
+);
+
+/// The columns drawn and where each starts.
+fn layout_of((table, paging, hidden, sorts): Layout) -> (Vec<usize>, Vec<f32>) {
+    let visible = visible_of(table, hidden);
+    let edges = edges_of(table, &visible, paging.total.unwrap_or_default(), sorts);
+    (visible, edges)
 }
 
 /// Give every frame showing a table one, and take it away from every frame
@@ -191,18 +248,20 @@ fn edges_of(table: &SourceTable, total: usize) -> Vec<f32> {
 pub fn sync_tables(
     mut commands: Commands,
     panels: Query<(Entity, &ShowsSource), With<Panel>>,
-    tables: Query<(&SourceTable, &TablePaging)>,
+    tables: Query<LayoutQuery>,
     views: Query<(Entity, &TableView)>,
 ) {
     for (entity, view) in &views {
         // Rebuilt rather than redrawn when the columns move: a frame pointed
-        // at another table, or one whose source grew a column it had not seen
-        // on the first page, is laid out afresh.
+        // at another table, one whose source grew a column it had not seen
+        // on the first page, or one with a column hidden or shown, is laid
+        // out afresh.
         let stale = match panels.get(view.panel) {
             Ok((_, shows)) => {
                 shows.0 != view.source
-                    || tables.get(shows.0).is_ok_and(|(table, paging)| {
-                        edges_of(table, paging.total.unwrap_or_default()) != view.edges
+                    || tables.get(shows.0).is_ok_and(|layout| {
+                        let (visible, edges) = layout_of(layout);
+                        visible != view.visible || edges != view.edges
                     })
             }
             Err(_) => true,
@@ -213,7 +272,7 @@ pub fn sync_tables(
     }
 
     for (panel, shows) in &panels {
-        let Ok((table, paging)) = tables.get(shows.0) else {
+        let Ok(layout) = tables.get(shows.0) else {
             continue;
         };
         if views
@@ -222,18 +281,13 @@ pub fn sync_tables(
         {
             continue;
         }
-        spawn_table(&mut commands, panel, shows.0, table, paging);
+        spawn_table(&mut commands, panel, shows.0, layout);
     }
 }
 
-fn spawn_table(
-    commands: &mut Commands,
-    panel: Entity,
-    source: Entity,
-    table: &SourceTable,
-    paging: &TablePaging,
-) {
-    let edges = edges_of(table, paging.total.unwrap_or_default());
+fn spawn_table(commands: &mut Commands, panel: Entity, source: Entity, layout: Layout) {
+    let (table, _, _, sorts) = layout;
+    let (visible, edges) = layout_of(layout);
     let width = edges.last().copied().unwrap_or_default();
 
     let headings = commands
@@ -243,14 +297,15 @@ fn spawn_table(
             ..default()
         })
         .id();
-    for (column, heading) in table.columns.iter().enumerate() {
-        let cell = spawn_cell(
+    for (drawn, &at) in visible.iter().enumerate() {
+        let column = &table.columns[at];
+        let cell = spawn_heading(
             commands,
             &edges,
-            column + 1,
-            &heading.name,
-            heading.numeric,
-            Cell::Heading,
+            drawn + 1,
+            &column.name,
+            column.numeric,
+            sorts.then_some(panel),
         );
         commands.entity(headings).add_child(cell);
     }
@@ -336,6 +391,7 @@ fn spawn_table(
                 readout,
                 body,
                 content,
+                visible,
                 edges,
                 live: HashMap::new(),
             },
@@ -366,6 +422,147 @@ fn page_button(commands: &mut Commands, panel: Entity, step: PageStep) -> Entity
             TablePageButton { panel: { panel }, step: { step } }
         })
         .id()
+}
+
+/// A heading: the column's name, and beside it the mark saying how the
+/// column is sorted when `sorts` names the frame to sort.
+fn spawn_heading(
+    commands: &mut Commands,
+    edges: &[f32],
+    drawn: usize,
+    name: &str,
+    numeric: bool,
+    sorts: Option<Entity>,
+) -> Entity {
+    let width = edges[drawn + 1] - edges[drawn];
+    let mark = if sorts.is_some() { SORT_MARK_PX } else { 0.0 };
+    let content = truncate_to_width(name.trim(), width - mark - PAD_PX * 2.0, size::SECONDARY);
+    let label = commands
+        .spawn_scene(text_dim(content, size::SECONDARY))
+        .id();
+    let cell = commands
+        .spawn(Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(edges[drawn]),
+            width: Val::Px(width),
+            height: Val::Percent(100.0),
+            padding: UiRect::horizontal(Val::Px(PAD_PX)),
+            column_gap: Val::Px(2.0),
+            align_items: AlignItems::Center,
+            justify_content: if numeric {
+                JustifyContent::End
+            } else {
+                JustifyContent::Start
+            },
+            overflow: Overflow::clip(),
+            ..default()
+        })
+        .add_child(label)
+        .id();
+    let Some(panel) = sorts else {
+        return cell;
+    };
+
+    let arrow = commands
+        .spawn_scene(bsn! {
+            icon_text(Icon::ChevronUp)
+            ThemeTextColor({ tokens::TEXT_DIM })
+        })
+        .insert(SortMark {
+            panel,
+            column: name.to_string(),
+            rank: false,
+        })
+        .id();
+    let rank = commands
+        .spawn_scene(text_dim(String::new(), size::SMALL))
+        .insert(SortMark {
+            panel,
+            column: name.to_string(),
+            rank: true,
+        })
+        .id();
+    commands
+        .entity(cell)
+        .insert((
+            TableHeading {
+                panel,
+                column: name.to_string(),
+            },
+            EntityCursor::System(SystemCursorIcon::Pointer),
+        ))
+        .add_children(&[arrow, rank]);
+    cell
+}
+
+/// Sort a frame's table by the heading pressed: ascending, descending, then
+/// not at all. With shift held, the column is sorted within the ones already
+/// sorted rather than replacing them.
+pub fn on_heading_pressed(
+    click: On<Pointer<Click>>,
+    headings: Query<&TableHeading>,
+    keys: Res<ButtonInput<KeyCode>>,
+    panels: Query<&ShowsSource>,
+    mut sources: Query<(&mut TableSort, Option<&mut TablePaging>)>,
+    mut positions: Query<&mut ScrollPosition>,
+    views: Query<&TableView>,
+) {
+    if click.button != PointerButton::Primary {
+        return;
+    }
+    let Ok(heading) = headings.get(click.entity) else {
+        return;
+    };
+    let Ok((mut sort, paging)) = panels
+        .get(heading.panel)
+        .and_then(|shows| sources.get_mut(shows.0))
+    else {
+        return;
+    };
+    let add = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    sort.press(&heading.column, add);
+    // A table in another order is a new table, read from its first row.
+    to_first_page(paging);
+    for view in &views {
+        if view.panel == heading.panel
+            && let Ok(mut at) = positions.get_mut(view.body)
+        {
+            at.y = 0.0;
+        }
+    }
+}
+
+/// Show beside each heading which way its column is sorted, and where it falls
+/// among several.
+pub fn update_sort_marks(
+    panels: Query<&ShowsSource>,
+    sorts: Query<&TableSort>,
+    mut marks: Query<(&SortMark, &mut Text)>,
+) {
+    for (mark, mut text) in &mut marks {
+        let sort = panels
+            .get(mark.panel)
+            .and_then(|shows| sorts.get(shows.0))
+            .ok();
+        let key = sort.and_then(|sort| sort.key(&mark.column));
+        let wanted = match key {
+            Some((at, _)) if mark.rank && sort.is_some_and(|sort| sort.0.len() > 1) => {
+                (at + 1).to_string()
+            }
+            Some((_, key)) if !mark.rank => {
+                let icon = if key.descending {
+                    Icon::ChevronDown
+                } else {
+                    Icon::ChevronUp
+                };
+                icon.glyph().to_string()
+            }
+            _ => String::new(),
+        };
+        if text.0 != wanted {
+            text.0 = wanted;
+        }
+    }
 }
 
 /// Turn the page of the frame whose button was pressed.
@@ -496,7 +693,7 @@ fn spawn_cell(
     let content = truncate_to_width(value.trim(), width - PAD_PX * 2.0, font);
     let label = match style {
         Cell::Value => commands.spawn_scene(text(content, font)).id(),
-        _ => commands.spawn_scene(text_dim(content, font)).id(),
+        Cell::Number => commands.spawn_scene(text_dim(content, font)).id(),
     };
     let cell = commands
         .spawn(Node {
@@ -738,13 +935,13 @@ fn spawn_row(
         Cell::Number,
     );
     commands.entity(entity).add_child(number);
-    for (column, heading) in table.columns.iter().enumerate() {
+    for (drawn, &at) in view.visible.iter().enumerate() {
         let cell = spawn_cell(
             commands,
             &view.edges,
-            column + 1,
-            table.cell(row, column),
-            heading.numeric,
+            drawn + 1,
+            table.cell(row, at),
+            table.columns[at].numeric,
             Cell::Value,
         );
         commands.entity(entity).add_child(cell);
@@ -758,11 +955,18 @@ pub struct TablePlugin;
 impl Plugin for TablePlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_page_pressed)
+            .add_observer(on_heading_pressed)
             .add_systems(Update, select_pressed_tables.in_set(Stage::ControlsRead))
             .add_systems(Update, sync_tables.in_set(Stage::FrameChrome))
             .add_systems(
                 Update,
-                (place_tables, fill_tables, update_footers, hide_layer_menus)
+                (
+                    place_tables,
+                    fill_tables,
+                    update_footers,
+                    update_sort_marks,
+                    hide_layer_menus,
+                )
                     .chain()
                     .in_set(Stage::Chrome),
             );
@@ -793,7 +997,8 @@ mod tests {
 
     #[test]
     fn a_column_is_wide_enough_for_its_widest_value() {
-        let edges = edges_of(&table(3, &[("a", 10, false), ("b", 4, true)]), 3);
+        let table = table(3, &[("a", 10, false), ("b", 4, true)]);
+        let edges = edges_of(&table, &[0, 1], 3, false);
         // The numbering gutter, then a column apiece, then the whole width.
         assert_eq!(edges.len(), 3 + 1);
         assert!(edges[0] < edges[1] && edges[1] < edges[2] && edges[2] < edges[3]);
@@ -802,17 +1007,36 @@ mod tests {
     }
 
     #[test]
+    fn a_hidden_column_is_left_out_and_the_rest_close_up() {
+        let table = table(3, &[("a", 4, false), ("b", 10, false), ("c", 4, false)]);
+        let hidden = HiddenColumns(["b".to_string()].into());
+        let visible = visible_of(&table, Some(&hidden));
+        assert_eq!(visible, [0, 2]);
+        let edges = edges_of(&table, &visible, 3, false);
+        assert_eq!(edges, edges_of(&table, &[0, 0], 3, false));
+    }
+
+    #[test]
+    fn a_table_that_sorts_keeps_room_in_its_headings_for_the_mark() {
+        let table = table(3, &[("a", 4, false)]);
+        let plain = edges_of(&table, &[0], 3, false);
+        let sorting = edges_of(&table, &[0], 3, true);
+        assert_eq!(sorting[2] - sorting[1], plain[2] - plain[1] + SORT_MARK_PX);
+    }
+
+    #[test]
     fn the_gutter_is_wide_enough_for_the_last_row_number() {
         // Sized for the last row number in the whole table, not the page's:
         // a page of 100 rows can still be numbering row 10,901.
-        let few = edges_of(&table(9, &[("a", 4, false)]), 9);
-        let many = edges_of(&table(9, &[("a", 4, false)]), 10_901);
+        let table = table(9, &[("a", 4, false)]);
+        let few = edges_of(&table, &[0], 9, false);
+        let many = edges_of(&table, &[0], 10_901, false);
         assert!(many[1] > few[1], "a five-digit number needs more room");
     }
 
     #[test]
     fn a_table_with_no_rows_still_lays_out_its_columns() {
-        let edges = edges_of(&table(0, &[("a", 4, false)]), 0);
+        let edges = edges_of(&table(0, &[("a", 4, false)]), &[0], 0, false);
         assert_eq!(edges.len(), 3);
         assert!(edges[2] > edges[1]);
         assert_eq!(rows_in_view(0.0, 400.0, 0), 0..0);

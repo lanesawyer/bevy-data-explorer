@@ -801,6 +801,21 @@ reacting to the measurement a frame later; a value too wide for its column is
 cut with an ellipsis by the same estimate that sized it, so a column as wide as
 its widest value never truncates it.
 
+Pressing a heading sorts the table by that column: ascending, then descending,
+then unsorted again, with an arrow beside the heading saying which. Pressing
+another heading sorts by it instead; holding shift adds it as a further key,
+deciding only among rows the keys before it leave tied, and each sorted
+heading is numbered by where it falls. The sort is another component on the
+source, served the way the page is: a table read whole sorts its rows here —
+numbers as numbers, words without regard to case, gaps last whichever way —
+and one read from an API asks for its pages in that order. A sorted table
+starts again from its first page.
+
+The section's menu in the sidebar picks which columns are drawn, as the cell
+properties' menu picks which properties are listed. A hidden column is only
+left out of the frame; a filter or a sort on it still applies. The page, the
+filters, the sort and the hidden columns are all saved in a bookmark.
+
 What a table's frame does not offer, because none of it means anything for
 rows: the zoom line in the overlay; the button that saves a picture, since the
 table is drawn over the frame rather than into it and the camera has nothing

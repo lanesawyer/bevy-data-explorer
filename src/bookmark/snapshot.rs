@@ -15,7 +15,9 @@ use crate::source::channels::{MAX_GAIN, SourceChannels};
 use crate::source::genes::Gene;
 use crate::source::properties::{CellProperties, PropertyKind, SavedFiltered};
 use crate::source::stack::SliceStack;
-use crate::source::table::{TableFilterKind, TableFilters, TablePaging};
+use crate::source::table::{
+    HiddenColumns, SortKey, TableFilterKind, TableFilters, TablePaging, TableSort,
+};
 
 /// The format a bookmark is written in. Raised whenever a field changes
 /// meaning; a field merely added is read as its default by older files.
@@ -70,6 +72,12 @@ pub struct TableState {
     /// Only the columns that narrow anything, by the id the table narrows by.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<ColumnFilter>,
+    /// The columns the rows are ordered by, first key first, by heading.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sort: Vec<SortKey>,
+    /// The columns the frame leaves out, by heading.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -412,12 +420,17 @@ pub fn apply_cells(properties: &mut CellProperties, saved: &CellsState) -> Vec<S
     missing
 }
 
-/// A table's page and filters, or nothing if it is on its first page and
-/// narrowed by nothing.
+/// A table's page, filters, sort and hidden columns, or nothing if it is on
+/// its first page with none of the rest.
 ///
 /// Filters still on their way have nothing chosen against them, so a table
-/// saved then is saved by its page alone.
-pub fn table_of(paging: &TablePaging, filters: Option<&TableFilters>) -> Option<TableState> {
+/// saved then is saved without them.
+pub fn table_of(
+    paging: &TablePaging,
+    filters: Option<&TableFilters>,
+    sort: Option<&TableSort>,
+    hidden: Option<&HiddenColumns>,
+) -> Option<TableState> {
     let filters: Vec<ColumnFilter> = filters
         .map(|filters| {
             filters
@@ -445,10 +458,17 @@ pub fn table_of(paging: &TablePaging, filters: Option<&TableFilters>) -> Option<
                 .collect()
         })
         .unwrap_or_default();
-    (paging.page > 0 || !filters.is_empty()).then_some(TableState {
+    let sort = sort.map(|sort| sort.0.clone()).unwrap_or_default();
+    let hidden: Vec<String> = hidden
+        .map(|hidden| hidden.0.iter().cloned().collect())
+        .unwrap_or_default();
+    let state = TableState {
         page: paging.page,
         filters,
-    })
+        sort,
+        hidden,
+    };
+    (state != TableState::default()).then_some(state)
 }
 
 /// Ask for the spans a bookmark narrows by, which a table works out only when
@@ -750,7 +770,7 @@ mod tests {
             size: 100,
             total: Some(1000),
         };
-        let saved = table_of(&paging, Some(&edited)).unwrap();
+        let saved = table_of(&paging, Some(&edited), None, None).unwrap();
         assert_eq!(saved.page, 3);
 
         let mut restored = table_filters();
@@ -760,10 +780,24 @@ mod tests {
     }
 
     #[test]
+    fn a_tables_sort_and_hidden_columns_are_saved_on_their_own() {
+        let paging = TablePaging::new(100, Some(1000));
+        let mut sort = TableSort::default();
+        sort.press("Age", false);
+        let hidden = HiddenColumns(["Donor ID".to_string()].into());
+        let saved = table_of(&paging, None, Some(&sort), Some(&hidden)).unwrap();
+        assert_eq!(saved.sort, sort.0);
+        assert_eq!(saved.hidden, ["Donor ID"]);
+
+        let text = serde_json::to_string(&saved).unwrap();
+        assert_eq!(serde_json::from_str::<TableState>(&text).unwrap(), saved);
+    }
+
+    #[test]
     fn a_table_on_its_first_page_narrowed_by_nothing_saves_nothing() {
         let paging = TablePaging::new(100, Some(1000));
-        assert_eq!(table_of(&paging, Some(&table_filters())), None);
-        assert_eq!(table_of(&paging, None), None);
+        assert_eq!(table_of(&paging, Some(&table_filters()), None, None), None);
+        assert_eq!(table_of(&paging, None, None, None), None);
     }
 
     #[test]

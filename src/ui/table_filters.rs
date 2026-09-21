@@ -7,6 +7,10 @@
 //! section's header that clears the lot — because they are the same act:
 //! narrowing what a frame shows without touching what it is showing.
 //!
+//! Its menu picks which columns the frame draws, as the cell properties' menu
+//! picks which properties are listed. So the section is offered for any
+//! table, even one with nothing to filter by.
+//!
 //! It knows nothing about the Brain Knowledge Platform, or about tables at
 //! all beyond [`TableFilters`]. A format writes what its rows can be narrowed
 //! by, this ticks values, and that format narrows them. So a second source of
@@ -17,13 +21,15 @@ use std::collections::{BTreeMap, HashSet};
 use bevy::prelude::*;
 use bevy::text::EditableText;
 use bevy::ui::Checked;
+use bevy_feathers::controls::FeathersCheckbox;
 use bevy_ui_widgets::{Activate, ValueChange};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::Palette;
 use crate::source::properties::PropertyValue;
 use crate::source::table::{
-    TableFilter, TableFilterKind, TableFilters, TablePaging, to_first_page,
+    HiddenColumns, SourceTable, TableFilter, TableFilterKind, TableFilters, TablePaging,
+    to_first_page,
 };
 use crate::source::{ShowsSource, compact_count};
 use crate::ui::cell_panel::range::{RangeOwner, spawn_range_control};
@@ -33,8 +39,9 @@ use crate::ui::cell_panel::{MAX_VALUE_ROWS, ValueColumn, spawn_value_row};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::{
-    Accordion, Icon, SectionLevel, matches_search, scroll_list, size, spawn_accordion,
-    spawn_header_button, spawn_search_field, spawn_skeleton, text_dim,
+    Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, matches_search, scroll_list,
+    size, spawn_accordion, spawn_header_button, spawn_menu, spawn_search_field, spawn_skeleton,
+    text, text_dim,
 };
 
 /// Under the cell properties, which is where the same act on a point cloud
@@ -50,7 +57,7 @@ const SKELETON_ROW_PX: f32 = 26.0;
 /// stands in for, so the column does not jump when its numbers land.
 const SPAN_SKELETON_PX: f32 = 72.0;
 
-/// The section itself, hidden for a frame with nothing to narrow.
+/// The section itself, hidden for a frame that is not showing a table.
 #[derive(Component, Clone, Default)]
 pub struct FilterSection;
 
@@ -67,6 +74,20 @@ pub struct FilterContent;
 #[derive(Component, Clone, Default)]
 pub struct FilterColumn {
     pub column: usize,
+}
+
+/// The section's menu, which picks the columns the frame draws.
+#[derive(Component, Clone, Default)]
+pub struct ColumnMenu;
+
+/// Marks what a rebuild of the menu replaces.
+#[derive(Component, Clone, Default)]
+pub struct ColumnMenuContent;
+
+/// A checkbox in the menu, drawing or hiding one column by its heading.
+#[derive(Component, Clone, Default)]
+pub struct ShowColumnCheckbox {
+    pub column: String,
 }
 
 /// Clears every tick on the selected frame's table.
@@ -151,6 +172,9 @@ pub fn spawn_filter_section(mut commands: Commands, content: Query<Entity, With<
 
     let clear = spawn_header_button(&mut commands, accordion.header, Icon::FilterX);
     commands.entity(clear).insert(ClearFiltersButton);
+
+    let menu = spawn_menu(&mut commands, accordion.header);
+    commands.entity(menu).insert(ColumnMenu);
 }
 
 /// Which table the sidebar is acting on: the selected frame's, if it has one
@@ -169,17 +193,17 @@ pub fn rebuild_filters(
     mut commands: Commands,
     selection: Res<SelectedPanel>,
     panels: Query<&ShowsSource>,
-    filters: Query<&TableFilters>,
+    tables: Query<Option<&TableFilters>, With<SourceTable>>,
     mut sections: Query<&mut Node, With<FilterSection>>,
     body: Query<Entity, With<FilterBody>>,
     existing: Query<Entity, With<FilterContent>>,
-    mut built: Local<Option<(Entity, usize, bool)>>,
+    mut built: Local<Option<(Entity, Option<(usize, bool)>)>>,
 ) {
     let Ok(body) = body.single() else { return };
-    let source = selected(&selection, &panels);
-    let table = source.and_then(|source| filters.get(source).ok());
+    let source = selected(&selection, &panels).filter(|source| tables.contains(*source));
+    let filters = source.and_then(|source| tables.get(source).ok().flatten());
 
-    let wanted = if table.is_some_and(|table| table.pending || !table.columns.is_empty()) {
+    let wanted = if source.is_some() {
         Display::Flex
     } else {
         Display::None
@@ -190,9 +214,12 @@ pub fn rebuild_filters(
         }
     }
 
-    let fingerprint = source
-        .zip(table)
-        .map(|(source, table)| (source, table.columns.len(), table.pending));
+    let fingerprint = source.map(|source| {
+        (
+            source,
+            filters.map(|filters| (filters.columns.len(), filters.pending)),
+        )
+    });
     if *built == fingerprint {
         return;
     }
@@ -201,7 +228,18 @@ pub fn rebuild_filters(
     for entity in &existing {
         commands.entity(entity).despawn();
     }
-    let Some(table) = table else { return };
+    if source.is_none() {
+        return;
+    }
+    let Some(table) = filters.filter(|filters| filters.pending || !filters.columns.is_empty())
+    else {
+        let note = commands
+            .spawn_scene(text_dim("Nothing to filter by.", size::SMALL))
+            .insert(FilterContent)
+            .id();
+        commands.entity(body).add_child(note);
+        return;
+    };
 
     if table.pending {
         let skeleton = spawn_skeleton(&mut commands, SKELETON_ROWS, SKELETON_ROW_PX);
@@ -249,6 +287,128 @@ pub fn rebuild_filters(
         rows.push(section.section);
     }
     commands.entity(body).add_children(&rows);
+}
+
+/// Fill the menu with one checkbox per column of the selected table.
+///
+/// Rebuilt only when the columns change; which are ticked is written onto the
+/// existing boxes by [`sync_column_menu`], so a box is never respawned under
+/// the pointer.
+pub fn rebuild_column_menu(
+    mut commands: Commands,
+    selection: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    tables: Query<(&SourceTable, Option<&HiddenColumns>)>,
+    menus: Query<Entity, With<ColumnMenu>>,
+    existing: Query<Entity, With<ColumnMenuContent>>,
+    mut built: Local<Option<(Entity, Vec<String>)>>,
+) {
+    let Ok(menu) = menus.single() else { return };
+    let table = selected(&selection, &panels)
+        .and_then(|source| tables.get(source).ok().map(|table| (source, table)));
+    let fingerprint = table.map(|(source, (rows, _))| {
+        (
+            source,
+            rows.columns
+                .iter()
+                .map(|column| column.name.clone())
+                .collect(),
+        )
+    });
+    if *built == fingerprint {
+        return;
+    }
+    *built = fingerprint;
+
+    for entity in &existing {
+        commands.entity(entity).despawn();
+    }
+    let Some((_, (rows, hidden))) = table else {
+        return;
+    };
+
+    let heading = commands
+        .spawn_scene(bsn! {
+            ColumnMenuContent
+            text("Show columns", size::BODY)
+            Node { margin: { UiRect::bottom(Val::Px(4.0)) } }
+        })
+        .id();
+    let mut entries = vec![heading];
+    for column in &rows.columns {
+        let caption = column.name.clone();
+        let name = column.name.clone();
+        let row = commands
+            .spawn_scene(bsn! {
+                ColumnMenuContent
+                @FeathersCheckbox {
+                    @caption: { bsn_list![button_text(caption)] }
+                }
+                BlocksFrameInput
+                ShowColumnCheckbox { column: { name } }
+            })
+            .id();
+        if hidden.is_none_or(|hidden| !hidden.0.contains(&column.name)) {
+            commands.entity(row).insert(Checked);
+        }
+        entries.push(row);
+    }
+    commands.entity(menu).add_children(&entries);
+}
+
+/// Draw or hide the column whose box was ticked.
+pub fn on_show_column_toggled(
+    change: On<ValueChange<bool>>,
+    boxes: Query<&ShowColumnCheckbox>,
+    selection: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    mut hidden: Query<&mut HiddenColumns>,
+) {
+    let Ok(checkbox) = boxes.get(change.source) else {
+        return;
+    };
+    let Some(mut hidden) =
+        selected(&selection, &panels).and_then(|source| hidden.get_mut(source).ok())
+    else {
+        return;
+    };
+    let changed = if change.value {
+        hidden.0.remove(&checkbox.column)
+    } else {
+        hidden.0.insert(checkbox.column.clone())
+    };
+    if changed {
+        info!(
+            "{} {} in the table",
+            if change.value { "showing" } else { "hiding" },
+            checkbox.column
+        );
+    }
+}
+
+/// Keep the menu's ticks matching which columns are drawn.
+pub fn sync_column_menu(
+    mut commands: Commands,
+    selection: Res<SelectedPanel>,
+    panels: Query<&ShowsSource>,
+    hidden: Query<&HiddenColumns>,
+    boxes: Query<(Entity, &ShowColumnCheckbox, Has<Checked>)>,
+) {
+    let Some(hidden) = selected(&selection, &panels).and_then(|source| hidden.get(source).ok())
+    else {
+        return;
+    };
+    for (entity, checkbox, checked) in &boxes {
+        let shown = !hidden.0.contains(&checkbox.column);
+        if shown == checked {
+            continue;
+        }
+        if shown {
+            commands.entity(entity).insert(Checked);
+        } else {
+            commands.entity(entity).remove::<Checked>();
+        }
+    }
 }
 
 /// A column's heading: its name, and how many values it offers. A span has no
@@ -636,16 +796,25 @@ pub struct TableFilterPlugin;
 impl Plugin for TableFilterPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_value_toggled)
+            .add_observer(on_show_column_toggled)
             .add_observer(on_clear_pressed)
             .add_observer(on_clear_column)
             .add_systems(Startup, spawn_filter_section.in_set(Boot::DockContent))
             .add_systems(Update, note_open_columns.in_set(Stage::ControlsRead))
             .add_systems(
                 Update,
-                (rebuild_filters, sync_value_lists, sync_span_bodies)
+                (
+                    rebuild_filters,
+                    rebuild_column_menu,
+                    sync_value_lists,
+                    sync_span_bodies,
+                )
                     .chain()
                     .in_set(Stage::ControlsBuild),
             )
-            .add_systems(Update, sync_filter_controls.in_set(Stage::ControlsPlace));
+            .add_systems(
+                Update,
+                (sync_filter_controls, sync_column_menu).in_set(Stage::ControlsPlace),
+            );
     }
 }

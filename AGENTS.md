@@ -82,11 +82,13 @@ points were drawn where their coordinates put them or laid out into a grid of
 sections. A plugin that cannot answer simply never writes the answer.
 
 `source/table.rs` goes the other way: a format that has records rather than a
-place writes a `SourceTable` and draws nothing at all. `TablePaging` and
-`TableFilters` beside it are two more questions of the same kind: the frame's
-buttons write the page and the sidebar ticks the values, and whatever produced
-the rows serves them — `formats/table.rs` slices a table it read whole,
-`formats/specimens.rs` fetches one and narrows it at the platform. Neither
+place writes a `SourceTable` and draws nothing at all. `TablePaging`,
+`TableSort` and `TableFilters` beside it are more questions of the same kind:
+the frame's buttons write the page, its headings the sort, and the sidebar
+ticks the values, and whatever produced the rows serves them —
+`formats/table.rs` slices and sorts a table it read whole,
+`formats/specimens.rs` fetches one sorted and narrowed at the platform.
+`HiddenColumns` is the frame's alone: no format reads it. Neither
 knows about the controls, and `ui/table_filters.rs` names no format: a second
 source of rows is filtered by it without a line changing there.
 

@@ -33,8 +33,8 @@ use crate::app::schedule::Stage;
 use crate::source::SourceBusy;
 use crate::source::properties::NumericRange;
 use crate::source::table::{
-    SourceTable, TableColumn, TableFilter, TableFilterKind, TableFilterTerm, TableFilterValue,
-    TableFilters, TablePaging,
+    SortKey, SourceTable, TableColumn, TableFilter, TableFilterKind, TableFilterTerm,
+    TableFilterValue, TableFilters, TablePaging, TableSort,
 };
 
 use super::table::{PAGE_ROWS, Table};
@@ -49,7 +49,7 @@ use super::table::{PAGE_ROWS, Table};
 /// what gets fetched.
 const PAGE: usize = PAGE_ROWS;
 
-const QUERY: &str = "query($project: [Filter], $specimens: [Filter],
+const QUERY: &str = "query($project: [Filter], $specimens: [Filter], $sort: [Sort],
   $groupBy: [groupBy_List_String_pattern_id], $limit: Int, $offset: Int) {
   project: dataCollectionProjectInventory(filter: $project, limit: 1) {
     referenceId
@@ -58,7 +58,7 @@ const QUERY: &str = "query($project: [Filter], $specimens: [Filter],
   total: aio_specimenCounts(filter: $specimens, groupBy: $groupBy) {
     count
   }
-  aio_specimen(filter: $specimens, limit: $limit, offset: $offset) {
+  aio_specimen(filter: $specimens, sort: $sort, limit: $limit, offset: $offset) {
     cRID { symbol }
     specimenType { name }
     annotations {
@@ -141,6 +141,10 @@ const SPECIMEN: &str = "Specimen";
 
 /// The column holding what kind of specimen it is.
 const KIND: &str = "Type";
+
+/// What the platform sorts the [`SPECIMEN`] and [`KIND`] columns by.
+const SPECIMEN_FIELD: &str = "cRID.symbol";
+const KIND_FIELD: &str = "specimenType.name";
 
 /// Whether `url` asks for a project's specimens, and if so the endpoint to ask
 /// and the project to ask about.
@@ -272,7 +276,7 @@ struct Taxon {
 /// what comes back, and [`SpecimenSystems`] fetches any other page the frame
 /// is turned to.
 pub async fn read(endpoint: &str, project: &str) -> Result<Specimens, String> {
-    let answer = ask(endpoint, project, 0, &[]).await?;
+    let answer = ask(endpoint, project, 0, &[], Value::Null).await?;
     if answer.aio_specimen.is_empty() {
         return Err(format!(
             "{endpoint} knows no specimens in project {project}"
@@ -317,17 +321,22 @@ pub struct Specimens {
 /// widen — the platform treats a field named twice as either — and terms on
 /// different columns narrow each other, which is what a row of checkboxes and
 /// a span beside it are read to mean.
+///
+/// `sort` is the platform's own list of fields and orders, as [`Plan::sort`]
+/// writes it.
 async fn ask(
     endpoint: &str,
     project: &str,
     offset: usize,
     terms: &[TableFilterTerm],
+    sort: Value,
 ) -> Result<Data, String> {
     let body = json!({
         "query": QUERY,
         "variables": {
             "project": [{ "field": "referenceId", "operator": "EQ", "value": project }],
             "specimens": specimen_filters(project, terms),
+            "sort": sort,
             "groupBy": ["projectReferenceIds"],
             "limit": PAGE,
             "offset": offset,
@@ -440,6 +449,39 @@ impl Plan {
             )
             .filter(|(id, ..)| !id.is_empty())
             .collect()
+    }
+
+    /// A sort on the table's headings, as the platform's fields.
+    ///
+    /// A heading the plan has no field for is left out rather than refusing
+    /// the sort, and a sort left with nothing is no sort at all.
+    fn sort(&self, keys: &[SortKey]) -> Value {
+        let fields: Vec<(String, String)> = self.headers().into_iter().zip(self.fields()).collect();
+        let sort: Vec<Value> = keys
+            .iter()
+            .filter_map(|key| {
+                let (_, field) = fields.iter().find(|(heading, _)| *heading == key.column)?;
+                (!field.is_empty()).then(|| {
+                    json!({
+                        "field": field,
+                        "order": if key.descending { "DESC" } else { "ASC" },
+                    })
+                })
+            })
+            .collect();
+        if sort.is_empty() {
+            Value::Null
+        } else {
+            Value::Array(sort)
+        }
+    }
+
+    /// What the platform calls each column, in the order of [`Plan::headers`].
+    fn fields(&self) -> Vec<String> {
+        let mut fields = vec![SPECIMEN_FIELD.to_string(), KIND_FIELD.to_string()];
+        fields.extend(self.annotations.iter().map(|(id, _)| id.clone()));
+        fields.extend(self.measurements.iter().map(|(id, ..)| id.clone()));
+        fields
     }
 
     fn headers(&self) -> Vec<String> {
@@ -966,6 +1008,9 @@ pub struct SpecimenPages {
     /// The values in force on the rows now on screen, so a tick that changes
     /// nothing does not refetch and one that does is noticed.
     applied: Vec<TableFilterTerm>,
+    /// The order the rows now on screen were asked for in, for the same
+    /// reason.
+    sorted: Vec<SortKey>,
     /// The column whose distribution is being asked about, and the ask.
     /// What it was asked under is kept, since that is what its histogram
     /// has been counted under.
@@ -994,6 +1039,7 @@ impl SpecimenPages {
             offering: None,
             offered: false,
             applied: Vec::new(),
+            sorted: Vec::new(),
             spanning: None,
             counted: HashMap::new(),
             counting: None,
@@ -1122,10 +1168,12 @@ fn serve_pages(
         &mut SourceTable,
         &mut SourceBusy,
         Option<&TableFilters>,
+        Option<&TableSort>,
     )>,
 ) {
-    for (mut pages, mut paging, mut rows, mut busy, filters) in &mut sources {
+    for (mut pages, mut paging, mut rows, mut busy, filters, sort) in &mut sources {
         let wanted_values = filters.map(TableFilters::chosen).unwrap_or_default();
+        let wanted_sort = sort.map(|sort| sort.0.clone()).unwrap_or_default();
         if let Some((page, fetch)) = pages.fetching.as_mut()
             && let Some(answer) = fetch.take()
         {
@@ -1163,19 +1211,21 @@ fn serve_pages(
             }
         }
 
-        // Whatever narrows the table puts it back on its first page, not this:
-        // a bookmark restores its filters and its page together.
-        let narrowed = pages.applied != wanted_values;
+        // Whatever narrows or sorts the table puts it back on its first page,
+        // not this: a bookmark restores its filters and its page together.
+        let narrowed = pages.applied != wanted_values || pages.sorted != wanted_sort;
 
         let wanted = paging.first();
         let asking = pages.fetching.as_ref().map(|(page, _)| page * paging.size);
         if (narrowed || rows.first != wanted) && asking != Some(wanted) {
             let (endpoint, project) = (pages.endpoint.clone(), pages.project.clone());
             let values = wanted_values.clone();
+            let order = pages.plan.sort(&wanted_sort);
             pages.applied = wanted_values;
+            pages.sorted = wanted_sort;
             pages.fetching = Some((
                 paging.page,
-                fetching(async move { ask(&endpoint, &project, wanted, &values).await }),
+                fetching(async move { ask(&endpoint, &project, wanted, &values, order).await }),
             ));
         }
         busy.set_if_neq(SourceBusy(pages.fetching.is_some()));
@@ -1374,6 +1424,43 @@ mod tests {
                 "Sex",
             ]
         );
+    }
+
+    #[test]
+    fn a_sort_on_headings_is_asked_for_by_the_platforms_fields() {
+        let plan = Plan {
+            annotations: vec![
+                ("MM1MMES48T9H7ZX6E3Y".into(), "Cognitive status".into()),
+                // A feature the platform gave no id cannot be asked for.
+                (String::new(), "Donor ID".into()),
+            ],
+            measurements: vec![(
+                "HPEYHZG6D7XY8CBK448".into(),
+                "Age at death".into(),
+                Some("years".into()),
+            )],
+        };
+        let key = |column: &str, descending: bool| SortKey {
+            column: column.into(),
+            descending,
+        };
+        let sort = plan.sort(&[
+            key("Cognitive status", false),
+            key("Age at death (years)", true),
+            key(SPECIMEN, false),
+            key("Donor ID", false),
+            key("Not a column", false),
+        ]);
+        // The unit is part of the heading, not of the field.
+        assert_eq!(
+            sort,
+            json!([
+                { "field": "MM1MMES48T9H7ZX6E3Y", "order": "ASC" },
+                { "field": "HPEYHZG6D7XY8CBK448", "order": "DESC" },
+                { "field": SPECIMEN_FIELD, "order": "ASC" },
+            ])
+        );
+        assert_eq!(plan.sort(&[]), Value::Null);
     }
 
     #[test]
