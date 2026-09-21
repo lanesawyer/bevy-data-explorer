@@ -169,6 +169,14 @@ fn is_svg(source: &str) -> bool {
     has_extension(source, ".svg")
 }
 
+/// Whether `source` reads as a table rather than something with a place to
+/// look around, which is known from the address alone: [`discover`] reads a
+/// table by what it is named, never by sniffing its bytes.
+pub fn names_a_table(source: &str) -> bool {
+    let source = crate::formats::plain_url(source.trim());
+    crate::formats::specimens::query_of(&source).is_some() || is_table(&source)
+}
+
 fn is_table(source: &str) -> bool {
     has_extension(source, ".csv") || has_extension(source, ".tsv")
 }
@@ -226,6 +234,17 @@ mod tests {
         assert!(is_json(
             "https://example.com/a/ScatterBrain.json?X-Amz-Signature=abc"
         ));
+    }
+
+    #[test]
+    fn a_table_is_known_by_its_address_before_it_is_read() {
+        assert!(names_a_table("https://example.com/genes.csv"));
+        assert!(names_a_table(" https://example.com/cells.TSV?sig=abc "));
+        assert!(names_a_table(
+            "https://idf-api-prod.aibs-idk-prod.net/?specimens=JGN327NUXRZSHEV88TN"
+        ));
+        assert!(!names_a_table("https://example.com/image.zarr/"));
+        assert!(!names_a_table("https://example.com/a/ScatterBrain.json"));
     }
 
     #[test]

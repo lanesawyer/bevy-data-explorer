@@ -37,6 +37,8 @@ use super::layers::{stacked_sources, unit_mismatch};
 use super::overlay::{ChoiceAction, PanelTitle, SourceChoice};
 use super::{FrameLayers, LayerOf, MAX_PANELS, Panel};
 use crate::catalog::Catalogs;
+use crate::formats::discover::names_a_table;
+use crate::source::table::SourceTable;
 use crate::source::{DataSource, ShowsSource, SourceUrl};
 use crate::widgets::{
     BlocksFrameInput, MENU_WIDTH, button_text, field_well, matches_search, size,
@@ -206,6 +208,7 @@ pub fn rebuild_dataset_lists(
     panels: Query<(&ShowsSource, Option<&FrameLayers>), With<Panel>>,
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     sources: Query<(Entity, &DataSource)>,
+    tables: Query<(), With<SourceTable>>,
     urls: Query<&SourceUrl>,
     existing: Query<(Entity, &ChildOf), With<DatasetListContent>>,
     catalogs: Res<Catalogs>,
@@ -297,8 +300,9 @@ pub fn rebuild_dataset_lists(
         let mut section = None;
         for (entity, data, url) in &listed {
             // A layer is offered only if it could go on top: not what the
-            // frame already stacks.
-            if layering && state.stack.contains(entity) {
+            // frame already stacks, and never a table, whose rows are records
+            // rather than a place to lay anything over.
+            if layering && (state.stack.contains(entity) || tables.contains(*entity)) {
                 continue;
             }
             if !matches_search(&state.query, &[&data.name, &data.detail, url.unwrap_or("")]) {
@@ -336,6 +340,9 @@ pub fn rebuild_dataset_lists(
             items.push(item);
         }
         for (id, catalog, entry) in catalogs.unopened(&opened) {
+            if layering && names_a_table(&entry.url) {
+                continue;
+            }
             if !matches_search(
                 &state.query,
                 &[

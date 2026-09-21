@@ -11,6 +11,7 @@ use super::layers::{
     FrameLayers, LayerOf, LayerOpacity, can_add_layer, spawn_layer, stacked_sources,
 };
 use super::{FrameArea, Panel, SelectedPanel, View, spawn_panel};
+use crate::source::table::SourceTable;
 use crate::source::{DataSource, ShowsSource, SourceExtent, SourceUrl, ViewLimits};
 
 /// A change to the set of frames.
@@ -114,6 +115,7 @@ pub fn apply_panel_requests(
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     layer_opacities: Query<(&ShowsSource, &LayerOpacity), With<LayerOf>>,
     sources: Query<(&DataSource, &SourceExtent)>,
+    tables: Query<(), With<SourceTable>>,
     pending: Query<&PendingShow>,
     urls: Query<&SourceUrl>,
     palette: Res<crate::app::theme::Palette>,
@@ -261,8 +263,15 @@ pub fn apply_panel_requests(
                 ));
                 // The layers stay, over whatever is now underneath them —
                 // except one of the source now at the bottom, which would draw
-                // it twice.
-                remove_layers_of(&mut commands, layers, &layer_cameras, source);
+                // it twice, and all of them under a table, which has nothing
+                // for them to lie over.
+                if tables.contains(source) {
+                    for camera in layers.map(FrameLayers::cameras).unwrap_or_default() {
+                        commands.entity(*camera).despawn();
+                    }
+                } else {
+                    remove_layers_of(&mut commands, layers, &layer_cameras, source);
+                }
                 selected.0 = Some(panel);
             }
             PanelRequest::AddLayer { panel, source } => {
@@ -280,6 +289,16 @@ pub fn apply_panel_requests(
                         .map(|(_, layer)| *layer),
                 );
                 if !can_add_layer(&stack, source) {
+                    continue;
+                }
+                // A table's rows are records rather than a place, so it shares
+                // no coordinates with anything it could be stacked with.
+                if tables.contains(source) {
+                    warn!("{} is a table, which cannot be a layer", data.name);
+                    continue;
+                }
+                if stack.first().is_some_and(|base| tables.contains(*base)) {
+                    warn!("a table cannot have {} layered over it", data.name);
                     continue;
                 }
                 spawn_layer(
@@ -449,6 +468,70 @@ mod tests {
         );
         // A layer is not a frame of its own.
         assert!(app.world().get::<Panel>(camera).is_none());
+    }
+
+    fn table(app: &mut App, name: &str) -> Entity {
+        let entity = source(app, name, "");
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(SourceTable::default());
+        entity
+    }
+
+    #[test]
+    fn a_table_is_never_layered_and_never_layered_over() {
+        let mut app = app();
+        let slide = source(&mut app, "Slide", "px");
+        let specimens = table(&mut app, "Specimens");
+        request(&mut app, PanelRequest::Open(slide));
+        let panel = only_panel(&mut app);
+        request(
+            &mut app,
+            PanelRequest::AddLayer {
+                panel,
+                source: specimens,
+            },
+        );
+        assert!(layers_of(&app, panel).is_empty());
+
+        request(&mut app, PanelRequest::Close(panel));
+        request(&mut app, PanelRequest::Open(specimens));
+        let panel = only_panel(&mut app);
+        request(
+            &mut app,
+            PanelRequest::AddLayer {
+                panel,
+                source: slide,
+            },
+        );
+        assert!(layers_of(&app, panel).is_empty());
+    }
+
+    #[test]
+    fn repointing_a_frame_at_a_table_drops_its_layers() {
+        let mut app = app();
+        let slide = source(&mut app, "Slide", "px");
+        let outlines = source(&mut app, "Outlines", "px");
+        let specimens = table(&mut app, "Specimens");
+        request(&mut app, PanelRequest::Open(slide));
+        let panel = only_panel(&mut app);
+        request(
+            &mut app,
+            PanelRequest::AddLayer {
+                panel,
+                source: outlines,
+            },
+        );
+        assert_eq!(layers_of(&app, panel), vec![outlines]);
+
+        request(
+            &mut app,
+            PanelRequest::Show {
+                panel,
+                source: specimens,
+            },
+        );
+        assert!(layers_of(&app, panel).is_empty());
     }
 
     #[test]

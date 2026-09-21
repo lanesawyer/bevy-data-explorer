@@ -822,7 +822,9 @@ table is drawn over the frame rather than into it and the camera has nothing
 but the cleared background to photograph; and anything to do with layers,
 neither the frame's own menu nor the sidebar's section — a table shares no
 coordinates with an image, so stacking one on the other would put two
-unrelated things in one cell.
+unrelated things in one cell. The same goes the other way: a table is never offered as a
+layer over another frame, a frame repointed at a table drops its layers, and a
+request to layer one — from a bookmark, say — is refused.
 
 ### Brain Knowledge Platform specimens
 

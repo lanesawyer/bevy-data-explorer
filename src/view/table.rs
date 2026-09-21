@@ -34,8 +34,8 @@ use crate::app::theme::{Palette, token};
 use crate::source::table::{HiddenColumns, SourceTable, TablePaging, TableSort, to_first_page};
 use crate::source::{ShowsSource, grouped};
 use crate::widgets::{
-    BlocksFrameInput, Icon, ScrollBoth, button_icon, icon_text, size, text, text_dim,
-    truncate_to_width, width_of,
+    BlocksFrameInput, Icon, Menu, MenuButton, ScrollBoth, button_icon, icon_text, size, text,
+    text_dim, truncate_to_width, width_of,
 };
 
 use super::chrome::BUTTON_PX;
@@ -802,22 +802,35 @@ fn depth_below(header: f32) -> f32 {
 ///
 /// A table is not layered over anything and nothing is layered over it: it
 /// shares no coordinates with an image, so stacking one on the other would
-/// put two unrelated things in one cell. The menu that offers it goes.
+/// put two unrelated things in one cell. The `...` button that opens the menu
+/// offering layers goes, and the menu is shut if it was open when the frame
+/// turned into a table. The popup itself is left to the menu, which shows it
+/// whenever it is open.
 pub fn hide_layer_menus(
     panels: Query<&ShowsSource>,
     tables: Query<(), With<SourceTable>>,
-    mut menus: Query<(&super::overlay::SourceMenu, &mut Node)>,
+    buttons: Query<(Entity, &MenuButton)>,
+    mut menus: Query<(&super::overlay::SourceMenu, &mut Menu)>,
+    mut nodes: Query<&mut Node>,
 ) {
-    for (menu, mut node) in &mut menus {
+    for (button, opens) in &buttons {
+        let Ok((menu, mut state)) = menus.get_mut(opens.menu) else {
+            continue;
+        };
         let showing_rows = panels
             .get(menu.panel())
             .is_ok_and(|shows| tables.contains(shows.0));
+        if showing_rows && state.open {
+            state.open = false;
+        }
         let wanted = if showing_rows {
             Display::None
         } else {
             Display::Flex
         };
-        if node.display != wanted {
+        if let Ok(mut node) = nodes.get_mut(button)
+            && node.display != wanted
+        {
             node.display = wanted;
         }
     }
