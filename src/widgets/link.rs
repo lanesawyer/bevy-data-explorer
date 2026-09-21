@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy_feathers::controls::{ButtonVariant, FeathersButton};
 use bevy_ui_widgets::Activate;
 
+use super::space;
 use super::{BlocksFrameInput, Icon, button_icon, button_text};
 
 /// A button that opens `url` in the system's browser.
@@ -23,7 +24,7 @@ pub fn link_button(
             @variant: { variant },
             @caption: { bsn_list![button_icon(icon), button_text(text)] }
         }
-        Node { column_gap: { Val::Px(6.0) } }
+        Node { column_gap: { Val::Px(space::ICON_LABEL) } }
         BlocksFrameInput
         ExternalLink { url: { url } }
     }

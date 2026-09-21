@@ -9,6 +9,7 @@
 //! that was already at its end. A [`ScrollList`] takes the wheel only while
 //! it can move, and passes it on to whatever scrolls around it otherwise.
 
+use super::space;
 use bevy::input::mouse::MouseScrollUnit;
 use bevy::picking::events::{Pointer, Scroll};
 use bevy::prelude::*;
@@ -27,7 +28,7 @@ pub fn scroll_list(max_px: f32) -> impl Scene {
             flex_direction: { FlexDirection::Column },
             width: { Val::Percent(100.0) },
             max_height: { Val::Px(max_px) },
-            row_gap: { Val::Px(4.0) },
+            row_gap: { Val::Px(space::LIST_ITEMS) },
             overflow: { Overflow::scroll_y() },
         }
     }

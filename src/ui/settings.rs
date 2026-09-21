@@ -17,6 +17,7 @@ use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::ThemeMode;
 use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::ui::log_panel::LogPanel;
+use crate::widgets::space;
 use crate::widgets::{
     AddModal, Icon, Modal, ResetDockSizes, button_icon, button_text, set_modal_open, size,
     spawn_modal, text,
@@ -75,7 +76,7 @@ fn theme_option(
             @caption: { bsn_list![button_icon(icon), button_text(text)] },
             @corners: { corners }
         }
-        Node { column_gap: { Val::Px(6.0) }, flex_grow: { 1.0_f32 } }
+        Node { column_gap: { Val::Px(space::ICON_LABEL) }, flex_grow: { 1.0_f32 } }
         template_value(option)
     }
 }
@@ -91,17 +92,17 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
     let modal = spawn_modal::<SettingsScreen>(&mut commands, "Settings", PANEL_PX);
     let body = commands
         .spawn_scene(bsn! {
-            Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(10.0) } }
+            Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(space::ROWS) } }
             Children [
                 // A subtitle, so it is drawn closer to the title than the
                 // panel's gap would put it.
                 (
                     label_dim(saved_in)
-                    Node { margin: { UiRect::top(Val::Px(-6.0)) } }
+                    Node { margin: { UiRect::top(Val::Px(space::STACKED - space::ROWS)) } }
                 ),
                 (
                     text("Layout", size::DOCK_TITLE)
-                    Node { margin: { UiRect::top(Val::Px(6.0)) } }
+                    Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
                 ),
                 (
                     @FeathersCheckbox {
@@ -122,16 +123,16 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
                                 button_text("Reset panel sizes"),
                             ] }
                         }
-                        Node { column_gap: { Val::Px(6.0) } }
+                        Node { column_gap: { Val::Px(space::ICON_LABEL) } }
                         ResetLayoutButton
                     )]
                 ),
                 (
                     text("Appearance", size::DOCK_TITLE)
-                    Node { margin: { UiRect::top(Val::Px(6.0)) } }
+                    Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
                 ),
                 (
-                    Node { width: { Val::Percent(100.0) }, column_gap: { Val::Px(1.0) } }
+                    Node { width: { Val::Percent(100.0) }, column_gap: { Val::Px(space::SEAM) } }
                     Children [
                         theme_option(ThemeOption::Light, Icon::Sun, "Light", RoundedCorners::Left),
                         theme_option(ThemeOption::Dark, Icon::Moon, "Dark", RoundedCorners::None),
@@ -141,7 +142,7 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
                 label_dim("System follows your operating system's light or dark setting."),
                 (
                     text("Point clouds", size::DOCK_TITLE)
-                    Node { margin: { UiRect::top(Val::Px(6.0)) } }
+                    Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
                 ),
                 filtered_controls(FilteredTarget::Default),
                 label_dim(
@@ -157,7 +158,7 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
                                 button_text("Reset point cloud defaults"),
                             ] }
                         }
-                        Node { column_gap: { Val::Px(6.0) } }
+                        Node { column_gap: { Val::Px(space::ICON_LABEL) } }
                         ResetPointCloudButton
                     )]
                 ),
@@ -165,7 +166,7 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
                     // Not a setting, so it sits apart from them, in the corner.
                     Node {
                         justify_content: { JustifyContent::End },
-                        margin: { UiRect::top(Val::Px(6.0)) },
+                        margin: { UiRect::top(Val::Px(space::HEADING)) },
                     }
                     Children [(
                         @FeathersButton {
@@ -174,7 +175,7 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>) {
                                 button_text("Logs"),
                             ] }
                         }
-                        Node { column_gap: { Val::Px(6.0) } }
+                        Node { column_gap: { Val::Px(space::ICON_LABEL) } }
                         ShowLogsButton
                     )]
                 ),

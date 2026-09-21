@@ -38,6 +38,7 @@ use crate::ui::cell_panel::values::{LIST_MAX_PX, SEARCH_FROM, note_for, set_disp
 use crate::ui::cell_panel::{MAX_VALUE_ROWS, ValueColumn, spawn_value_row};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
+use crate::widgets::space;
 use crate::widgets::{
     Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, matches_search, scroll_list,
     size, spawn_accordion, spawn_header_button, spawn_menu, spawn_search_field, spawn_skeleton,
@@ -331,7 +332,7 @@ pub fn rebuild_column_menu(
         .spawn_scene(bsn! {
             ColumnMenuContent
             text("Show columns", size::BODY)
-            Node { margin: { UiRect::bottom(Val::Px(4.0)) } }
+            Node { margin: { UiRect::bottom(Val::Px(space::HEADING)) } }
         })
         .id();
     let mut entries = vec![heading];
@@ -439,7 +440,7 @@ fn spawn_values(commands: &mut Commands, column: usize, count: usize) -> Vec<Ent
             Node {
                 width: Val::Percent(100.0),
                 flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(4.0),
+                row_gap: Val::Px(space::LIST_ITEMS),
                 ..default()
             },
             FilterValueList {

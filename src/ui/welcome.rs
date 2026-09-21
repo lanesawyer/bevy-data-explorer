@@ -26,6 +26,7 @@ use crate::ui::add_source::spawn_custom_section;
 use crate::ui::bookmarks::BookmarkList;
 use crate::ui::help::{AUTHOR, LICENSE, LICENSE_URL, REPOSITORY};
 use crate::view::{FrameArea, Panel};
+use crate::widgets::space;
 use crate::widgets::{
     BlocksFrameInput, Icon, button_text, link_button, size, text, text_dim, title,
 };
@@ -77,8 +78,8 @@ pub fn spawn_welcome(mut commands: Commands) {
                 display: { Display::None },
                 flex_direction: { FlexDirection::Column },
                 align_items: { AlignItems::Center },
-                row_gap: { Val::Px(14.0) },
-                padding: { UiRect::all(Val::Px(24.0)) },
+                row_gap: { Val::Px(space::SCREEN_GAP) },
+                padding: { UiRect::all(Val::Px(space::SCREEN_GAP)) },
                 overflow: { Overflow::scroll_y() },
             }
             GlobalZIndex({ WELCOME_Z })
@@ -115,12 +116,11 @@ pub fn spawn_welcome(mut commands: Commands) {
                 flex_direction: { FlexDirection::Column },
                 width: { Val::Px(COLUMN_PX) },
                 max_width: { Val::Percent(100.0) },
-                margin: { UiRect::top(Val::Px(10.0)) },
             }
             Children [
                 (
                     text("Bookmarks", size::BODY)
-                    Node { margin: { UiRect::bottom(Val::Px(4.0)) } }
+                    Node { margin: { UiRect::bottom(Val::Px(space::HEADING)) } }
                 ),
                 (
                     BookmarkList { compact: true }
@@ -143,9 +143,8 @@ pub fn spawn_welcome(mut commands: Commands) {
                 width: { Val::Percent(100.0) },
                 flex_wrap: { FlexWrap::Wrap },
                 justify_content: { JustifyContent::Center },
-                column_gap: { Val::Px(32.0) },
-                row_gap: { Val::Px(14.0) },
-                margin: { UiRect::top(Val::Px(10.0)) },
+                column_gap: { Val::Px(space::SCREEN_WIDE) },
+                row_gap: { Val::Px(space::SCREEN_GAP) },
             }
         })
         .id();
@@ -159,8 +158,7 @@ pub fn spawn_welcome(mut commands: Commands) {
     commands.entity(custom).insert(Node {
         flex_direction: FlexDirection::Column,
         width: Val::Px(COLUMN_PX),
-        row_gap: Val::Px(4.0),
-        margin: UiRect::top(Val::Px(14.0)),
+        row_gap: Val::Px(space::ROWS),
         ..default()
     });
     children.push(custom);
@@ -171,9 +169,9 @@ pub fn spawn_welcome(mut commands: Commands) {
         .spawn_scene(bsn! {
             Node {
                 align_items: { AlignItems::Center },
-                column_gap: { Val::Px(4.0) },
+                column_gap: { Val::Px(space::CONTROLS) },
                 margin: { UiRect::top(Val::Auto) },
-                padding: { UiRect::top(Val::Px(24.0)) },
+                padding: { UiRect::top(Val::Px(space::SCREEN_GAP)) },
             }
             Children [
                 label_dim(format!("Made by {AUTHOR} \u{00b7} Licensed under")),
@@ -208,15 +206,15 @@ fn example_column(commands: &mut Commands, heading: &str, examples: &[Example]) 
                     GridTrack::auto(),
                 ] },
                 align_items: { AlignItems::Center },
-                column_gap: { Val::Px(10.0) },
-                row_gap: { Val::Px(6.0) },
+                column_gap: { Val::Px(space::GROUPS) },
+                row_gap: { Val::Px(space::LIST_ITEMS) },
             }
             Children [
                 (
                     text(heading, size::BODY)
                     Node {
                         grid_column: { GridPlacement::span(2) },
-                        margin: { UiRect::bottom(Val::Px(4.0)) },
+                        margin: { UiRect::bottom(Val::Px(space::HEADING)) },
                     }
                 ),
             ]

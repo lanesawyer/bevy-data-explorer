@@ -43,6 +43,17 @@ gets a file of its own there, re-exported from `widgets/mod.rs`.
   `BODY`, `FRAME_TITLE`, `DOCK_TITLE`, ...). Never size a Feathers `label`
   with `InheritableFont`, which it ignores, and never with a literal: a size
   worth having is worth naming for where it sits.
+- **Spacing** (every gap, padding and margin) comes from `space` in
+  `widgets/spacing.rs`, named for what the space is for: `STACKED` for lines
+  within one item, `ICON_LABEL` inside a button, `CONTROLS` between controls
+  in a row, `LIST_ITEMS` down a long list, `ROWS` between rows of a section,
+  `HEADING` to set a heading apart, `GROUPS` between groups, and the
+  `*_INSET` names for padding inside an item, a small box, a panel or a
+  screen. Never a literal and never a raw `step`: if no name fits, add one
+  to `space` pointing at a step and say in its doc comment what it is for.
+  `a_spacing_is_named_rather_than_typed` fails `cargo test` on any gap,
+  padding or margin written as a number, inline or in a constant named for
+  one. Borders and `Val::Px(0.0)` are not spacing and are left alone.
 - **BSN**: patch a component with `@Component { @prop: {expr} }`, with the
   `@` on both the component and each prop. A component with private fields
   can't be patched field by field, so supply it whole with

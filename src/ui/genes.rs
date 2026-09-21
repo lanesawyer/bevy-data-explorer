@@ -25,6 +25,7 @@ use crate::ui::cell_panel::range::{RangeOwner, spawn_range_control};
 use crate::ui::cell_panel::{ClearPropertyButton, ColorByButton};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
+use crate::widgets::space;
 use crate::widgets::{
     Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, field_well, size,
     spawn_accordion, spawn_header_button, spawn_search_field, text_dim,
@@ -98,7 +99,7 @@ pub fn spawn_gene_panel(mut commands: Commands, content: Query<Entity, With<Side
             Node {
                 flex_direction: { FlexDirection::Column },
                 width: { Val::Percent(100.0) },
-                row_gap: { Val::Px(4.0) },
+                row_gap: { Val::Px(space::ROWS) },
             }
         })
         .id();
@@ -118,8 +119,8 @@ pub fn spawn_gene_panel(mut commands: Commands, content: Query<Entity, With<Side
             Node {
                 width: { Val::Percent(100.0) },
                 flex_wrap: { FlexWrap::Wrap },
-                column_gap: { Val::Px(4.0) },
-                row_gap: { Val::Px(4.0) },
+                column_gap: { Val::Px(space::CONTROLS) },
+                row_gap: { Val::Px(space::CONTROLS) },
             }
         })
         .id();
@@ -130,8 +131,7 @@ pub fn spawn_gene_panel(mut commands: Commands, content: Query<Entity, With<Side
                 flex_direction: { FlexDirection::Column },
                 width: { Val::Percent(100.0) },
                 // The gap a pane body gives the cell properties' sub-sections.
-                row_gap: { Val::Px(6.0) },
-                margin: { UiRect::top(Val::Px(4.0)) },
+                row_gap: { Val::Px(space::LIST_ITEMS) },
             }
         })
         .id();

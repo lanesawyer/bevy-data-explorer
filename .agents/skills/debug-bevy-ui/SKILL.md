@@ -136,6 +136,25 @@ fine.
 Give controls `flex_shrink: 0` and let the text beside them yield with
 `min_width: 0` and its own clip.
 
+## Spacing looks uneven
+
+Check the value before the layout. Every gap, padding and margin is a name in
+`widgets::space`, so two things spaced differently are either using different
+names, which is a choice to revisit at the call site, or one of them is not
+going through `space` at all: a Feathers default, or a margin on one child
+adding to its parent's gap.
+
+Two causes that are not the value itself:
+
+- **Things placed one by one** rather than laid out in a row drift apart,
+  because their widths are assumed rather than measured. A Feathers tool
+  button is at least 24px wide (`ROW_HEIGHT`), not whatever a constant says.
+  Put siblings in one flex row with one gap.
+- **A scrolling area** keeps a lane for its scrollbar on the right whether or
+  not the bar shows (`scrollbar_width`, set in `widgets/scrollbar.rs`), so its
+  content sits further from the right edge than the left. Take the gutter off
+  that side's padding, as `widgets/modal.rs` does.
+
 ## A Feathers control looks unresponsive but works
 
 Its hover is a five percent lift in lightness, which is easy to miss over busy

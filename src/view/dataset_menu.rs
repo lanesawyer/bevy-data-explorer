@@ -42,6 +42,7 @@ use crate::catalog::Catalogs;
 use crate::formats::discover::names_a_table;
 use crate::source::table::SourceTable;
 use crate::source::{DataSource, ShowsSource, SourceUrl};
+use crate::widgets::space;
 use crate::widgets::{
     BlocksFrameInput, MENU_WIDTH, button_text, field_well, matches_search, size,
     spawn_search_field, text, text_dim, truncate_to_width,
@@ -108,7 +109,6 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
         .spawn_scene(bsn! {
             @FeathersMenu
             Node {
-                margin: { UiRect::right(Val::Px(2.0)) },
                 flex_shrink: { 1.0_f32 },
                 min_width: { Val::Px(0.0) },
             }
@@ -122,7 +122,7 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
                     button_text("")
                     PanelTitle
                     TextFont { font_size: { FontSize::Px(size::FRAME_TITLE) } }
-                    Node { margin: { UiRect::right(Val::Px(4.0)) } }
+                    Node { margin: { UiRect::right(Val::Px(space::ICON_LABEL)) } }
                 )] }
             }
             BlocksFrameInput
@@ -135,7 +135,7 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
             BlocksFrameInput
             Node {
                 width: { Val::Px(MENU_WIDTH) },
-                padding: { UiRect::all(Val::Px(6.0)) },
+                padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
             }
         })
         .id();
@@ -155,7 +155,7 @@ pub fn spawn_dataset_picker(commands: &mut Commands, target: PickerTarget) -> En
             Node {
                 flex_direction: { FlexDirection::Column },
                 width: { Val::Percent(100.0) },
-                row_gap: { Val::Px(4.0) },
+                row_gap: { Val::Px(space::ROWS) },
             }
         })
         .id();
@@ -310,7 +310,7 @@ pub fn rebuild_dataset_lists(
                             format!("The grid is full at {MAX_PANELS} frames. Close one to open another."),
                             size::SMALL
                         )
-                        Node { margin: { UiRect::axes(Val::Px(8.0), Val::Px(4.0)) } }
+                        Node { margin: { UiRect::axes(Val::Px(space::CONTROL_INSET), Val::Px(space::ITEM_INSET)) } }
                     })
                     .id(),
             );
@@ -394,7 +394,7 @@ pub fn rebuild_dataset_lists(
                 .spawn_scene(bsn! {
                     DatasetListContent
                     label_dim("Nothing matches")
-                    Node { margin: { UiRect::all(Val::Px(8.0)) } }
+                    Node { margin: { UiRect::all(Val::Px(space::CONTROL_INSET)) } }
                 })
                 .id();
             items.push(none);
@@ -412,7 +412,7 @@ fn heading(commands: &mut Commands, content: &str, first: bool) -> Entity {
         .spawn_scene(bsn! {
             DatasetListContent
             text_dim(content, size::SMALL)
-            Node { margin: { UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(gap), Val::Px(2.0)) } }
+            Node { margin: { UiRect::new(Val::Px(space::CONTROL_INSET), Val::Px(space::CONTROL_INSET), Val::Px(gap), Val::Px(space::STACKED)) } }
         })
         .id()
 }
@@ -480,7 +480,7 @@ fn item(
             // Two lines rather than the one a Feathers item is sized for.
             Node {
                 height: { Val::Auto },
-                padding: { UiRect::axes(Val::Px(8.0), Val::Px(4.0)) },
+                padding: { UiRect::axes(Val::Px(space::CONTROL_INSET), Val::Px(space::ITEM_INSET)) },
             }
         })
         .id();

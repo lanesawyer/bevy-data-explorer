@@ -13,13 +13,14 @@ use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
 use super::scrollbar::GUTTER_PX;
+use super::space;
 use super::{BlocksFrameInput, Icon, button_icon, size, text};
 use crate::app::schedule::Stage;
 
 /// Above the menus, since it covers everything they could open over.
 const MODAL_Z: i32 = 20;
 /// Space between the panel's edge and what is in it, on every side.
-const PADDING_PX: f32 = 18.0;
+const PADDING_PX: f32 = space::SCREEN_INSET;
 
 /// Marks a modal's backdrop. `Toggle` marks every button that opens or closes
 /// it, its own X among them.
@@ -72,7 +73,7 @@ pub fn spawn_modal<M: Modal>(
                 max_width: { Val::Percent(90.0) },
                 max_height: { Val::Percent(90.0) },
                 flex_direction: { FlexDirection::Column },
-                row_gap: { Val::Px(10.0) },
+                row_gap: { Val::Px(space::ROWS) },
                 // The scrollbar's gutter is reserved inside the right padding
                 // whether or not the bar shows, so that side gives it up to
                 // look the same as the left.
@@ -118,7 +119,7 @@ pub fn spawn_modal<M: Modal>(
         .spawn(Node {
             width: Val::Percent(100.0),
             align_items: AlignItems::Center,
-            column_gap: Val::Px(8.0),
+            column_gap: Val::Px(space::CONTROLS),
             ..default()
         })
         .add_children(&[title, spacer, close])

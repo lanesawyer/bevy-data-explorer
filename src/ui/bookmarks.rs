@@ -27,6 +27,7 @@ use crate::bookmark::{BookmarkNotice, local_addresses, open_shared, restore, sav
 use crate::source::{DataSource, ShowsSource};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::Panel;
+use crate::widgets::space;
 use crate::widgets::{
     BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, caption, field_well, size,
     spawn_accordion, text, text_dim,
@@ -153,8 +154,8 @@ pub fn spawn_bookmarks_section(
         .insert(Node {
             width: Val::Percent(100.0),
             align_items: AlignItems::Center,
-            column_gap: Val::Px(6.0),
-            row_gap: Val::Px(6.0),
+            column_gap: Val::Px(space::CONTROLS),
+            row_gap: Val::Px(space::ROWS),
             flex_wrap: FlexWrap::Wrap,
             ..default()
         })
@@ -175,7 +176,7 @@ pub fn spawn_bookmarks_section(
             Node {
                 flex_direction: { FlexDirection::Column },
                 width: { Val::Percent(100.0) },
-                margin: { UiRect::top(Val::Px(6.0)) },
+                margin: { UiRect::top(Val::Px(space::HEADING)) },
             }
         })
         .id();
@@ -197,7 +198,7 @@ fn list_row(commands: &mut Commands) -> Entity {
             width: Val::Percent(100.0),
             min_height: Val::Px(LIST_ROW_PX),
             align_items: AlignItems::Center,
-            column_gap: Val::Px(6.0),
+            column_gap: Val::Px(space::CONTROLS),
             ..default()
         },
         BookmarkListContent,
@@ -211,7 +212,7 @@ fn row(commands: &mut Commands) -> Entity {
             Node {
                 width: { Val::Percent(100.0) },
                 align_items: { AlignItems::Center },
-                column_gap: { Val::Px(6.0) },
+                column_gap: { Val::Px(space::CONTROLS) },
             }
         })
         .id()
@@ -228,7 +229,7 @@ fn command_button(
             @FeathersButton {
                 @caption: { bsn_list![button_icon(icon), button_text(text)] }
             }
-            Node { column_gap: { Val::Px(6.0) }, flex_shrink: { 0.0_f32 } }
+            Node { column_gap: { Val::Px(space::ICON_LABEL) }, flex_shrink: { 0.0_f32 } }
             BlocksFrameInput
             template_value(command)
         })
@@ -303,7 +304,7 @@ fn fill_list(
                     overflow: { Overflow::clip() },
                     flex_direction: { FlexDirection::Column },
                     align_items: { AlignItems::Start },
-                    padding: { UiRect::axes(Val::Px(6.0), Val::Px(4.0)) },
+                    padding: { UiRect::axes(Val::Px(space::CONTROL_INSET), Val::Px(space::ITEM_INSET)) },
                     height: { Val::Auto },
                 }
                 Children [

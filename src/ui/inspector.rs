@@ -17,6 +17,7 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::{Boot, Stage};
 use crate::source::{DataSource, ShowsSource, SourceStatus};
 use crate::view::{FrameArea, PanelRequest, SelectedPanel};
+use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, dock_handle, size,
     text,
@@ -113,8 +114,8 @@ fn spawn_inspector(mut commands: Commands) {
             height: { Val::Percent(100.0) },
             display: { Display::None },
             flex_direction: { FlexDirection::Column },
-            row_gap: { Val::Px(8.0) },
-            padding: { UiRect::all(Val::Px(10.0)) },
+            row_gap: { Val::Px(space::ROWS) },
+            padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
         }
         ThemeBackgroundColor({ tokens::WINDOW_BG })
         InheritableFont { font_size: { 13.0f32 } }

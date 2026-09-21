@@ -9,6 +9,7 @@ use bevy_feathers::controls::ButtonVariant;
 use bevy_feathers::display::{label, label_dim};
 
 use crate::app::schedule::Boot;
+use crate::widgets::space;
 use crate::widgets::{AddModal, Icon, Modal, link_button, size, spawn_modal, text};
 
 /// Taken from the manifest, like the version, so the two cannot disagree.
@@ -57,12 +58,12 @@ pub fn spawn_help(mut commands: Commands) {
     let panel = modal.panel;
     let intro = commands
         .spawn_scene(bsn! {
-            Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(10.0) } }
+            Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(space::ROWS) } }
             Children [
                 label_dim(crate::ui::welcome::BLURB),
                 (
                     text("Getting around", size::DOCK_TITLE)
-                    Node { margin: { UiRect::top(Val::Px(6.0)) } }
+                    Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
                 ),
             ]
         })
@@ -73,7 +74,7 @@ pub fn spawn_help(mut commands: Commands) {
         rows.push(
             commands
                 .spawn_scene(bsn! {
-                    Node { column_gap: { Val::Px(12.0) } }
+                    Node { column_gap: { Val::Px(space::GROUPS) } }
                     Children [
                         (
                             label(keys)
@@ -90,19 +91,19 @@ pub fn spawn_help(mut commands: Commands) {
         .spawn_scene(bsn! {
             Node {
                 flex_direction: { FlexDirection::Column },
-                row_gap: { Val::Px(6.0) },
+                row_gap: { Val::Px(space::ROWS) },
             }
             Children [
                 (
                     text("Feedback and source", size::DOCK_TITLE)
-                    Node { margin: { UiRect::top(Val::Px(6.0)) } }
+                    Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
                 ),
                 label_dim(
                     "Found a bug or want a format supported? Open an issue. For a \
                      bug, copy the log from the log panel (F12) into it."
                 ),
                 (
-                    Node { column_gap: { Val::Px(8.0) }, flex_wrap: { FlexWrap::Wrap }, row_gap: { Val::Px(6.0) } }
+                    Node { column_gap: { Val::Px(space::CONTROLS) }, flex_wrap: { FlexWrap::Wrap }, row_gap: { Val::Px(space::CONTROLS) } }
                     Children [
                         link_button(Icon::Bug, "Report an issue", NEW_ISSUE_URL, ButtonVariant::Primary),
                         link_button(Icon::ExternalLink, "GitHub", REPOSITORY, ButtonVariant::Normal),
@@ -112,8 +113,8 @@ pub fn spawn_help(mut commands: Commands) {
                 (
                     Node {
                         align_items: { AlignItems::Center },
-                        column_gap: { Val::Px(4.0) },
-                        margin: { UiRect::top(Val::Px(8.0)) },
+                        column_gap: { Val::Px(space::CONTROLS) },
+                        margin: { UiRect::top(Val::Px(space::HEADING)) },
                     }
                     Children [
                         label_dim(format!("Made by {AUTHOR} \u{00b7} Licensed under")),

@@ -22,6 +22,7 @@ use crate::view::dataset_menu::{PickerTarget, spawn_dataset_picker};
 use crate::view::grid::MAX_LAYERS;
 use crate::view::layers::{stacked_sources, unit_mismatch};
 use crate::view::{FrameLayers, LayerOf, LayerOpacity, Panel, PanelRequest, SelectedPanel};
+use crate::widgets::space;
 use crate::widgets::{
     BlocksFrameInput, Icon, SectionLevel, button_icon, caption, size, spawn_accordion,
     spawn_slider, text,
@@ -209,7 +210,7 @@ pub fn rebuild_layers(
         .spawn_scene(bsn! {
             LayersContent
             text("Add a layer", size::SECONDARY)
-            Node { margin: { UiRect::top(Val::Px(8.0)) } }
+            Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
         })
         .id();
     rows.push(heading);
@@ -257,7 +258,7 @@ fn name_column(commands: &mut Commands, name: String, lines: Vec<String>) -> Ent
                 flex_direction: { FlexDirection::Column },
                 flex_grow: { 1.0_f32 },
                 flex_shrink: { 1.0_f32 },
-                row_gap: { Val::Px(1.0) },
+                row_gap: { Val::Px(space::STACKED) },
             }
             Children [(
                 text(name, size::BODY)
@@ -279,8 +280,8 @@ fn row(commands: &mut Commands) -> Entity {
             Node {
                 width: { Val::Percent(100.0) },
                 align_items: { AlignItems::Center },
-                column_gap: { Val::Px(6.0) },
-                padding: { UiRect::vertical(Val::Px(4.0)) },
+                column_gap: { Val::Px(space::CONTROLS) },
+                padding: { UiRect::vertical(Val::Px(space::ITEM_INSET)) },
             }
         })
         .id()

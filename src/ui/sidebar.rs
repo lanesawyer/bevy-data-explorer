@@ -18,6 +18,7 @@ use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::view::FrameArea;
+use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, button_text,
     dock_handle, size,
@@ -205,8 +206,8 @@ fn spawn_sidebar(mut commands: Commands) {
             top: { Val::Px(0.0) },
             height: { Val::Percent(100.0) },
             flex_direction: { FlexDirection::Column },
-            row_gap: { Val::Px(8.0) },
-            padding: { UiRect::all(Val::Px(10.0)) },
+            row_gap: { Val::Px(space::ROWS) },
+            padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
         }
         // Through a token rather than a literal: the theme repaints everything
         // that names one, and a dock painted by hand would stay dark while the
@@ -231,7 +232,7 @@ fn spawn_sidebar(mut commands: Commands) {
                     flex_grow: { 1.0_f32 },
                     flex_shrink: { 1.0_f32 },
                     min_height: { Val::ZERO },
-                    row_gap: { Val::Px(6.0) },
+                    row_gap: { Val::Px(space::ROWS) },
                     overflow: { Overflow::scroll_y() },
                 }
             ),
@@ -252,7 +253,7 @@ fn spawn_sidebar(mut commands: Commands) {
                             (button_text("Settings") SidebarLabel),
                         ] }
                     }
-                    Node { column_gap: { Val::Px(6.0) } }
+                    Node { column_gap: { Val::Px(space::ICON_LABEL) } }
                     crate::ui::settings::SettingsToggle
                     BlocksFrameInput
                 )]
@@ -269,7 +270,7 @@ fn spawn_sidebar(mut commands: Commands) {
                             (button_text("Help") SidebarLabel),
                         ] }
                     }
-                    Node { column_gap: { Val::Px(6.0) } }
+                    Node { column_gap: { Val::Px(space::ICON_LABEL) } }
                     crate::ui::help::HelpToggle
                     BlocksFrameInput
                 )]
@@ -291,7 +292,7 @@ fn spawn_sidebar(mut commands: Commands) {
                                 (button_text("Collapse") SidebarLabel),
                             ] }
                         }
-                        Node { column_gap: { Val::Px(6.0) } }
+                        Node { column_gap: { Val::Px(space::ICON_LABEL) } }
                         SidebarToggle
                         BlocksFrameInput
                     ),

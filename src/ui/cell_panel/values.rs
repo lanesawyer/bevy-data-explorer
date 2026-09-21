@@ -21,6 +21,7 @@ use super::{MAX_VALUE_ROWS, ValueCheckbox, ValueColumn, ValueCount, spawn_value_
 use crate::source::ShowsSource;
 use crate::source::properties::{CellProperties, CellProperty, PropertyKind};
 use crate::view::SelectedPanel;
+use crate::widgets::space;
 use crate::widgets::{matches_search, scroll_list, size, spawn_search_field, text_dim};
 
 /// Fewest values a property has before it offers a search. Below this the
@@ -78,7 +79,7 @@ pub fn spawn_values(commands: &mut Commands, index: usize, property: &CellProper
             Node {
                 width: Val::Percent(100.0),
                 flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(4.0),
+                row_gap: Val::Px(space::LIST_ITEMS),
                 ..default()
             },
             ValueList {

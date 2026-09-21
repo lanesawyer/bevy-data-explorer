@@ -8,6 +8,7 @@ use std::f32::consts::TAU;
 
 use bevy::prelude::*;
 
+use super::space;
 use crate::app::theme::Palette;
 
 /// Seconds for one pulse.
@@ -44,7 +45,7 @@ pub fn spawn_skeleton(commands: &mut Commands, rows: usize, row_px: f32) -> Enti
             Node {
                 flex_direction: FlexDirection::Column,
                 width: Val::Percent(100.0),
-                row_gap: Val::Px(6.0),
+                row_gap: Val::Px(space::LIST_ITEMS),
                 ..default()
             },
             Pickable::IGNORE,

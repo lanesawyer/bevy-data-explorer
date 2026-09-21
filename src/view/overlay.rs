@@ -26,6 +26,7 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 
 use crate::app::theme::token;
+use crate::widgets::space;
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::Stage;
@@ -71,7 +72,7 @@ impl Default for PanelStatusBox {
 }
 
 /// How far a frame's chrome sits in from the edges of its cell.
-const CHROME_INSET: f32 = 8.0;
+pub(super) const CHROME_INSET: f32 = space::CONTROL_INSET;
 
 /// The dataset's name, at the start of a frame's header.
 #[derive(Component, Clone, Default)]
@@ -234,7 +235,7 @@ fn spawn_tooltip(commands: &mut Commands, panel: Entity) {
         Node {
             position_type: { PositionType::Absolute },
             display: { Display::None },
-            padding: { UiRect::axes(Val::Px(8.0), Val::Px(6.0)) },
+            padding: { UiRect::axes(Val::Px(space::CONTROL_INSET), Val::Px(space::CONTROL_INSET)) },
             border_radius: { BorderRadius::all(Val::Px(5.0)) },
         }
         ThemeBackgroundColor({ token::OVERLAY_BG })
@@ -327,8 +328,8 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
             Node {
                 flex_direction: { FlexDirection::Column },
                 max_width: { Val::Percent(100.0) },
-                row_gap: { Val::Px(2.0) },
-                padding: { UiRect::axes(Val::Px(8.0), Val::Px(6.0)) },
+                row_gap: { Val::Px(space::STACKED) },
+                padding: { UiRect::axes(Val::Px(space::CONTROL_INSET), Val::Px(space::CONTROL_INSET)) },
                 border_radius: { BorderRadius::all(Val::Px(5.0)) },
             }
             // Translucent, and on the same side as the theme: over imagery
@@ -714,7 +715,7 @@ fn menu_heading(commands: &mut Commands, content: &str, gap: f32) -> Entity {
         .spawn_scene(bsn! {
             SourceMenuContent
             text(content, size::SECONDARY)
-            Node { margin: { UiRect::new(Val::Px(2.0), Val::Px(0.0), Val::Px(gap), Val::Px(2.0)) } }
+            Node { margin: { UiRect::new(Val::Px(space::STACKED), Val::Px(0.0), Val::Px(gap), Val::Px(space::STACKED)) } }
         })
         .id()
 }
@@ -725,7 +726,7 @@ fn menu_caption(commands: &mut Commands, content: &str) -> Entity {
         .spawn_scene(bsn! {
             SourceMenuContent
             label_dim(content)
-            Node { margin: { UiRect::new(Val::Px(2.0), Val::Px(0.0), Val::Px(0.0), Val::Px(4.0)) } }
+            Node { margin: { UiRect::new(Val::Px(space::STACKED), Val::Px(0.0), Val::Px(0.0), Val::Px(space::HEADING)) } }
         })
         .id()
 }
@@ -751,8 +752,8 @@ fn menu_row(
             Node {
                 width: { Val::Percent(100.0) },
                 align_items: { AlignItems::Center },
-                column_gap: { Val::Px(6.0) },
-                padding: { UiRect::vertical(Val::Px(3.0)) },
+                column_gap: { Val::Px(space::CONTROLS) },
+                padding: { UiRect::vertical(Val::Px(space::ITEM_INSET)) },
             }
             Children [
                 (

@@ -20,11 +20,12 @@ use bevy_feathers::theme::{ThemeBorderColor, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
 
+use super::space;
 use super::{BlocksFrameInput, CORNER_PX, Icon, button_icon, icon_text, size, truncate_to_width};
 
 /// Space between a body's sides and what is in it, the same on both so its
 /// contents sit centred in the box rather than against its right edge.
-pub const ACCORDION_INDENT: f32 = 8.0;
+pub const ACCORDION_INDENT: f32 = space::CONTROL_INSET;
 /// Size the accordion titles are drawn at, which sets how many characters fit.
 const TITLE_FONT: f32 = size::BODY;
 
@@ -136,7 +137,7 @@ pub fn spawn_accordion(
                 Node {
                     width: { Val::Percent(100.0) },
                     padding: { UiRect::ZERO },
-                    column_gap: { Val::Px(4.0) },
+                    column_gap: { Val::Px(space::CONTROLS) },
                     border: { UiRect::ZERO },
                     border_radius: { header_corners(open).to_border_radius(CORNER_PX) },
                     overflow: { Overflow::clip() },
@@ -150,7 +151,7 @@ pub fn spawn_accordion(
                 Node {
                     width: { Val::Percent(100.0) },
                     padding: { UiRect::ZERO },
-                    column_gap: { Val::Px(4.0) },
+                    column_gap: { Val::Px(space::CONTROLS) },
                     border: { UiRect::ZERO },
                     border_radius: { header_corners(open).to_border_radius(CORNER_PX) },
                     overflow: { Overflow::clip() },
@@ -183,8 +184,8 @@ pub fn spawn_accordion(
                 border_radius: { header_corners(open).to_border_radius(CORNER_PX) },
                 align_items: { AlignItems::Center },
                 justify_content: { JustifyContent::Start },
-                column_gap: { Val::Px(6.0) },
-                padding: { UiRect::horizontal(Val::Px(6.0)) },
+                column_gap: { Val::Px(space::ICON_LABEL) },
+                padding: { UiRect::horizontal(Val::Px(space::CONTROL_INSET)) },
             }
             Children [
                 (
@@ -313,13 +314,13 @@ fn body_patch(accordion: Entity, open: bool) -> impl Scene {
             // draw its contents once before being hidden.
             display: { body_display(open) },
             width: { Val::Percent(100.0) },
-            row_gap: { Val::Px(6.0) },
+            row_gap: { Val::Px(space::ROWS) },
             border: { UiRect::new(Val::Px(1.0), Val::Px(1.0), Val::Px(0.0), Val::Px(1.0)) },
             padding: { UiRect::new(
                 Val::Px(ACCORDION_INDENT),
                 Val::Px(ACCORDION_INDENT),
-                Val::Px(6.0),
-                Val::Px(6.0),
+                Val::Px(space::CONTROL_INSET),
+                Val::Px(space::CONTROL_INSET),
             ) },
         }
     }
@@ -340,7 +341,7 @@ fn header_corners(open: bool) -> RoundedCorners {
 /// on both sides.
 fn header_padding(controls: usize) -> UiRect {
     if controls > 0 {
-        UiRect::right(Val::Px(4.0))
+        UiRect::right(Val::Px(space::CONTROLS))
     } else {
         UiRect::ZERO
     }
@@ -457,7 +458,7 @@ mod tests {
     #[test]
     fn a_header_with_only_its_toggle_leaves_no_gap_at_the_end() {
         assert_eq!(header_padding(0), UiRect::ZERO);
-        assert_eq!(header_padding(1).right, Val::Px(4.0));
+        assert_eq!(header_padding(1).right, Val::Px(space::CONTROLS));
     }
 
     #[test]

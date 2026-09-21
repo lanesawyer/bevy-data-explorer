@@ -51,6 +51,7 @@ use crate::source::properties::{
 use crate::source::{DataSource, ShowsSource, compact_count};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
+use crate::widgets::space;
 use crate::widgets::{
     Accordion, BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, size,
     spawn_accordion, spawn_header_button, spawn_icon_menu, spawn_menu, spawn_skeleton, text_dim,
@@ -445,7 +446,7 @@ pub fn spawn_value_row(
         .spawn(Node {
             align_items: AlignItems::Center,
             flex_shrink: 0.0,
-            column_gap: Val::Px(6.0),
+            column_gap: Val::Px(space::CONTROLS),
             ..default()
         })
         .add_children(&[bar, counted])
@@ -455,7 +456,7 @@ pub fn spawn_value_row(
             width: Val::Percent(100.0),
             align_items: AlignItems::Center,
             justify_content: JustifyContent::SpaceBetween,
-            column_gap: Val::Px(6.0),
+            column_gap: Val::Px(space::CONTROLS),
             ..default()
         })
         .add_children(&[boxed, tail])
@@ -639,7 +640,7 @@ fn spawn_failed(commands: &mut Commands, error: &str) -> Entity {
             Node {
                 flex_direction: { FlexDirection::Column },
                 align_items: { AlignItems::Start },
-                row_gap: { Val::Px(6.0) },
+                row_gap: { Val::Px(space::ROWS) },
             }
             Children [
                 (
@@ -649,7 +650,7 @@ fn spawn_failed(commands: &mut Commands, error: &str) -> Entity {
                     @FeathersButton {
                         @caption: { bsn_list![button_icon(Icon::RotateCcw), button_text("Retry")] }
                     }
-                    Node { column_gap: { Val::Px(6.0) } }
+                    Node { column_gap: { Val::Px(space::ICON_LABEL) } }
                     BlocksFrameInput
                     RetryButton
                 ),

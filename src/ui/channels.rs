@@ -22,6 +22,7 @@ use crate::app::schedule::Stage;
 use crate::source::ShowsSource;
 use crate::source::channels::{MAX_GAIN, SourceChannels};
 use crate::view::SelectedPanel;
+use crate::widgets::space;
 use crate::widgets::{BlocksFrameInput, Icon, button_icon, button_text, spawn_slider};
 
 /// Brightness runs 0..400 on the slider, so its readout is a percentage.
@@ -179,7 +180,7 @@ pub fn rebuild_channel_rows(
         let heading = commands
             .spawn(Node {
                 align_items: AlignItems::Center,
-                column_gap: Val::Px(6.0),
+                column_gap: Val::Px(space::CONTROLS),
                 ..default()
             })
             .add_children(&[swatch, checkbox])

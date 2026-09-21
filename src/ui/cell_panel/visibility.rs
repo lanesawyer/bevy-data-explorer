@@ -22,6 +22,7 @@ use crate::source::ShowsSource;
 use crate::source::properties::CellProperties;
 use crate::ui::cell_panel::{CellPanelMenu, PropertySection};
 use crate::view::SelectedPanel;
+use crate::widgets::space;
 use crate::widgets::{BlocksFrameInput, button_text, size, text};
 
 /// A checkbox in the menu, listing or hiding one property.
@@ -107,7 +108,7 @@ fn heading(commands: &mut Commands) -> Entity {
         .spawn_scene(bsn! {
             MenuContent
             text("Show properties", size::BODY)
-            Node { margin: { UiRect::bottom(Val::Px(4.0)) } }
+            Node { margin: { UiRect::bottom(Val::Px(space::HEADING)) } }
         })
         .id()
 }

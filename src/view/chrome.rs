@@ -7,6 +7,7 @@ use bevy_feathers::controls::{ButtonVariant, FeathersToolButton};
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeBorderColor};
 
 use crate::app::theme::token;
+use crate::widgets::space;
 use crate::widgets::{BlocksFrameInput, Icon, button_icon};
 use bevy_ui_widgets::Activate;
 
@@ -132,7 +133,7 @@ pub(super) const SELECTION_Z: i32 = 1;
 pub(super) const BUTTON_PX: f32 = 22.0;
 /// Space between the buttons over a frame, and between them and the status
 /// under them.
-pub(super) const CHROME_GAP: f32 = 4.0;
+pub(super) const CHROME_GAP: f32 = space::CONTROLS;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PanelAction {

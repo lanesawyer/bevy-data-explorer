@@ -3,6 +3,7 @@ use bevy_feathers::theme::{ThemeBackgroundColor, ThemeBorderColor};
 use bevy_feathers::tokens;
 
 use super::CORNER_PX;
+use super::space;
 
 /// A box to set text fields in.
 ///
@@ -14,8 +15,8 @@ pub fn field_well() -> impl Scene {
         Node {
             flex_direction: { FlexDirection::Column },
             width: { Val::Percent(100.0) },
-            row_gap: { Val::Px(4.0) },
-            padding: { UiRect::all(Val::Px(6.0)) },
+            row_gap: { Val::Px(space::ROWS) },
+            padding: { UiRect::all(Val::Px(space::CONTROL_INSET)) },
             border: { UiRect::all(Val::Px(1.0)) },
             border_radius: { BorderRadius::all(Val::Px(CORNER_PX)) },
         }

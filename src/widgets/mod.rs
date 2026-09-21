@@ -19,6 +19,7 @@ mod search;
 mod selectable;
 mod skeleton;
 mod slider;
+mod spacing;
 mod text;
 mod truncate;
 
@@ -37,6 +38,7 @@ pub use search::{matches_search, spawn_search_field};
 pub use selectable::{SelectableText, has_selection};
 pub use skeleton::spawn_skeleton;
 pub use slider::spawn_slider;
+pub use spacing::space;
 pub use text::{size, text, text_dim, title};
 pub use truncate::{truncate_to_width, width_of};
 

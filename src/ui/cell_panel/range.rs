@@ -26,6 +26,7 @@ use crate::source::properties::{CellProperties, NumericRange, Ramp, RangeEnd};
 use crate::source::table::{TableFilters, TablePaging, to_first_page};
 use crate::source::{ShowsSource, compact_count};
 use crate::view::SelectedPanel;
+use crate::widgets::space;
 use crate::widgets::{BlocksFrameInput, hold_drag_cursor, size};
 
 /// Height of the histogram drawn above a numeric range.
@@ -202,7 +203,7 @@ pub fn spawn_range_control(
                         flex_basis: { Val::ZERO },
                         height: { Val::Percent(100.0) },
                         align_items: { AlignItems::End },
-                        margin: { UiRect::horizontal(Val::Px(0.5)) },
+                        margin: { UiRect::horizontal(Val::Px(space::SEAM / 2.0)) },
                     }
                     Children [(
                         RangeBar { owner: { owner }, property: { property }, bucket: { bucket } }
@@ -238,7 +239,7 @@ pub fn spawn_range_control(
             Node {
                 width: { Val::Percent(100.0) },
                 height: { Val::Px(RANGE_THUMB_PX) },
-                margin: { UiRect::top(Val::Px(4.0)) },
+                margin: { UiRect::top(Val::Px(space::CONTROLS)) },
                 justify_content: { JustifyContent::Center },
                 flex_direction: { FlexDirection::Column },
             }
@@ -305,7 +306,7 @@ pub fn spawn_range_control(
             Node {
                 width: { Val::Percent(100.0) },
                 justify_content: { JustifyContent::SpaceBetween },
-                column_gap: { Val::Px(8.0) },
+                column_gap: { Val::Px(space::CONTROLS) },
             }
             Children [
                 (
@@ -329,7 +330,7 @@ pub fn spawn_range_control(
             Node {
                 flex_direction: { FlexDirection::Column },
                 width: { Val::Percent(100.0) },
-                row_gap: { Val::Px(2.0) },
+                row_gap: { Val::Px(space::STACKED) },
             }
         })
         .id();

@@ -27,6 +27,7 @@ use bevy::ui::IgnoreScroll;
 use bevy_feathers::controls::FeathersScrollbar;
 use bevy_ui_widgets::{ControlOrientation, ScrollArea};
 
+use super::space;
 use super::{BlocksFrameInput, scroll::ScrollBoth, scroll::ScrollList};
 
 /// How thick a bar is, across the axis it scrolls.
@@ -34,7 +35,7 @@ const BAR_PX: f32 = 8.0;
 
 /// Clear space kept between the content and the bar, so that a row ending in
 /// a number does not end against it.
-const GAP_PX: f32 = 4.0;
+const GAP_PX: f32 = space::CONTROLS;
 
 /// What a scrolling area gives up to the bar it holds: the bar and the gap
 /// beside it.

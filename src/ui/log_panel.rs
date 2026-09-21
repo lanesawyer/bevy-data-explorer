@@ -28,6 +28,7 @@ use bevy_ui_widgets::{Activate, ScrollArea};
 use crate::app::logs::LogTail;
 use crate::app::schedule::{Boot, Stage};
 use crate::view::{FrameArea, TextEntryFocused};
+use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, SelectableText, button_icon,
     dock_handle, has_selection, size, text,
@@ -138,8 +139,8 @@ pub fn spawn_log_panel(mut commands: Commands) {
                 position_type: { PositionType::Absolute },
                 display: { Display::None },
                 flex_direction: { FlexDirection::Column },
-                row_gap: { Val::Px(4.0) },
-                padding: { UiRect::all(Val::Px(8.0)) },
+                row_gap: { Val::Px(space::ROWS) },
+                padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
             }
             ThemeBackgroundColor({ tokens::WINDOW_BG })
             InheritableFont { font_size: { 12.0f32 } }
@@ -151,7 +152,7 @@ pub fn spawn_log_panel(mut commands: Commands) {
             Node {
                 width: { Val::Percent(100.0) },
                 align_items: { AlignItems::Center },
-                column_gap: { Val::Px(6.0) },
+                column_gap: { Val::Px(space::CONTROLS) },
             }
             Children [
                 (

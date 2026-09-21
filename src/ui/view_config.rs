@@ -19,6 +19,7 @@ use crate::source::{DataSource, ShowsSource};
 use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
+use crate::widgets::space;
 use crate::widgets::{
     BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, caption, size, spawn_accordion,
     spawn_menu, spawn_slider, text,
@@ -102,7 +103,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
             Node {
                 flex_direction: { FlexDirection::Column },
                 width: { Val::Percent(100.0) },
-                row_gap: { Val::Px(2.0) },
+                row_gap: { Val::Px(space::LIST_ITEMS) },
             }
         })
         .id();
@@ -112,7 +113,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     let open = commands
         .spawn_scene(bsn! {
             text("Open a dataset", size::SECONDARY)
-            Node { margin: { UiRect::new(Val::Px(0.0), Val::Px(0.0), Val::Px(8.0), Val::Px(2.0)) } }
+            Node { margin: { UiRect::new(Val::Px(0.0), Val::Px(0.0), Val::Px(space::HEADING), Val::Px(space::STACKED)) } }
         })
         .id();
     let picker = crate::view::dataset_menu::spawn_dataset_picker(
@@ -571,7 +572,7 @@ fn summary(commands: &mut Commands, data: &DataSource) -> Entity {
             Node {
                 flex_direction: { FlexDirection::Column },
                 flex_grow: { 1.0_f32 },
-                row_gap: { Val::Px(1.0) },
+                row_gap: { Val::Px(space::STACKED) },
             }
             Children [(
                 text(name, size::BODY)
@@ -593,8 +594,8 @@ fn frame_row(commands: &mut Commands, panel: Entity, data: &DataSource) -> Entit
             Node {
                 width: { Val::Percent(100.0) },
                 align_items: { AlignItems::Center },
-                column_gap: { Val::Px(6.0) },
-                padding: { UiRect::vertical(Val::Px(6.0)) },
+                column_gap: { Val::Px(space::CONTROLS) },
+                padding: { UiRect::vertical(Val::Px(space::ITEM_INSET)) },
             }
         })
         .id();

@@ -24,15 +24,16 @@ use crate::source::properties::{CellProperties, Tree};
 use crate::source::{ShowsSource, compact_count};
 use crate::view::SelectedPanel;
 use crate::widgets::Menu;
+use crate::widgets::space;
 use crate::widgets::{BlocksFrameInput, Icon, button_icon, button_text};
 
 /// Indent per level of the tree.
-const INDENT_PX: f32 = 14.0;
+const INDENT_PX: f32 = space::INDENT;
 /// The expand control's width, kept by leaves as a gap so labels line up.
 const TOGGLE_PX: f32 = 22.0;
 /// Space between one node's row and the next, so neighbouring checkboxes do
 /// not touch.
-const ROW_GAP_PX: f32 = 4.0;
+const ROW_GAP_PX: f32 = space::LIST_ITEMS;
 
 /// Which nodes are expanded, by property and node.
 ///
@@ -107,7 +108,7 @@ pub fn fill_color_menu(
     let heading = commands
         .spawn_scene(bsn! {
             label("Color by")
-            Node { margin: { UiRect::bottom(Val::Px(4.0)) } }
+            Node { margin: { UiRect::bottom(Val::Px(space::HEADING)) } }
         })
         .id();
     commands.entity(menu).add_child(heading);
@@ -191,7 +192,7 @@ fn spawn_branch(
         min_width: Val::ZERO,
         align_items: AlignItems::Center,
         justify_content: JustifyContent::SpaceBetween,
-        column_gap: Val::Px(6.0),
+        column_gap: Val::Px(space::CONTROLS),
         ..default()
     });
     let partial = commands
@@ -212,7 +213,7 @@ fn spawn_branch(
         .spawn(Node {
             width: Val::Percent(100.0),
             align_items: AlignItems::Center,
-            column_gap: Val::Px(2.0),
+            column_gap: Val::Px(space::ICON_LABEL),
             ..default()
         })
         .add_children(&[lead, partial, row])

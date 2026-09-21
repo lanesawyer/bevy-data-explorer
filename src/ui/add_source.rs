@@ -18,6 +18,7 @@
 //! drawing while it is in flight.
 
 use crate::app::net::{Fetching, fetching};
+use crate::widgets::space;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::input_focus::FocusedInput;
 use bevy::prelude::*;
@@ -194,8 +195,8 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
             Node {
                 flex_direction: { FlexDirection::Column },
                 width: { Val::Percent(100.0) },
-                row_gap: { Val::Px(4.0) },
-                margin: { UiRect::top(Val::Px(10.0)) },
+                row_gap: { Val::Px(space::ROWS) },
+                margin: { UiRect::top(Val::Px(space::GROUPS)) },
             }
         })
         .id();
@@ -248,7 +249,7 @@ pub fn spawn_custom_section(commands: &mut Commands) -> Entity {
             Node {
                 width: { Val::Percent(100.0) },
                 align_items: { AlignItems::Center },
-                column_gap: { Val::Px(6.0) },
+                column_gap: { Val::Px(space::CONTROLS) },
             }
         })
         .id();

@@ -46,6 +46,7 @@ use crate::source::{ShowsSource, compact_count};
 use crate::ui::cell_panel::spawn_more_note;
 use crate::ui::inspector::Inspector;
 use crate::view::{FrameArea, FrameRegion, SelectMode, SelectedPanel};
+use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, SelectableText, button_icon,
     button_text, dock_handle, scroll_list, size, text, text_dim,
@@ -247,8 +248,8 @@ fn spawn_selection_dock(mut commands: Commands) {
             height: { Val::Percent(100.0) },
             display: { Display::None },
             flex_direction: { FlexDirection::Column },
-            row_gap: { Val::Px(8.0) },
-            padding: { UiRect::all(Val::Px(10.0)) },
+            row_gap: { Val::Px(space::ROWS) },
+            padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
         }
         ThemeBackgroundColor({ tokens::WINDOW_BG })
         InheritableFont { font_size: { 13.0f32 } }
@@ -258,7 +259,7 @@ fn spawn_selection_dock(mut commands: Commands) {
                     width: { Val::Percent(100.0) },
                     align_items: { AlignItems::Center },
                     justify_content: { JustifyContent::SpaceBetween },
-                    column_gap: { Val::Px(6.0) },
+                    column_gap: { Val::Px(space::CONTROLS) },
                 }
                 Children [
                     // No Node of its own: a `min_width` of zero on a label lets
@@ -606,7 +607,7 @@ fn spawn_detail(
                 Node {
                     width: { Val::Percent(100.0) },
                     flex_direction: { FlexDirection::Column },
-                    margin: { UiRect::top(Val::Px(12.0)) },
+                    margin: { UiRect::top(Val::Px(space::GROUPS)) },
                     flex_shrink: { 0.0_f32 },
                 }
                 Children [
@@ -696,7 +697,7 @@ fn spawn_cell_record(
             Text({ cell.id.clone() })
             TextFont { font_size: { FontSize::Px(size::SMALL) } }
             ThemeTextColor({ tokens::TEXT_DIM })
-            Node { margin: { UiRect::bottom(Val::Px(2.0)) } }
+            Node { margin: { UiRect::bottom(Val::Px(space::STACKED)) } }
         })
         .id();
     let record = commands
@@ -705,10 +706,10 @@ fn spawn_cell_record(
             Node {
                 width: { Val::Percent(100.0) },
                 flex_direction: { FlexDirection::Column },
-                row_gap: { Val::Px(4.0) },
+                row_gap: { Val::Px(space::LIST_ITEMS) },
                 flex_shrink: { 0.0_f32 },
-                margin: { UiRect::top(Val::Px(10.0)) },
-                padding: { UiRect::all(Val::Px(8.0)) },
+                margin: { UiRect::top(Val::Px(space::ROWS)) },
+                padding: { UiRect::all(Val::Px(space::CONTROL_INSET)) },
                 border_radius: { BorderRadius::all(Val::Px(4.0)) },
             }
             ThemeBackgroundColor({ tokens::BUTTON_BG })
@@ -754,7 +755,7 @@ fn spawn_category_row(
             Node {
                 width: { Val::Percent(100.0) },
                 justify_content: { JustifyContent::Start },
-                column_gap: { Val::Px(6.0) },
+                column_gap: { Val::Px(space::ICON_LABEL) },
                 flex_shrink: { 0.0_f32 },
             }
             CategoryRow { column: { column.to_string() }, label: { label.to_string() } }

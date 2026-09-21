@@ -9,6 +9,7 @@ use bevy_feathers::theme::ThemeBackgroundColor;
 use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
+use super::space;
 use super::{BlocksFrameInput, Icon, button_icon};
 
 /// A popup anchored under the button that opens it.
@@ -52,7 +53,7 @@ pub const MENU_WIDTH: f32 = 320.0;
 /// Menus draw over the frames and everything docked beside them.
 const MENU_Z: i32 = 10;
 /// Gap left between a menu and the bottom of the window.
-const MENU_MARGIN: f32 = 12.0;
+const MENU_MARGIN: f32 = space::PANEL_INSET;
 /// A menu never shrinks below this, even when opened near the bottom edge.
 const MENU_MIN_HEIGHT: f32 = 120.0;
 
@@ -88,8 +89,8 @@ pub fn spawn_icon_menu(
                 display: { Display::None },
                 width: { Val::Px(MENU_WIDTH) },
                 flex_direction: { FlexDirection::Column },
-                row_gap: { Val::Px(4.0) },
-                padding: { UiRect::all(Val::Px(10.0)) },
+                row_gap: { Val::Px(space::ROWS) },
+                padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
                 border_radius: { BorderRadius::all(Val::Px(6.0)) },
                 overflow: { Overflow::scroll_y() },
             }
@@ -114,7 +115,7 @@ pub fn spawn_icon_menu(
                 }
                 BlocksFrameInput
                 MenuButton { menu: { menu } }
-                Node { column_gap: { Val::Px(1.0) } }
+                Node { column_gap: { Val::Px(space::SEAM) } }
             })
             .id()
     } else {

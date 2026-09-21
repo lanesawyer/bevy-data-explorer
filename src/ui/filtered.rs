@@ -15,6 +15,7 @@ use crate::app::schedule::Stage;
 use crate::source::ShowsSource;
 use crate::source::properties::{CellProperties, FILTERED_GRAY, FilteredPoints};
 use crate::view::SelectedPanel;
+use crate::widgets::space;
 use crate::widgets::{BlocksFrameInput, button_text};
 
 /// Height of the hue and saturation plane. Feathers' own minimum, which is
@@ -59,7 +60,7 @@ pub fn filtered_controls(target: FilteredTarget) -> impl Scene {
     bsn! {
         Node {
             flex_direction: { FlexDirection::Column },
-            row_gap: { Val::Px(4.0) },
+            row_gap: { Val::Px(space::ROWS) },
         }
         Children [
             (
@@ -73,7 +74,7 @@ pub fn filtered_controls(target: FilteredTarget) -> impl Scene {
                 FilteredPicker({ target })
                 Node {
                     flex_direction: { FlexDirection::Column },
-                    row_gap: { Val::Px(4.0) },
+                    row_gap: { Val::Px(space::ROWS) },
                 }
                 Children [
                     (

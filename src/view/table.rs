@@ -33,12 +33,14 @@ use crate::app::schedule::Stage;
 use crate::app::theme::{Palette, token};
 use crate::source::table::{HiddenColumns, SourceTable, TablePaging, TableSort, to_first_page};
 use crate::source::{ShowsSource, grouped};
+use crate::widgets::space;
 use crate::widgets::{
     BlocksFrameInput, Icon, Menu, MenuButton, ScrollBoth, button_icon, icon_text, size, text,
     text_dim, truncate_to_width, width_of,
 };
 
-use super::chrome::BUTTON_PX;
+use super::chrome::{BUTTON_PX, CHROME_GAP};
+use super::overlay::CHROME_INSET;
 use super::overlay::PanelHeader;
 use super::{FrameArea, Panel, SelectedPanel};
 
@@ -50,7 +52,7 @@ const ROW_PX: f32 = 24.0;
 const HEADER_PX: f32 = 30.0;
 
 /// Clear space at each side of a cell's text.
-const PAD_PX: f32 = 10.0;
+const PAD_PX: f32 = space::CONTROL_INSET;
 
 /// Rows built past the ones on screen, at each end, so that a scroll shows the
 /// next row rather than a gap while it is built.
@@ -67,12 +69,12 @@ const TABLE_Z: i32 = -1;
 ///
 /// The chrome is drawn over its frame rather than beside it, so a table that
 /// started at the top of the cell would have the name, the status and the
-/// buttons sitting on its first rows. It starts under them instead.
-const CHROME_GAP_PX: f32 = 6.0;
+/// buttons sitting on its first rows. It starts under them, as far below
+/// as the status is below the buttons.
+const CHROME_GAP_PX: f32 = CHROME_GAP;
 
-/// Where the frame's chrome starts, which is where [`super::overlay`] puts the
-/// header and [`super::camera`] puts the buttons.
-const CHROME_TOP_PX: f32 = 8.0;
+/// Where the frame's chrome starts, which is where [`super::overlay`] puts it.
+const CHROME_TOP_PX: f32 = CHROME_INSET;
 
 /// How tall the strip of paging buttons along the bottom is.
 const FOOTER_PX: f32 = 32.0;
@@ -365,7 +367,7 @@ fn spawn_table(commands: &mut Commands, panel: Entity, source: Entity, layout: L
                 flex_shrink: 0.0,
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
-                column_gap: Val::Px(6.0),
+                column_gap: Val::Px(space::CONTROLS),
                 ..default()
             },
             ThemeBackgroundColor(token::OVERLAY_BG),
@@ -447,7 +449,7 @@ fn spawn_heading(
             width: Val::Px(width),
             height: Val::Percent(100.0),
             padding: UiRect::horizontal(Val::Px(PAD_PX)),
-            column_gap: Val::Px(2.0),
+            column_gap: Val::Px(space::ICON_LABEL),
             align_items: AlignItems::Center,
             justify_content: if numeric {
                 JustifyContent::End
