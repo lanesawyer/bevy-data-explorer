@@ -1,9 +1,9 @@
 //! What the user has told the app to remember between sessions: how big they
 //! dragged each dock, the theme they picked, and how point clouds open.
 //!
-//! One JSON file in the XDG config folder, read once at startup and written a
-//! moment after the last change, so a drag across the window is one write
-//! rather than one a frame. A file that cannot be read is reported and set
+//! One JSON file in the platform's config folder, read once at startup and
+//! written a moment after the last change, so a drag across the window is one
+//! write rather than one a frame. A file that cannot be read is reported and set
 //! aside for the defaults, never allowed to stop the app starting.
 
 use std::collections::BTreeMap;
@@ -18,13 +18,25 @@ use crate::source::properties::{FilteredPoints, SavedFiltered};
 /// How long the preferences must sit still before they are written.
 const SAVE_AFTER_SECS: f32 = 0.5;
 
-/// Where preferences are kept: the XDG config folder, or beside the app when
-/// there is no home to find it in.
+/// Where preferences are kept: the roaming app data folder on Windows, the
+/// XDG config folder elsewhere, or beside the app when there is no home to
+/// find it in.
 pub fn path() -> PathBuf {
-    let config = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
+    path_in(cfg!(windows), |name| std::env::var_os(name))
+}
+
+/// [`path`], with the platform and environment handed in so each can be
+/// tested from any of them.
+///
+/// Windows sets no `HOME`, so without `APPDATA` the file landed in whatever
+/// folder the app happened to be started from.
+fn path_in(windows: bool, var: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
+    let set = |name| var(name).filter(|path| !path.is_empty()).map(PathBuf::from);
+    let config = if windows {
+        set("APPDATA")
+    } else {
+        set("XDG_CONFIG_HOME").or_else(|| set("HOME").map(|home| home.join(".config")))
+    };
     match config {
         Some(config) => config.join("bevy-data-explorer").join("preferences.json"),
         None => PathBuf::from("preferences.json"),
@@ -161,6 +173,26 @@ mod tests {
         prefs.save(&path).unwrap();
         assert_eq!(Preferences::load(&path), prefs);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn windows_keeps_them_in_app_data_rather_than_where_it_was_started() {
+        let env = |name: &str| match name {
+            "APPDATA" => Some(r"C:\Users\lane\AppData\Roaming".into()),
+            "HOME" => Some("/home/lane".into()),
+            _ => None,
+        };
+        assert_eq!(
+            path_in(true, env),
+            PathBuf::from(r"C:\Users\lane\AppData\Roaming")
+                .join("bevy-data-explorer")
+                .join("preferences.json")
+        );
+        assert_eq!(
+            path_in(false, env),
+            PathBuf::from("/home/lane/.config/bevy-data-explorer/preferences.json")
+        );
+        assert_eq!(path_in(true, |_| None), PathBuf::from("preferences.json"));
     }
 
     #[test]
