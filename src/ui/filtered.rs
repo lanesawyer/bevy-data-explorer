@@ -12,9 +12,8 @@ use bevy_ui_widgets::{SliderValue, ValueChange};
 
 use crate::app::prefs::Preferences;
 use crate::app::schedule::Stage;
-use crate::source::ShowsSource;
 use crate::source::properties::{CellProperties, FILTERED_GRAY, FilteredPoints};
-use crate::view::SelectedPanel;
+use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{BlocksFrameInput, button_text, patch_node};
 
@@ -119,8 +118,7 @@ fn start_from_preference(
 fn on_box_toggled(
     change: On<ValueChange<bool>>,
     boxes: Query<&FilteredBox>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut FilteredPoints>,
     mut prefs: ResMut<Preferences>,
 ) {
@@ -129,9 +127,7 @@ fn on_box_toggled(
     };
     match target {
         FilteredTarget::Selected => {
-            if let Some(source) = crate::view::selected_source(&selected, &panels)
-                && let Ok(mut filtered) = sources.get_mut(source)
-            {
+            if let Some(mut filtered) = selected.get_mut(&mut sources) {
                 filtered.shown = change.value;
             }
         }
@@ -147,12 +143,11 @@ fn on_box_toggled(
 fn current(
     target: FilteredTarget,
     prefs: &Preferences,
-    selected: &SelectedPanel,
-    panels: &Query<&ShowsSource>,
+    selected: Option<Entity>,
     sources: &Query<&mut FilteredPoints>,
 ) -> Option<FilteredPoints> {
     match target {
-        FilteredTarget::Selected => crate::view::selected_source(selected, panels)
+        FilteredTarget::Selected => selected
             .and_then(|source| sources.get(source).ok())
             .copied(),
         FilteredTarget::Default => Some(prefs.filtered_points()),
@@ -165,12 +160,11 @@ fn current(
 fn recolor(
     target: FilteredTarget,
     prefs: &mut Preferences,
-    selected: &SelectedPanel,
-    panels: &Query<&ShowsSource>,
+    selected: Option<Entity>,
     sources: &mut Query<&mut FilteredPoints>,
     change: impl FnOnce(&mut Hsla),
 ) {
-    let Some(mut filtered) = current(target, prefs, selected, panels, sources) else {
+    let Some(mut filtered) = current(target, prefs, selected, sources) else {
         return;
     };
     let mut color = Hsla::from(filtered.color);
@@ -178,7 +172,7 @@ fn recolor(
     filtered.color = Color::Hsla(color);
     match target {
         FilteredTarget::Selected => {
-            if let Some(source) = crate::view::selected_source(selected, panels)
+            if let Some(source) = selected
                 && let Ok(mut current) = sources.get_mut(source)
             {
                 current.set_if_neq(filtered);
@@ -191,8 +185,7 @@ fn recolor(
 fn on_plane(
     change: On<ValueChange<Vec2>>,
     planes: Query<&FilteredPlane>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut FilteredPoints>,
     mut prefs: ResMut<Preferences>,
 ) {
@@ -203,8 +196,7 @@ fn on_plane(
     recolor(
         *target,
         &mut prefs,
-        &selected,
-        &panels,
+        selected.entity(),
         &mut sources,
         |color| {
             color.hue = value.x * 360.0;
@@ -216,8 +208,7 @@ fn on_plane(
 fn on_lightness(
     change: On<ValueChange<f32>>,
     sliders: Query<&FilteredLightness>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut FilteredPoints>,
     mut prefs: ResMut<Preferences>,
 ) {
@@ -228,8 +219,7 @@ fn on_lightness(
     recolor(
         *target,
         &mut prefs,
-        &selected,
-        &panels,
+        selected.entity(),
         &mut sources,
         |color| {
             color.lightness = value;
@@ -241,8 +231,7 @@ fn on_lightness(
 fn sync_filtered_controls(
     mut commands: Commands,
     prefs: Res<Preferences>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<&mut FilteredPoints>,
     boxes: Query<(Entity, &FilteredBox, Has<Checked>)>,
     mut pickers: Query<(&FilteredPicker, &mut Node)>,
@@ -255,7 +244,7 @@ fn sync_filtered_controls(
         Entity,
     )>,
 ) {
-    let current = |target| current(target, &prefs, &selected, &panels, &sources);
+    let current = |target| current(target, &prefs, selected.entity(), &sources);
     for (entity, FilteredBox(target), checked) in &boxes {
         let Some(filtered) = current(*target) else {
             continue;

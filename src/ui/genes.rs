@@ -18,13 +18,12 @@ use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::Palette;
-use crate::source::ShowsSource;
 use crate::source::genes::{GeneSearch, SearchState};
 use crate::source::properties::CellProperties;
 use crate::ui::cell_panel::range::{RangeOwner, spawn_range_control};
 use crate::ui::cell_panel::{ClearPropertyButton, ColorByButton};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
-use crate::view::SelectedPanel;
+use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
     Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, field_well, patch_node, set_text,
@@ -131,25 +130,16 @@ pub fn spawn_gene_panel(mut commands: Commands, content: Query<Entity, With<Side
     commands.entity(accordion.body).add_child(body);
 }
 
-/// The selected frame's source, if it offers genes.
-fn selected_source(selected: &SelectedPanel, panels: &Query<&ShowsSource>) -> Option<Entity> {
-    selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .map(|shows| shows.0)
-}
-
 /// Write what is typed into the selected source's search, and load a newly
 /// selected source's query into the field so the last one's does not carry
 /// over.
 pub fn read_gene_query(
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut GeneSearch>,
     mut fields: Query<&mut EditableText, With<GeneQueryInput>>,
     mut last: Local<Option<Entity>>,
 ) {
-    let source = selected_source(&selected, &panels).filter(|s| sources.contains(*s));
+    let source = selected.entity().filter(|s| sources.contains(*s));
     let Ok(mut field) = fields.single_mut() else {
         return;
     };
@@ -177,16 +167,13 @@ pub fn read_gene_query(
 pub fn on_gene_picked(
     activate: On<Activate>,
     buttons: Query<&GeneResultButton>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut GeneSearch>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
         return;
     };
-    let Some(mut search) =
-        selected_source(&selected, &panels).and_then(|source| sources.get_mut(source).ok())
-    else {
+    let Some(mut search) = selected.get_mut(&mut sources) else {
         return;
     };
     if let Some(gene) = search.results.get(button.result).cloned() {
@@ -198,16 +185,13 @@ pub fn on_gene_picked(
 pub fn on_remove_gene(
     activate: On<Activate>,
     buttons: Query<&RemoveGeneButton>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut CellProperties>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
         return;
     };
-    let Some(mut properties) =
-        selected_source(&selected, &panels).and_then(|source| sources.get_mut(source).ok())
-    else {
+    let Some(mut properties) = selected.get_mut(&mut sources) else {
         return;
     };
     if let Some(property) = properties.properties.get(button.property) {
@@ -219,14 +203,14 @@ pub fn on_remove_gene(
 /// List what the search found, rebuilt only when that changes.
 pub fn rebuild_gene_results(
     mut commands: Commands,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<&GeneSearch>,
     list: Query<Entity, With<GeneResults>>,
     mut shown: Local<Option<(Entity, Vec<String>)>>,
 ) {
     let Ok(list) = list.single() else { return };
-    let found = selected_source(&selected, &panels)
+    let found = selected
+        .entity()
         .and_then(|source| sources.get(source).ok().map(|found| (source, found)));
     let fingerprint = found.map(|(source, search)| {
         (
@@ -269,8 +253,7 @@ pub fn rebuild_gene_results(
 pub fn rebuild_gene_list(
     mut commands: Commands,
     palette: Res<Palette>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<&CellProperties, With<GeneSearch>>,
     list: Query<Entity, With<GeneList>>,
     sections: Query<(&GeneSection, &Accordion)>,
@@ -282,7 +265,8 @@ pub fn rebuild_gene_list(
         open.insert(section.id.clone(), accordion.open);
     }
 
-    let found = selected_source(&selected, &panels)
+    let found = selected
+        .entity()
         .and_then(|source| sources.get(source).ok().map(|found| (source, found)));
     let fingerprint = found.map(|(source, properties)| {
         (
@@ -345,12 +329,11 @@ pub fn rebuild_gene_list(
 
 /// Say how the selected source's gene search is going.
 pub fn update_gene_panel(
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<&GeneSearch>,
     mut status: Query<(&mut Text, &mut Node), With<GeneStatus>>,
 ) {
-    let search = selected_source(&selected, &panels).and_then(|source| sources.get(source).ok());
+    let search = selected.get(&sources);
 
     let message = search.map(status_of).unwrap_or_default();
     for (text, node) in &mut status {

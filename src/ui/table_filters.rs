@@ -26,18 +26,18 @@ use bevy_ui_widgets::{Activate, ValueChange};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::Palette;
+use crate::source::compact_count;
 use crate::source::properties::PropertyValue;
 use crate::source::table::{
     HiddenColumns, SourceTable, TableFilter, TableFilterKind, TableFilters, TablePaging,
     to_first_page,
 };
-use crate::source::{ShowsSource, compact_count};
 use crate::ui::cell_panel::range::{RangeOwner, spawn_range_control};
 use crate::ui::cell_panel::tree::Unveil;
 use crate::ui::cell_panel::values::{LIST_MAX_PX, SEARCH_FROM, note_for};
 use crate::ui::cell_panel::{MAX_VALUE_ROWS, ValueColumn, spawn_value_row};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
-use crate::view::SelectedPanel;
+use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
     Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, matches_search, patch_node,
@@ -168,12 +168,6 @@ pub fn spawn_filter_section(mut commands: Commands, content: Query<Entity, With<
     commands.entity(menu).insert(ColumnMenu);
 }
 
-/// Which table the sidebar is acting on: the selected frame's, if it has one
-/// that can be narrowed.
-fn selected(selected: &SelectedPanel, panels: &Query<&ShowsSource>) -> Option<Entity> {
-    panels.get(selected.0?).ok().map(|shows| shows.0)
-}
-
 /// Rebuild the columns when the selection moves to another table, or its
 /// columns land.
 ///
@@ -182,15 +176,14 @@ fn selected(selected: &SelectedPanel, panels: &Query<&ShowsSource>) -> Option<En
 /// respawn every checkbox under the pointer and shut every open column.
 pub fn rebuild_filters(
     mut commands: Commands,
-    selection: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selection: SelectedSource,
     tables: Query<Option<&TableFilters>, With<SourceTable>>,
     body: Query<Entity, With<FilterBody>>,
     existing: Query<Entity, With<FilterContent>>,
     mut built: Local<Option<(Entity, Option<(usize, bool)>)>>,
 ) {
     let Ok(body) = body.single() else { return };
-    let source = selected(&selection, &panels).filter(|source| tables.contains(*source));
+    let source = selection.entity().filter(|source| tables.contains(*source));
     let filters = source.and_then(|source| tables.get(source).ok().flatten());
 
     let fingerprint = source.map(|source| {
@@ -275,15 +268,15 @@ pub fn rebuild_filters(
 /// the pointer.
 pub fn rebuild_column_menu(
     mut commands: Commands,
-    selection: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selection: SelectedSource,
     tables: Query<(&SourceTable, Option<&HiddenColumns>)>,
     menus: Query<Entity, With<ColumnMenu>>,
     existing: Query<Entity, With<ColumnMenuContent>>,
     mut built: Local<Option<(Entity, Vec<String>)>>,
 ) {
     let Ok(menu) = menus.single() else { return };
-    let table = selected(&selection, &panels)
+    let table = selection
+        .entity()
         .and_then(|source| tables.get(source).ok().map(|table| (source, table)));
     let fingerprint = table.map(|(source, (rows, _))| {
         (
@@ -339,15 +332,15 @@ pub fn rebuild_column_menu(
 pub fn on_show_column_toggled(
     change: On<ValueChange<bool>>,
     boxes: Query<&ShowColumnCheckbox>,
-    selection: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selection: SelectedSource,
     mut hidden: Query<&mut HiddenColumns>,
 ) {
     let Ok(checkbox) = boxes.get(change.source) else {
         return;
     };
-    let Some(mut hidden) =
-        selected(&selection, &panels).and_then(|source| hidden.get_mut(source).ok())
+    let Some(mut hidden) = selection
+        .entity()
+        .and_then(|source| hidden.get_mut(source).ok())
     else {
         return;
     };
@@ -368,12 +361,13 @@ pub fn on_show_column_toggled(
 /// Keep the menu's ticks matching which columns are drawn.
 pub fn sync_column_menu(
     mut commands: Commands,
-    selection: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selection: SelectedSource,
     hidden: Query<&HiddenColumns>,
     boxes: Query<(Entity, &ShowColumnCheckbox, Has<Checked>)>,
 ) {
-    let Some(hidden) = selected(&selection, &panels).and_then(|source| hidden.get(source).ok())
+    let Some(hidden) = selection
+        .entity()
+        .and_then(|source| hidden.get(source).ok())
     else {
         return;
     };
@@ -443,15 +437,16 @@ fn spawn_values(commands: &mut Commands, column: usize, count: usize) -> Vec<Ent
 /// newly wants, and hide the ones it no longer does.
 pub fn sync_value_lists(
     mut commands: Commands,
-    selection: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selection: SelectedSource,
     filters: Query<&TableFilters>,
     fields: Query<&EditableText, With<FilterSearch>>,
     mut lists: Query<(Entity, &mut FilterValueList)>,
     mut nodes: Query<&mut Node>,
     mut texts: Query<&mut Text>,
 ) {
-    let Some(table) = selected(&selection, &panels).and_then(|source| filters.get(source).ok())
+    let Some(table) = selection
+        .entity()
+        .and_then(|source| filters.get(source).ok())
     else {
         return;
     };
@@ -532,13 +527,14 @@ pub fn sync_value_lists(
 pub fn sync_span_bodies(
     mut commands: Commands,
     palette: Res<Palette>,
-    selection: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selection: SelectedSource,
     filters: Query<&TableFilters>,
     accordions: Query<&Accordion>,
     mut bodies: Query<(Entity, &mut SpanBody)>,
 ) {
-    let Some(table) = selected(&selection, &panels).and_then(|source| filters.get(source).ok())
+    let Some(table) = selection
+        .entity()
+        .and_then(|source| filters.get(source).ok())
     else {
         return;
     };
@@ -587,15 +583,14 @@ pub fn sync_span_bodies(
 pub fn on_value_toggled(
     change: On<ValueChange<bool>>,
     boxes: Query<&FilterValueBox>,
-    selection: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selection: SelectedSource,
     mut filters: Query<&mut TableFilters>,
     mut pagings: Query<&mut TablePaging>,
 ) {
     let Ok(box_) = boxes.get(change.source) else {
         return;
     };
-    let Some(source) = selected(&selection, &panels) else {
+    let Some(source) = selection.entity() else {
         return;
     };
     let Ok(mut filters) = filters.get_mut(source) else {
@@ -621,12 +616,11 @@ pub fn on_value_toggled(
 /// most tables are never looked at. Only on the opening itself, so an ask that
 /// failed is not repeated every frame the column stays open.
 pub fn note_open_columns(
-    selection: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selection: SelectedSource,
     mut filters: Query<&mut TableFilters>,
     sections: Query<(&FilterColumn, Ref<Accordion>)>,
 ) {
-    let Some(source) = selected(&selection, &panels) else {
+    let Some(source) = selection.entity() else {
         return;
     };
     let Ok(mut filters) = filters.get_mut(source) else {
@@ -651,15 +645,16 @@ pub fn note_open_columns(
 /// offer each clear button only while there is something for it to clear.
 pub fn sync_filter_controls(
     mut commands: Commands,
-    selection: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selection: SelectedSource,
     filters: Query<&TableFilters>,
     boxes: Query<(Entity, &FilterValueBox, Has<Checked>)>,
     mut counts: Query<(&FilterValueCount, &mut Text)>,
     mut clear_all: Query<&mut Node, (With<ClearFiltersButton>, Without<ClearColumnButton>)>,
     mut clear_column: Query<(&ClearColumnButton, &mut Node), Without<ClearFiltersButton>>,
 ) {
-    let table = selected(&selection, &panels).and_then(|source| filters.get(source).ok());
+    let table = selection
+        .entity()
+        .and_then(|source| filters.get(source).ok());
 
     let shown = |restricts: bool| {
         if restricts {
@@ -714,15 +709,14 @@ pub fn sync_filter_controls(
 pub fn on_clear_pressed(
     activate: On<Activate>,
     buttons: Query<&ClearFiltersButton>,
-    selection: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selection: SelectedSource,
     mut filters: Query<&mut TableFilters>,
     mut pagings: Query<&mut TablePaging>,
 ) {
     if buttons.get(activate.entity).is_err() {
         return;
     }
-    let Some(source) = selected(&selection, &panels) else {
+    let Some(source) = selection.entity() else {
         return;
     };
     if let Ok(mut filters) = filters.get_mut(source)
@@ -737,15 +731,14 @@ pub fn on_clear_pressed(
 pub fn on_clear_column(
     activate: On<Activate>,
     buttons: Query<&ClearColumnButton>,
-    selection: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selection: SelectedSource,
     mut filters: Query<&mut TableFilters>,
     mut pagings: Query<&mut TablePaging>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
         return;
     };
-    let Some(source) = selected(&selection, &panels) else {
+    let Some(source) = selection.entity() else {
         return;
     };
     let Ok(mut filters) = filters.get_mut(source) else {

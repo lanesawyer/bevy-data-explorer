@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy::text::EditableText;
 
 use super::grid::{Drag, active_panel, panel_under_cursor, within_frames};
-use super::{FrameArea, Panel, SelectedPanel};
+use super::{FrameArea, Panel, SelectedPanel, SelectedSource};
 use crate::source::channels::SourceChannels;
 use crate::source::hover::HoverProbe;
 use crate::source::{ShowsSource, ViewLimits};
@@ -89,8 +89,7 @@ pub fn reset_selected_view(
 pub fn page_slice_stack(
     keys: Res<ButtonInput<KeyCode>>,
     typing: Res<TextEntryFocused>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut stacks: Query<&mut crate::source::stack::SliceStack>,
 ) {
     if typing.0 {
@@ -113,7 +112,7 @@ pub fn page_slice_stack(
         return;
     }
 
-    let Some(source) = super::selected_source(&selected, &panels) else {
+    let Some(source) = selected.entity() else {
         return;
     };
     let Ok(stack) = stacks.get(source) else {
@@ -138,16 +137,13 @@ pub fn page_slice_stack(
 pub fn toggle_slice_grid(
     keys: Res<ButtonInput<KeyCode>>,
     typing: Res<TextEntryFocused>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut grids: Query<&mut crate::source::stack::SliceGrid>,
 ) {
     if typing.0 || !keys.just_pressed(KeyCode::KeyG) {
         return;
     }
-    if let Some(source) = super::selected_source(&selected, &panels)
-        && let Ok(mut grid) = grids.get_mut(source)
-    {
+    if let Some(mut grid) = selected.get_mut(&mut grids) {
         grid.0 = !grid.0;
     }
 }
@@ -160,8 +156,7 @@ pub fn toggle_slice_grid(
 pub fn toggle_channels(
     keys: Res<ButtonInput<KeyCode>>,
     typing: Res<TextEntryFocused>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut SourceChannels>,
 ) {
     // A digit typed into a URL is a digit, not a channel.
@@ -171,7 +166,7 @@ pub fn toggle_channels(
     // The selected frame's image and no other. With two images open, a digit
     // that reached both would toggle a channel on the one nobody was looking
     // at, and there would be nothing on screen to say it had happened.
-    let Some(source) = super::selected_source(&selected, &panels) else {
+    let Some(source) = selected.entity() else {
         return;
     };
     const DIGITS: [KeyCode; 9] = [

@@ -19,9 +19,8 @@ use bevy_feathers::theme::ThemedText;
 use bevy_ui_widgets::{Activate, SliderValue, ValueChange};
 
 use crate::app::schedule::Stage;
-use crate::source::ShowsSource;
 use crate::source::channels::{MAX_GAIN, SourceChannels};
-use crate::view::SelectedPanel;
+use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{BlocksFrameInput, Icon, button_icon, button_text, patch_node, spawn_slider};
 
@@ -89,29 +88,21 @@ pub fn spawn_channel_section(commands: &mut Commands) -> Entity {
         .id()
 }
 
-fn selected_channels<'a>(
-    selected: &SelectedPanel,
-    panels: &Query<&ShowsSource>,
-    sources: &'a Query<&mut SourceChannels>,
-) -> Option<(Entity, &'a SourceChannels)> {
-    let source = selected.0.and_then(|panel| panels.get(panel).ok())?.0;
-    sources.get(source).ok().map(|channels| (source, channels))
-}
-
 /// Rebuild the rows when the selection moves to a source with other channels.
 ///
 /// Only then: respawning a Feathers checkbox draws its tick for a frame before
 /// it is styled, so rebuilding on every change would flash them all.
 pub fn rebuild_channel_rows(
     mut commands: Commands,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<&mut SourceChannels>,
     mut sections: Query<&mut Node, With<ChannelSection>>,
     rows: Query<(Entity, Option<&Children>), With<ChannelRows>>,
     mut built: Local<Option<(Entity, Vec<String>)>>,
 ) {
-    let current = selected_channels(&selected, &panels, &sources);
+    let current = selected
+        .entity()
+        .and_then(|source| sources.get(source).ok().map(|channels| (source, channels)));
 
     let display = if current.is_some_and(|(_, channels)| !channels.channels.is_empty()) {
         Display::Flex
@@ -200,18 +191,13 @@ pub fn rebuild_channel_rows(
 pub fn on_channel_toggled(
     change: On<ValueChange<bool>>,
     checkboxes: Query<&ChannelCheckbox>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut SourceChannels>,
 ) {
     let Ok(checkbox) = checkboxes.get(change.source) else {
         return;
     };
-    let Some(mut channels) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get_mut(shows.0).ok())
-    else {
+    let Some(mut channels) = selected.get_mut(&mut sources) else {
         return;
     };
     if let Some(channel) = channels.channels.get_mut(checkbox.channel)
@@ -230,18 +216,13 @@ pub fn on_channel_toggled(
 pub fn on_channel_reset(
     activate: On<Activate>,
     buttons: Query<(), With<ChannelReset>>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut SourceChannels>,
 ) {
     if !buttons.contains(activate.entity) {
         return;
     }
-    if let Some(mut channels) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get_mut(shows.0).ok())
-    {
+    if let Some(mut channels) = selected.get_mut(&mut sources) {
         channels.reset();
         info!("channels reset to how the dataset publishes them");
     }
@@ -255,19 +236,14 @@ pub fn on_channel_reset(
 /// the simpler thing — would undo every reset the frame after it landed.
 pub fn sync_channel_controls(
     mut commands: Commands,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut SourceChannels>,
     sliders: Query<(Entity, &ChannelSlider, &SliderValue)>,
     boxes: Query<(Entity, &ChannelCheckbox, Has<Checked>)>,
     resets: Query<(Entity, Has<InteractionDisabled>), With<ChannelReset>>,
     mut seen: Local<HashMap<Entity, f32>>,
 ) {
-    let Some(source) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .map(|shows| shows.0)
-    else {
+    let Some(source) = selected.entity() else {
         return;
     };
     let Ok(mut channels) = sources.get_mut(source) else {

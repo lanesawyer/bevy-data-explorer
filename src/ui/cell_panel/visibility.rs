@@ -18,10 +18,9 @@ use bevy::ui::{Checked, InteractionDisabled};
 use bevy_feathers::controls::FeathersCheckbox;
 use bevy_ui_widgets::ValueChange;
 
-use crate::source::ShowsSource;
 use crate::source::properties::CellProperties;
 use crate::ui::cell_panel::{CellPanelMenu, PropertySection};
-use crate::view::SelectedPanel;
+use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{BlocksFrameInput, button_text, patch_node, size, text};
 
@@ -42,8 +41,7 @@ pub struct MenuContent;
 /// same reason the panel's own controls are.
 pub fn rebuild_visibility_menu(
     mut commands: Commands,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<&CellProperties>,
     menus: Query<Entity, With<CellPanelMenu>>,
     existing: Query<Entity, With<MenuContent>>,
@@ -52,9 +50,8 @@ pub fn rebuild_visibility_menu(
     let Ok(menu) = menus.single() else { return };
 
     let source = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get(shows.0).ok().map(|found| (shows.0, found)));
+        .entity()
+        .and_then(|source| sources.get(source).ok().map(|found| (source, found)));
 
     let Some((entity, properties)) = source else {
         if shown.is_some() {
@@ -117,18 +114,13 @@ fn heading(commands: &mut Commands) -> Entity {
 pub fn on_show_toggled(
     change: On<ValueChange<bool>>,
     checkboxes: Query<&ShowPropertyCheckbox>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut CellProperties>,
 ) {
     let Ok(checkbox) = checkboxes.get(change.source) else {
         return;
     };
-    let Some(mut properties) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get_mut(shows.0).ok())
-    else {
+    let Some(mut properties) = selected.get_mut(&mut sources) else {
         return;
     };
     // The box's own `Checked` is left to the sync below, which reads it back
@@ -148,8 +140,7 @@ pub fn on_show_toggled(
 /// listed, and the colored-by box unavailable.
 pub fn update_property_visibility(
     mut commands: Commands,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<&CellProperties>,
     boxes: Query<(
         Entity,
@@ -159,11 +150,7 @@ pub fn update_property_visibility(
     )>,
     mut sections: Query<(&PropertySection, &mut Node)>,
 ) {
-    let Some(properties) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get(shows.0).ok())
-    else {
+    let Some(properties) = selected.get(&sources) else {
         return;
     };
     let is_shown = |index: usize| {

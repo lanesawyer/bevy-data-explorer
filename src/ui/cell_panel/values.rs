@@ -18,9 +18,8 @@ use bevy::text::EditableText;
 
 use super::tree::{TreeCheckbox, TreeCount, Unveil, spawn_tree_body};
 use super::{MAX_VALUE_ROWS, ValueCheckbox, ValueColumn, ValueCount, spawn_value_row};
-use crate::source::ShowsSource;
 use crate::source::properties::{CellProperties, CellProperty, PropertyKind};
-use crate::view::SelectedPanel;
+use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
     matches_search, scroll_list, set_display, set_text, size, spawn_search_field, text_dim,
@@ -109,19 +108,14 @@ pub fn spawn_values(commands: &mut Commands, index: usize, property: &CellProper
 /// wants, and hide the ones it no longer does.
 pub fn sync_value_lists(
     mut commands: Commands,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<&CellProperties>,
     fields: Query<&EditableText, With<ValueSearch>>,
     mut lists: Query<(Entity, &mut ValueList)>,
     mut nodes: Query<&mut Node>,
     mut texts: Query<&mut Text>,
 ) {
-    let Some(properties) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get(shows.0).ok())
-    else {
+    let Some(properties) = selected.get(&sources) else {
         return;
     };
 

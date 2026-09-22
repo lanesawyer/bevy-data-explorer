@@ -14,12 +14,12 @@ use bevy_ui_widgets::{SliderRange, SliderValue, ValueChange};
 use crate::app::schedule::{Boot, Stage};
 use crate::render::points::{DEFAULT_POINT_PX, MAX_POINT_PX, MIN_POINT_PX, SourcePointSize};
 use crate::render::settings::SourceOpacity;
+use crate::source::DataSource;
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::table::SourceTable;
-use crate::source::{DataSource, ShowsSource};
 use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
-use crate::view::SelectedPanel;
+use crate::view::SelectedSource;
 use crate::widgets::{
     BlocksFrameInput, SectionLevel, button_text, patch_node, set_text, size, spawn_accordion,
     spawn_slider, text,
@@ -181,13 +181,11 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
 /// ticked as the selected source is.
 pub fn sync_slice_grid(
     mut commands: Commands,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     grids: Query<&SliceGrid>,
     mut boxes: Query<(Entity, &mut Node, Has<Checked>), With<SliceGridBox>>,
 ) {
-    let grid =
-        crate::view::selected_source(&selected, &panels).and_then(|source| grids.get(source).ok());
+    let grid = selected.get(&grids);
     for (entity, node, checked) in &mut boxes {
         let display = if grid.is_some() {
             Display::Flex
@@ -208,16 +206,13 @@ pub fn sync_slice_grid(
 pub fn on_slice_grid_toggled(
     change: On<ValueChange<bool>>,
     boxes: Query<(), With<SliceGridBox>>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut grids: Query<&mut SliceGrid>,
 ) {
     if !boxes.contains(change.source) {
         return;
     }
-    if let Some(source) = crate::view::selected_source(&selected, &panels)
-        && let Ok(mut grid) = grids.get_mut(source)
-    {
+    if let Some(mut grid) = selected.get_mut(&mut grids) {
         grid.set_if_neq(SliceGrid(change.value));
     }
 }
@@ -230,8 +225,7 @@ pub fn on_slice_grid_toggled(
 /// thing the format watches.
 pub fn sync_slice_slider(
     mut commands: Commands,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut stacks: Query<&mut SliceStack>,
     slider: Query<(Entity, &SliderValue), With<SliceSlider>>,
     mut rows: Query<&mut Node, With<SliceRow>>,
@@ -239,9 +233,7 @@ pub fn sync_slice_slider(
     mut shown: Local<Option<(Entity, f32)>>,
 ) {
     let source = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .map(|shows| shows.0)
+        .entity()
         .filter(|source| stacks.get(*source).is_ok());
 
     for node in &mut rows {
@@ -310,17 +302,13 @@ pub fn sync_slice_slider(
 /// across.
 pub fn sync_opacity_slider(
     mut commands: Commands,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<(&DataSource, Option<&mut SourceOpacity>)>,
     slider: Query<(Entity, &SliderValue), With<OpacitySlider>>,
     mut names: Query<&mut Text, With<SelectedName>>,
     mut shown: Local<Option<Entity>>,
 ) {
-    let source = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .map(|shows| shows.0);
+    let source = selected.entity();
 
     let Ok((slider_entity, value)) = slider.single() else {
         return;
@@ -385,17 +373,13 @@ impl Plugin for ViewConfigPlugin {
 /// shown doing nothing.
 pub fn sync_point_size(
     mut commands: Commands,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut SourcePointSize>,
     slider: Query<(Entity, &SliderValue), With<PointSizeSlider>>,
     mut rows: Query<&mut Node, With<PointSizeRow>>,
     mut shown: Local<Option<Entity>>,
 ) {
-    let source = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .map(|shows| shows.0);
+    let source = selected.entity();
 
     let Ok((slider_entity, value)) = slider.single() else {
         return;

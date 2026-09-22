@@ -20,9 +20,9 @@ use bevy_ui_widgets::{Activate, ValueChange};
 
 use super::{MAX_VALUE_ROWS, ValueColumn, spawn_more_note, spawn_value_row};
 use crate::app::theme::Palette;
+use crate::source::compact_count;
 use crate::source::properties::{CellProperties, Tree};
-use crate::source::{ShowsSource, compact_count};
-use crate::view::SelectedPanel;
+use crate::view::SelectedSource;
 use crate::widgets::Menu;
 use crate::widgets::space;
 use crate::widgets::{
@@ -249,30 +249,17 @@ fn spawn_branch(
         .id()
 }
 
-/// The selected source's properties, if it has any.
-fn selected_properties<'a>(
-    selected: &SelectedPanel,
-    panels: &Query<&ShowsSource>,
-    sources: &'a Query<&CellProperties>,
-) -> Option<&'a CellProperties> {
-    selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get(shows.0).ok())
-}
-
 /// Spawn the children of every expanded node that has none yet, and despawn
 /// those of every collapsed one.
 pub fn sync_branches(
     mut commands: Commands,
     open: Res<OpenBranches>,
     palette: Res<Palette>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<&CellProperties>,
     mut containers: Query<(Entity, &TreeChildren, Option<&Children>, &mut Node)>,
 ) {
-    let Some(properties) = selected_properties(&selected, &panels, &sources) else {
+    let Some(properties) = selected.get(&sources) else {
         return;
     };
     for (entity, container, children, mut node) in &mut containers {
@@ -332,8 +319,7 @@ pub fn unveil(mut commands: Commands, mut held: Query<(Entity, &mut Unveil, &mut
 pub fn update_tree_controls(
     mut commands: Commands,
     open: Res<OpenBranches>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<&CellProperties>,
     boxes: Query<(Entity, &TreeCheckbox, Has<Checked>)>,
     mut counts: Query<(&TreeCount, &mut Text), Without<TreeToggle>>,
@@ -342,7 +328,7 @@ pub fn update_tree_controls(
     mut glyphs: Query<&mut Text, Without<TreeCount>>,
     mut levels: Query<(&ColorLevelButton, &mut ButtonVariant)>,
 ) {
-    let Some(properties) = selected_properties(&selected, &panels, &sources) else {
+    let Some(properties) = selected.get(&sources) else {
         return;
     };
     let tree_of = |property: usize| {
@@ -425,18 +411,13 @@ pub fn on_toggle(
 pub fn on_node_toggled(
     change: On<ValueChange<bool>>,
     checkboxes: Query<&TreeCheckbox>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut CellProperties>,
 ) {
     let Ok(checkbox) = checkboxes.get(change.source) else {
         return;
     };
-    let Some(mut properties) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get_mut(shows.0).ok())
-    else {
+    let Some(mut properties) = selected.get_mut(&mut sources) else {
         return;
     };
     if let Some(tree) = properties
@@ -464,8 +445,7 @@ pub fn on_color_level(
     activate: On<Activate>,
     buttons: Query<&ColorLevelButton>,
     mut menus: Query<&mut Menu>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut CellProperties>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
@@ -475,11 +455,7 @@ pub fn on_color_level(
     for mut menu in &mut menus {
         menu.open = false;
     }
-    let Some(mut properties) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get_mut(shows.0).ok())
-    else {
+    let Some(mut properties) = selected.get_mut(&mut sources) else {
         return;
     };
     let Some(tree) = properties

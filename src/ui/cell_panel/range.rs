@@ -22,10 +22,10 @@ use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
 
 use crate::app::theme::{Palette, token};
+use crate::source::compact_count;
 use crate::source::properties::{CellProperties, NumericRange, Ramp, RangeEnd};
 use crate::source::table::{TableFilters, TablePaging, to_first_page};
-use crate::source::{ShowsSource, compact_count};
-use crate::view::SelectedPanel;
+use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{BlocksFrameInput, hold_drag_cursor, patch_node, set_text, size};
 
@@ -380,8 +380,7 @@ pub fn drag_range_handles(
     handles: Query<&RangeHandle>,
     buckets: Query<&RangeBucket>,
     tracks: Query<(&RangeTrack, &ComputedNode, &UiGlobalTransform)>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut CellProperties>,
     mut tables: Query<(&mut TableFilters, Option<&mut TablePaging>)>,
     mut dragging: Local<Option<RangeDrag>>,
@@ -413,11 +412,7 @@ pub fn drag_range_handles(
     };
     // A source holds one or the other, never both, so both are taken and
     // whichever the control names is the one written to.
-    let Some(source) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .map(|shows| shows.0)
-    else {
+    let Some(source) = selected.entity() else {
         return;
     };
     let mut properties = sources.get_mut(source).ok();
@@ -534,8 +529,7 @@ pub fn drag_range_handles(
 /// first step. Everything a range draws is updated in place instead.
 pub fn update_range_controls(
     palette: Res<Palette>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<&CellProperties>,
     tables: Query<&TableFilters>,
     mut fills: Query<(&RangeFill, &mut Node), (Without<RangeHandle>, Without<RangeBar>)>,
@@ -550,11 +544,7 @@ pub fn update_range_controls(
 ) {
     // A source holds cell properties or a table, never both, so a control is
     // read from whichever it names.
-    let Some(source) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .map(|shows| shows.0)
-    else {
+    let Some(source) = selected.entity() else {
         return;
     };
     let properties = sources.get(source).ok();

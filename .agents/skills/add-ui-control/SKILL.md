@@ -71,14 +71,20 @@ gets a file of its own there, re-exported from `widgets/mod.rs`.
 - **Plain `bevy_ui::Button` / `Interaction`** is only for drag targets
   (resize handles, slider thumbs). Filter on `Changed<Interaction>`, since
   `Pressed` reads true on every frame the button is held.
-- **Acting on the selected frame**: resolve the target through
-  `SelectedPanel` then `ShowsSource`, as `view_config.rs` does. When the
+- **Acting on the selected frame**: take a `SelectedSource` parameter and
+  ask it for the source (`.entity()`) or the source's item in a query
+  (`.get(&query)`, `.get_mut(&mut query)`), as `view_config.rs` does. When the
   selection moves, load the new source's value *into* the control, so the
   previous source's value doesn't leak across (see `sync_opacity_slider`).
 - **Capabilities**: show a control only when the selected source carries
   the component it drives (`SourcePointSize`, `SliceStack`, and so on). Hide the row
   with `Display::None` otherwise. Never offer a setting that means nothing
   to the dataset.
+- **Write only what differs.** A sync that runs every frame goes through
+  `patch_node`, `set_display` and `set_text` (`widgets/patch.rs`) rather
+  than assigning `Node` or `Text` fields: a plain write marks the component
+  changed even when the value is the same, and sends the UI back through
+  layout every frame.
 - **Don't respawn on value changes.** Build once and write values onto the
   existing entities. Rebuild only when the *structure* changes (a frame
   opened, a property added). Anything respawned flashes, and loses typed text

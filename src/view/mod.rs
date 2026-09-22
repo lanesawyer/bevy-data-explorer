@@ -31,6 +31,8 @@ pub mod select;
 pub mod table;
 
 use bevy::camera::visibility::RenderLayers;
+use bevy::ecs::query::{QueryData, QueryFilter, ROQueryItem};
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::app::schedule::{Boot, Stage};
@@ -66,16 +68,39 @@ pub struct SelectedPanel(pub Option<Entity>);
 
 /// The source the selected frame is showing, if a frame is selected at all.
 ///
-/// Every keyboard shortcut goes through this. A key acts on the frame that is
-/// selected — the one outlined in blue — and on nothing else: with two datasets
-/// open, a key that reached both would page or toggle the one nobody was
-/// looking at, and with the pointer somewhere over the sidebar it would be
-/// unclear which frame it had been talking to.
-pub fn selected_source(selected: &SelectedPanel, panels: &Query<&ShowsSource>) -> Option<Entity> {
-    selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .map(|shows| shows.0)
+/// Every keyboard shortcut and sidebar control goes through this. A key acts
+/// on the frame that is selected — the one outlined in blue — and on nothing
+/// else: with two datasets open, a key that reached both would page or toggle
+/// the one nobody was looking at, and with the pointer somewhere over the
+/// sidebar it would be unclear which frame it had been talking to.
+#[derive(SystemParam)]
+pub struct SelectedSource<'w, 's> {
+    selected: Res<'w, SelectedPanel>,
+    panels: Query<'w, 's, &'static ShowsSource>,
+}
+
+impl SelectedSource<'_, '_> {
+    pub fn entity(&self) -> Option<Entity> {
+        self.selected
+            .0
+            .and_then(|panel| self.panels.get(panel).ok())
+            .map(|shows| shows.0)
+    }
+
+    /// The selected source's item in `query`, if it has one.
+    pub fn get<'a, 's, D: QueryData, F: QueryFilter>(
+        &self,
+        query: &'a Query<'_, 's, D, F>,
+    ) -> Option<ROQueryItem<'a, 's, D>> {
+        query.get(self.entity()?).ok()
+    }
+
+    pub fn get_mut<'a, 's, D: QueryData, F: QueryFilter>(
+        &self,
+        query: &'a mut Query<'_, 's, D, F>,
+    ) -> Option<D::Item<'a, 's>> {
+        query.get_mut(self.entity()?).ok()
+    }
 }
 
 /// The region of the window the frame grid occupies, in logical pixels.

@@ -48,9 +48,9 @@ use crate::source::properties::{
     CellColumns, CellProperties, CellProperty, PropertyKind, PropertyState, PropertyValue,
     Provenance,
 };
-use crate::source::{DataSource, ShowsSource, compact_count};
+use crate::source::{DataSource, compact_count};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
-use crate::view::SelectedPanel;
+use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
     Accordion, BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, patch_node,
@@ -194,8 +194,7 @@ pub struct CellPanelBody;
 pub fn rebuild_cell_panel(
     mut commands: Commands,
     palette: Res<crate::app::theme::Palette>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<(
         &DataSource,
         &CellProperties,
@@ -210,9 +209,8 @@ pub fn rebuild_cell_panel(
     let Ok(body) = body.single() else { return };
 
     let source = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get(shows.0).ok().map(|found| (shows.0, found)));
+        .entity()
+        .and_then(|source| sources.get(source).ok().map(|found| (source, found)));
 
     let Some((entity, (_, properties, has_columns, described))) = source else {
         *shown = None;
@@ -493,18 +491,13 @@ pub fn spawn_more_note(commands: &mut Commands, more: usize) -> Entity {
 pub fn on_color_by(
     activate: On<Activate>,
     buttons: Query<&ColorByButton>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut CellProperties>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
         return;
     };
-    let Some(mut properties) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get_mut(shows.0).ok())
-    else {
+    let Some(mut properties) = selected.get_mut(&mut sources) else {
         return;
     };
     if !properties
@@ -524,8 +517,7 @@ pub fn on_color_by(
 pub fn on_value_toggled(
     change: On<ValueChange<bool>>,
     checkboxes: Query<&ValueCheckbox>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut CellProperties>,
 ) {
     let Ok(checkbox) = checkboxes.get(change.source) else {
@@ -536,11 +528,7 @@ pub fn on_value_toggled(
     // property rebuilds the section, which respawns the box with its state
     // taken from the property — and writing to the old entity would land on
     // one that had just been despawned.
-    let Some(mut properties) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get_mut(shows.0).ok())
-    else {
+    let Some(mut properties) = selected.get_mut(&mut sources) else {
         return;
     };
     if let Some(value) = properties
@@ -590,18 +578,13 @@ pub fn record_open_sections(
 pub fn on_clear_property(
     activate: On<Activate>,
     buttons: Query<&ClearPropertyButton>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut CellProperties>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
         return;
     };
-    let Some(mut properties) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get_mut(shows.0).ok())
-    else {
+    let Some(mut properties) = selected.get_mut(&mut sources) else {
         return;
     };
     if let Some(property) = properties.properties.get_mut(button.property) {
@@ -643,17 +626,15 @@ pub fn on_retry(
     activate: On<Activate>,
     buttons: Query<&RetryButton>,
     mut commands: Commands,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut CellProperties>,
 ) {
     if buttons.get(activate.entity).is_err() {
         return;
     }
     let Some((source, mut properties)) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get_mut(shows.0).ok().map(|found| (shows.0, found)))
+        .entity()
+        .and_then(|source| sources.get_mut(source).ok().map(|found| (source, found)))
     else {
         return;
     };
@@ -665,18 +646,13 @@ pub fn on_retry(
 pub fn on_clear_all(
     activate: On<Activate>,
     buttons: Query<&ClearAllButton>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     mut sources: Query<&mut CellProperties>,
 ) {
     if buttons.get(activate.entity).is_err() {
         return;
     }
-    let Some(mut properties) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get_mut(shows.0).ok())
-    else {
+    let Some(mut properties) = selected.get_mut(&mut sources) else {
         return;
     };
     let cleared = properties.applied();
@@ -693,16 +669,12 @@ pub fn on_clear_all(
 /// button, but into every `Text` under it — the icon's glyph among them, which
 /// then drew the words in the icon font as a row of unrelated icons.
 pub fn update_clear_buttons(
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<&CellProperties>,
     mut per_property: Query<(&ClearPropertyButton, &mut Node), Without<ClearAllButton>>,
     mut clear_all: Query<&mut Node, (With<ClearAllButton>, Without<ClearPropertyButton>)>,
 ) {
-    let properties = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get(shows.0).ok());
+    let properties = selected.get(&sources);
 
     for (button, node) in &mut per_property {
         let applied = properties
@@ -735,19 +707,14 @@ pub fn update_clear_buttons(
 /// later, so a rebuild made every box flash ticked before settling.
 pub fn update_property_controls(
     mut commands: Commands,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<&CellProperties>,
     boxes: Query<(Entity, &ValueCheckbox, Has<Checked>)>,
     mut colors: Query<(&ColorByButton, &mut ButtonVariant)>,
     mut counts: Query<(&ValueCount, &mut Text)>,
     mut swatches: Query<(&ValueColumn, &mut Node), With<ValueSwatch>>,
 ) {
-    let Some(properties) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get(shows.0).ok())
-    else {
+    let Some(properties) = selected.get(&sources) else {
         return;
     };
 
@@ -811,16 +778,11 @@ pub fn update_property_controls(
 pub fn update_mix_bars(
     mut commands: Commands,
     palette: Res<crate::app::theme::Palette>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<&CellProperties>,
     mut bars: Query<(Entity, &ValueColumn, &mut MixBar, &mut Node)>,
 ) {
-    let Some(properties) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get(shows.0).ok())
-    else {
+    let Some(properties) = selected.get(&sources) else {
         return;
     };
 

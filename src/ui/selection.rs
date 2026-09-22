@@ -45,7 +45,7 @@ use crate::source::region::SelectedRegion;
 use crate::source::{ShowsSource, compact_count};
 use crate::ui::cell_panel::spawn_more_note;
 use crate::ui::inspector::Inspector;
-use crate::view::{FrameArea, FrameRegion, SelectMode, SelectedPanel};
+use crate::view::{FrameArea, FrameRegion, SelectMode, SelectedPanel, SelectedSource};
 use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, SelectableText, button_icon,
@@ -443,8 +443,7 @@ pub fn update_selection_dock(
 pub fn rebuild_selection_dock(
     mut commands: Commands,
     dock: Res<SelectionDock>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<(&CellProperties, &RegionSummary, Option<&RegionFocus>)>,
     mut body: Query<(Entity, &mut Node), (With<SelectionBody>, Without<SelectionDetail>)>,
     mut detail: Query<(Entity, &mut Node), (With<SelectionDetail>, Without<SelectionBody>)>,
@@ -458,9 +457,8 @@ pub fn rebuild_selection_dock(
         return;
     };
     let source = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get(shows.0).ok().map(|found| (shows.0, found)));
+        .entity()
+        .and_then(|source| sources.get(source).ok().map(|found| (source, found)));
 
     let Some((entity, (properties, summary, focus))) = source.filter(|_| dock.open) else {
         if shown.is_some() {
@@ -772,18 +770,13 @@ pub fn on_category_picked(
     activate: On<Activate>,
     mut commands: Commands,
     rows: Query<&CategoryRow>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     focused: Query<&RegionFocus>,
 ) {
     let Ok(row) = rows.get(activate.entity) else {
         return;
     };
-    let Some(source) = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .map(|shows| shows.0)
-    else {
+    let Some(source) = selected.entity() else {
         return;
     };
     let wanted = RegionFocus {

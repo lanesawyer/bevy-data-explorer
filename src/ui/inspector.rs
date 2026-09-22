@@ -15,8 +15,8 @@ use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
-use crate::source::{DataSource, ShowsSource, SourceStatus};
-use crate::view::{FrameArea, PanelRequest, SelectedPanel};
+use crate::source::{DataSource, SourceStatus};
+use crate::view::{FrameArea, PanelRequest, SelectedSource};
 use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, display, dock_handle,
@@ -194,8 +194,7 @@ pub fn reserve_space(
 pub fn update_inspector(
     inspector: Res<Inspector>,
     windows: Query<&Window>,
-    selected: Res<SelectedPanel>,
-    panels: Query<&ShowsSource>,
+    selected: SelectedSource,
     sources: Query<(&DataSource, &SourceStatus)>,
     mut roots: Query<&mut Node, (With<InspectorRoot>, Without<InspectorHandle>)>,
     mut handles: Query<&mut Node, (With<InspectorHandle>, Without<InspectorRoot>)>,
@@ -225,10 +224,7 @@ pub fn update_inspector(
         return;
     }
 
-    let source = selected
-        .0
-        .and_then(|panel| panels.get(panel).ok())
-        .and_then(|shows| sources.get(shows.0).ok());
+    let source = selected.get(&sources);
 
     let (title, body) = match source {
         Some((data, status)) => (
