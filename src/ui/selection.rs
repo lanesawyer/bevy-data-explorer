@@ -48,14 +48,13 @@ use crate::ui::inspector::Inspector;
 use crate::view::{FrameArea, FrameRegion, SelectMode, SelectedPanel, SelectedSource};
 use crate::widgets::space;
 use crate::widgets::{
-    AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, SelectableText, button_icon,
-    button_text, display, dock_handle, patch_node, scroll_list, set_text, size, text, text_dim,
+    AddDock, BlocksFrameInput, Dock, DockEdge, DockWidth, Icon, SelectableText, button_icon,
+    button_text, dock_handle, place_right_dock, scroll_list, set_text, size, text, text_dim,
 };
 
 /// Wide enough for a cluster's name beside its count without either wrapping.
 const WIDTH_PX: f32 = 320.0;
 const MIN_PX: f32 = 220.0;
-const MAX_FRACTION: f32 = 0.5;
 
 /// The most values listed under one bucket. A whole-brain taxonomy has
 /// thousands of clusters, and a selection rarely holds more of them than this
@@ -73,7 +72,7 @@ const CATEGORIES_SHARE: f32 = 25.0;
 
 #[derive(Resource)]
 pub struct SelectionDock {
-    pub width: f32,
+    pub width: DockWidth,
     pub open: bool,
     /// How much of the right edge the docks outboard of this one occupy.
     ///
@@ -87,7 +86,7 @@ pub struct SelectionDock {
 impl Default for SelectionDock {
     fn default() -> Self {
         SelectionDock {
-            width: WIDTH_PX,
+            width: DockWidth::new(WIDTH_PX, MIN_PX),
             open: false,
             outboard: 0.0,
         }
@@ -95,20 +94,13 @@ impl Default for SelectionDock {
 }
 
 impl SelectionDock {
-    /// Width it occupies in a window this wide, held to the most it may take
-    /// so that narrowing the window cannot leave the docks covering the grid.
+    /// Width it occupies in a window this wide.
     pub fn current_width(&self, window_width: f32) -> f32 {
         if self.open {
-            self.width.min(max_width(window_width))
+            self.width.within(window_width)
         } else {
             0.0
         }
-    }
-
-    /// Dragging never squeezes it away, for the reason the inspector's does
-    /// not: a dock collapsed to nothing is still open, with no edge to grab.
-    fn width_for_drag(from_right: f32, window_width: f32) -> f32 {
-        from_right.clamp(MIN_PX, max_width(window_width))
     }
 }
 
@@ -119,20 +111,16 @@ impl Dock for SelectionDock {
     const DEFAULT_SIZE: f32 = WIDTH_PX;
 
     fn size(&self) -> f32 {
-        self.width
+        self.width.px
     }
 
     fn set_size(&mut self, size: f32) {
-        self.width = size.max(MIN_PX);
+        self.width.set(size);
     }
 
     fn drag_to(&mut self, reach: f32, span: f32) {
-        self.width = SelectionDock::width_for_drag(reach - self.outboard, span);
+        self.width.drag_to(reach - self.outboard, span);
     }
-}
-
-fn max_width(window_width: f32) -> f32 {
-    (window_width * MAX_FRACTION).max(MIN_PX)
 }
 
 #[derive(Component, Clone, Default)]
@@ -380,22 +368,13 @@ pub fn update_selection_dock(
     if dock.outboard != outboard {
         dock.outboard = outboard;
     }
-    let shown = display(dock.open);
-
-    for node in &mut roots {
-        patch_node(node, |node| {
-            node.display = shown;
-            node.width = Val::Px(width);
-            node.left = Val::Px(window.width() - outboard - width);
-        });
-    }
-    for node in &mut handles {
-        // Straddles the edge so it can be grabbed from either side.
-        patch_node(node, |node| {
-            node.display = shown;
-            node.left = Val::Px(window.width() - outboard - width - HANDLE_PX * 0.5);
-        });
-    }
+    place_right_dock(
+        &mut roots,
+        &mut handles,
+        dock.open,
+        width,
+        window.width() - outboard,
+    );
     if !dock.open {
         return;
     }
@@ -842,25 +821,17 @@ mod tests {
     }
 
     #[test]
-    fn dragging_never_squeezes_the_dock_away() {
-        for reach in [200.0, 10.0, 0.0, -400.0] {
-            assert_eq!(SelectionDock::width_for_drag(reach, 1600.0), MIN_PX);
-        }
-        assert_eq!(SelectionDock::width_for_drag(1500.0, 1600.0), 800.0);
-    }
-
-    #[test]
     fn both_right_docks_fit_beside_each_other() {
         // Reserving keeps the grid clear of them but says nothing about where
         // either is drawn; this is the sum the placement has to agree with, or
         // the two would cover each other in the same corner.
         let window = 1600.0;
         let inspector = Inspector {
-            width: 300.0,
             open: true,
+            ..default()
         };
         let dock = SelectionDock {
-            width: 320.0,
+            width: DockWidth::new(320.0, MIN_PX),
             open: true,
             outboard: 300.0,
         };
@@ -884,16 +855,16 @@ mod tests {
         // outboard of it a width taken straight from the reach would jump by
         // the inspector's width the moment the handle was grabbed.
         let mut dock = SelectionDock {
-            width: 320.0,
+            width: DockWidth::new(320.0, MIN_PX),
             open: true,
             outboard: 300.0,
         };
         // The pointer 620px in from the right edge is 320px in from this
         // dock's own edge, so the width should not move.
         dock.drag_to(620.0, 1600.0);
-        assert_eq!(dock.width, 320.0);
+        assert_eq!(dock.width.px, 320.0);
         dock.drag_to(700.0, 1600.0);
-        assert_eq!(dock.width, 400.0);
+        assert_eq!(dock.width.px, 400.0);
     }
 
     #[test]

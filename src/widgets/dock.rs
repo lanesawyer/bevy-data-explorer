@@ -1,11 +1,12 @@
 //! Docks: panels hung from an edge of the window and sized by dragging their
 //! inner edge.
 //!
-//! The sidebar, the inspector and the log panel each size themselves their own
-//! way — one collapses to a ribbon, the others never shrink past a minimum —
-//! but grabbing the edge, following the pointer and holding the cursor through
-//! the drag are the same for all three, and live here. So does remembering
-//! the size each was dragged to, in the user's preferences.
+//! The docks size themselves more than one way — the sidebar collapses to a
+//! ribbon, the others never shrink past a minimum, and the two on the right
+//! share that minimum-and-half-the-window rule as [`DockWidth`] — but grabbing
+//! the edge, following the pointer and holding the cursor through the drag are
+//! the same for all of them, and live here. So does remembering the size each
+//! was dragged to, in the user's preferences.
 
 use bevy::ecs::component::Mutable;
 use bevy::prelude::*;
@@ -15,7 +16,7 @@ use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::theme::ThemeBackgroundColor;
 use bevy_feathers::tokens;
 
-use super::BlocksFrameInput;
+use super::{BlocksFrameInput, display, patch_node};
 use crate::app::prefs::Preferences;
 use crate::app::schedule::{Boot, Stage};
 
@@ -88,6 +89,72 @@ pub trait Dock: Resource + Component<Mutability = Mutable> + FromWorld {
     /// Size the dock for a drag reaching `reach` in from its edge, in a window
     /// `span` across that way.
     fn drag_to(&mut self, reach: f32, span: f32);
+}
+
+/// The most of the window a dock sized by [`DockWidth`] may take.
+const MAX_FRACTION: f32 = 0.5;
+
+/// How wide a dock is across its edge: dragged anywhere between a readable
+/// minimum and half the window, and held to that half as the window narrows,
+/// so that narrowing it cannot leave the docks covering every frame.
+///
+/// Always a usable width. Dragging does not close a dock: squeezed to nothing
+/// it would still be open but invisible, with no edge left to grab. Closing is
+/// its X button's job.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DockWidth {
+    pub px: f32,
+    min: f32,
+}
+
+impl DockWidth {
+    pub const fn new(px: f32, min: f32) -> Self {
+        DockWidth { px, min }
+    }
+
+    /// The width it takes in a window this wide.
+    pub fn within(self, window_width: f32) -> f32 {
+        self.px.min(self.max(window_width))
+    }
+
+    /// Take a width from somewhere other than a drag.
+    pub fn set(&mut self, px: f32) {
+        self.px = px.max(self.min);
+    }
+
+    /// Follow a drag reaching `reach` in from the dock's edge.
+    pub fn drag_to(&mut self, reach: f32, window_width: f32) {
+        self.px = reach.clamp(self.min, self.max(window_width));
+    }
+
+    fn max(self, window_width: f32) -> f32 {
+        (window_width * MAX_FRACTION).max(self.min)
+    }
+}
+
+/// Place a dock hung from the right, its outer edge at `right` from the left of
+/// the window, with its handle straddling its inner edge so it can be grabbed
+/// from either side.
+pub fn place_right_dock<'a>(
+    roots: impl IntoIterator<Item = Mut<'a, Node>>,
+    handles: impl IntoIterator<Item = Mut<'a, Node>>,
+    open: bool,
+    width: f32,
+    right: f32,
+) {
+    for node in roots {
+        patch_node(node, |node| {
+            node.display = display(open);
+            node.width = Val::Px(width);
+            node.left = Val::Px(right - width);
+        });
+    }
+    for node in handles {
+        patch_node(node, |node| {
+            node.display = display(open);
+            node.left = Val::Px(right - width - HANDLE_PX * 0.5);
+        });
+    }
 }
 
 /// The strip along a dock's inner edge that resizes it.
@@ -258,6 +325,37 @@ impl AddDock for App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn dragged(reach: f32, window: f32) -> f32 {
+        let mut width = DockWidth::new(300.0, 200.0);
+        width.drag_to(reach, window);
+        width.px
+    }
+
+    #[test]
+    fn dragging_never_squeezes_a_dock_away() {
+        for reach in [200.0, 10.0, 0.0, -400.0] {
+            assert_eq!(dragged(reach, 1600.0), 200.0);
+        }
+    }
+
+    #[test]
+    fn dragging_is_clamped_to_half_the_window() {
+        assert_eq!(dragged(400.0, 1600.0), 400.0);
+        assert_eq!(dragged(1500.0, 1600.0), 800.0);
+    }
+
+    #[test]
+    fn a_narrow_window_does_not_invert_the_clamp() {
+        // Half a small window is under the minimum; the result must still be a
+        // width the grid can survive.
+        assert_eq!(dragged(300.0, 300.0), 200.0);
+    }
+
+    #[test]
+    fn narrowing_the_window_narrows_a_wide_dock() {
+        assert_eq!(DockWidth::new(800.0, 200.0).within(800.0), 400.0);
+    }
 
     #[test]
     fn each_edge_measures_from_itself() {

@@ -19,49 +19,36 @@ use crate::source::{DataSource, SourceStatus};
 use crate::view::{FrameArea, PanelRequest, SelectedSource};
 use crate::widgets::space;
 use crate::widgets::{
-    AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, display, dock_handle,
-    patch_node, set_text, size, text,
+    AddDock, BlocksFrameInput, Dock, DockEdge, DockWidth, Icon, button_icon, dock_handle,
+    place_right_dock, set_text, size, text,
 };
 
 const WIDTH_PX: f32 = 300.0;
 const MIN_PX: f32 = 200.0;
-const MAX_FRACTION: f32 = 0.5;
 
 #[derive(Resource)]
 pub struct Inspector {
-    pub width: f32,
+    pub width: DockWidth,
     pub open: bool,
 }
 
 impl Default for Inspector {
     fn default() -> Self {
         Inspector {
-            width: WIDTH_PX,
+            width: DockWidth::new(WIDTH_PX, MIN_PX),
             open: false,
         }
     }
 }
 
 impl Inspector {
-    /// Width the inspector occupies in a window this wide: held to the most it
-    /// may take, as the sidebar's is, so narrowing the window cannot leave the
-    /// two covering every frame.
+    /// Width the inspector occupies in a window this wide.
     pub fn current_width(&self, window_width: f32) -> f32 {
         if self.open {
-            self.width.min(max_width(window_width))
+            self.width.within(window_width)
         } else {
             0.0
         }
-    }
-
-    /// Width a drag reaching `from_right` in from the right edge should
-    /// produce.
-    ///
-    /// Always a usable width. Dragging does not close the inspector: squeezing
-    /// it to nothing leaves a dock that is still open but invisible, with no
-    /// edge left to grab. Closing is the X button's job.
-    fn width_for_drag(from_right: f32, window_width: f32) -> f32 {
-        from_right.clamp(MIN_PX, max_width(window_width))
     }
 }
 
@@ -72,21 +59,16 @@ impl Dock for Inspector {
     const DEFAULT_SIZE: f32 = WIDTH_PX;
 
     fn size(&self) -> f32 {
-        self.width
+        self.width.px
     }
 
     fn set_size(&mut self, size: f32) {
-        self.width = size.max(MIN_PX);
+        self.width.set(size);
     }
 
     fn drag_to(&mut self, reach: f32, span: f32) {
-        self.width = Inspector::width_for_drag(reach, span);
+        self.width.drag_to(reach, span);
     }
-}
-
-/// The widest the inspector may be in a window this wide.
-fn max_width(window_width: f32) -> f32 {
-    (window_width * MAX_FRACTION).max(MIN_PX)
 }
 
 #[derive(Component, Clone, Default)]
@@ -204,22 +186,13 @@ pub fn update_inspector(
 ) {
     let Ok(window) = windows.single() else { return };
     let width = inspector.current_width(window.width());
-    let shown = display(inspector.open);
-
-    for node in &mut roots {
-        patch_node(node, |node| {
-            node.display = shown;
-            node.width = Val::Px(width);
-            node.left = Val::Px(window.width() - width);
-        });
-    }
-    for node in &mut handles {
-        // Straddles the edge so it can be grabbed from either side.
-        patch_node(node, |node| {
-            node.display = shown;
-            node.left = Val::Px(window.width() - width - HANDLE_PX * 0.5);
-        });
-    }
+    place_right_dock(
+        &mut roots,
+        &mut handles,
+        inspector.open,
+        width,
+        window.width(),
+    );
     if !inspector.open {
         return;
     }
@@ -271,37 +244,6 @@ mod tests {
         assert_eq!(inspector.current_width(1600.0), 0.0);
         inspector.open = true;
         assert_eq!(inspector.current_width(1600.0), 300.0);
-    }
-
-    #[test]
-    fn dragging_never_squeezes_the_inspector_away() {
-        // Collapsed to nothing it would still be open, with no edge left to
-        // grab and no way back. Closing belongs to the X button.
-        for reach in [200.0, 10.0, 0.0, -400.0] {
-            assert_eq!(Inspector::width_for_drag(reach, 1600.0), MIN_PX);
-        }
-    }
-
-    #[test]
-    fn dragging_is_clamped_to_half_the_window() {
-        assert_eq!(Inspector::width_for_drag(400.0, 1600.0), 400.0);
-        assert_eq!(Inspector::width_for_drag(1500.0, 1600.0), 800.0);
-    }
-
-    #[test]
-    fn a_narrow_window_does_not_invert_the_clamp() {
-        // Half a small window is under the minimum; the result must still be a
-        // width the grid can survive.
-        assert_eq!(Inspector::width_for_drag(300.0, 300.0), MIN_PX);
-    }
-
-    #[test]
-    fn narrowing_the_window_narrows_a_wide_inspector() {
-        let inspector = Inspector {
-            width: 800.0,
-            open: true,
-        };
-        assert_eq!(inspector.current_width(800.0), 400.0);
     }
 
     #[test]

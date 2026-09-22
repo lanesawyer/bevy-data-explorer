@@ -27,7 +27,10 @@ mod truncate;
 pub use accordion::{Accordion, SectionLevel, spawn_accordion, spawn_header_button};
 pub use button_text::button_text;
 pub use caption::caption;
-pub use dock::{AddDock, Dock, DockEdge, HANDLE_PX, ResetDockSizes, dock_handle, hold_drag_cursor};
+pub use dock::{
+    AddDock, Dock, DockEdge, DockWidth, HANDLE_PX, ResetDockSizes, dock_handle, hold_drag_cursor,
+    place_right_dock,
+};
 pub use field_well::field_well;
 pub use frame_input::BlocksFrameInput;
 pub use icons::{Icon, button_icon, icon_text};
