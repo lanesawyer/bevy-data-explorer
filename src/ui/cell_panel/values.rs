@@ -13,6 +13,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use bevy::text::EditableText;
 
@@ -42,16 +43,98 @@ pub struct ValueSearch;
 #[derive(Component)]
 pub struct ValueList {
     property: usize,
-    /// The search field, for a property with enough values to have one.
-    field: Option<Entity>,
     /// A tree's nested body, hidden while a search lists matches flat.
     tree: Option<Entity>,
+    /// Rows by value, or by node for a tree.
+    rows: SearchedRows,
+}
+
+/// A list's rows, kept to match what is typed in its search. The table
+/// filters' lists are kept by the same rules.
+pub struct SearchedRows {
+    /// The search field, for a list long enough to have one.
+    field: Option<Entity>,
     /// The line under the rows: nothing matched, or more did than are listed.
     note: Entity,
-    /// The search the rows were last matched to; nothing before the first.
-    shown: Option<String>,
-    /// Rows spawned so far, by value, or by node for a tree.
+    /// What was typed when the rows were last matched; nothing before the
+    /// first time.
+    typed: Option<String>,
+    /// Rows spawned so far, by index.
     rows: BTreeMap<usize, Entity>,
+}
+
+impl SearchedRows {
+    pub fn new(field: Option<Entity>, note: Entity) -> Self {
+        SearchedRows {
+            field,
+            note,
+            typed: None,
+            rows: BTreeMap::new(),
+        }
+    }
+
+    /// What is typed in the search, if the rows have not been matched to it
+    /// yet. Compared in place, so a list whose search has not changed costs
+    /// nothing to look at.
+    pub fn typed<F: QueryFilter>(&self, fields: &Query<&EditableText, F>) -> Option<String> {
+        let text = self.field.and_then(|field| fields.get(field).ok());
+        let unchanged = self.typed.as_deref().is_some_and(|typed| match text {
+            Some(text) => text.value() == typed,
+            None => typed.is_empty(),
+        });
+        (!unchanged).then(|| {
+            text.map(|text| text.value().to_string())
+                .unwrap_or_default()
+        })
+    }
+
+    /// List `matches` for what was `typed`: spawn through `spawn` the rows
+    /// newly wanted, and hide the ones no longer wanted rather than despawn
+    /// them.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the list, what it matched, and the UI it writes into"
+    )]
+    pub fn show(
+        &mut self,
+        commands: &mut Commands,
+        list: Entity,
+        typed: String,
+        browsing: bool,
+        matches: &[usize],
+        nodes: &mut Query<&mut Node>,
+        texts: &mut Query<&mut Text>,
+        mut spawn: impl FnMut(&mut Commands, usize) -> Option<Entity>,
+    ) {
+        let listed = &matches[..matches.len().min(MAX_VALUE_ROWS)];
+        for &index in listed {
+            if self.rows.contains_key(&index) {
+                continue;
+            }
+            let Some(row) = spawn(commands, index) else {
+                continue;
+            };
+            // Kept in the order the values are listed in, whatever order a
+            // search asked for them in.
+            let position = self.rows.range(..index).count();
+            commands
+                .entity(row)
+                .insert((Visibility::Hidden, Unveil::new()));
+            commands.entity(list).insert_children(position, &[row]);
+            self.rows.insert(index, row);
+        }
+        let listed: HashSet<usize> = listed.iter().copied().collect();
+        for (index, row) in &self.rows {
+            set_display(nodes, *row, listed.contains(index));
+        }
+
+        let note = note_for(typed.trim(), browsing, matches.len());
+        set_display(nodes, self.note, !note.is_empty());
+        if let Ok(text) = texts.get_mut(self.note) {
+            set_text(text, &note);
+        }
+        self.typed = Some(typed);
+    }
 }
 
 /// Build the body of a categorical or tree property: its search, if it has
@@ -85,11 +168,8 @@ pub fn spawn_values(commands: &mut Commands, index: usize, property: &CellProper
             },
             ValueList {
                 property: index,
-                field: search.as_ref().map(|search| search.field),
                 tree,
-                note,
-                shown: None,
-                rows: BTreeMap::new(),
+                rows: SearchedRows::new(search.as_ref().map(|search| search.field), note),
             },
         ))
         .id();
@@ -120,18 +200,13 @@ pub fn sync_value_lists(
     };
 
     for (entity, mut list) in &mut lists {
-        let query = list
-            .field
-            .and_then(|field| fields.get(field).ok())
-            .map(|text| text.value().to_string().trim().to_string())
-            .unwrap_or_default();
-        if list.shown.as_ref() == Some(&query) {
+        let Some(typed) = list.rows.typed(&fields) else {
             continue;
-        }
+        };
         let Some(property) = properties.properties.get(list.property) else {
             continue;
         };
-        list.shown = Some(query.clone());
+        let query = typed.trim();
 
         let browsing = list.tree.is_some() && query.is_empty();
         if let Some(tree) = list.tree {
@@ -146,86 +221,73 @@ pub fn sync_value_lists(
                 PropertyKind::Categorical(values) => values
                     .iter()
                     .enumerate()
-                    .filter(|(_, value)| matches_search(&query, &[&value.label]))
+                    .filter(|(_, value)| matches_search(query, &[&value.label]))
                     .map(|(index, _)| index)
                     .collect(),
                 PropertyKind::Tree(tree) => tree
                     .nodes
                     .iter()
                     .enumerate()
-                    .filter(|(_, node)| matches_search(&query, &[&node.value.label]))
+                    .filter(|(_, node)| matches_search(query, &[&node.value.label]))
                     .map(|(index, _)| index)
                     .collect(),
                 PropertyKind::Numeric(_) => Vec::new(),
             }
         };
-        let listed: HashSet<usize> = matches.iter().take(MAX_VALUE_ROWS).copied().collect();
 
-        for &index in matches.iter().take(MAX_VALUE_ROWS) {
-            if list.rows.contains_key(&index) {
-                continue;
-            }
-            let row = match &property.kind {
-                PropertyKind::Categorical(values) => spawn_value_row(
-                    &mut commands,
+        let property_index = list.property;
+        list.rows.show(
+            &mut commands,
+            entity,
+            typed,
+            browsing,
+            &matches,
+            &mut nodes,
+            &mut texts,
+            |commands, index| match &property.kind {
+                PropertyKind::Categorical(values) => Some(spawn_value_row(
+                    commands,
                     &values[index],
                     values[index].selected,
                     ValueCheckbox {
-                        property: list.property,
+                        property: property_index,
                         value: index,
                     },
                     ValueCount {
-                        property: list.property,
+                        property: property_index,
                         value: index,
                     },
                     ValueColumn {
                         column: property.id.clone(),
                         code: values[index].code,
                     },
-                ),
-                PropertyKind::Tree(tree) => spawn_value_row(
-                    &mut commands,
+                )),
+                PropertyKind::Tree(tree) => Some(spawn_value_row(
+                    commands,
                     &tree.nodes[index].value,
                     tree.checked(index),
                     TreeCheckbox {
-                        property: list.property,
+                        property: property_index,
                         node: index,
                     },
                     TreeCount {
-                        property: list.property,
+                        property: property_index,
                         node: index,
                     },
                     ValueColumn {
                         column: tree.column_of(index).unwrap_or_default().to_string(),
                         code: tree.nodes[index].value.code,
                     },
-                ),
-                PropertyKind::Numeric(_) => continue,
-            };
-            // Kept in the order the values are listed in, whatever order a
-            // search asked for them in.
-            let position = list.rows.range(..index).count();
-            commands
-                .entity(row)
-                .insert((Visibility::Hidden, Unveil::new()));
-            commands.entity(entity).insert_children(position, &[row]);
-            list.rows.insert(index, row);
-        }
-        for (index, row) in &list.rows {
-            set_display(&mut nodes, *row, listed.contains(index));
-        }
-
-        let note = note_for(&query, browsing, matches.len());
-        set_display(&mut nodes, list.note, !note.is_empty());
-        if let Ok(text) = texts.get_mut(list.note) {
-            set_text(text, &note);
-        }
+                )),
+                PropertyKind::Numeric(_) => None,
+            },
+        );
     }
 }
 
 /// The line under a list: that nothing matched, or that more did than are
 /// listed.
-pub fn note_for(query: &str, browsing: bool, matched: usize) -> String {
+fn note_for(query: &str, browsing: bool, matched: usize) -> String {
     if browsing {
         String::new()
     } else if matched == 0 && !query.is_empty() {

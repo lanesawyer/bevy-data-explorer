@@ -16,8 +16,6 @@
 //! by, this ticks values, and that format narrows them. So a second source of
 //! rows would be filtered by this section without a line changing here.
 
-use std::collections::{BTreeMap, HashSet};
-
 use bevy::prelude::*;
 use bevy::text::EditableText;
 use bevy::ui::Checked;
@@ -33,15 +31,14 @@ use crate::source::table::{
     to_first_page,
 };
 use crate::ui::cell_panel::range::{RangeOwner, spawn_range_control};
-use crate::ui::cell_panel::tree::Unveil;
-use crate::ui::cell_panel::values::{LIST_MAX_PX, SEARCH_FROM, note_for};
-use crate::ui::cell_panel::{MAX_VALUE_ROWS, ValueColumn, spawn_value_row};
+use crate::ui::cell_panel::values::{LIST_MAX_PX, SEARCH_FROM, SearchedRows};
+use crate::ui::cell_panel::{ValueColumn, spawn_value_row};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
     Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, matches_search, patch_node,
-    scroll_list, set_display, set_text, size, spawn_accordion, spawn_header_button, spawn_menu,
+    scroll_list, set_text, size, spawn_accordion, spawn_header_button, spawn_menu,
     spawn_search_field, spawn_skeleton, text, text_dim,
 };
 
@@ -122,12 +119,7 @@ pub struct FilterSearch;
 #[derive(Component)]
 pub struct FilterValueList {
     column: usize,
-    field: Option<Entity>,
-    /// The line under the rows: nothing matched, or more did than are listed.
-    note: Entity,
-    /// The search the rows were last matched to; nothing before the first.
-    shown: Option<String>,
-    rows: BTreeMap<usize, Entity>,
+    rows: SearchedRows,
 }
 
 /// What a span's column is showing in place of its control until the numbers
@@ -417,10 +409,7 @@ fn spawn_values(commands: &mut Commands, column: usize, count: usize) -> Vec<Ent
             },
             FilterValueList {
                 column,
-                field: search.as_ref().map(|search| search.field),
-                note,
-                shown: None,
-                rows: BTreeMap::new(),
+                rows: SearchedRows::new(search.as_ref().map(|search| search.field), note),
             },
         ))
         .id();
@@ -444,81 +433,63 @@ pub fn sync_value_lists(
     mut nodes: Query<&mut Node>,
     mut texts: Query<&mut Text>,
 ) {
-    let Some(table) = selection
-        .entity()
-        .and_then(|source| filters.get(source).ok())
-    else {
+    let Some(table) = selection.get(&filters) else {
         return;
     };
 
     for (entity, mut list) in &mut lists {
-        let query = list
-            .field
-            .and_then(|field| fields.get(field).ok())
-            .map(|text| text.value().to_string().trim().to_string())
-            .unwrap_or_default();
-        if list.shown.as_ref() == Some(&query) {
+        let Some(typed) = list.rows.typed(&fields) else {
             continue;
-        }
+        };
         let Some(column) = table.columns.get(list.column) else {
             continue;
         };
-        list.shown = Some(query.clone());
 
         let values = column.listed();
         let matches: Vec<usize> = values
             .iter()
             .enumerate()
-            .filter(|(_, value)| matches_search(&query, &[&value.label]))
+            .filter(|(_, value)| matches_search(typed.trim(), &[&value.label]))
             .map(|(index, _)| index)
             .collect();
-        let listed: HashSet<usize> = matches.iter().take(MAX_VALUE_ROWS).copied().collect();
 
-        for &index in matches.iter().take(MAX_VALUE_ROWS) {
-            if list.rows.contains_key(&index) {
-                continue;
-            }
-            let value = &values[index];
-            // A cell property's row, without the parts that only mean
-            // something on a point cloud: there is no coloring for a swatch
-            // or a bar to follow, so both stay hidden.
-            let shown = PropertyValue {
-                code: 0,
-                label: value.label.clone(),
-                color: None,
-                count: Some(value.count),
-                selected: value.chosen,
-            };
-            let row = spawn_value_row(
-                &mut commands,
-                &shown,
-                value.chosen,
-                FilterValueBox {
-                    column: list.column,
-                    value: index,
-                },
-                FilterValueCount {
-                    column: list.column,
-                    value: index,
-                },
-                ValueColumn::default(),
-            );
-            let position = list.rows.range(..index).count();
-            commands
-                .entity(row)
-                .insert((Visibility::Hidden, Unveil::new()));
-            commands.entity(entity).insert_children(position, &[row]);
-            list.rows.insert(index, row);
-        }
-        for (index, row) in &list.rows {
-            set_display(&mut nodes, *row, listed.contains(index));
-        }
-
-        let note = note_for(&query, false, matches.len());
-        set_display(&mut nodes, list.note, !note.is_empty());
-        if let Ok(text) = texts.get_mut(list.note) {
-            set_text(text, &note);
-        }
+        let column = list.column;
+        list.rows.show(
+            &mut commands,
+            entity,
+            typed,
+            false,
+            &matches,
+            &mut nodes,
+            &mut texts,
+            |commands, index| {
+                let value = &values[index];
+                // A cell property's row, without the parts that only mean
+                // something on a point cloud: there is no coloring for a
+                // swatch or a bar to follow, so both stay hidden.
+                let shown = PropertyValue {
+                    code: 0,
+                    label: value.label.clone(),
+                    color: None,
+                    count: Some(value.count),
+                    selected: value.chosen,
+                };
+                Some(spawn_value_row(
+                    commands,
+                    &shown,
+                    value.chosen,
+                    FilterValueBox {
+                        column,
+                        value: index,
+                    },
+                    FilterValueCount {
+                        column,
+                        value: index,
+                    },
+                    ValueColumn::default(),
+                ))
+            },
+        );
     }
 }
 
