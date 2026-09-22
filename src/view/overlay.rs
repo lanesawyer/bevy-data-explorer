@@ -39,7 +39,9 @@ use crate::view::{
     DatasetRequest, DatasetTarget, FrameLayers, LayerOf, Panel, PanelRequest, PendingShow,
     ShowFailed,
 };
-use crate::widgets::{BlocksFrameInput, Icon, button_icon, size, spawn_menu, text, text_dim};
+use crate::widgets::{
+    BlocksFrameInput, Icon, button_icon, patch_node, set_text, size, spawn_menu, text, text_dim,
+};
 
 use super::chrome::CHROME_GAP;
 
@@ -372,14 +374,16 @@ pub fn position_hud(
     mut texts: Query<(&PanelHeader, &mut Node)>,
 ) {
     let count = panels.iter().count();
-    for (text, mut node) in &mut texts {
+    for (text, node) in &mut texts {
         let Ok(panel) = panels.get(text.panel) else {
             continue;
         };
         let cell = area.cell(count, panel.index);
-        node.left = Val::Px(cell.min.x + CHROME_INSET);
-        node.top = Val::Px(cell.min.y + CHROME_INSET);
-        node.width = Val::Px((cell.width() - 2.0 * CHROME_INSET).max(0.0));
+        patch_node(node, |node| {
+            node.left = Val::Px(cell.min.x + CHROME_INSET);
+            node.top = Val::Px(cell.min.y + CHROME_INSET);
+            node.width = Val::Px((cell.width() - 2.0 * CHROME_INSET).max(0.0));
+        });
     }
 }
 
@@ -395,15 +399,18 @@ pub fn position_tooltips(
 ) {
     let Ok(window) = windows.single() else { return };
     let count = panels.iter().count();
-    for (tooltip, mut node) in &mut tooltips {
+    for (tooltip, node) in &mut tooltips {
         let Ok(panel) = panels.get(tooltip.panel) else {
             continue;
         };
         let cell = area.cell(count, panel.index);
-        node.left = Val::Px(cell.min.x + 10.0);
-        // `bottom` is measured from the bottom of the window, not of the cell.
-        node.bottom = Val::Px(window.height() - cell.max.y + 10.0);
-        node.max_width = Val::Px((cell.width() - 20.0).max(120.0));
+        patch_node(node, |node| {
+            node.left = Val::Px(cell.min.x + 10.0);
+            // `bottom` is measured from the bottom of the window, not of the
+            // cell.
+            node.bottom = Val::Px(window.height() - cell.max.y + 10.0);
+            node.max_width = Val::Px((cell.width() - 20.0).max(120.0));
+        });
     }
 }
 
@@ -419,7 +426,7 @@ pub fn update_tooltips(
     sources: Query<(&HoverInfo, &HoverProbe)>,
     mut tooltips: Query<(&PanelTooltip, &mut Text, &mut Node)>,
 ) {
-    for (tooltip, mut text, mut node) in &mut tooltips {
+    for (tooltip, text, node) in &mut tooltips {
         let found: Vec<String> = panels
             .get(tooltip.panel)
             .map(|(shows, layers)| stacked_sources(shows, layers, &layer_cameras))
@@ -436,13 +443,9 @@ pub fn update_tooltips(
         } else {
             Display::Flex
         };
-        if node.display != display {
-            node.display = display;
-        }
+        patch_node(node, |node| node.display = display);
         let lines = found.join("\n\n");
-        if text.0 != lines {
-            text.0 = lines;
-        }
+        set_text(text, &lines);
     }
 }
 
@@ -456,7 +459,7 @@ pub fn update_hud(
     parents: Query<&ChildOf>,
     mut title_texts: Query<&mut Text, Without<PanelText>>,
 ) {
-    for (mut text, panel_text) in &mut texts {
+    for (text, panel_text) in &mut texts {
         let Ok((camera, projection, shows, pending)) = panels.get(panel_text.panel) else {
             continue;
         };
@@ -487,9 +490,7 @@ pub fn update_hud(
         } else {
             format!("{waiting}{}\n{view}", status.0)
         };
-        if text.0 != next {
-            text.0 = next;
-        }
+        set_text(text, &next);
     }
 
     for (entity, _) in &titles {
@@ -506,10 +507,8 @@ pub fn update_hud(
         let Ok((source, _)) = sources.get(shows.0) else {
             continue;
         };
-        if let Ok(mut text) = title_texts.get_mut(entity)
-            && text.0 != source.name
-        {
-            text.0 = source.name.clone();
+        if let Ok(text) = title_texts.get_mut(entity) {
+            set_text(text, &source.name);
         }
     }
 }
@@ -520,16 +519,14 @@ pub fn show_status_boxes(
     mut boxes: Query<(&Children, &mut Node), With<PanelStatusBox>>,
     lines: Query<(&Text, &Node), Without<PanelStatusBox>>,
 ) {
-    for (children, mut node) in &mut boxes {
+    for (children, node) in &mut boxes {
         let said = children.iter().any(|child| {
             lines
                 .get(child)
                 .is_ok_and(|(text, line)| line.display != Display::None && !text.0.is_empty())
         });
         let wanted = if said { Display::Flex } else { Display::None };
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 }
 

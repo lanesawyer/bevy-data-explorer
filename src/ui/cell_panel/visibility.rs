@@ -23,7 +23,7 @@ use crate::source::properties::CellProperties;
 use crate::ui::cell_panel::{CellPanelMenu, PropertySection};
 use crate::view::SelectedPanel;
 use crate::widgets::space;
-use crate::widgets::{BlocksFrameInput, button_text, size, text};
+use crate::widgets::{BlocksFrameInput, button_text, patch_node, size, text};
 
 /// A checkbox in the menu, listing or hiding one property.
 #[derive(Component, Clone, Default)]
@@ -194,11 +194,9 @@ pub fn update_property_visibility(
         }
     }
 
-    for (section, mut node) in &mut sections {
+    for (section, node) in &mut sections {
         let wanted = display(is_shown(section.property));
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 }
 

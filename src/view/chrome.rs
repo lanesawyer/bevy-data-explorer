@@ -8,7 +8,7 @@ use bevy_feathers::theme::{ThemeBackgroundColor, ThemeBorderColor};
 
 use crate::app::theme::token;
 use crate::widgets::space;
-use crate::widgets::{BlocksFrameInput, Icon, button_icon};
+use crate::widgets::{BlocksFrameInput, Icon, button_icon, patch_node};
 use bevy_ui_widgets::Activate;
 
 use super::grid::{MAX_COLUMNS, MAX_PANELS, MAX_ROWS};
@@ -101,21 +101,23 @@ pub fn update_selection_border(
     // answer to a question nobody asked.
     let several = panels.iter().count() > 1;
 
-    for mut node in &mut border {
+    for node in &mut border {
         let Some(panel) = selected
             .0
             .and_then(|e| panels.get(e).ok())
             .filter(|_| several)
         else {
-            node.display = Display::None;
+            patch_node(node, |node| node.display = Display::None);
             continue;
         };
         let cell = area.cell(panels.iter().count(), panel.1.index);
-        node.display = Display::Flex;
-        node.left = Val::Px(cell.min.x);
-        node.top = Val::Px(cell.min.y);
-        node.width = Val::Px(cell.width());
-        node.height = Val::Px(cell.height());
+        patch_node(node, |node| {
+            node.display = Display::Flex;
+            node.left = Val::Px(cell.min.x);
+            node.top = Val::Px(cell.min.y);
+            node.width = Val::Px(cell.width());
+            node.height = Val::Px(cell.height());
+        });
     }
 }
 

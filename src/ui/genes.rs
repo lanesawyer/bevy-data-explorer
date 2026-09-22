@@ -27,8 +27,8 @@ use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::space;
 use crate::widgets::{
-    Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, field_well, size,
-    spawn_accordion, spawn_header_button, spawn_search_field, text_dim,
+    Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, field_well, patch_node, set_text,
+    size, spawn_accordion, spawn_header_button, spawn_search_field, text_dim,
 };
 
 /// Under the cell properties, whose numeric controls these are, and above the
@@ -353,18 +353,14 @@ pub fn update_gene_panel(
     let search = selected_source(&selected, &panels).and_then(|source| sources.get(source).ok());
 
     let message = search.map(status_of).unwrap_or_default();
-    for (mut text, mut node) in &mut status {
+    for (text, node) in &mut status {
         let wanted = if message.is_empty() {
             Display::None
         } else {
             Display::Flex
         };
-        if node.display != wanted {
-            node.display = wanted;
-        }
-        if text.0 != message {
-            text.0.clone_from(&message);
-        }
+        patch_node(node, |node| node.display = wanted);
+        set_text(text, &message);
     }
 }
 

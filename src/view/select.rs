@@ -32,7 +32,7 @@ use crate::app::theme::token;
 use crate::source::ShowsSource;
 use crate::source::properties::CellColumns;
 use crate::source::region::RegionProbe;
-use crate::widgets::{BlocksFrameInput, Icon, button_icon};
+use crate::widgets::{BlocksFrameInput, Icon, button_icon, patch_node, set_display};
 
 use super::grid::{panel_under_cursor, within_frames};
 use super::{FrameArea, Panel};
@@ -144,16 +144,7 @@ pub fn sync_select_buttons(
         let Ok((shows, selecting)) = frames.get(button.panel) else {
             continue;
         };
-        let display = if cells.contains(shows.0) {
-            Display::Flex
-        } else {
-            Display::None
-        };
-        if let Ok(mut node) = nodes.get_mut(entity)
-            && node.display != display
-        {
-            node.display = display;
-        }
+        set_display(&mut nodes, entity, cells.contains(shows.0));
         // Lit while the mode is on, so a frame that swallows drags says why.
         if let Ok(mut variant) = variants.get_mut(entity) {
             variant.set_if_neq(if selecting {
@@ -389,19 +380,19 @@ pub fn place_region_outlines(
     mut outlines: Query<(&RegionOutline, &mut Node)>,
 ) {
     let count = panels.iter().count();
-    for (outline, mut node) in &mut outlines {
+    for (outline, node) in &mut outlines {
         let Ok((panel, camera, global, region)) = panels.get(outline.panel) else {
             continue;
         };
         let Some(region) = region else {
-            node.display = Display::None;
+            patch_node(node, |node| node.display = Display::None);
             continue;
         };
         let (Ok(min), Ok(max)) = (
             camera.world_to_viewport(global, region.min().extend(0.0)),
             camera.world_to_viewport(global, region.max().extend(0.0)),
         ) else {
-            node.display = Display::None;
+            patch_node(node, |node| node.display = Display::None);
             continue;
         };
         // World y runs the other way from screen y, so the corners cross over.
@@ -411,14 +402,16 @@ pub fn place_region_outlines(
         let top = min.y.min(max.y).max(cell.min.y);
         let bottom = min.y.max(max.y).min(cell.max.y);
         if right <= left || bottom <= top {
-            node.display = Display::None;
+            patch_node(node, |node| node.display = Display::None);
             continue;
         }
-        node.display = Display::Flex;
-        node.left = Val::Px(left);
-        node.top = Val::Px(top);
-        node.width = Val::Px(right - left);
-        node.height = Val::Px(bottom - top);
+        patch_node(node, |node| {
+            node.display = Display::Flex;
+            node.left = Val::Px(left);
+            node.top = Val::Px(top);
+            node.width = Val::Px(right - left);
+            node.height = Val::Px(bottom - top);
+        });
     }
 }
 

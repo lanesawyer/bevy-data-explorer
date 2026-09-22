@@ -14,7 +14,7 @@ use bevy_feathers::controls::{
 use bevy_feathers::display::label_dim;
 use bevy_ui_widgets::Activate;
 
-use super::{BlocksFrameInput, Icon, button_icon};
+use super::{BlocksFrameInput, Icon, button_icon, patch_node};
 
 /// The clear button's size: smaller than Feathers' row, so it sits inside the
 /// field rather than filling it.
@@ -119,25 +119,21 @@ pub fn sync_search_hints(
             .get(field)
             .is_ok_and(|text| text.value().to_string().is_empty())
     };
-    for (hint, mut node) in &mut hints {
+    for (hint, node) in &mut hints {
         let wanted = if empty(hint.field) {
             Display::Flex
         } else {
             Display::None
         };
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
-    for (clear, mut node) in &mut clears {
+    for (clear, node) in &mut clears {
         let wanted = if empty(clear.field) {
             Display::None
         } else {
             Display::Flex
         };
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 }
 

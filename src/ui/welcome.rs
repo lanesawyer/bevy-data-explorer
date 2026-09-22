@@ -31,7 +31,8 @@ use crate::view::browse::new_frame_button;
 use crate::view::{FrameArea, Panel};
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, button_text, link_button, size, text, text_dim, title,
+    BlocksFrameInput, Icon, button_text, display, link_button, patch_node, size, text, text_dim,
+    title,
 };
 
 /// The empty-state panel itself.
@@ -310,18 +311,16 @@ pub fn place_welcome(
     mut screens: Query<&mut Node, With<WelcomeScreen>>,
 ) {
     let empty = panels.iter().next().is_none();
-    for mut node in &mut screens {
-        let wanted = if empty { Display::Flex } else { Display::None };
-        if node.display != wanted {
-            node.display = wanted;
-        }
-        if !empty {
-            continue;
-        }
-        node.left = Val::Px(area.origin.x);
-        node.top = Val::Px(area.origin.y);
-        node.width = Val::Px(area.size.x);
-        node.height = Val::Px(area.size.y);
+    for node in &mut screens {
+        patch_node(node, |node| {
+            node.display = display(empty);
+            if empty {
+                node.left = Val::Px(area.origin.x);
+                node.top = Val::Px(area.origin.y);
+                node.width = Val::Px(area.size.x);
+                node.height = Val::Px(area.size.y);
+            }
+        });
     }
 }
 
@@ -330,15 +329,8 @@ pub fn show_welcome_bookmarks(
     saved: Res<SavedBookmarks>,
     mut columns: Query<&mut Node, With<WelcomeBookmarks>>,
 ) {
-    let wanted = if saved.list.is_empty() {
-        Display::None
-    } else {
-        Display::Flex
-    };
-    for mut node in &mut columns {
-        if node.display != wanted {
-            node.display = wanted;
-        }
+    for node in &mut columns {
+        patch_node(node, |node| node.display = display(!saved.list.is_empty()));
     }
 }
 

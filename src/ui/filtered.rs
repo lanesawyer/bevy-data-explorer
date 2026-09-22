@@ -16,7 +16,7 @@ use crate::source::ShowsSource;
 use crate::source::properties::{CellProperties, FILTERED_GRAY, FilteredPoints};
 use crate::view::SelectedPanel;
 use crate::widgets::space;
-use crate::widgets::{BlocksFrameInput, button_text};
+use crate::widgets::{BlocksFrameInput, button_text, patch_node};
 
 /// Height of the hue and saturation plane. Feathers' own minimum, which is
 /// room enough to aim at in a sidebar.
@@ -266,14 +266,12 @@ fn sync_filtered_controls(
             commands.entity(entity).remove::<Checked>();
         }
     }
-    for (FilteredPicker(target), mut node) in &mut pickers {
+    for (FilteredPicker(target), node) in &mut pickers {
         let display = match current(*target) {
             Some(filtered) if filtered.shown => Display::Flex,
             _ => Display::None,
         };
-        if node.display != display {
-            node.display = display;
-        }
+        patch_node(node, |node| node.display = display);
     }
     for (FilteredSwatch(target), mut swatch) in &mut swatches {
         if let Some(filtered) = current(*target)

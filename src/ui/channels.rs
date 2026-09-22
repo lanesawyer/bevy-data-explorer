@@ -23,7 +23,7 @@ use crate::source::ShowsSource;
 use crate::source::channels::{MAX_GAIN, SourceChannels};
 use crate::view::SelectedPanel;
 use crate::widgets::space;
-use crate::widgets::{BlocksFrameInput, Icon, button_icon, button_text, spawn_slider};
+use crate::widgets::{BlocksFrameInput, Icon, button_icon, button_text, patch_node, spawn_slider};
 
 /// Brightness runs 0..400 on the slider, so its readout is a percentage.
 const PERCENT: f32 = 100.0;
@@ -118,10 +118,8 @@ pub fn rebuild_channel_rows(
     } else {
         Display::None
     };
-    for mut node in &mut sections {
-        if node.display != display {
-            node.display = display;
-        }
+    for node in &mut sections {
+        patch_node(node, |node| node.display = display);
     }
 
     let fingerprint = current.map(|(source, channels)| {

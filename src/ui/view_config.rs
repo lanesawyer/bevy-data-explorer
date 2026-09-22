@@ -21,7 +21,8 @@ use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::{
-    BlocksFrameInput, SectionLevel, button_text, size, spawn_accordion, spawn_slider, text,
+    BlocksFrameInput, SectionLevel, button_text, patch_node, set_text, size, spawn_accordion,
+    spawn_slider, text,
 };
 
 /// The opacity slider runs 0..100, so its built-in readout is a percentage.
@@ -187,15 +188,13 @@ pub fn sync_slice_grid(
 ) {
     let grid =
         crate::view::selected_source(&selected, &panels).and_then(|source| grids.get(source).ok());
-    for (entity, mut node, checked) in &mut boxes {
+    for (entity, node, checked) in &mut boxes {
         let display = if grid.is_some() {
             Display::Flex
         } else {
             Display::None
         };
-        if node.display != display {
-            node.display = display;
-        }
+        patch_node(node, |node| node.display = display);
         let Some(grid) = grid else { continue };
         if grid.0 && !checked {
             commands.entity(entity).insert(Checked);
@@ -245,15 +244,13 @@ pub fn sync_slice_slider(
         .map(|shows| shows.0)
         .filter(|source| stacks.get(*source).is_ok());
 
-    for mut node in &mut rows {
+    for node in &mut rows {
         let wanted = if source.is_some() {
             Display::Flex
         } else {
             Display::None
         };
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 
     let Ok((slider_entity, value)) = slider.single() else {
@@ -300,10 +297,8 @@ pub fn sync_slice_slider(
 
     if let Ok(stack) = stacks.get(source) {
         let label = stack.label();
-        for mut text in &mut readouts {
-            if text.0 != label {
-                text.0 = label.clone();
-            }
+        for text in &mut readouts {
+            set_text(text, &label);
         }
     }
 }
@@ -335,10 +330,8 @@ pub fn sync_opacity_slider(
         return;
     };
 
-    for mut text in &mut names {
-        if text.0 != data.name {
-            text.0 = data.name.clone();
-        }
+    for text in &mut names {
+        set_text(text, &data.name);
     }
 
     match opacity {
@@ -409,15 +402,13 @@ pub fn sync_point_size(
     };
 
     let sized = source.filter(|source| sources.get(*source).is_ok());
-    for mut node in &mut rows {
+    for node in &mut rows {
         let wanted = if sized.is_some() {
             Display::Flex
         } else {
             Display::None
         };
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 
     let Some(source) = sized else {

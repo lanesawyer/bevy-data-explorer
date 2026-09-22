@@ -22,7 +22,7 @@ use bevy_ui_widgets::Activate;
 use super::{Panel, View};
 use crate::source::volume::SourceVolume;
 use crate::source::{DataSource, ShowsSource};
-use crate::widgets::{BlocksFrameInput, Icon, button_icon};
+use crate::widgets::{BlocksFrameInput, Icon, button_icon, set_display, set_text};
 
 /// Radians turned per logical pixel dragged.
 const TURN_PER_PX: f32 = 0.008;
@@ -223,22 +223,11 @@ pub fn sync_view_buttons(
         let Ok((shows, orbiting)) = frames.get(button.panel) else {
             continue;
         };
-        let display = if volumes.contains(shows.0) {
-            Display::Flex
-        } else {
-            Display::None
-        };
-        if let Ok(mut node) = nodes.get_mut(entity)
-            && node.display != display
-        {
-            node.display = display;
-        }
+        set_display(&mut nodes, entity, volumes.contains(shows.0));
         let wanted = caption(orbiting).glyph();
         for child in children.iter_descendants(entity) {
-            if let Ok(mut text) = texts.get_mut(child)
-                && text.0 != wanted
-            {
-                text.0 = wanted.to_string();
+            if let Ok(text) = texts.get_mut(child) {
+                set_text(text, wanted);
             }
         }
     }

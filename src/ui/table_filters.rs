@@ -34,15 +34,15 @@ use crate::source::table::{
 use crate::source::{ShowsSource, compact_count};
 use crate::ui::cell_panel::range::{RangeOwner, spawn_range_control};
 use crate::ui::cell_panel::tree::Unveil;
-use crate::ui::cell_panel::values::{LIST_MAX_PX, SEARCH_FROM, note_for, set_display};
+use crate::ui::cell_panel::values::{LIST_MAX_PX, SEARCH_FROM, note_for};
 use crate::ui::cell_panel::{MAX_VALUE_ROWS, ValueColumn, spawn_value_row};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::space;
 use crate::widgets::{
-    Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, matches_search, scroll_list,
-    size, spawn_accordion, spawn_header_button, spawn_menu, spawn_search_field, spawn_skeleton,
-    text, text_dim,
+    Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, matches_search, patch_node,
+    scroll_list, set_display, set_text, size, spawn_accordion, spawn_header_button, spawn_menu,
+    spawn_search_field, spawn_skeleton, text, text_dim,
 };
 
 /// Under the cell properties, which is where the same act on a point cloud
@@ -521,10 +521,8 @@ pub fn sync_value_lists(
 
         let note = note_for(&query, false, matches.len());
         set_display(&mut nodes, list.note, !note.is_empty());
-        if let Ok(mut text) = texts.get_mut(list.note)
-            && text.0 != note
-        {
-            text.0 = note;
+        if let Ok(text) = texts.get_mut(list.note) {
+            set_text(text, &note);
         }
     }
 }
@@ -671,24 +669,20 @@ pub fn sync_filter_controls(
         }
     };
     let wanted = shown(table.is_some_and(TableFilters::restricts));
-    for mut node in &mut clear_all {
-        if node.display != wanted {
-            node.display = wanted;
-        }
+    for node in &mut clear_all {
+        patch_node(node, |node| node.display = wanted);
     }
-    for (button, mut node) in &mut clear_column {
+    for (button, node) in &mut clear_column {
         let wanted = shown(
             table
                 .and_then(|table| table.columns.get(button.column))
                 .is_some_and(TableFilter::restricts),
         );
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 
     let Some(table) = table else { return };
-    for (count, mut text) in &mut counts {
+    for (count, text) in &mut counts {
         let Some(value) = table
             .columns
             .get(count.column)
@@ -697,9 +691,7 @@ pub fn sync_filter_controls(
             continue;
         };
         let wanted = compact_count(value.count);
-        if text.0 != wanted {
-            text.0 = wanted;
-        }
+        set_text(text, &wanted);
     }
     for (entity, box_, checked) in &boxes {
         let chosen = table

@@ -49,7 +49,7 @@ use crate::view::{FrameArea, FrameRegion, SelectMode, SelectedPanel};
 use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, SelectableText, button_icon,
-    button_text, dock_handle, scroll_list, size, text, text_dim,
+    button_text, display, dock_handle, patch_node, scroll_list, set_text, size, text, text_dim,
 };
 
 /// Wide enough for a cluster's name beside its count without either wrapping.
@@ -380,21 +380,21 @@ pub fn update_selection_dock(
     if dock.outboard != outboard {
         dock.outboard = outboard;
     }
-    let shown = if dock.open {
-        Display::Flex
-    } else {
-        Display::None
-    };
+    let shown = display(dock.open);
 
-    for mut node in &mut roots {
-        node.display = shown;
-        node.width = Val::Px(width);
-        node.left = Val::Px(window.width() - outboard - width);
+    for node in &mut roots {
+        patch_node(node, |node| {
+            node.display = shown;
+            node.width = Val::Px(width);
+            node.left = Val::Px(window.width() - outboard - width);
+        });
     }
-    for mut node in &mut handles {
-        node.display = shown;
+    for node in &mut handles {
         // Straddles the edge so it can be grabbed from either side.
-        node.left = Val::Px(window.width() - outboard - width - HANDLE_PX * 0.5);
+        patch_node(node, |node| {
+            node.display = shown;
+            node.left = Val::Px(window.width() - outboard - width - HANDLE_PX * 0.5);
+        });
     }
     if !dock.open {
         return;
@@ -404,10 +404,8 @@ pub fn update_selection_dock(
     let found = frame.and_then(|(shows, ..)| sources.get(shows.0).ok());
     let Some((properties, summary, region)) = found else {
         let wanted = "This dataset's cells cannot be counted by where they are.";
-        for mut text in &mut status {
-            if text.0 != wanted {
-                text.0 = wanted.to_string();
-            }
+        for text in &mut status {
+            set_text(text, wanted);
         }
         return;
     };
@@ -433,10 +431,8 @@ pub fn update_selection_dock(
         SummaryState::Idle if selecting => "Drag a rectangle over the frame.".to_string(),
         SummaryState::Idle => "Pick the selection tool in the frame's header.".to_string(),
     };
-    for mut text in &mut status {
-        if text.0 != wanted {
-            text.0 = wanted.clone();
-        }
+    for text in &mut status {
+        set_text(text, &wanted);
     }
 }
 

@@ -30,7 +30,7 @@ use crate::ui::log_panel::LogPanel;
 use crate::widgets::space;
 use crate::widgets::{
     AddModal, Icon, Modal, ResetDockSizes, button_icon, button_text, field_well, set_modal_open,
-    size, spawn_modal, text,
+    set_text, size, spawn_modal, text,
 };
 
 const PANEL_PX: f32 = 620.0;
@@ -646,13 +646,9 @@ pub fn sync_registry(
     } else {
         palette.progress
     };
-    for (mut text, mut text_color) in &mut labels {
-        if text.0 != message {
-            text.0 = message.clone();
-        }
-        if text_color.0 != color {
-            text_color.0 = color;
-        }
+    for (text, mut text_color) in &mut labels {
+        set_text(text, &message);
+        text_color.set_if_neq(TextColor(color));
     }
 }
 

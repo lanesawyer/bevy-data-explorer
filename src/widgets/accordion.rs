@@ -21,7 +21,10 @@ use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
 
 use super::space;
-use super::{BlocksFrameInput, CORNER_PX, Icon, button_icon, icon_text, size, truncate_to_width};
+use super::{
+    BlocksFrameInput, CORNER_PX, Icon, button_icon, icon_text, patch_node, set_text, size,
+    truncate_to_width,
+};
 
 /// Space between a body's sides and what is in it, the same on both so its
 /// contents sit centred in the box rather than against its right edge.
@@ -295,10 +298,8 @@ pub fn truncate_accordion_titles(
             continue;
         }
         let wanted = truncate_to_width(&title.full, width, TITLE_FONT);
-        if let Ok(mut text) = texts.get_mut(entity)
-            && text.0 != wanted
-        {
-            text.0 = wanted;
+        if let Ok(text) = texts.get_mut(entity) {
+            set_text(text, &wanted);
         }
     }
 }
@@ -387,12 +388,10 @@ pub fn update_accordions(
     carets: Query<Entity, With<AccordionCaret>>,
     mut texts: Query<&mut Text>,
 ) {
-    for (body, mut node) in &mut bodies {
+    for (body, node) in &mut bodies {
         let open = accordions.get(body.accordion).is_ok_and(|a| a.open);
         let wanted = body_display(open);
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 
     for (toggle, header, parent, children) in &headers {
@@ -425,11 +424,9 @@ pub fn update_accordions(
             if carets.get(child).is_err() {
                 continue;
             }
-            if let Ok(mut text) = texts.get_mut(child) {
+            if let Ok(text) = texts.get_mut(child) {
                 let wanted = caret(open).glyph();
-                if text.0 != wanted {
-                    text.0 = wanted.to_string();
-                }
+                set_text(text, wanted);
             }
         }
     }

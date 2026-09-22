@@ -53,8 +53,9 @@ use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedPanel;
 use crate::widgets::space;
 use crate::widgets::{
-    Accordion, BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, size,
-    spawn_accordion, spawn_header_button, spawn_icon_menu, spawn_menu, spawn_skeleton, text_dim,
+    Accordion, BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, patch_node,
+    set_text, size, spawn_accordion, spawn_header_button, spawn_icon_menu, spawn_menu,
+    spawn_skeleton, text_dim,
 };
 
 /// The section's own menu, for controls that act on all of its properties.
@@ -703,7 +704,7 @@ pub fn update_clear_buttons(
         .and_then(|panel| panels.get(panel).ok())
         .and_then(|shows| sources.get(shows.0).ok());
 
-    for (button, mut node) in &mut per_property {
+    for (button, node) in &mut per_property {
         let applied = properties
             .and_then(|properties| properties.properties.get(button.property))
             .map_or(0, CellProperty::applied);
@@ -712,21 +713,17 @@ pub fn update_clear_buttons(
         } else {
             Display::None
         };
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 
     let total = properties.map_or(0, CellProperties::applied);
-    for mut node in &mut clear_all {
+    for node in &mut clear_all {
         let wanted = if total > 0 {
             Display::Flex
         } else {
             Display::None
         };
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 }
 
@@ -772,7 +769,7 @@ pub fn update_property_controls(
 
     // Counts arrive seconds after the labels, and are written in rather than
     // rebuilt for, for the same reason the ticks are.
-    for (count, mut text) in &mut counts {
+    for (count, text) in &mut counts {
         let wanted = properties
             .properties
             .get(count.property)
@@ -780,23 +777,19 @@ pub fn update_property_controls(
             .and_then(|value| value.count)
             .map(compact_count)
             .unwrap_or_default();
-        if text.0 != wanted {
-            text.0 = wanted;
-        }
+        set_text(text, &wanted);
     }
 
     // A value's color square means nothing unless its points are drawn in it,
     // so only the column doing the coloring shows squares — on a tree, only
     // the level it colors by, and nowhere at all under a gradient.
-    for (column, mut node) in &mut swatches {
+    for (column, node) in &mut swatches {
         let wanted = if properties.mix_column() == Some(column.column.as_str()) {
             Display::Flex
         } else {
             Display::None
         };
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 
     // The one property coloring the points is the one whose palette is lit.
@@ -846,7 +839,7 @@ pub fn update_mix_bars(
         })
         .unwrap_or_default();
 
-    for (entity, column, mut bar, mut node) in &mut bars {
+    for (entity, column, mut bar, node) in &mut bars {
         let mix = properties.mixes.of(against, &column.column, column.code);
         let drawn = Some(signature(against, mix));
         if bar.drawn == drawn {
@@ -861,9 +854,7 @@ pub fn update_mix_bars(
         } else {
             Display::Flex
         };
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
         let spawned: Vec<Entity> = slices
             .into_iter()
             .map(|(weight, color)| {

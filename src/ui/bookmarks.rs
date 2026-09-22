@@ -29,8 +29,8 @@ use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::Panel;
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, caption, field_well, size,
-    spawn_accordion, text, text_dim,
+    BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, caption, field_well,
+    patch_node, set_text, size, spawn_accordion, text, text_dim,
 };
 
 /// After the sections that act on a frame: this acts on all of them.
@@ -672,18 +672,14 @@ pub fn sync_status(
         }
         BookmarkNotice::Failed(message) => (message.clone(), palette.problem),
     };
-    for (mut text, mut text_color, mut node) in &mut labels {
+    for (text, mut text_color, node) in &mut labels {
         let display = if message.is_empty() {
             Display::None
         } else {
             Display::Flex
         };
-        if node.display != display {
-            node.display = display;
-        }
-        if text.0 != message {
-            text.0.clone_from(&message);
-        }
+        patch_node(node, |node| node.display = display);
+        set_text(text, &message);
         text_color.set_if_neq(TextColor(color));
     }
 }

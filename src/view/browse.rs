@@ -26,7 +26,9 @@ use crate::app::schedule::Stage;
 use crate::app::theme::{Palette, token};
 use crate::source::{DataSource, ShowsSource};
 use crate::widgets::space;
-use crate::widgets::{BlocksFrameInput, Icon, button_icon, button_text, size, text};
+use crate::widgets::{
+    BlocksFrameInput, Icon, button_icon, button_text, patch_node, set_text, size, text,
+};
 
 /// Over a frame's own chrome, which it stands in for, and a table's rows, but
 /// under the menus that open over everything.
@@ -214,15 +216,17 @@ pub fn place_browse_panes(
     mut panes: Query<(&BrowsePane, &mut Node)>,
 ) {
     let count = panels.iter().count();
-    for (pane, mut node) in &mut panes {
+    for (pane, node) in &mut panes {
         let Ok(panel) = panels.get(pane.panel) else {
             continue;
         };
         let cell = area.cell(count, panel.index);
-        node.left = Val::Px(cell.min.x);
-        node.top = Val::Px(cell.min.y);
-        node.width = Val::Px(cell.width());
-        node.height = Val::Px(cell.height());
+        patch_node(node, |node| {
+            node.left = Val::Px(cell.min.x);
+            node.top = Val::Px(cell.min.y);
+            node.width = Val::Px(cell.width());
+            node.height = Val::Px(cell.height());
+        });
     }
 }
 
@@ -231,16 +235,14 @@ pub fn hide_browsing_headers(
     panels: Query<Has<Browsing>, With<Panel>>,
     mut headers: Query<(&PanelHeader, &mut Node)>,
 ) {
-    for (header, mut node) in &mut headers {
+    for (header, node) in &mut headers {
         let browsing = panels.get(header.panel).unwrap_or(false);
         let wanted = if browsing {
             Display::None
         } else {
             Display::Flex
         };
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 }
 
@@ -281,26 +283,18 @@ pub fn sync_browse_text(
                 std::iter::once(child).chain(columns.get(child).into_iter().flatten().copied())
             });
         for entity in descendants {
-            if let Ok(mut text) = titles.get_mut(entity)
-                && text.0 != title
-            {
-                text.0.clone_from(&title);
+            if let Ok(text) = titles.get_mut(entity) {
+                set_text(text, &title);
             }
-            if let Ok((mut text, mut text_color, mut node)) = statuses.get_mut(entity) {
+            if let Ok((text, mut text_color, node)) = statuses.get_mut(entity) {
                 let display = if status.is_empty() {
                     Display::None
                 } else {
                     Display::Flex
                 };
-                if node.display != display {
-                    node.display = display;
-                }
-                if text.0 != status {
-                    text.0.clone_from(&status);
-                }
-                if text_color.0 != color {
-                    text_color.0 = color;
-                }
+                patch_node(node, |node| node.display = display);
+                set_text(text, &status);
+                text_color.set_if_neq(TextColor(color));
             }
         }
     }

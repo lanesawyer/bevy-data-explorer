@@ -22,7 +22,9 @@ use crate::source::ShowsSource;
 use crate::source::properties::{CellProperties, CellProperty, PropertyKind};
 use crate::view::SelectedPanel;
 use crate::widgets::space;
-use crate::widgets::{matches_search, scroll_list, size, spawn_search_field, text_dim};
+use crate::widgets::{
+    matches_search, scroll_list, set_display, set_text, size, spawn_search_field, text_dim,
+};
 
 /// Fewest values a property has before it offers a search. Below this the
 /// whole list is in view anyway. The table filters go by the same figure.
@@ -221,20 +223,9 @@ pub fn sync_value_lists(
 
         let note = note_for(&query, browsing, matches.len());
         set_display(&mut nodes, list.note, !note.is_empty());
-        if let Ok(mut text) = texts.get_mut(list.note)
-            && text.0 != note
-        {
-            text.0 = note;
+        if let Ok(text) = texts.get_mut(list.note) {
+            set_text(text, &note);
         }
-    }
-}
-
-pub fn set_display(nodes: &mut Query<&mut Node>, entity: Entity, shown: bool) {
-    let wanted = if shown { Display::Flex } else { Display::None };
-    if let Ok(mut node) = nodes.get_mut(entity)
-        && node.display != wanted
-    {
-        node.display = wanted;
     }
 }
 

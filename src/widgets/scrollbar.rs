@@ -35,7 +35,7 @@ use bevy_feathers::controls::FeathersScrollbar;
 use bevy_ui_widgets::{ControlOrientation, ScrollArea};
 
 use super::spacing::step;
-use super::{BlocksFrameInput, scroll::ScrollBoth, scroll::ScrollList};
+use super::{BlocksFrameInput, display, patch_node, scroll::ScrollBoth, scroll::ScrollList};
 
 /// How thick a bar is, across the axis it scrolls.
 const BAR_PX: f32 = 6.0;
@@ -273,7 +273,7 @@ fn spawn_bar(commands: &mut Commands, area: Entity, orientation: ControlOrientat
 
 /// Show each bar only while its area has something to scroll.
 pub fn show_scrollbars(areas: Query<&ComputedNode>, mut bars: Query<(&ScrollbarFor, &mut Node)>) {
-    for (bar, mut node) in &mut bars {
+    for (bar, node) in &mut bars {
         let Ok(area) = areas.get(bar.area) else {
             continue;
         };
@@ -284,11 +284,9 @@ pub fn show_scrollbars(areas: Query<&ComputedNode>, mut bars: Query<(&ScrollbarF
             ControlOrientation::Vertical => (content.y, visible.y),
             ControlOrientation::Horizontal => (content.x, visible.x),
         };
-        node.display = if overflows(content, visible) {
-            Display::Flex
-        } else {
-            Display::None
-        };
+        patch_node(node, |node| {
+            node.display = display(overflows(content, visible));
+        });
     }
 }
 

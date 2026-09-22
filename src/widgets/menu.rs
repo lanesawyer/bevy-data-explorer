@@ -10,7 +10,7 @@ use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
 use super::space;
-use super::{BlocksFrameInput, Icon, button_icon};
+use super::{BlocksFrameInput, Icon, button_icon, display, patch_node};
 
 /// A popup anchored under the button that opens it.
 ///
@@ -200,16 +200,10 @@ pub fn position_menus(
 ) {
     let Ok(window) = windows.single() else { return };
 
-    for (menu, anchor, mut node) in &mut menus {
-        node.display = if menu.open {
-            Display::Flex
-        } else {
-            Display::None
-        };
-        if !menu.open {
-            continue;
-        }
-        let Ok((computed, transform)) = anchors.get(anchor.button) else {
+    for (menu, anchor, node) in &mut menus {
+        let placed = anchors.get(anchor.button).ok().filter(|_| menu.open);
+        let Some((computed, transform)) = placed else {
+            patch_node(node, |node| node.display = display(menu.open));
             continue;
         };
         // Layout reports physical pixels; `left` and `top` are logical.
@@ -218,11 +212,14 @@ pub fn position_menus(
         let centre = Vec2::new(transform.translation.x, transform.translation.y) * scale;
         let left = (centre.x - size.x * 0.5).min(window.width() - MENU_WIDTH - 8.0);
         let top = centre.y + size.y * 0.5 + 4.0;
-        node.left = Val::Px(left.max(8.0));
-        node.top = Val::Px(top);
-        // Stop at the bottom of the window rather than running past it; the
-        // contents scroll once they no longer fit.
-        node.max_height = Val::Px((window.height() - top - MENU_MARGIN).max(MENU_MIN_HEIGHT));
+        patch_node(node, |node| {
+            node.display = Display::Flex;
+            node.left = Val::Px(left.max(8.0));
+            node.top = Val::Px(top);
+            // Stop at the bottom of the window rather than running past it;
+            // the contents scroll once they no longer fit.
+            node.max_height = Val::Px((window.height() - top - MENU_MARGIN).max(MENU_MIN_HEIGHT));
+        });
     }
 }
 

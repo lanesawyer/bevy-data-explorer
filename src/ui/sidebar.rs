@@ -21,8 +21,8 @@ use crate::source::{DataSource, ShowsSource};
 use crate::view::{Browsing, FrameArea, Panel, SelectedPanel};
 use crate::widgets::space;
 use crate::widgets::{
-    AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, button_text,
-    dock_handle, size,
+    AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, button_text, display,
+    dock_handle, patch_node, set_text, size,
 };
 
 /// Width when collapsed. Enough for the short title and the toggle beneath it.
@@ -200,15 +200,13 @@ pub fn show_sections(
         .0
         .and_then(|panel| panels.get(panel).ok())
         .and_then(|shows| sources.get(shows.0).ok());
-    for (applies, mut node) in &mut sections {
+    for (applies, node) in &mut sections {
         let wanted = if source.is_some_and(|source| (applies.0)(source)) {
             Display::Flex
         } else {
             Display::None
         };
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 }
 
@@ -427,49 +425,33 @@ pub fn update_sidebar(
 ) {
     let Ok(window) = windows.single() else { return };
     let width = sidebar.current_width(window.width());
-    for mut node in &mut roots {
-        node.width = Val::Px(width);
+    for node in &mut roots {
+        patch_node(node, |node| node.width = Val::Px(width));
     }
-    for mut node in &mut content {
-        // Collapsed, the ribbon is too narrow to lay sections out in.
-        node.display = if sidebar.collapsed {
-            Display::None
-        } else {
-            Display::Flex
-        };
+    // Collapsed, the ribbon is too narrow to lay sections out in, and has room
+    // for the toggle and nothing beside it.
+    for node in content.iter_mut().chain(version.iter_mut()) {
+        patch_node(node, |node| node.display = display(!sidebar.collapsed));
     }
-    for mut node in &mut version {
-        // The ribbon has room for the toggle and nothing beside it.
-        node.display = if sidebar.collapsed {
-            Display::None
-        } else {
-            Display::Flex
-        };
-    }
-    for mut node in &mut handles {
+    for node in &mut handles {
         // Straddles the edge so it can be grabbed from either side.
-        node.left = Val::Px(width - HANDLE_PX * 0.5);
+        patch_node(node, |node| node.left = Val::Px(width - HANDLE_PX * 0.5));
     }
     for entity in &titles {
-        if let Ok(mut text) = texts.get_mut(entity) {
-            let wanted = sidebar.title();
-            if text.0 != wanted {
-                text.0 = wanted.to_string();
-            }
+        if let Ok(text) = texts.get_mut(entity) {
+            set_text(text, sidebar.title());
         }
     }
+    let glyph = if sidebar.collapsed {
+        Icon::PanelLeftOpen
+    } else {
+        Icon::PanelLeftClose
+    }
+    .glyph();
     for children in &toggles {
         for child in children.iter() {
-            if let Ok(mut text) = texts.get_mut(child) {
-                let wanted = if sidebar.collapsed {
-                    Icon::PanelLeftOpen
-                } else {
-                    Icon::PanelLeftClose
-                }
-                .glyph();
-                if text.0 != wanted {
-                    text.0 = wanted.to_string();
-                }
+            if let Ok(text) = texts.get_mut(child) {
+                set_text(text, glyph);
             }
         }
     }
@@ -482,10 +464,8 @@ pub fn show_labels(sidebar: Res<Sidebar>, mut labels: Query<&mut Node, With<Side
     } else {
         Display::Flex
     };
-    for mut node in &mut labels {
-        if node.display != wanted {
-            node.display = wanted;
-        }
+    for node in &mut labels {
+        patch_node(node, |node| node.display = wanted);
     }
 }
 

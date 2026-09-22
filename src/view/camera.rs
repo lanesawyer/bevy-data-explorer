@@ -10,6 +10,7 @@ use super::chrome::{Axis, DIVIDER_PX, PanelDivider};
 use super::grid::{UI_CAMERA_ORDER, assign_cells, camera_order, clear_color_for, grid_for};
 use super::{FrameArea, Panel};
 use crate::app::theme::Palette;
+use crate::widgets::{display, patch_node};
 
 /// Marks the camera that the UI is laid out against.
 #[derive(Component, Clone, Default)]
@@ -62,39 +63,48 @@ pub fn update_viewports(
     let limit = window.physical_size();
     for (panel, mut camera) in &mut panels {
         let (min, max) = physical_cell(area.cell(count, panel.index), scale, limit);
-        camera.viewport = Some(Viewport {
-            physical_position: min,
-            physical_size: (max.saturating_sub(min)).max(UVec2::ONE),
-            ..default()
+        let size = (max.saturating_sub(min)).max(UVec2::ONE);
+        // A changed camera has its projection worked out again.
+        let placed = camera.viewport.as_ref().is_some_and(|viewport| {
+            viewport.physical_position == min && viewport.physical_size == size
         });
+        if !placed {
+            camera.viewport = Some(Viewport {
+                physical_position: min,
+                physical_size: size,
+                ..default()
+            });
+        }
     }
 
     let cell = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32);
     let base = area.origin;
 
-    for (divider, mut node) in &mut dividers {
+    for (divider, node) in &mut dividers {
         let used = match divider.axis {
             Axis::Vertical => divider.ordinal + 1 < columns,
             Axis::Horizontal => divider.ordinal + 1 < rows,
         };
-        node.display = if used { Display::Flex } else { Display::None };
-        if !used {
-            continue;
-        }
-        match divider.axis {
-            Axis::Vertical => {
-                node.left = Val::Px(base.x + cell.x * (divider.ordinal + 1) as f32);
-                node.top = Val::Px(base.y);
-                node.width = Val::Px(DIVIDER_PX);
-                node.height = Val::Px(area.size.y);
+        patch_node(node, |node| {
+            node.display = display(used);
+            if !used {
+                return;
             }
-            Axis::Horizontal => {
-                node.left = Val::Px(base.x);
-                node.top = Val::Px(base.y + cell.y * (divider.ordinal + 1) as f32);
-                node.width = Val::Px(area.size.x);
-                node.height = Val::Px(DIVIDER_PX);
+            match divider.axis {
+                Axis::Vertical => {
+                    node.left = Val::Px(base.x + cell.x * (divider.ordinal + 1) as f32);
+                    node.top = Val::Px(base.y);
+                    node.width = Val::Px(DIVIDER_PX);
+                    node.height = Val::Px(area.size.y);
+                }
+                Axis::Horizontal => {
+                    node.left = Val::Px(base.x);
+                    node.top = Val::Px(base.y + cell.y * (divider.ordinal + 1) as f32);
+                    node.width = Val::Px(area.size.x);
+                    node.height = Val::Px(DIVIDER_PX);
+                }
             }
-        }
+        });
     }
 }
 

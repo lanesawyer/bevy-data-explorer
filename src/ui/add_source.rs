@@ -23,6 +23,7 @@ use crate::formats::{LoadSettings, spawn_discovered};
 use crate::source::SourceUrl;
 use crate::view::{DatasetRequest, DatasetTarget, PendingShow, ShowFailed};
 use crate::widgets::size;
+use crate::widgets::{patch_node, set_text};
 
 /// A line reporting how the last read went, for a place with no frame of its
 /// own to say so: the empty window's examples.
@@ -230,21 +231,15 @@ pub fn sync_custom_status(
     }
 
     let (message, color) = load.status.message(&palette);
-    for (mut text, mut text_color, mut node) in &mut labels {
+    for (text, mut text_color, node) in &mut labels {
         let wanted = if message.is_empty() {
             Display::None
         } else {
             Display::Flex
         };
-        if node.display != wanted {
-            node.display = wanted;
-        }
-        if text.0 != message {
-            text.0 = message.clone();
-        }
-        if text_color.0 != color {
-            text_color.0 = color;
-        }
+        patch_node(node, |node| node.display = wanted);
+        set_text(text, &message);
+        text_color.set_if_neq(TextColor(color));
     }
 }
 

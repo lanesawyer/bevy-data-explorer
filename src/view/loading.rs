@@ -13,6 +13,7 @@ use crate::source::{ShowsSource, SourceBusy};
 use crate::view::chrome::SELECTION_PX;
 use crate::view::layers::stacked_sources;
 use crate::view::{FrameArea, FrameLayers, LayerOf, Panel, PendingShow, SelectedPanel};
+use crate::widgets::patch_node;
 
 const HEIGHT_PX: f32 = 3.0;
 /// How much of the frame's width the moving segment covers, in percent.
@@ -103,7 +104,8 @@ pub fn update_loading_bars(
     mut sweeps: Query<&mut Node, (With<LoadingSweep>, Without<LoadingBar>)>,
 ) {
     let count = panels.iter().count();
-    for (mut bar, mut node) in &mut bars {
+    let mut any_shown = false;
+    for (mut bar, node) in &mut bars {
         let Ok((panel, shows, layers, pending)) = panels.get(bar.panel) else {
             continue;
         };
@@ -120,17 +122,12 @@ pub fn update_loading_bars(
             bar.idle_for + time.delta_secs()
         };
 
-        let display = if bar.idle_for < LINGER_SECS {
-            Display::Flex
-        } else {
-            Display::None
-        };
-        if node.display != display {
-            node.display = display;
-        }
-        if display == Display::None {
+        let shown = bar.idle_for < LINGER_SECS;
+        if !shown {
+            patch_node(node, |node| node.display = Display::None);
             continue;
         }
+        any_shown = true;
         // Inside the selection outline where there is one, rather than over
         // it; flush with the edge everywhere else, where an inset would leave
         // a sliver of the frame showing above the bar.
@@ -140,11 +137,18 @@ pub fn update_loading_bars(
             0.0
         };
         let cell = area.cell(count, panel.index);
-        node.left = Val::Px(cell.min.x + inset);
-        node.top = Val::Px(cell.min.y + inset);
-        node.width = Val::Px((cell.width() - 2.0 * inset).max(0.0));
+        patch_node(node, |node| {
+            node.display = Display::Flex;
+            node.left = Val::Px(cell.min.x + inset);
+            node.top = Val::Px(cell.min.y + inset);
+            node.width = Val::Px((cell.width() - 2.0 * inset).max(0.0));
+        });
     }
 
+    // A hidden bar's sweep moving would still send the UI back through layout.
+    if !any_shown {
+        return;
+    }
     let left = sweep_left(time.elapsed_secs());
     for mut node in &mut sweeps {
         node.left = Val::Percent(left);

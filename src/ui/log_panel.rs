@@ -31,7 +31,7 @@ use crate::view::{FrameArea, TextEntryFocused};
 use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, SelectableText, button_icon,
-    dock_handle, has_selection, size, text,
+    display, dock_handle, has_selection, patch_node, size, text,
 };
 
 /// Height the panel opens at, before anyone has dragged it.
@@ -280,39 +280,28 @@ pub fn place_log_panel(
     // The panel runs from where the grid stops to the bottom of the window,
     // which is exactly the height it reserved.
     let top = area.origin.y + area.size.y;
-    for mut node in &mut handles {
-        let wanted = if panel.open {
-            Display::Flex
-        } else {
-            Display::None
-        };
-        if node.display != wanted {
-            node.display = wanted;
-        }
+    for node in &mut handles {
         // Straddles the edge so it can be grabbed from either side.
-        node.left = Val::Px(area.origin.x);
-        node.top = Val::Px(top - HANDLE_PX * 0.5);
-        node.width = Val::Px(area.size.x);
+        patch_node(node, |node| {
+            node.display = display(panel.open);
+            node.left = Val::Px(area.origin.x);
+            node.top = Val::Px(top - HANDLE_PX * 0.5);
+            node.width = Val::Px(area.size.x);
+        });
     }
-    for mut node in &mut roots {
-        let wanted = if panel.open {
-            Display::Flex
-        } else {
-            Display::None
-        };
-        if node.display != wanted {
-            node.display = wanted;
-        }
-        if !panel.open {
-            continue;
-        }
+    for node in &mut roots {
         // Under the grid, across what the docks beside it left over: the panel
         // reserved this strip itself, so the grid's own area stops where it
         // begins.
-        node.left = Val::Px(area.origin.x);
-        node.top = Val::Px(top);
-        node.width = Val::Px(area.size.x);
-        node.height = Val::Px((window.height() - top).max(0.0));
+        patch_node(node, |node| {
+            node.display = display(panel.open);
+            if panel.open {
+                node.left = Val::Px(area.origin.x);
+                node.top = Val::Px(top);
+                node.width = Val::Px(area.size.x);
+                node.height = Val::Px((window.height() - top).max(0.0));
+            }
+        });
     }
 }
 

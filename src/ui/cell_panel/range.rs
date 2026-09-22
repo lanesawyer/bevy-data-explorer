@@ -27,7 +27,7 @@ use crate::source::table::{TableFilters, TablePaging, to_first_page};
 use crate::source::{ShowsSource, compact_count};
 use crate::view::SelectedPanel;
 use crate::widgets::space;
-use crate::widgets::{BlocksFrameInput, hold_drag_cursor, size};
+use crate::widgets::{BlocksFrameInput, hold_drag_cursor, patch_node, set_text, size};
 
 /// Height of the histogram drawn above a numeric range.
 const HISTOGRAM_PX: f32 = 44.0;
@@ -561,17 +561,19 @@ pub fn update_range_controls(
     let filters = tables.get(source).ok();
     let range_of = |owner: RangeOwner, index: usize| range_of(owner, index, properties, filters);
 
-    for (fill, mut node) in &mut fills {
+    for (fill, node) in &mut fills {
         let Some(range) = range_of(fill.owner, fill.property) else {
             continue;
         };
         let from = range.fraction_of(range.from);
         let to = range.fraction_of(range.to);
-        node.left = Val::Percent(from * 100.0);
-        node.width = Val::Percent((to - from) * 100.0);
+        patch_node(node, |node| {
+            node.left = Val::Percent(from * 100.0);
+            node.width = Val::Percent((to - from) * 100.0);
+        });
     }
 
-    for (handle, mut node) in &mut handles {
+    for (handle, node) in &mut handles {
         let Some(range) = range_of(handle.owner, handle.property) else {
             continue;
         };
@@ -580,8 +582,10 @@ pub fn update_range_controls(
             RangeEnd::To => range.to,
         };
         let (percent, nudge) = handle_placement(range.fraction_of(value));
-        node.left = Val::Percent(percent);
-        node.margin.left = Val::Px(nudge);
+        patch_node(node, |node| {
+            node.left = Val::Percent(percent);
+            node.margin.left = Val::Px(nudge);
+        });
     }
 
     let ramp = properties.and_then(CellProperties::ramp);
@@ -609,11 +613,9 @@ pub fn update_range_controls(
         let Some(range) = range_of(readout.owner, readout.property) else {
             continue;
         };
-        if let Ok(mut text) = texts.get_mut(entity) {
+        if let Ok(text) = texts.get_mut(entity) {
             let wanted = span_text(range);
-            if text.0 != wanted {
-                text.0 = wanted;
-            }
+            set_text(text, &wanted);
         }
     }
 
@@ -621,11 +623,9 @@ pub fn update_range_controls(
         let Some(range) = range_of(count.owner, count.property) else {
             continue;
         };
-        if let Ok(mut text) = texts.get_mut(entity) {
+        if let Ok(text) = texts.get_mut(entity) {
             let wanted = count_text(range);
-            if text.0 != wanted {
-                text.0 = wanted;
-            }
+            set_text(text, &wanted);
         }
     }
 }

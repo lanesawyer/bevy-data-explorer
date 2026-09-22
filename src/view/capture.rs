@@ -44,7 +44,7 @@ use crate::view::Panel;
 use crate::view::chrome::SelectionBorder;
 use crate::view::loading::LoadingBar;
 use crate::view::overlay::{PanelHeader, PanelTooltip};
-use crate::widgets::{BlocksFrameInput, Icon, button_icon, size};
+use crate::widgets::{BlocksFrameInput, Icon, button_icon, patch_node, size};
 
 /// Where pictures are written, relative to where the app was started.
 const FOLDER: &str = "screenshots";
@@ -150,7 +150,7 @@ pub fn sync_capture_buttons(
     tables: Query<(), With<crate::source::table::SourceTable>>,
     mut buttons: Query<(&PanelCaptureButton, &mut Node)>,
 ) {
-    for (button, mut node) in &mut buttons {
+    for (button, node) in &mut buttons {
         let showing_rows = panels
             .get(button.panel)
             .is_ok_and(|shows| tables.contains(shows.0));
@@ -159,9 +159,7 @@ pub fn sync_capture_buttons(
         } else {
             Display::Flex
         };
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 }
 
@@ -348,7 +346,7 @@ pub fn show_capture_notice(
     mut notices: Query<(&mut CaptureNotice, &mut Text, &mut Node)>,
 ) {
     let fresh = capture.outcome.take();
-    for (mut notice, mut text, mut node) in &mut notices {
+    for (mut notice, mut text, node) in &mut notices {
         if let Some((panel, message)) = &fresh
             && notice.panel == *panel
         {
@@ -363,9 +361,7 @@ pub fn show_capture_notice(
         } else {
             Display::None
         };
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 }
 

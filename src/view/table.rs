@@ -35,8 +35,8 @@ use crate::source::table::{HiddenColumns, SourceTable, TablePaging, TableSort, t
 use crate::source::{ShowsSource, grouped};
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, Menu, MenuButton, ScrollBoth, button_icon, icon_text, size, text,
-    text_dim, truncate_to_width, width_of,
+    BlocksFrameInput, Icon, Menu, MenuButton, ScrollBoth, button_icon, icon_text, patch_node,
+    set_display, set_text, size, text, text_dim, truncate_to_width, width_of,
 };
 
 use super::chrome::{BUTTON_PX, CHROME_GAP};
@@ -541,7 +541,7 @@ pub fn update_sort_marks(
     sorts: Query<&TableSort>,
     mut marks: Query<(&SortMark, &mut Text)>,
 ) {
-    for (mark, mut text) in &mut marks {
+    for (mark, text) in &mut marks {
         let sort = panels
             .get(mark.panel)
             .and_then(|shows| sorts.get(shows.0))
@@ -561,9 +561,7 @@ pub fn update_sort_marks(
             }
             _ => String::new(),
         };
-        if text.0 != wanted {
-            text.0 = wanted;
-        }
+        set_text(text, &wanted);
     }
 }
 
@@ -620,24 +618,20 @@ pub fn update_footers(
             continue;
         };
         let several = paging.pages().is_none_or(|pages| pages > 1);
-        if let Ok(mut node) = nodes.get_mut(view.footer) {
+        if let Ok(node) = nodes.get_mut(view.footer) {
             let wanted = if several {
                 Display::Flex
             } else {
                 Display::None
             };
-            if node.display != wanted {
-                node.display = wanted;
-            }
+            patch_node(node, |node| node.display = wanted);
         }
         if !several {
             continue;
         }
-        if let Ok(mut text) = texts.get_mut(view.readout) {
+        if let Ok(text) = texts.get_mut(view.readout) {
             let next = readout(table, paging);
-            if text.0 != next {
-                text.0 = next;
-            }
+            set_text(text, &next);
         }
     }
 
@@ -764,18 +758,22 @@ pub fn place_tables(
         };
         let cell = area.cell(count, panel.index);
         let inset = chrome_depth(&headers, view.panel);
-        if let Ok(mut node) = nodes.get_mut(root) {
-            node.left = Val::Px(cell.min.x);
-            node.top = Val::Px(cell.min.y + inset);
-            node.width = Val::Px(cell.width());
-            node.height = Val::Px((cell.height() - inset).max(0.0));
+        if let Ok(node) = nodes.get_mut(root) {
+            patch_node(node, |node| {
+                node.left = Val::Px(cell.min.x);
+                node.top = Val::Px(cell.min.y + inset);
+                node.width = Val::Px(cell.width());
+                node.height = Val::Px((cell.height() - inset).max(0.0));
+            });
         }
         // The body scrolls; the headings are moved by hand against it, which
         // is what keeps them over their columns without scrolling away.
         let scrolled = positions.get(view.body).map_or(0.0, |at| at.x);
-        if let Ok(mut node) = nodes.get_mut(view.headings) {
-            node.left = Val::Px(-scrolled);
-            node.width = Val::Px(view.width());
+        if let Ok(node) = nodes.get_mut(view.headings) {
+            patch_node(node, |node| {
+                node.left = Val::Px(-scrolled);
+                node.width = Val::Px(view.width());
+            });
         }
     }
 }
@@ -825,16 +823,7 @@ pub fn hide_layer_menus(
         if showing_rows && state.open {
             state.open = false;
         }
-        let wanted = if showing_rows {
-            Display::None
-        } else {
-            Display::Flex
-        };
-        if let Ok(mut node) = nodes.get_mut(button)
-            && node.display != wanted
-        {
-            node.display = wanted;
-        }
+        set_display(&mut nodes, button, !showing_rows);
     }
 }
 

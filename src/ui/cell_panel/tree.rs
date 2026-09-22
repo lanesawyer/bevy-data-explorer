@@ -25,7 +25,9 @@ use crate::source::{ShowsSource, compact_count};
 use crate::view::SelectedPanel;
 use crate::widgets::Menu;
 use crate::widgets::space;
-use crate::widgets::{BlocksFrameInput, Icon, button_icon, button_text};
+use crate::widgets::{
+    BlocksFrameInput, Icon, button_icon, button_text, display, patch_node, set_text,
+};
 
 /// Indent per level of the tree.
 const INDENT_PX: f32 = space::INDENT;
@@ -247,10 +249,6 @@ fn spawn_branch(
         .id()
 }
 
-fn display(shown: bool) -> Display {
-    if shown { Display::Flex } else { Display::None }
-}
-
 /// The selected source's properties, if it has any.
 fn selected_properties<'a>(
     selected: &SelectedPanel,
@@ -368,24 +366,20 @@ pub fn update_tree_controls(
         }
     }
 
-    for (count, mut text) in &mut counts {
+    for (count, text) in &mut counts {
         let wanted = tree_of(count.property)
             .and_then(|tree| tree.nodes.get(count.node))
             .and_then(|node| node.value.count)
             .map(compact_count)
             .unwrap_or_default();
-        if text.0 != wanted {
-            text.0 = wanted;
-        }
+        set_text(text, &wanted);
     }
 
-    for (partial, mut node) in &mut partials {
+    for (partial, node) in &mut partials {
         let wanted = display(
             tree_of(partial.property).is_some_and(|tree| tree.partly_checked(partial.node)),
         );
-        if node.display != wanted {
-            node.display = wanted;
-        }
+        patch_node(node, |node| node.display = wanted);
     }
 
     for (toggle, children) in &toggles {
@@ -395,10 +389,8 @@ pub fn update_tree_controls(
             Icon::ChevronRight
         };
         for child in children.iter() {
-            if let Ok(mut glyph) = glyphs.get_mut(child)
-                && glyph.0 != icon.glyph()
-            {
-                glyph.0 = icon.glyph().to_string();
+            if let Ok(glyph) = glyphs.get_mut(child) {
+                set_text(glyph, icon.glyph());
             }
         }
     }

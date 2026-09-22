@@ -19,8 +19,8 @@ use crate::source::{DataSource, ShowsSource, SourceStatus};
 use crate::view::{FrameArea, PanelRequest, SelectedPanel};
 use crate::widgets::space;
 use crate::widgets::{
-    AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, dock_handle, size,
-    text,
+    AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, display, dock_handle,
+    patch_node, set_text, size, text,
 };
 
 const WIDTH_PX: f32 = 300.0;
@@ -205,21 +205,21 @@ pub fn update_inspector(
 ) {
     let Ok(window) = windows.single() else { return };
     let width = inspector.current_width(window.width());
-    let shown = if inspector.open {
-        Display::Flex
-    } else {
-        Display::None
-    };
+    let shown = display(inspector.open);
 
-    for mut node in &mut roots {
-        node.display = shown;
-        node.width = Val::Px(width);
-        node.left = Val::Px(window.width() - width);
+    for node in &mut roots {
+        patch_node(node, |node| {
+            node.display = shown;
+            node.width = Val::Px(width);
+            node.left = Val::Px(window.width() - width);
+        });
     }
-    for mut node in &mut handles {
-        node.display = shown;
+    for node in &mut handles {
         // Straddles the edge so it can be grabbed from either side.
-        node.left = Val::Px(window.width() - width - HANDLE_PX * 0.5);
+        patch_node(node, |node| {
+            node.display = shown;
+            node.left = Val::Px(window.width() - width - HANDLE_PX * 0.5);
+        });
     }
     if !inspector.open {
         return;
@@ -239,17 +239,13 @@ pub fn update_inspector(
     };
 
     for entity in &titles {
-        if let Ok(mut text) = texts.get_mut(entity)
-            && text.0 != title
-        {
-            text.0 = title.clone();
+        if let Ok(text) = texts.get_mut(entity) {
+            set_text(text, &title);
         }
     }
     for entity in &bodies {
-        if let Ok(mut text) = texts.get_mut(entity)
-            && text.0 != body
-        {
-            text.0 = body.clone();
+        if let Ok(text) = texts.get_mut(entity) {
+            set_text(text, &body);
         }
     }
 }
