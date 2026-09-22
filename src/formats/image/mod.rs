@@ -24,7 +24,7 @@ use crate::formats::image::dataset::{Channel, ChannelSamples, Dataset, TileSourc
 use crate::formats::tiles::{self, SlotState, TileCache, View};
 use crate::render::channels::{ChannelTileMaterial, MixChannel, channel_texture};
 use crate::source::channels::{ChannelSetting, SourceChannels};
-use crate::source::hover::{HoverInfo, HoverProbe};
+use crate::source::hover::{DescribesHover, HoverInfo, HoverProbe, resolve_hover};
 use crate::source::stack::SliceStack;
 use crate::source::{self, ShowsSource, SourceBusy, SourceExtent, SourceStatus};
 
@@ -438,7 +438,10 @@ impl Plugin for ImageSystems {
                 .chain()
                 .in_set(Stage::Sources),
         )
-        .add_systems(Update, resolve_hover.in_set(source::hover::HoverProbing));
+        .add_systems(
+            Update,
+            resolve_hover::<TileStreamer>.in_set(source::hover::HoverProbing),
+        );
     }
 }
 
@@ -525,23 +528,9 @@ pub fn spawn_source(
 /// An image has no cells to name, so what it identifies is the place itself:
 /// the full-resolution pixel under the pointer, and the tile that covers it at
 /// the level this frame is drawing.
-fn resolve_hover(
-    streamers: Query<&TileStreamer>,
-    probes: Query<&HoverProbe>,
-    mut infos: Query<&mut HoverInfo>,
-) {
-    for streamer in &streamers {
-        let Ok(mut info) = infos.get_mut(streamer.source) else {
-            continue;
-        };
-        let next = probes
-            .get(streamer.source)
-            .ok()
-            .and_then(|probe| describe(streamer, probe))
-            .unwrap_or_default();
-        if *info != next {
-            *info = next;
-        }
+impl DescribesHover for TileStreamer {
+    fn describe(&self, probe: &HoverProbe) -> Option<HoverInfo> {
+        describe(self, probe)
     }
 }
 

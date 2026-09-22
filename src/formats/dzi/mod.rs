@@ -16,7 +16,7 @@ use bevy::sprite::Anchor;
 use crate::app::net::fetching;
 use crate::app::schedule::Stage;
 use crate::formats::tiles::{self, SlotState, TileCache, View};
-use crate::source::hover::{HoverInfo, HoverProbe};
+use crate::source::hover::{DescribesHover, HoverInfo, HoverProbe, resolve_hover};
 use crate::source::{self, ShowsSource, SourceBusy, SourceExtent, SourceStatus};
 use pyramid::{DeepZoom, TilePixels};
 
@@ -195,21 +195,9 @@ fn report_status(
 
 /// Name the full-resolution pixel under the pointer, and the tile covering it
 /// at the level that frame is drawing.
-fn resolve_hover(
-    streamers: Query<&DziStreamer>,
-    probes: Query<&HoverProbe>,
-    mut infos: Query<&mut HoverInfo>,
-) {
-    for streamer in &streamers {
-        let Ok(mut info) = infos.get_mut(streamer.source) else {
-            continue;
-        };
-        let next = probes
-            .get(streamer.source)
-            .ok()
-            .and_then(|probe| describe(&streamer.dzi, probe))
-            .unwrap_or_default();
-        info.set_if_neq(next);
+impl DescribesHover for DziStreamer {
+    fn describe(&self, probe: &HoverProbe) -> Option<HoverInfo> {
+        describe(&self.dzi, probe)
     }
 }
 
@@ -249,7 +237,10 @@ impl Plugin for DziSystems {
                 .chain()
                 .in_set(Stage::Sources),
         )
-        .add_systems(Update, resolve_hover.in_set(source::hover::HoverProbing));
+        .add_systems(
+            Update,
+            resolve_hover::<DziStreamer>.in_set(source::hover::HoverProbing),
+        );
     }
 }
 

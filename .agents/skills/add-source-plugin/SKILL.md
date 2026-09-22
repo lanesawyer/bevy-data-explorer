@@ -76,7 +76,10 @@ are defined and ordered in `src/app/schedule.rs`, which is the only place that
 decides what runs before what. `Stage::Sources` already runs after the frames
 have their viewports and after the dock controls have written through, and
 `HoverProbing` already runs after `Stage::Sources`, so a hover resolver needs
-no `.after(...)` of its own.
+no `.after(...)` of its own. A source whose answer depends on nothing but the
+probe implements `DescribesHover` on its streamer and registers
+`resolve_hover::<Streamer>` in that set, as `formats/dzi` does; only one that
+also highlights what it found, like the point clouds, writes its own.
 
 `SourceExtent` is in **display** coordinates, where y is negated so images read
 top-down. If what the source shows changes at runtime, keep the extent updated

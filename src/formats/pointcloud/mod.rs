@@ -462,9 +462,7 @@ pub fn resolve_hover(
         }
 
         let next = found.unwrap_or_default();
-        if *info != next {
-            *info = next;
-        }
+        info.set_if_neq(next);
     }
 }
 

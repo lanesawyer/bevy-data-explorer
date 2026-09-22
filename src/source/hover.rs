@@ -8,7 +8,9 @@
 //! draws whatever came back without knowing what kind of dataset produced it.
 //!
 //! A plugin that cannot answer simply never writes [`HoverInfo`], and no
-//! tooltip appears for its frames.
+//! tooltip appears for its frames. One whose answer depends on nothing but
+//! the probe implements [`DescribesHover`] on a component of the source and
+//! registers [`resolve_hover`] for it.
 
 use bevy::prelude::*;
 
@@ -83,6 +85,34 @@ impl HoverInfo {
             out.push_str(value);
         }
         out
+    }
+}
+
+/// A component of a source entity that can say what is under a probe of it.
+pub trait DescribesHover: Component {
+    fn describe(&self, probe: &HoverProbe) -> Option<HoverInfo>;
+}
+
+/// Answer the pointer for every source carrying `T`, and clear the answer once
+/// the probe has gone.
+///
+/// Written only when it changes: the tooltip is laid out again whenever it is,
+/// and the pointer sits still for most of the frames it is over a source.
+pub fn resolve_hover<T: DescribesHover>(
+    describers: Query<(Entity, &T)>,
+    probes: Query<&HoverProbe>,
+    mut infos: Query<&mut HoverInfo>,
+) {
+    for (source, describer) in &describers {
+        let Ok(mut info) = infos.get_mut(source) else {
+            continue;
+        };
+        let next = probes
+            .get(source)
+            .ok()
+            .and_then(|probe| describer.describe(probe))
+            .unwrap_or_default();
+        info.set_if_neq(next);
     }
 }
 

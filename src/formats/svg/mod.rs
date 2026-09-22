@@ -17,7 +17,7 @@ use bevy::prelude::*;
 
 use crate::app::schedule::Stage;
 use crate::render::lines::{LineMaterial, Stroke, build_line_mesh};
-use crate::source::hover::{HoverInfo, HoverProbe};
+use crate::source::hover::{DescribesHover, HoverInfo, HoverProbe, resolve_hover};
 use crate::source::{self, DataSource, SourceExtent, SourceStatus};
 use parse::Svg;
 
@@ -89,21 +89,9 @@ fn build_outlines(
 
 /// Name the outline under the pointer: the one whose stroke it is on, or else
 /// the innermost region it is inside.
-fn resolve_hover(
-    outlines: Query<(Entity, &SvgOutlines)>,
-    probes: Query<&HoverProbe>,
-    mut infos: Query<&mut HoverInfo>,
-) {
-    for (source, outlines) in &outlines {
-        let Ok(mut info) = infos.get_mut(source) else {
-            continue;
-        };
-        let next = probes
-            .get(source)
-            .ok()
-            .and_then(|probe| describe(&outlines.svg, probe))
-            .unwrap_or_default();
-        info.set_if_neq(next);
+impl DescribesHover for SvgOutlines {
+    fn describe(&self, probe: &HoverProbe) -> Option<HoverInfo> {
+        describe(&self.svg, probe)
     }
 }
 
@@ -142,7 +130,10 @@ pub struct SvgSystems;
 impl Plugin for SvgSystems {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, build_outlines.in_set(Stage::Sources))
-            .add_systems(Update, resolve_hover.in_set(source::hover::HoverProbing));
+            .add_systems(
+                Update,
+                resolve_hover::<SvgOutlines>.in_set(source::hover::HoverProbing),
+            );
     }
 }
 

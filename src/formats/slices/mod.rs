@@ -809,9 +809,7 @@ pub fn resolve_hover(
         let next = hit
             .map(|hit| describe(&hit, streamer, source, properties))
             .unwrap_or_default();
-        if *info != next {
-            *info = next;
-        }
+        info.set_if_neq(next);
     }
 }
 
