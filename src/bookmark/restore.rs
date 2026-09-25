@@ -34,7 +34,7 @@ use crate::render::points::SourcePointSize;
 use crate::render::settings::SourceOpacity;
 use crate::source::channels::SourceChannels;
 use crate::source::genes::{GeneSearch, ReadsGenes};
-use crate::source::properties::{CellColumns, CellProperties, PropertyState};
+use crate::source::properties::{CellColumns, CellProperties, ColorOverrides, PropertyState};
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::table::{ColumnWidths, HiddenColumns, TableFilters, TablePaging, TableSort};
 use crate::source::volume::SourceVolume;
@@ -424,6 +424,14 @@ pub fn apply_pending_settings(
         }
         if let Some(filtered) = state.filtered.take() {
             commands.entity(entity).insert(filtered.restored());
+        }
+        // Kept by column and code rather than in the properties, so they need
+        // not wait for a service to describe the cells.
+        let colors = std::mem::take(&mut state.colors);
+        if !colors.is_empty() {
+            commands
+                .entity(entity)
+                .insert(ColorOverrides::restored(&colors));
         }
         if let Some(opacity) = state.opacity.take() {
             commands

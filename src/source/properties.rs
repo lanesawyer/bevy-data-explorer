@@ -11,7 +11,7 @@
 //! points down to a chosen set of its values. Categorical values are colored
 //! one color each; numeric ones along a [`Gradient`].
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -435,6 +435,7 @@ pub struct CellColumn {
 
 /// The properties a source offers, and what is currently being done with them.
 #[derive(Component, Debug, Clone, Default)]
+#[require(ColorOverrides)]
 pub struct CellProperties {
     pub properties: Vec<CellProperty>,
     /// Index into `properties` of the one points are colored by.
@@ -608,6 +609,27 @@ impl CellProperties {
             None => property.name.clone(),
         };
         (name, label.unwrap_or_else(|| format!("code {code}")))
+    }
+
+    /// The value holding `code` in the column called `column`, and what that
+    /// column is called: its property's name, or on a tree, its level's.
+    pub fn value_in(&self, column: &str, code: u16) -> Option<(&str, &PropertyValue)> {
+        self.properties.iter().find_map(|property| {
+            let (name, mut values): (&str, Box<dyn Iterator<Item = &PropertyValue>>) =
+                match &property.kind {
+                    PropertyKind::Categorical(values) if property.id == column => {
+                        (&property.name, Box::new(values.iter()))
+                    }
+                    PropertyKind::Tree(tree) => {
+                        let level = tree.levels.iter().position(|level| level.id == column)?;
+                        (&tree.levels[level].name, Box::new(tree.level_values(level)))
+                    }
+                    _ => return None,
+                };
+            values
+                .find(|value| value.code == code)
+                .map(|value| (name, value))
+        })
     }
 
     pub fn clear_all(&mut self) {
@@ -800,6 +822,99 @@ impl Ramp {
     }
 }
 
+/// Colors picked for values in place of the ones they are otherwise drawn in,
+/// by column id and then code.
+///
+/// Kept by column and code rather than on each [`PropertyValue`] so that it
+/// is on the source rather than in [`CellProperties`], which a service
+/// replaces wholesale when it describes the cells; and required by it, so
+/// every source with cells has one to read.
+///
+/// Held as whatever the picker wrote, which is HSL, so a gray keeps the hue it
+/// was dragged to.
+#[derive(Component, Debug, Clone, Default, PartialEq)]
+pub struct ColorOverrides(BTreeMap<String, BTreeMap<u16, Color>>);
+
+impl ColorOverrides {
+    pub fn get(&self, column: &str, code: u16) -> Option<Color> {
+        self.0.get(column)?.get(&code).copied()
+    }
+
+    pub fn set(&mut self, column: &str, code: u16, color: Color) {
+        self.0
+            .entry(column.to_string())
+            .or_default()
+            .insert(code, color);
+    }
+
+    pub fn remove(&mut self, column: &str, code: u16) {
+        if let Some(codes) = self.0.get_mut(column) {
+            codes.remove(&code);
+            if codes.is_empty() {
+                self.0.remove(column);
+            }
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Every override, by column and then code.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, u16, Color)> {
+        self.0.iter().flat_map(|(column, codes)| {
+            codes
+                .iter()
+                .map(move |(code, color)| (column.as_str(), *code, *color))
+        })
+    }
+
+    /// The color points holding `value` in `column` are drawn in.
+    pub fn swatch(&self, column: &str, value: &PropertyValue) -> Color {
+        self.get(column, value.code)
+            .unwrap_or_else(|| value.swatch())
+    }
+
+    pub fn saved(&self) -> Vec<SavedColor> {
+        self.iter()
+            .map(|(column, code, color)| {
+                let color = color.to_srgba();
+                SavedColor {
+                    column: column.to_string(),
+                    code,
+                    color: [color.red, color.green, color.blue],
+                }
+            })
+            .collect()
+    }
+
+    /// Clamped, since a file edited by hand can say anything.
+    pub fn restored(saved: &[SavedColor]) -> Self {
+        let mut overrides = ColorOverrides::default();
+        for saved in saved {
+            let [r, g, b] = saved.color.map(|channel| channel.clamp(0.0, 1.0));
+            overrides.set(
+                &saved.column,
+                saved.code,
+                Color::Hsla(Srgba::rgb(r, g, b).into()),
+            );
+        }
+        overrides
+    }
+}
+
+/// One [`ColorOverrides`] entry as bookmarks write it, its color in sRGB.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct SavedColor {
+    pub column: String,
+    pub code: u16,
+    pub color: [f32; 3],
+}
+
 /// The light gray filtered-out points are drawn in unless the user picks
 /// another.
 pub const FILTERED_GRAY: Color = Color::srgb(0.88, 0.88, 0.88);
@@ -907,6 +1022,33 @@ impl CellSelection {
     pub fn with_filtered(mut self, filtered: Option<&FilteredPoints>) -> Self {
         self.draw_filtered =
             filtered.is_some_and(|filtered| filtered.shown) && !self.filters.is_empty();
+        self
+    }
+
+    /// Paint the codes of `column` the user picked colors for in those.
+    ///
+    /// `column` is the one the points are colored by; overrides for any other
+    /// are for when the coloring moves there.
+    pub fn with_overrides(
+        mut self,
+        column: Option<&str>,
+        overrides: Option<&ColorOverrides>,
+    ) -> Self {
+        let Some(codes) = column
+            .zip(overrides)
+            .and_then(|(column, overrides)| overrides.0.get(column))
+        else {
+            return self;
+        };
+        for (&code, &color) in codes {
+            let at = usize::from(code);
+            if self.palette.len() <= at {
+                let from = self.palette.len();
+                self.palette
+                    .extend((from..=at).map(|code| linear(default_color(code as u16))));
+            }
+            self.palette[at] = linear(color);
+        }
         self
     }
 
@@ -1449,5 +1591,57 @@ mod tests {
         properties.clear_all();
         assert_eq!(properties.applied(), 0);
         assert!(properties.selection().filters.is_empty());
+    }
+
+    #[test]
+    fn an_override_paints_its_code_and_leaves_the_rest_alone() {
+        let properties = CellProperties::ready(vec![categorical("class", &[0, 1, 2])]);
+        let mut overrides = ColorOverrides::default();
+        overrides.set("class", 2, Color::srgb(1.0, 0.0, 0.0));
+        let selection = properties
+            .selection()
+            .with_overrides(properties.mix_column(), Some(&overrides));
+        assert_eq!(selection.color(2), [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(selection.color(0), linear(default_color(0)));
+        assert_eq!(selection.color(1), linear(default_color(1)));
+    }
+
+    #[test]
+    fn an_override_on_another_column_waits_for_the_coloring() {
+        let properties = CellProperties::ready(vec![
+            categorical("class", &[0, 1]),
+            categorical("region", &[0, 1]),
+        ]);
+        let mut overrides = ColorOverrides::default();
+        overrides.set("region", 0, Color::srgb(1.0, 0.0, 0.0));
+        let selection = properties
+            .selection()
+            .with_overrides(properties.mix_column(), Some(&overrides));
+        assert_eq!(selection, properties.selection());
+    }
+
+    #[test]
+    fn removing_the_last_override_leaves_none() {
+        let mut overrides = ColorOverrides::default();
+        overrides.set("class", 1, Color::WHITE);
+        overrides.remove("class", 1);
+        assert!(overrides.is_empty());
+    }
+
+    #[test]
+    fn overrides_survive_being_saved() {
+        let mut overrides = ColorOverrides::default();
+        overrides.set("class", 3, Color::srgb(0.2, 0.4, 0.6));
+        let restored = ColorOverrides::restored(&overrides.saved());
+        let color = restored.get("class", 3).unwrap().to_srgba();
+        assert!((color.red - 0.2).abs() < 1e-4 && (color.blue - 0.6).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_value_is_found_by_column_and_named_by_its_property() {
+        let properties = CellProperties::ready(vec![categorical("class", &[0, 4])]);
+        let (name, value) = properties.value_in("class", 4).unwrap();
+        assert_eq!((name, value.label.as_str()), ("class", "value 4"));
+        assert!(properties.value_in("class", 9).is_none());
     }
 }

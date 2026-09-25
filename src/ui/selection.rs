@@ -40,7 +40,7 @@ use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
 use crate::catalog::{CellRecord, RegionFocus, RegionSummary, SummaryState};
-use crate::source::properties::{CellProperties, PropertyKind, PropertyValue};
+use crate::source::properties::{CellProperties, ColorOverrides, PropertyKind, PropertyValue};
 use crate::source::region::SelectedRegion;
 use crate::source::{ShowsSource, compact_count};
 use crate::ui::cell_panel::spawn_more_note;
@@ -423,7 +423,12 @@ pub fn rebuild_selection_dock(
     mut commands: Commands,
     dock: Res<SelectionDock>,
     selected: SelectedSource,
-    sources: Query<(&CellProperties, &RegionSummary, Option<&RegionFocus>)>,
+    sources: Query<(
+        &CellProperties,
+        &ColorOverrides,
+        &RegionSummary,
+        Option<&RegionFocus>,
+    )>,
     mut body: Query<(Entity, &mut Node), (With<SelectionBody>, Without<SelectionDetail>)>,
     mut detail: Query<(Entity, &mut Node), (With<SelectionDetail>, Without<SelectionBody>)>,
     existing: Query<Entity, With<SelectionContent>>,
@@ -439,7 +444,8 @@ pub fn rebuild_selection_dock(
         .entity()
         .and_then(|source| sources.get(source).ok().map(|found| (source, found)));
 
-    let Some((entity, (properties, summary, focus))) = source.filter(|_| dock.open) else {
+    let Some((entity, (properties, overrides, summary, focus))) = source.filter(|_| dock.open)
+    else {
         if shown.is_some() {
             *shown = None;
             for entity in &existing {
@@ -462,6 +468,7 @@ pub fn rebuild_selection_dock(
         focus: focus.cloned(),
         focus_state: summary.focus_state.clone(),
         detail: summary.cells.len(),
+        colors: overrides.clone(),
     };
     if shown.as_ref() == Some(&fingerprint) {
         return;
@@ -510,7 +517,7 @@ pub fn rebuild_selection_dock(
             || format!("code {code}"),
             |value| value.label.clone(),
         );
-        let swatch = value.map_or(Color::NONE, |value| value.swatch());
+        let swatch = value.map_or(Color::NONE, |value| overrides.swatch(&column, value));
         let picked = focus.is_some_and(|focus| focus.column == column && focus.label == label);
         rows.push(spawn_category_row(
             &mut commands,
@@ -550,6 +557,8 @@ pub struct Built {
     focus: Option<RegionFocus>,
     focus_state: SummaryState,
     detail: usize,
+    /// The colors picked for values, which the rows' squares are drawn in.
+    colors: ColorOverrides,
 }
 
 /// The cells themselves: every cell of the drilled-into category that the

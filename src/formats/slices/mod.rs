@@ -30,7 +30,9 @@ use crate::formats::scatterbrain::{Rect, Scatterbrain};
 use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::ViewLimits;
 use crate::source::hover::{HoverInfo, HoverProbe};
-use crate::source::properties::{CellProperties, CellSelection, FilteredPoints, Shade};
+use crate::source::properties::{
+    CellProperties, CellSelection, ColorOverrides, FilteredPoints, Shade,
+};
 use crate::source::region::{RegionProbe, SelectedRegion, region_of};
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::{self, DataSource, ShowsSource, SourceBusy, SourceExtent, SourceStatus};
@@ -625,8 +627,8 @@ pub fn evict_slice_nodes(mut commands: Commands, mut streamers: Query<&mut Slice
     }
 }
 
-/// Rebuild when this source's coloring or filters change, or how it draws
-/// what the filters leave out.
+/// Rebuild when this source's coloring or filters change, the colors picked
+/// for its values, or how it draws what the filters leave out.
 ///
 /// Coloring and filtering both decide what the vertices are, and the raw
 /// columns are not kept after a node is built, so a change means loading those
@@ -638,12 +640,24 @@ pub fn evict_slice_nodes(mut commands: Commands, mut streamers: Query<&mut Slice
 fn apply_selection(
     mut commands: Commands,
     mut streamers: Query<
-        (&CellProperties, Option<&FilteredPoints>, &mut SliceStreamer),
-        Or<(Changed<CellProperties>, Changed<FilteredPoints>)>,
+        (
+            &CellProperties,
+            Option<&FilteredPoints>,
+            Option<&ColorOverrides>,
+            &mut SliceStreamer,
+        ),
+        Or<(
+            Changed<CellProperties>,
+            Changed<FilteredPoints>,
+            Changed<ColorOverrides>,
+        )>,
     >,
 ) {
-    for (properties, filtered, mut streamer) in &mut streamers {
-        let selection = properties.selection().with_filtered(filtered);
+    for (properties, filtered, overrides, mut streamer) in &mut streamers {
+        let selection = properties
+            .selection()
+            .with_filtered(filtered)
+            .with_overrides(properties.mix_column(), overrides);
         if streamer.selection != selection {
             streamer.selection = selection;
             streamer.nodes.retire(&mut commands);

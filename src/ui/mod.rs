@@ -11,6 +11,7 @@ pub mod add_source;
 pub mod bookmarks;
 pub mod cell_panel;
 pub mod channels;
+pub mod color_overrides;
 pub mod filtered;
 pub mod genes;
 pub mod help;
@@ -42,6 +43,7 @@ impl Plugin for UiPlugin {
             add_source::AddSourcePlugin,
             bookmarks::BookmarksPlugin,
             cell_panel::CellPanelPlugin,
+            color_overrides::ColorOverridesPlugin,
             selection::SelectionPanelPlugin,
             genes::GenePanelPlugin,
         ))

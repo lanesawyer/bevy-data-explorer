@@ -79,28 +79,7 @@ pub fn spawn_icon_menu(
     icon: Icon,
     caret: bool,
 ) -> (Entity, Entity) {
-    let menu = commands
-        .spawn_scene(bsn! {
-            Menu
-            // A menu long enough to run off the screen scrolls instead.
-            ScrollArea
-            Node {
-                position_type: { PositionType::Absolute },
-                display: { Display::None },
-                width: { Val::Px(MENU_WIDTH) },
-                flex_direction: { FlexDirection::Column },
-                row_gap: { Val::Px(space::ROWS) },
-                padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
-                border_radius: { BorderRadius::all(Val::Px(6.0)) },
-                overflow: { Overflow::scroll_y() },
-            }
-            ThemeBackgroundColor({ tokens::MENU_BG })
-            InheritableFont { font_size: { 13.0f32 } }
-            GlobalZIndex({ MENU_Z })
-            BlocksFrameInput
-        })
-        .id();
-
+    let menu = spawn_popup(commands);
     let button = if caret {
         commands
             .spawn_scene(bsn! {
@@ -133,6 +112,33 @@ pub fn spawn_icon_menu(
     commands.entity(parent).add_child(button);
     commands.entity(menu).insert(MenuAnchor { button });
     (button, menu)
+}
+
+/// A closed popup of its own, for a caller that anchors it with a
+/// [`MenuAnchor`] and opens it itself — one popup that moves between several
+/// buttons, rather than a button apiece.
+pub fn spawn_popup(commands: &mut Commands) -> Entity {
+    commands
+        .spawn_scene(bsn! {
+            Menu
+            // A menu long enough to run off the screen scrolls instead.
+            ScrollArea
+            Node {
+                position_type: { PositionType::Absolute },
+                display: { Display::None },
+                width: { Val::Px(MENU_WIDTH) },
+                flex_direction: { FlexDirection::Column },
+                row_gap: { Val::Px(space::ROWS) },
+                padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
+                border_radius: { BorderRadius::all(Val::Px(6.0)) },
+                overflow: { Overflow::scroll_y() },
+            }
+            ThemeBackgroundColor({ tokens::MENU_BG })
+            InheritableFont { font_size: { 13.0f32 } }
+            GlobalZIndex({ MENU_Z })
+            BlocksFrameInput
+        })
+        .id()
 }
 
 /// Open and close menus, and dismiss them when something else is clicked.

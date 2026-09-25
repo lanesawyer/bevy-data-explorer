@@ -82,6 +82,11 @@ mod tests {
                     shown: false,
                     color: [0.25, 0.25, 0.25],
                 }),
+                colors: vec![crate::source::properties::SavedColor {
+                    column: "class".into(),
+                    code: 3,
+                    color: [1.0, 0.5, 0.0],
+                }],
                 ..Default::default()
             }],
             frames: vec![FrameState {

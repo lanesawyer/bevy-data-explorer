@@ -10,7 +10,9 @@ use crate::catalog::RegionFocus;
 use crate::render::points::SourcePointSize;
 use crate::render::settings::SourceOpacity;
 use crate::source::channels::SourceChannels;
-use crate::source::properties::{CellProperties, FilteredPoints, PropertyState, Provenance};
+use crate::source::properties::{
+    CellProperties, ColorOverrides, FilteredPoints, PropertyState, Provenance,
+};
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::table::{ColumnWidths, HiddenColumns, TableFilters, TablePaging, TableSort};
 use crate::source::{ShowsSource, SourceUrl};
@@ -191,6 +193,10 @@ fn source_state(source: EntityRef, url: String) -> SourceState {
         opacity: source.get::<SourceOpacity>().map(|opacity| opacity.0),
         point_size: source.get::<SourcePointSize>().map(|size| size.0),
         filtered: source.get::<FilteredPoints>().map(FilteredPoints::saved),
+        colors: source
+            .get::<ColorOverrides>()
+            .map(ColorOverrides::saved)
+            .unwrap_or_default(),
         channels: source
             .get::<SourceChannels>()
             .map(channels_of)

@@ -45,10 +45,11 @@ pub mod visibility;
 use crate::app::schedule::{Boot, Stage};
 use crate::catalog::cells::{self, Described};
 use crate::source::properties::{
-    CellColumns, CellProperties, CellProperty, PropertyKind, PropertyState, PropertyValue,
-    Provenance,
+    CellColumns, CellProperties, CellProperty, ColorOverrides, PropertyKind, PropertyState,
+    PropertyValue, Provenance,
 };
 use crate::source::{DataSource, compact_count};
+use crate::ui::color_overrides::PickColor;
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedSource;
 use crate::widgets::space;
@@ -117,7 +118,7 @@ pub struct ValueColumn {
 }
 
 /// The color square beside one value, shown only while its points are
-/// actually drawn in that color.
+/// actually drawn in that color. Pressing it picks another.
 #[derive(Component, Clone, Default)]
 pub struct ValueSwatch;
 
@@ -146,6 +147,10 @@ const MIN_SEGMENT: f32 = 0.005;
 /// dozen slices in, narrow enough to leave a sidebar's labels their room.
 const BAR_PX: f32 = 6.0;
 const BAR_WIDTH_PX: f32 = 56.0;
+
+/// The side of a value's color square: big enough to aim at, since pressing
+/// it picks a color.
+pub const SWATCH_PX: f32 = 12.0;
 
 /// The slot a count is written right-aligned into, so a row with a long one
 /// does not push its bar out of line with the rest.
@@ -339,9 +344,10 @@ pub fn rebuild_cell_panel(
     commands.entity(body).add_children(&sections);
 }
 
-/// One value's row: its checkbox, captioned with the color its points are
-/// drawn in and its label, then hard against the right edge the bar dividing
-/// its cells between the colors on screen and the count of them.
+/// One value's row: the color its points are drawn in, which picks another
+/// when pressed, and its checkbox captioned with its label; then hard against
+/// the right edge the bar dividing its cells between the colors on screen and
+/// the count of them.
 ///
 /// `checkbox` and `count` mark the two for whatever keeps them in sync;
 /// `column` says which column and code the row stands for, which is what the
@@ -358,31 +364,34 @@ pub fn spawn_value_row(
     column: ValueColumn,
 ) -> Entity {
     let caption = value.label.clone();
-    let color = value.swatch();
     let counted = value.count.map(compact_count).unwrap_or_default();
+    // Beside the checkbox rather than in its caption, so pressing it picks a
+    // color instead of ticking the value. Painted by `paint_swatches`, which
+    // knows whether the user has picked one.
+    let swatch = commands
+        .spawn_scene(bsn! {
+            Node {
+                width: { Val::Px(SWATCH_PX) },
+                height: { Val::Px(SWATCH_PX) },
+                flex_shrink: { 0.0_f32 },
+                border_radius: { BorderRadius::all(Val::Px(2.0)) },
+                display: { Display::None },
+            }
+            ValueSwatch
+            ValueColumn {
+                column: { column.column.clone() },
+                code: { column.code },
+            }
+            PickColor {
+                column: { column.column.clone() },
+                code: { column.code },
+            }
+        })
+        .id();
     let boxed = commands
         .spawn_scene(bsn! {
             @FeathersCheckbox {
-                @caption: { bsn_list![
-                    (
-                        Node {
-                            width: { Val::Px(10.0) },
-                            height: { Val::Px(10.0) },
-                            flex_shrink: { 0.0_f32 },
-                            border_radius: { BorderRadius::all(Val::Px(2.0)) },
-                            display: { Display::None },
-                        }
-                        // The value's own color, not a theme's: it is what
-                        // its points are painted in.
-                        BackgroundColor({ color })
-                        ValueSwatch
-                        ValueColumn {
-                            column: { column.column.clone() },
-                            code: { column.code },
-                        }
-                    ),
-                    button_text(caption),
-                ] }
+                @caption: { bsn_list![button_text(caption)] }
             }
             Node { flex_shrink: { 1.0_f32 }, min_width: { Val::ZERO } }
             BlocksFrameInput
@@ -428,6 +437,16 @@ pub fn spawn_value_row(
         })
         .add_children(&[bar, counted])
         .id();
+    let lead = commands
+        .spawn(Node {
+            flex_shrink: 1.0,
+            min_width: Val::ZERO,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(space::CONTROLS),
+            ..default()
+        })
+        .add_children(&[swatch, boxed])
+        .id();
     commands
         .spawn(Node {
             width: Val::Percent(100.0),
@@ -436,7 +455,7 @@ pub fn spawn_value_row(
             column_gap: Val::Px(space::CONTROLS),
             ..default()
         })
-        .add_children(&[boxed, tail])
+        .add_children(&[lead, tail])
         .id()
 }
 
@@ -779,10 +798,10 @@ pub fn update_mix_bars(
     mut commands: Commands,
     palette: Res<crate::app::theme::Palette>,
     selected: SelectedSource,
-    sources: Query<&CellProperties>,
+    sources: Query<(&CellProperties, &ColorOverrides)>,
     mut bars: Query<(Entity, &ValueColumn, &mut MixBar, &mut Node)>,
 ) {
-    let Some(properties) = selected.get(&sources) else {
+    let Some((properties, overrides)) = selected.get(&sources) else {
         return;
     };
 
@@ -793,17 +812,17 @@ pub fn update_mix_bars(
         .color_by
         .and_then(|index| properties.properties.get(index))
         .and_then(CellProperty::color_column)
-        .map(|(_, values)| {
+        .map(|(column, values)| {
             values
                 .iter()
-                .map(|value| (value.code, value.swatch()))
+                .map(|value| (value.code, overrides.swatch(column, value)))
                 .collect()
         })
         .unwrap_or_default();
 
     for (entity, column, mut bar, node) in &mut bars {
         let mix = properties.mixes.of(against, &column.column, column.code);
-        let drawn = Some(signature(against, mix));
+        let drawn = Some(signature(against, mix, &colors));
         if bar.drawn == drawn {
             continue;
         }
@@ -838,11 +857,18 @@ pub fn update_mix_bars(
 }
 
 /// What a bar was drawn from, so an answer that says the same thing as the
-/// last one does not respawn its slices.
-fn signature(against: Option<&str>, mix: &[(u16, u64)]) -> u64 {
+/// last one does not respawn its slices, and a color picked for one of its
+/// codes does.
+fn signature(against: Option<&str>, mix: &[(u16, u64)], colors: &HashMap<u16, Color>) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     against.hash(&mut hasher);
     mix.hash(&mut hasher);
+    for (code, _) in mix {
+        colors
+            .get(code)
+            .map(|color| color.to_srgba().to_u8_array())
+            .hash(&mut hasher);
+    }
     hasher.finish()
 }
 

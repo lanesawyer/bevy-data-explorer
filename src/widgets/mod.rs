@@ -35,7 +35,9 @@ pub use field_well::field_well;
 pub use frame_input::BlocksFrameInput;
 pub use icons::{Icon, button_icon, icon_text};
 pub use link::link_button;
-pub use menu::{MENU_WIDTH, Menu, MenuButton, spawn_icon_menu, spawn_menu};
+pub use menu::{
+    MENU_WIDTH, Menu, MenuAnchor, MenuButton, spawn_icon_menu, spawn_menu, spawn_popup,
+};
 pub use modal::{AddModal, Modal, ModalScreen, set_modal_open, spawn_modal};
 pub use patch::{display, patch_node, set_display, set_text};
 pub use scroll::{ScrollBoth, scroll_list};

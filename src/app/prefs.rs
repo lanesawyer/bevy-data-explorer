@@ -15,6 +15,9 @@ use serde::{Deserialize, Serialize};
 use crate::app::schedule::Stage;
 use crate::source::properties::{FilteredPoints, SavedFiltered};
 
+/// How many picked colors are kept to pick again: one row of the picker.
+pub const RECENT_COLORS: usize = 12;
+
 /// How long the preferences must sit still before they are written.
 const SAVE_AFTER_SECS: f32 = 0.5;
 
@@ -77,6 +80,8 @@ pub struct Preferences {
     pub sources_off: BTreeSet<String>,
     /// Whether the accent is the desktop's rather than Feathers' blue.
     pub system_accent: bool,
+    /// The colors last picked for values, newest first, in sRGB.
+    pub recent_colors: Vec<[f32; 3]>,
 }
 
 /// A sign-in to the BKP Registry: what renews its token, and whose it is.
@@ -98,6 +103,7 @@ impl Default for Preferences {
             registry_login: None,
             sources_off: BTreeSet::new(),
             system_accent: true,
+            recent_colors: Vec::new(),
         }
     }
 }
@@ -106,6 +112,31 @@ impl Preferences {
     pub fn filtered_points(&self) -> FilteredPoints {
         self.filtered_points
             .map_or_else(FilteredPoints::default, |saved| saved.restored())
+    }
+
+    /// Put `color` first among the recent colors, dropping it from further
+    /// down and the oldest past [`RECENT_COLORS`].
+    pub fn remember_color(&mut self, color: Color) {
+        let srgba = color.to_srgba();
+        let saved = [srgba.red, srgba.green, srgba.blue];
+        let same = |other: &[f32; 3]| {
+            other
+                .iter()
+                .zip(saved)
+                .all(|(a, b)| (a - b).abs() < 0.5 / 255.0)
+        };
+        self.recent_colors.retain(|other| !same(other));
+        self.recent_colors.insert(0, saved);
+        self.recent_colors.truncate(RECENT_COLORS);
+    }
+
+    /// The recent colors, clamped, since a file edited by hand can say
+    /// anything.
+    pub fn recent_colors(&self) -> impl Iterator<Item = Color> + '_ {
+        self.recent_colors.iter().map(|color| {
+            let [r, g, b] = color.map(|channel| channel.clamp(0.0, 1.0));
+            Color::srgb(r, g, b)
+        })
     }
 
     pub fn load(path: &Path) -> Self {
@@ -177,6 +208,25 @@ impl Plugin for PreferencesPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_color_picked_again_moves_to_the_front_rather_than_repeating() {
+        let mut prefs = Preferences::default();
+        prefs.remember_color(Color::srgb(1.0, 0.0, 0.0));
+        prefs.remember_color(Color::srgb(0.0, 1.0, 0.0));
+        prefs.remember_color(Color::srgb(1.0, 0.0, 0.0));
+        assert_eq!(prefs.recent_colors, vec![[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+    }
+
+    #[test]
+    fn only_the_newest_colors_are_kept() {
+        let mut prefs = Preferences::default();
+        for step in 0..RECENT_COLORS + 3 {
+            prefs.remember_color(Color::srgb(step as f32 / 20.0, 0.0, 0.0));
+        }
+        assert_eq!(prefs.recent_colors.len(), RECENT_COLORS);
+        assert!((prefs.recent_colors[0][0] - (RECENT_COLORS + 2) as f32 / 20.0).abs() < 1e-5);
+    }
 
     #[test]
     fn preferences_survive_a_round_trip_and_a_missing_file() {
