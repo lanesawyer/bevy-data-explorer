@@ -6,7 +6,7 @@
 //! ids, render layers and indices into a list the dataset may reorder mean
 //! nothing in another process, so none of them is saved.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +16,7 @@ use crate::source::genes::Gene;
 use crate::source::properties::{CellProperties, PropertyKind, SavedFiltered};
 use crate::source::stack::SliceStack;
 use crate::source::table::{
-    HiddenColumns, SortKey, TableFilterKind, TableFilters, TablePaging, TableSort,
+    ColumnWidths, HiddenColumns, SortKey, TableFilterKind, TableFilters, TablePaging, TableSort,
 };
 
 /// The format a bookmark is written in. Raised whenever a field changes
@@ -83,6 +83,9 @@ pub struct TableState {
     /// The columns the frame leaves out, by heading.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hidden: Vec<String>,
+    /// The columns dragged to a width of their own, by heading.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub widths: BTreeMap<String, f32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -425,8 +428,8 @@ pub fn apply_cells(properties: &mut CellProperties, saved: &CellsState) -> Vec<S
     missing
 }
 
-/// A table's page, filters, sort and hidden columns, or nothing if it is on
-/// its first page with none of the rest.
+/// A table's page, filters, sort, hidden columns and widths, or nothing if it
+/// is on its first page with none of the rest.
 ///
 /// Filters still on their way have nothing chosen against them, so a table
 /// saved then is saved without them.
@@ -435,6 +438,7 @@ pub fn table_of(
     filters: Option<&TableFilters>,
     sort: Option<&TableSort>,
     hidden: Option<&HiddenColumns>,
+    widths: Option<&ColumnWidths>,
 ) -> Option<TableState> {
     let filters: Vec<ColumnFilter> = filters
         .map(|filters| {
@@ -467,11 +471,13 @@ pub fn table_of(
     let hidden: Vec<String> = hidden
         .map(|hidden| hidden.0.iter().cloned().collect())
         .unwrap_or_default();
+    let widths = widths.map(|widths| widths.0.clone()).unwrap_or_default();
     let state = TableState {
         page: paging.page,
         filters,
         sort,
         hidden,
+        widths,
     };
     (state != TableState::default()).then_some(state)
 }
@@ -775,7 +781,7 @@ mod tests {
             size: 100,
             total: Some(1000),
         };
-        let saved = table_of(&paging, Some(&edited), None, None).unwrap();
+        let saved = table_of(&paging, Some(&edited), None, None, None).unwrap();
         assert_eq!(saved.page, 3);
 
         let mut restored = table_filters();
@@ -785,12 +791,27 @@ mod tests {
     }
 
     #[test]
+    fn a_tables_column_widths_are_saved_on_their_own() {
+        let paging = TablePaging::new(100, Some(1000));
+        let widths = ColumnWidths([("Donor ID".to_string(), 180.0)].into());
+        let saved = table_of(&paging, None, None, None, Some(&widths)).unwrap();
+        assert_eq!(saved.widths, widths.0);
+
+        let text = serde_json::to_string(&saved).unwrap();
+        assert_eq!(serde_json::from_str::<TableState>(&text).unwrap(), saved);
+        assert_eq!(
+            table_of(&paging, None, None, None, Some(&ColumnWidths::default())),
+            None
+        );
+    }
+
+    #[test]
     fn a_tables_sort_and_hidden_columns_are_saved_on_their_own() {
         let paging = TablePaging::new(100, Some(1000));
         let mut sort = TableSort::default();
         sort.press("Age", false);
         let hidden = HiddenColumns(["Donor ID".to_string()].into());
-        let saved = table_of(&paging, None, Some(&sort), Some(&hidden)).unwrap();
+        let saved = table_of(&paging, None, Some(&sort), Some(&hidden), None).unwrap();
         assert_eq!(saved.sort, sort.0);
         assert_eq!(saved.hidden, ["Donor ID"]);
 
@@ -801,8 +822,11 @@ mod tests {
     #[test]
     fn a_table_on_its_first_page_narrowed_by_nothing_saves_nothing() {
         let paging = TablePaging::new(100, Some(1000));
-        assert_eq!(table_of(&paging, Some(&table_filters()), None, None), None);
-        assert_eq!(table_of(&paging, None, None, None), None);
+        assert_eq!(
+            table_of(&paging, Some(&table_filters()), None, None, None),
+            None
+        );
+        assert_eq!(table_of(&paging, None, None, None, None), None);
     }
 
     #[test]

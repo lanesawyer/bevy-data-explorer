@@ -36,7 +36,7 @@ use crate::source::channels::SourceChannels;
 use crate::source::genes::{GeneSearch, ReadsGenes};
 use crate::source::properties::{CellColumns, CellProperties, PropertyState};
 use crate::source::stack::{SliceGrid, SliceStack};
-use crate::source::table::{HiddenColumns, TableFilters, TablePaging, TableSort};
+use crate::source::table::{ColumnWidths, HiddenColumns, TableFilters, TablePaging, TableSort};
 use crate::source::volume::SourceVolume;
 use crate::source::{DataSource, SourceExtent, SourceUrl};
 use crate::view::grid::{MAX_LAYERS, MAX_PANELS};
@@ -108,6 +108,7 @@ pub struct TableAccess {
     filters: Option<&'static mut TableFilters>,
     sort: Option<&'static mut TableSort>,
     hidden: Option<&'static mut HiddenColumns>,
+    widths: Option<&'static mut ColumnWidths>,
 }
 
 /// What a restore needs of a source to put its genes back.
@@ -552,6 +553,9 @@ fn restore_table(
     if let Some(hidden) = table.hidden.as_mut() {
         hidden.set_if_neq(HiddenColumns(saved.hidden.iter().cloned().collect()));
     }
+    if let Some(widths) = table.widths.as_mut() {
+        widths.set_if_neq(ColumnWidths(saved.widths.clone()));
+    }
     // The total is the unfiltered table's until the narrowed one is counted,
     // so a page past its end is left for the format to bring back.
     let page = match paging.total {
@@ -860,6 +864,7 @@ mod tests {
             TableFilters::pending(),
             TableSort::default(),
             HiddenColumns::default(),
+            ColumnWidths::default(),
             PendingSettings {
                 state: SourceState {
                     table: Some(TableState {
@@ -875,6 +880,7 @@ mod tests {
                             descending: true,
                         }],
                         hidden: vec!["Donor ID".into()],
+                        widths: [("Donor ID".to_string(), 180.0)].into(),
                     }),
                     ..default()
                 },
@@ -919,6 +925,10 @@ mod tests {
                 .unwrap()
                 .0
                 .contains("Donor ID")
+        );
+        assert_eq!(
+            world.get::<ColumnWidths>(source).unwrap().0.get("Donor ID"),
+            Some(&180.0)
         );
     }
 

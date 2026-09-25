@@ -15,7 +15,9 @@ use std::cmp::Ordering;
 use bevy::prelude::*;
 
 use crate::app::schedule::Stage;
-use crate::source::table::{HiddenColumns, SourceTable, TableColumn, TablePaging, TableSort};
+use crate::source::table::{
+    ColumnWidths, HiddenColumns, SourceTable, TableColumn, TablePaging, TableSort,
+};
 use crate::source::{self, SourceExtent, SourceStatus};
 
 /// Rows kept, past which a table is read as far as this and says so.
@@ -295,6 +297,7 @@ pub fn spawn_source(world: &mut World, table: Table) -> Entity {
         paging,
         TableSort::default(),
         HiddenColumns::default(),
+        ColumnWidths::default(),
     ));
     if !paged {
         // Everything is already in hand, so the whole table is put aside and

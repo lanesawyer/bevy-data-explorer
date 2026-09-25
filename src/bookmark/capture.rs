@@ -12,7 +12,7 @@ use crate::render::settings::SourceOpacity;
 use crate::source::channels::SourceChannels;
 use crate::source::properties::{CellProperties, FilteredPoints, PropertyState, Provenance};
 use crate::source::stack::{SliceGrid, SliceStack};
-use crate::source::table::{HiddenColumns, TableFilters, TablePaging, TableSort};
+use crate::source::table::{ColumnWidths, HiddenColumns, TableFilters, TablePaging, TableSort};
 use crate::source::{ShowsSource, SourceUrl};
 use crate::view::FrameRegion;
 use crate::view::{FrameArea, FrameLayers, LayerOpacity, Orbit, SelectedPanel};
@@ -211,6 +211,7 @@ fn source_state(source: EntityRef, url: String) -> SourceState {
                 source.get::<TableFilters>(),
                 source.get::<TableSort>(),
                 source.get::<HiddenColumns>(),
+                source.get::<ColumnWidths>(),
             )
         }),
     }

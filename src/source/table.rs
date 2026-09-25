@@ -12,7 +12,7 @@
 //! [`hover`]: super::hover
 //! [`region`]: super::region
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -203,6 +203,13 @@ impl TableSort {
 /// on one still applies. Only the frame leaves them out.
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
 pub struct HiddenColumns(pub BTreeSet<String>);
+
+/// Columns dragged to a width of their own, in logical pixels, by heading.
+///
+/// The frame's alone, like [`HiddenColumns`]: a column not named here is as
+/// wide as its widest value.
+#[derive(Component, Clone, Debug, Default, PartialEq)]
+pub struct ColumnWidths(pub BTreeMap<String, f32>);
 
 /// One value a column holds, and whether it has been ticked.
 #[derive(Debug, Clone, PartialEq, Eq)]

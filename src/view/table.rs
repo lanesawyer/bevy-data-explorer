@@ -16,27 +16,37 @@
 //! That leaves the scrollbar measuring the whole table while only a screenful
 //! is ever built — the same trade the tile and point streamers make, decided
 //! here by what is on screen rather than by what has been fetched.
+//!
+//! A column is as wide as its widest value until its heading's right edge is
+//! dragged. A value is copied with the button that appears at the end of the
+//! cell under the pointer, and copied whole, however much of it the cell had
+//! room to show. The text itself is not selectable: that would take an
+//! editable text per cell, and a selection would stop at the ellipsis.
 
 use std::collections::HashMap;
 use std::ops::Range;
 
+use bevy::clipboard::Clipboard;
+use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::ui::{InteractionDisabled, ScrollPosition};
 use bevy::window::SystemCursorIcon;
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::cursor::EntityCursor;
+use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::Stage;
 use crate::app::theme::{Palette, token};
-use crate::source::table::{HiddenColumns, SourceTable, TablePaging, TableSort, to_first_page};
+use crate::source::table::{
+    ColumnWidths, HiddenColumns, SourceTable, TablePaging, TableSort, to_first_page,
+};
 use crate::source::{ShowsSource, grouped};
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, Menu, MenuButton, ScrollBoth, button_icon, icon_text, patch_node,
-    set_display, set_text, size, text, text_dim, truncate_to_width, width_of,
+    BlocksFrameInput, Icon, Menu, MenuButton, ScrollBoth, button_icon, hold_drag_cursor, icon_text,
+    patch_node, set_display, set_text, size, text, text_dim, truncate_to_width, width_of,
 };
 
 use super::chrome::{BUTTON_PX, CHROME_GAP};
@@ -83,6 +93,17 @@ const FOOTER_PX: f32 = 32.0;
 /// column is sorted, and the number saying where it falls among several.
 const SORT_MARK_PX: f32 = 24.0;
 
+/// How wide the strip at a heading's right edge that resizes its column is.
+const GRIP_PX: f32 = 12.0;
+
+/// The narrowest a column can be dragged: room for an ellipsis and the copy
+/// button, not for nothing.
+const MIN_COLUMN_PX: f32 = 32.0;
+
+/// How big the button that copies a cell is, square. Under a row's height, so
+/// it sits inside the cell rather than over the rows either side.
+const COPY_PX: f32 = 20.0;
+
 /// The table filling one frame.
 #[derive(Component)]
 pub struct TableView {
@@ -93,6 +114,11 @@ pub struct TableView {
     /// The row of headings, moved sideways against the horizontal scroll so it
     /// stays over the columns it names.
     headings: Entity,
+    /// Each drawn column's heading and the name in it, in order, moved and
+    /// cut to length as its column is resized.
+    heading_cells: Vec<(Entity, Entity)>,
+    /// The one button copying whichever cell is under the pointer.
+    copy: Entity,
     /// The scrolling area, and the full-height node inside it the rows are
     /// placed in.
     body: Entity,
@@ -121,6 +147,43 @@ impl TableView {
 enum Cell {
     Value,
     Number,
+}
+
+/// A value's cell, which the copy button comes to when it is hovered.
+///
+/// Only cells holding something are marked: there is nothing to copy out of
+/// an empty one.
+#[derive(Component)]
+pub struct TableCell {
+    panel: Entity,
+    /// The row on the page, and the column as a place in the source's own.
+    row: usize,
+    at: usize,
+    /// The column as a place among those drawn.
+    drawn: usize,
+}
+
+/// The button that copies the hovered cell of a frame's table.
+#[derive(Component)]
+pub struct CopyCellButton {
+    panel: Entity,
+    /// The cell it sits in, as a row and a column in the source's own.
+    target: Option<(usize, usize)>,
+    /// The cell it last copied, which it shows a tick for until it moves on.
+    copied: Option<(usize, usize)>,
+    icon: Entity,
+}
+
+/// The strip at a heading's right edge that drags its column wider or
+/// narrower.
+#[derive(Component)]
+pub struct ColumnGrip {
+    panel: Entity,
+    column: String,
+    /// The column as a place among those drawn.
+    drawn: usize,
+    /// How wide the column was when the drag began, while one is going on.
+    from: Option<f32>,
 }
 
 /// A heading that sorts its table when pressed.
@@ -209,17 +272,35 @@ fn visible_of(table: &SourceTable, hidden: Option<&HiddenColumns>) -> Vec<usize>
 /// the text out, which would mean reacting to the measurement a frame later.
 /// The gutter is sized for the *last* row number rather than the page's, since
 /// the numbers carry on across pages. A table that sorts keeps room in every
-/// heading for the mark saying how.
-fn edges_of(table: &SourceTable, visible: &[usize], total: usize, sorts: bool) -> Vec<f32> {
+/// heading for the mark saying how. A column dragged to a width keeps it.
+fn edges_of(
+    table: &SourceTable,
+    visible: &[usize],
+    total: usize,
+    sorts: bool,
+    widths: Option<&ColumnWidths>,
+) -> Vec<f32> {
     let gutter = width_of(total.max(1).to_string().len(), size::SMALL) + PAD_PX * 2.0;
     let mark = if sorts { SORT_MARK_PX } else { 0.0 };
     let mut edges = vec![0.0, gutter];
     for &at in visible {
         let last = edges.last().copied().unwrap_or_default();
-        let chars = width_of(table.columns[at].chars, size::SECONDARY);
-        edges.push(last + chars + mark + PAD_PX * 2.0);
+        let column = &table.columns[at];
+        let width = widths
+            .and_then(|widths| widths.0.get(&column.name))
+            .map_or_else(
+                || width_of(column.chars, size::SECONDARY) + mark + PAD_PX * 2.0,
+                |&width| width.max(MIN_COLUMN_PX),
+            );
+        edges.push(last + width);
     }
     edges
+}
+
+/// How wide a column dragged `by` from `from` becomes: never narrower than
+/// [`MIN_COLUMN_PX`], and in whole pixels, which is what a bookmark keeps.
+fn dragged_width(from: f32, by: f32) -> f32 {
+    (from + by).round().max(MIN_COLUMN_PX)
 }
 
 /// What a frame's table is laid out from, asked of its source.
@@ -228,20 +309,29 @@ type LayoutQuery = (
     &'static TablePaging,
     Option<&'static HiddenColumns>,
     Has<TableSort>,
+    Option<&'static ColumnWidths>,
 );
 
-/// The answer: the rows, the paging, what is hidden, and whether it sorts.
+/// The answer: the rows, the paging, what is hidden, whether it sorts, and
+/// what has been dragged wider or narrower.
 type Layout<'a> = (
     &'a SourceTable,
     &'a TablePaging,
     Option<&'a HiddenColumns>,
     bool,
+    Option<&'a ColumnWidths>,
 );
 
 /// The columns drawn and where each starts.
-fn layout_of((table, paging, hidden, sorts): Layout) -> (Vec<usize>, Vec<f32>) {
+fn layout_of((table, paging, hidden, sorts, widths): Layout) -> (Vec<usize>, Vec<f32>) {
     let visible = visible_of(table, hidden);
-    let edges = edges_of(table, &visible, paging.total.unwrap_or_default(), sorts);
+    let edges = edges_of(
+        table,
+        &visible,
+        paging.total.unwrap_or_default(),
+        sorts,
+        widths,
+    );
     (visible, edges)
 }
 
@@ -251,25 +341,41 @@ pub fn sync_tables(
     mut commands: Commands,
     panels: Query<(Entity, &ShowsSource), With<Panel>>,
     tables: Query<LayoutQuery>,
-    views: Query<(Entity, &TableView)>,
+    mut views: Query<(Entity, &mut TableView)>,
+    mut nodes: Query<&mut Node>,
+    mut texts: Query<&mut Text>,
 ) {
-    for (entity, view) in &views {
-        // Rebuilt rather than redrawn when the columns move: a frame pointed
+    for (entity, mut view) in &mut views {
+        // Rebuilt rather than redrawn when the columns change: a frame pointed
         // at another table, one whose source grew a column it had not seen
         // on the first page, or one with a column hidden or shown, is laid
         // out afresh.
-        let stale = match panels.get(view.panel) {
-            Ok((_, shows)) => {
-                shows.0 != view.source
-                    || tables.get(shows.0).is_ok_and(|layout| {
-                        let (visible, edges) = layout_of(layout);
-                        visible != view.visible || edges != view.edges
-                    })
-            }
-            Err(_) => true,
-        };
-        if stale {
+        let Ok((_, shows)) = panels.get(view.panel) else {
             commands.entity(entity).despawn();
+            continue;
+        };
+        if shows.0 != view.source {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let Ok(layout) = tables.get(shows.0) else {
+            continue;
+        };
+        let (visible, edges) = layout_of(layout);
+        if visible != view.visible {
+            commands.entity(entity).despawn();
+        } else if edges != view.edges {
+            // The same columns at other widths are moved rather than rebuilt:
+            // a heading being dragged has to outlive the drag, and the table
+            // has to stay scrolled where it was.
+            resize_table(
+                &mut commands,
+                &mut view,
+                layout,
+                edges,
+                &mut nodes,
+                &mut texts,
+            );
         }
     }
 
@@ -288,7 +394,7 @@ pub fn sync_tables(
 }
 
 fn spawn_table(commands: &mut Commands, panel: Entity, source: Entity, layout: Layout) {
-    let (table, _, _, sorts) = layout;
+    let (table, _, _, sorts, _) = layout;
     let (visible, edges) = layout_of(layout);
     let width = edges.last().copied().unwrap_or_default();
 
@@ -299,17 +405,20 @@ fn spawn_table(commands: &mut Commands, panel: Entity, source: Entity, layout: L
             ..default()
         })
         .id();
+    let mut heading_cells = Vec::with_capacity(visible.len());
     for (drawn, &at) in visible.iter().enumerate() {
         let column = &table.columns[at];
-        let cell = spawn_heading(
+        let (cell, label) = spawn_heading(
             commands,
             &edges,
-            drawn + 1,
+            drawn,
             &column.name,
             column.numeric,
-            sorts.then_some(panel),
+            panel,
+            sorts,
         );
         commands.entity(headings).add_child(cell);
+        heading_cells.push((cell, label));
     }
     // The headings are clipped by the strip around them rather than by
     // themselves, which is what lets them slide sideways under it.
@@ -335,6 +444,8 @@ fn spawn_table(commands: &mut Commands, panel: Entity, source: Entity, layout: L
             ..default()
         })
         .id();
+    let copy = spawn_copy_button(commands, panel);
+    commands.entity(content).add_child(copy);
     let body = commands
         .spawn((
             // Scrolls both ways: a table is as wide as its columns and as
@@ -389,6 +500,8 @@ fn spawn_table(commands: &mut Commands, panel: Entity, source: Entity, layout: L
                 panel,
                 source,
                 headings,
+                heading_cells,
+                copy,
                 footer,
                 readout,
                 body,
@@ -426,26 +539,68 @@ fn page_button(commands: &mut Commands, panel: Entity, step: PageStep) -> Entity
         .id()
 }
 
-/// A heading: the column's name, and beside it the mark saying how the
-/// column is sorted when `sorts` names the frame to sort.
+/// Where the `drawn`th column starts and how wide it is.
+fn column_span(edges: &[f32], drawn: usize) -> (f32, f32) {
+    (edges[drawn + 1], edges[drawn + 2] - edges[drawn + 1])
+}
+
+/// As much of a heading's name as fits a column `width` wide.
+fn heading_text(name: &str, width: f32, sorts: bool) -> String {
+    let mark = if sorts { SORT_MARK_PX } else { 0.0 };
+    truncate_to_width(name.trim(), width - mark - PAD_PX * 2.0, size::SECONDARY)
+}
+
+/// A heading: the column's name, the grip at its right edge that resizes it,
+/// and beside the name the mark saying how the column is sorted when `sorts`.
+/// Returns the heading and the name in it.
 fn spawn_heading(
     commands: &mut Commands,
     edges: &[f32],
     drawn: usize,
     name: &str,
     numeric: bool,
-    sorts: Option<Entity>,
-) -> Entity {
-    let width = edges[drawn + 1] - edges[drawn];
-    let mark = if sorts.is_some() { SORT_MARK_PX } else { 0.0 };
-    let content = truncate_to_width(name.trim(), width - mark - PAD_PX * 2.0, size::SECONDARY);
+    panel: Entity,
+    sorts: bool,
+) -> (Entity, Entity) {
+    let (left, width) = column_span(edges, drawn);
     let label = commands
-        .spawn_scene(text_dim(content, size::SECONDARY))
+        .spawn_scene(text_dim(heading_text(name, width, sorts), size::SECONDARY))
+        .id();
+    let line = commands
+        .spawn((
+            Node {
+                width: Val::Px(1.0),
+                height: Val::Percent(50.0),
+                ..default()
+            },
+            ThemeBackgroundColor(token::DIVIDER),
+        ))
+        .id();
+    let grip = commands
+        .spawn((
+            ColumnGrip {
+                panel,
+                column: name.to_string(),
+                drawn,
+                from: None,
+            },
+            Node {
+                position_type: PositionType::Absolute,
+                right: Val::ZERO,
+                width: Val::Px(GRIP_PX),
+                height: Val::Percent(100.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::End,
+                ..default()
+            },
+            EntityCursor::System(SystemCursorIcon::ColResize),
+        ))
+        .add_child(line)
         .id();
     let cell = commands
         .spawn(Node {
             position_type: PositionType::Absolute,
-            left: Val::Px(edges[drawn]),
+            left: Val::Px(left),
             width: Val::Px(width),
             height: Val::Percent(100.0),
             padding: UiRect::horizontal(Val::Px(PAD_PX)),
@@ -459,11 +614,11 @@ fn spawn_heading(
             overflow: Overflow::clip(),
             ..default()
         })
-        .add_child(label)
+        .add_children(&[label, grip])
         .id();
-    let Some(panel) = sorts else {
-        return cell;
-    };
+    if !sorts {
+        return (cell, label);
+    }
 
     let arrow = commands
         .spawn_scene(bsn! {
@@ -494,7 +649,216 @@ fn spawn_heading(
             EntityCursor::System(SystemCursorIcon::Pointer),
         ))
         .add_children(&[arrow, rank]);
-    cell
+    (cell, label)
+}
+
+/// Move a table's headings to new column widths, and have its rows rebuilt at
+/// them.
+fn resize_table(
+    commands: &mut Commands,
+    view: &mut TableView,
+    (table, _, _, sorts, _): Layout,
+    edges: Vec<f32>,
+    nodes: &mut Query<&mut Node>,
+    texts: &mut Query<&mut Text>,
+) {
+    view.edges = edges;
+    for (drawn, (&at, &(cell, label))) in view.visible.iter().zip(&view.heading_cells).enumerate() {
+        let (left, width) = column_span(&view.edges, drawn);
+        if let Ok(node) = nodes.get_mut(cell) {
+            patch_node(node, |node| {
+                node.left = Val::Px(left);
+                node.width = Val::Px(width);
+            });
+        }
+        if let Ok(text) = texts.get_mut(label) {
+            set_text(text, &heading_text(&table.columns[at].name, width, sorts));
+        }
+    }
+    let width = view.width();
+    if let Ok(node) = nodes.get_mut(view.content) {
+        patch_node(node, |node| node.width = Val::Px(width));
+    }
+    for row in view.live.drain().map(|(_, row)| row) {
+        commands.entity(row).despawn();
+    }
+}
+
+/// Note how wide a column is as its grip starts to be dragged.
+pub fn on_grip_drag_start(
+    start: On<Pointer<DragStart>>,
+    mut grips: Query<&mut ColumnGrip>,
+    views: Query<&TableView>,
+) {
+    if start.button != PointerButton::Primary {
+        return;
+    }
+    let Ok(mut grip) = grips.get_mut(start.entity) else {
+        return;
+    };
+    let Some(view) = views.iter().find(|view| view.panel == grip.panel) else {
+        return;
+    };
+    grip.from = Some(column_span(&view.edges, grip.drawn).1);
+}
+
+/// Resize a column to follow its grip.
+pub fn on_grip_drag(
+    drag: On<Pointer<Drag>>,
+    grips: Query<&ColumnGrip>,
+    panels: Query<&ShowsSource>,
+    mut widths: Query<&mut ColumnWidths>,
+) {
+    let Ok(grip) = grips.get(drag.entity) else {
+        return;
+    };
+    let Some(from) = grip.from else {
+        return;
+    };
+    let Ok(mut widths) = panels
+        .get(grip.panel)
+        .and_then(|shows| widths.get_mut(shows.0))
+    else {
+        return;
+    };
+    let width = dragged_width(from, drag.distance.x);
+    if widths.0.get(&grip.column) != Some(&width) {
+        widths.0.insert(grip.column.clone(), width);
+    }
+}
+
+pub fn on_grip_drag_end(end: On<Pointer<DragEnd>>, mut grips: Query<&mut ColumnGrip>) {
+    if let Ok(mut grip) = grips.get_mut(end.entity) {
+        grip.from = None;
+    }
+}
+
+/// Hold the resize cursor for as long as a column is being dragged, which
+/// leaves its grip behind as soon as it starts.
+pub fn hold_grip_cursor(
+    grips: Query<&ColumnGrip>,
+    mut held: Local<bool>,
+    cursor: Option<ResMut<OverrideCursor>>,
+) {
+    let dragging = grips.iter().any(|grip| grip.from.is_some());
+    hold_drag_cursor(dragging, &mut held, cursor, SystemCursorIcon::ColResize);
+}
+
+fn spawn_copy_button(commands: &mut Commands, panel: Entity) -> Entity {
+    let icon = commands.spawn_scene(button_icon(Icon::Copy)).id();
+    commands
+        .spawn((
+            CopyCellButton {
+                panel,
+                target: None,
+                copied: None,
+                icon,
+            },
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Px(COPY_PX),
+                height: Val::Px(COPY_PX),
+                display: Display::None,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                border_radius: BorderRadius::all(Val::Px(3.0)),
+                ..default()
+            },
+            ThemeBackgroundColor(tokens::BUTTON_BG),
+            EntityCursor::System(SystemCursorIcon::Pointer),
+            // Over the rows, which are added to the same parent after it.
+            ZIndex(1),
+        ))
+        .add_child(icon)
+        .id()
+}
+
+/// Put each table's copy button at the end of the cell under the pointer, and
+/// take it away when the pointer is over no cell of that table.
+///
+/// Left where it is while the pointer is on the button itself, which covers
+/// the end of the cell it copies.
+pub fn place_copy_buttons(
+    hover: Res<HoverMap>,
+    cells: Query<&TableCell>,
+    parents: Query<&ChildOf>,
+    views: Query<&TableView>,
+    mut buttons: Query<&mut CopyCellButton>,
+    mut nodes: Query<&mut Node>,
+    mut texts: Query<&mut Text>,
+) {
+    let hovered: Vec<Entity> = hover
+        .values()
+        .flat_map(|hits| hits.keys())
+        .flat_map(|&hit| std::iter::once(hit).chain(parents.iter_ancestors(hit)))
+        .collect();
+    for view in &views {
+        let Ok(mut button) = buttons.get_mut(view.copy) else {
+            continue;
+        };
+        if !hovered.contains(&view.copy) {
+            let cell = hovered
+                .iter()
+                .filter_map(|&entity| cells.get(entity).ok())
+                .find(|cell| cell.panel == view.panel);
+            let target = cell.map(|cell| (cell.row, cell.at));
+            if button.target != target {
+                button.target = target;
+                button.copied = None;
+            }
+            if let Some(cell) = cell
+                && let Ok(node) = nodes.get_mut(view.copy)
+            {
+                let (left, width) = column_span(&view.edges, cell.drawn);
+                let inset = (ROW_PX - COPY_PX) / 2.0;
+                patch_node(node, |node| {
+                    node.left = Val::Px(left + width - COPY_PX - inset);
+                    node.top = Val::Px(cell.row as f32 * ROW_PX + inset);
+                });
+            }
+        }
+        set_display(&mut nodes, view.copy, button.target.is_some());
+        let icon = if button.copied.is_some() && button.copied == button.target {
+            Icon::Check
+        } else {
+            Icon::Copy
+        };
+        if let Ok(text) = texts.get_mut(button.icon) {
+            set_text(text, icon.glyph());
+        }
+    }
+}
+
+/// Copy the whole value of the cell a pressed copy button sits in.
+pub fn on_copy_pressed(
+    click: On<Pointer<Click>>,
+    mut buttons: Query<&mut CopyCellButton>,
+    panels: Query<&ShowsSource>,
+    tables: Query<&SourceTable>,
+    mut clipboard: ResMut<Clipboard>,
+) {
+    if click.button != PointerButton::Primary {
+        return;
+    }
+    let Ok(mut button) = buttons.get_mut(click.entity) else {
+        return;
+    };
+    let Some((row, at)) = button.target else {
+        return;
+    };
+    let Ok(table) = panels
+        .get(button.panel)
+        .and_then(|shows| tables.get(shows.0))
+    else {
+        return;
+    };
+    if row >= table.rows.len() {
+        return;
+    }
+    match clipboard.set_text(table.cell(row, at).trim()) {
+        Ok(()) => button.copied = Some((row, at)),
+        Err(e) => warn!("could not copy the cell: {e}"),
+    }
 }
 
 /// Sort a frame's table by the heading pressed: ascending, descending, then
@@ -504,12 +868,15 @@ pub fn on_heading_pressed(
     click: On<Pointer<Click>>,
     headings: Query<&TableHeading>,
     keys: Res<ButtonInput<KeyCode>>,
+    grips: Query<(), With<ColumnGrip>>,
     panels: Query<&ShowsSource>,
     mut sources: Query<(&mut TableSort, Option<&mut TablePaging>)>,
     mut positions: Query<&mut ScrollPosition>,
     views: Query<&TableView>,
 ) {
-    if click.button != PointerButton::Primary {
+    // A grip sits inside its heading, so the release ending a resize would
+    // otherwise sort the column too.
+    if click.button != PointerButton::Primary || grips.contains(click.original_event_target()) {
         return;
     }
     let Ok(heading) = headings.get(click.entity) else {
@@ -718,7 +1085,7 @@ fn spawn_cell(
 /// never hears the press that would have selected it.
 pub fn select_pressed_tables(
     buttons: Res<ButtonInput<MouseButton>>,
-    hover: Res<bevy::picking::hover::HoverMap>,
+    hover: Res<HoverMap>,
     views: Query<&TableView>,
     parents: Query<&ChildOf>,
     mut selected: ResMut<SelectedPanel>,
@@ -940,14 +1307,23 @@ fn spawn_row(
     );
     commands.entity(entity).add_child(number);
     for (drawn, &at) in view.visible.iter().enumerate() {
+        let value = table.cell(row, at);
         let cell = spawn_cell(
             commands,
             &view.edges,
             drawn + 1,
-            table.cell(row, at),
+            value,
             table.columns[at].numeric,
             Cell::Value,
         );
+        if !value.trim().is_empty() {
+            commands.entity(cell).insert(TableCell {
+                panel: view.panel,
+                row,
+                at,
+                drawn,
+            });
+        }
         commands.entity(entity).add_child(cell);
     }
     entity
@@ -960,6 +1336,10 @@ impl Plugin for TablePlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_page_pressed)
             .add_observer(on_heading_pressed)
+            .add_observer(on_grip_drag_start)
+            .add_observer(on_grip_drag)
+            .add_observer(on_grip_drag_end)
+            .add_observer(on_copy_pressed)
             .add_systems(Update, select_pressed_tables.in_set(Stage::ControlsRead))
             .add_systems(Update, sync_tables.in_set(Stage::FrameChrome))
             .add_systems(
@@ -967,6 +1347,8 @@ impl Plugin for TablePlugin {
                 (
                     place_tables,
                     fill_tables,
+                    place_copy_buttons,
+                    hold_grip_cursor,
                     update_footers,
                     update_sort_marks,
                     hide_layer_menus,
@@ -1002,7 +1384,7 @@ mod tests {
     #[test]
     fn a_column_is_wide_enough_for_its_widest_value() {
         let table = table(3, &[("a", 10, false), ("b", 4, true)]);
-        let edges = edges_of(&table, &[0, 1], 3, false);
+        let edges = edges_of(&table, &[0, 1], 3, false, None);
         // The numbering gutter, then a column apiece, then the whole width.
         assert_eq!(edges.len(), 3 + 1);
         assert!(edges[0] < edges[1] && edges[1] < edges[2] && edges[2] < edges[3]);
@@ -1016,16 +1398,37 @@ mod tests {
         let hidden = HiddenColumns(["b".to_string()].into());
         let visible = visible_of(&table, Some(&hidden));
         assert_eq!(visible, [0, 2]);
-        let edges = edges_of(&table, &visible, 3, false);
-        assert_eq!(edges, edges_of(&table, &[0, 0], 3, false));
+        let edges = edges_of(&table, &visible, 3, false, None);
+        assert_eq!(edges, edges_of(&table, &[0, 0], 3, false, None));
+    }
+
+    #[test]
+    fn a_dragged_column_keeps_its_width_and_the_rest_move_over() {
+        let table = table(3, &[("a", 4, false), ("b", 10, false)]);
+        let fitted = edges_of(&table, &[0, 1], 3, false, None);
+        let widths = ColumnWidths([("a".to_string(), 200.0)].into());
+        let dragged = edges_of(&table, &[0, 1], 3, false, Some(&widths));
+        assert!((dragged[2] - dragged[1] - 200.0).abs() < 1e-3);
+        assert!(((dragged[3] - dragged[2]) - (fitted[3] - fitted[2])).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_column_is_never_dragged_to_nothing() {
+        assert_eq!(dragged_width(80.0, -500.0), MIN_COLUMN_PX);
+        assert_eq!(dragged_width(80.0, 20.4), 100.0);
+        let table = table(3, &[("a", 4, false)]);
+        let widths = ColumnWidths([("a".to_string(), 1.0)].into());
+        let edges = edges_of(&table, &[0], 3, false, Some(&widths));
+        assert!((edges[2] - edges[1] - MIN_COLUMN_PX).abs() < 1e-3);
     }
 
     #[test]
     fn a_table_that_sorts_keeps_room_in_its_headings_for_the_mark() {
         let table = table(3, &[("a", 4, false)]);
-        let plain = edges_of(&table, &[0], 3, false);
-        let sorting = edges_of(&table, &[0], 3, true);
-        assert_eq!(sorting[2] - sorting[1], plain[2] - plain[1] + SORT_MARK_PX);
+        let plain = edges_of(&table, &[0], 3, false, None);
+        let sorting = edges_of(&table, &[0], 3, true, None);
+        let grown = (sorting[2] - sorting[1]) - (plain[2] - plain[1]);
+        assert!((grown - SORT_MARK_PX).abs() < 1e-3);
     }
 
     #[test]
@@ -1033,14 +1436,14 @@ mod tests {
         // Sized for the last row number in the whole table, not the page's:
         // a page of 100 rows can still be numbering row 10,901.
         let table = table(9, &[("a", 4, false)]);
-        let few = edges_of(&table, &[0], 9, false);
-        let many = edges_of(&table, &[0], 10_901, false);
+        let few = edges_of(&table, &[0], 9, false, None);
+        let many = edges_of(&table, &[0], 10_901, false, None);
         assert!(many[1] > few[1], "a five-digit number needs more room");
     }
 
     #[test]
     fn a_table_with_no_rows_still_lays_out_its_columns() {
-        let edges = edges_of(&table(0, &[("a", 4, false)]), &[0], 0, false);
+        let edges = edges_of(&table(0, &[("a", 4, false)]), &[0], 0, false, None);
         assert_eq!(edges.len(), 3);
         assert!(edges[2] > edges[1]);
         assert_eq!(rows_in_view(0.0, 400.0, 0), 0..0);
