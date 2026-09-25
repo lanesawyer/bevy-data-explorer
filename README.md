@@ -512,6 +512,21 @@ Pushing a `v*` tag builds Linux, Windows and a universal macOS binary and
 publishes them as a GitHub release. `workflow_dispatch` rehearses the same
 build against an existing tag and leaves the release as a draft.
 
+The macOS binary is not signed or notarized, so Gatekeeper quarantines it on
+download and refuses to open it. Clear the quarantine from the folder it was
+extracted into:
+
+```sh
+xattr -d com.apple.quarantine ./bevy-data-explorer
+```
+
+If it is still killed on launch on Apple Silicon, sign it ad hoc as well —
+joining the two architectures into one binary can leave its signature invalid:
+
+```sh
+codesign --force --sign - ./bevy-data-explorer
+```
+
 ## Architecture
 
 Frames, their overlays and their chrome are declared with **BSN** (Bevy Scene
