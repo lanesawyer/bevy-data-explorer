@@ -45,7 +45,7 @@ zarrs_object_store = { version = "0.7", features = ["http", "fs"] }
 url = "2.5.8"
 # The Deep Zoom descriptor is a few lines of XML. Already in the lockfile
 # through the Wayland bindings.
-quick-xml = { version = "0.41", features = ["serialize"] }
+quick-xml = { version = "0.42", features = ["serialize"] }
 # Hands the help screen's links to the system browser.
 open = "5"
 # A bookmark shared as text is its JSON deflated and base64'd onto one line, so
