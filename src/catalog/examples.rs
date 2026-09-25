@@ -51,7 +51,7 @@ pub struct Example {
     pub url: &'static str,
 }
 
-pub const EXAMPLES: [Example; 6] = [
+pub const EXAMPLES: [Example; 7] = [
     Example {
         name: "Epifluorescence whole slide",
         kind: "OME-Zarr image",
@@ -89,5 +89,11 @@ pub const EXAMPLES: [Example; 6] = [
         kind: "CSV table",
         category: Category::Table,
         url: "https://allen-brain-cell-atlas.s3.us-west-2.amazonaws.com/metadata/WMB-10X/20230830/region_of_interest_metadata.csv",
+    },
+    Example {
+        name: "Allen adult mouse terminology",
+        kind: "Parquet table",
+        category: Category::Table,
+        url: "s3://allen-atlas-assets/terminologies/allen-adult-mouse-terminology/2026-03/terminology.parquet",
     },
 ];

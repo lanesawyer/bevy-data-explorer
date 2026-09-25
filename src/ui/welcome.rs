@@ -64,7 +64,7 @@ const WELCOME_Z: i32 = 5;
 pub const BLURB: &str = "An experimental streaming explorer for large scientific datasets. \
                      Currently supports OME-Zarr v2 and v3, Deep Zoom images, the \
                      Allen Institute Scatterbrain format for point clouds, SVG \
-                     annotations, CSV and TSV tables, and specimen records from the \
+                     annotations, CSV, TSV and Parquet tables, and specimen records from the \
                      Brain Knowledge Platform.";
 
 pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {

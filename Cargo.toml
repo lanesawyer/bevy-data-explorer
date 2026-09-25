@@ -55,6 +55,11 @@ flate2 = "1"
 # The save and open dialogs a bookmark is exported and imported through. The
 # xdg portal on Linux, so no GTK is pulled in.
 rfd = "0.17"
+# Parquet tables, read row by row without Arrow, which a table of strings has
+# no use for. The codecs are the ones already in the tree; brotli is not, and
+# a file compressed with it says so rather than opening.
+parquet = { version = "60", default-features = false, features = ["snap", "zstd", "lz4", "flate2", "flate2-zlib-rs"] }
+bytes = "1"
 
 [lints.rust]
 unsafe_code = "forbid"

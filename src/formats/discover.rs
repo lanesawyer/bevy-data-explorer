@@ -30,7 +30,8 @@ pub enum Discovered {
     Slices(Scatterbrain),
     /// Outlines drawn over an image, meant to be layered onto it.
     Annotations(Svg),
-    /// Delimited text, shown as rows and columns.
+    /// A table read whole — delimited text or Parquet — shown as rows and
+    /// columns.
     Table(Box<Table>),
     /// A project's specimens, shown as a table a page at a time.
     Specimens(Box<crate::formats::specimens::Specimens>),
@@ -90,6 +91,16 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
         let text = fetch_text(source).await?;
         return crate::formats::csv::parse::parse(&crate::formats::csv::label_for(source), &text)
             .map(|table| Discovered::Table(Box::new(table)));
+    }
+
+    // Parquet is binary, but named by its extension all the same.
+    if is_parquet(source) {
+        let bytes = fetch_bytes(source).await?;
+        return crate::formats::parquet::parse::parse(
+            &crate::formats::parquet::label_for(source),
+            bytes,
+        )
+        .map(|table| Discovered::Table(Box::new(table)));
     }
 
     // A Zarr root is a directory, so only a `.json` can be Scatterbrain
@@ -153,6 +164,15 @@ pub async fn fetch_text(source: &str) -> Result<String, String> {
     }
 }
 
+/// Read a source whole as bytes, over HTTP or off disk.
+async fn fetch_bytes(source: &str) -> Result<Vec<u8>, String> {
+    if is_http(source) {
+        crate::app::net::fetch(source).await
+    } else {
+        std::fs::read(source).map_err(|e| format!("reading {source}: {e}"))
+    }
+}
+
 fn is_http(source: &str) -> bool {
     source.starts_with("http://") || source.starts_with("https://")
 }
@@ -174,11 +194,17 @@ fn is_svg(source: &str) -> bool {
 /// table by what it is named, never by sniffing its bytes.
 pub fn names_a_table(source: &str) -> bool {
     let source = crate::formats::plain_url(source.trim());
-    crate::formats::specimens::query_of(&source).is_some() || is_table(&source)
+    crate::formats::specimens::query_of(&source).is_some()
+        || is_table(&source)
+        || is_parquet(&source)
 }
 
 fn is_table(source: &str) -> bool {
     has_extension(source, ".csv") || has_extension(source, ".tsv")
+}
+
+fn is_parquet(source: &str) -> bool {
+    has_extension(source, ".parquet")
 }
 
 /// Whether the file a source names ends in `extension`, ignoring any query
@@ -242,6 +268,9 @@ mod tests {
         assert!(names_a_table(" https://example.com/cells.TSV?sig=abc "));
         assert!(names_a_table(
             "https://idf-api-prod.aibs-idk-prod.net/?specimens=JGN327NUXRZSHEV88TN"
+        ));
+        assert!(names_a_table(
+            "s3://allen-atlas-assets/terminologies/2026-03/terminology.parquet"
         ));
         assert!(!names_a_table("https://example.com/image.zarr/"));
         assert!(!names_a_table("https://example.com/a/ScatterBrain.json"));

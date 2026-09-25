@@ -20,7 +20,7 @@ use crate::formats::discover;
 pub struct Args {
     /// Any dataset, opened in a frame: an OME-Zarr store (http(s) URL or local
     /// directory) or a manifest .json describing one, a Deep Zoom .dzi,
-    /// Scatterbrain metadata, an .svg, a .csv or .tsv table, or a Brain
+    /// Scatterbrain metadata, an .svg, a .csv, .tsv or .parquet table, or a Brain
     /// Knowledge Platform endpoint with `?specimens=<project>` on it. Left
     /// out, the window starts empty.
     pub source: Option<String>,

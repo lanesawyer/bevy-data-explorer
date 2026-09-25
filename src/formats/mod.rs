@@ -10,6 +10,7 @@ pub mod csv;
 pub mod discover;
 pub mod dzi;
 pub mod image;
+pub mod parquet;
 pub mod pointcloud;
 pub mod scatterbrain;
 pub mod slices;

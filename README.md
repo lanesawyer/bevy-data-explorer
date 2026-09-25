@@ -23,6 +23,8 @@ as you zoom. Five formats are supported so far:
   with a header that stays put and scrollbars, for the metadata that comes
   alongside the imagery — gene panels, region lists, cell annotations. Read
   whole, but only the rows on screen are built.
+- **Parquet tables**: shown the same way. The reference one is the Allen adult
+  mouse terminology: 1,332 brain structures across 10 columns.
 - **Brain Knowledge Platform specimens**: one project's specimen records,
   asked of the platform's GraphQL API and shown as the same table. Every
   project whose specimens can be tabulated is offered in the dataset
@@ -41,6 +43,7 @@ cargo run --release -- <url-or-dir>          # any OME-Zarr root
 cargo run --release -- metadata.json         # a manifest describing one
 cargo run --release -- slide.dzi             # a Deep Zoom image, URL or file
 cargo run --release -- genes.csv             # a CSV or TSV table, URL or file
+cargo run --release -- terms.parquet         # a Parquet table, likewise
 cargo run --release -- '<bkp-endpoint>/?specimens=<project>'  # a specimen table
 cargo run --release -- --points <url|file>   # a Scatterbrain metadata JSON
 cargo run --release -- --slices <url|file>   # a sectioned Scatterbrain JSON
@@ -268,7 +271,7 @@ The search in a frame's browser also takes an address: anything typed that looks
 like a URL or a path is offered first as one to read, so Enter opens what was
 pasted. Nothing asks which format it is — the address is read and the format
 worked out from what comes back, so an OME-Zarr store, a single point cloud and
-a sectioned dataset are all pasted into the same search. A `.dzi`, `.svg`, `.csv` or `.tsv` is named by its
+a sectioned dataset are all pasted into the same search. A `.dzi`, `.svg`, `.csv`, `.tsv` or `.parquet` is named by its
 extension, since nothing else uses those. A `.json` is tried as Scatterbrain
 metadata first and as an image manifest second; anything else is tried as a
 Zarr store. A
@@ -829,6 +832,14 @@ coordinates with an image, so stacking one on the other would put two
 unrelated things in one cell. The same goes the other way: a table is never offered as a
 layer over another frame, a frame repointed at a table drops its layers, and a
 request to layer one — from a bookmark, say — is refused.
+
+### Parquet tables
+
+Read whole and without Arrow, row by row, into the same table a CSV becomes.
+Every top-level field is a column. A list is shown as its elements joined by
+commas, a null as an empty cell, so a column of integers with gaps still reads
+as numbers. Snappy, zstd, LZ4 and gzip are read; brotli is not, and a file
+compressed with it says so. The same 100,000-row ceiling applies.
 
 ### Brain Knowledge Platform specimens
 
