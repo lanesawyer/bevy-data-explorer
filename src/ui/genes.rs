@@ -19,7 +19,7 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::Palette;
 use crate::source::genes::{GeneSearch, SearchState};
-use crate::source::properties::CellProperties;
+use crate::source::properties::{CellProperties, ColorScale};
 use crate::ui::cell_panel::range::{RangeOwner, spawn_range_control};
 use crate::ui::cell_panel::{ClearPropertyButton, ColorByButton};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
@@ -254,7 +254,7 @@ pub fn rebuild_gene_list(
     mut commands: Commands,
     palette: Res<Palette>,
     selected: SelectedSource,
-    sources: Query<&CellProperties, With<GeneSearch>>,
+    sources: Query<(&CellProperties, Option<&ColorScale>), With<GeneSearch>>,
     list: Query<Entity, With<GeneList>>,
     sections: Query<(&GeneSection, &Accordion)>,
     mut open: Local<HashMap<String, bool>>,
@@ -268,7 +268,7 @@ pub fn rebuild_gene_list(
     let found = selected
         .entity()
         .and_then(|source| sources.get(source).ok().map(|found| (source, found)));
-    let fingerprint = found.map(|(source, properties)| {
+    let fingerprint = found.map(|(source, (properties, _))| {
         (
             source,
             properties
@@ -283,7 +283,7 @@ pub fn rebuild_gene_list(
     *shown = fingerprint;
     commands.entity(list).despawn_children();
 
-    let Some((_, properties)) = found else {
+    let Some((_, (properties, scale))) = found else {
         return;
     };
     let mut sections = Vec::new();
@@ -310,7 +310,7 @@ pub fn rebuild_gene_list(
 
         if let Some(range) = gene.range() {
             let ramp = properties
-                .ramp()
+                .ramp(scale)
                 .filter(|_| properties.color_by == Some(index));
             let control = spawn_range_control(
                 &mut commands,

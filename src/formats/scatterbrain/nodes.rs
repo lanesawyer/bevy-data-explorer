@@ -724,6 +724,7 @@ mod tests {
 
         let ramp = Ramp {
             gradient: Gradient::Viridis,
+            reversed: false,
             from: 0.0,
             to: 10.0,
         };

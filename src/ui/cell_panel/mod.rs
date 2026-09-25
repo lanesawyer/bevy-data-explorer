@@ -45,8 +45,8 @@ pub mod visibility;
 use crate::app::schedule::{Boot, Stage};
 use crate::catalog::cells::{self, Described};
 use crate::source::properties::{
-    CellColumns, CellProperties, CellProperty, ColorOverrides, PropertyKind, PropertyState,
-    PropertyValue, Provenance,
+    CellColumns, CellProperties, CellProperty, ColorOverrides, ColorScale, PropertyKind,
+    PropertyState, PropertyValue, Provenance,
 };
 use crate::source::{DataSource, compact_count};
 use crate::ui::color_export::spawn_export_menu;
@@ -205,6 +205,7 @@ pub fn rebuild_cell_panel(
     sources: Query<(
         &DataSource,
         &CellProperties,
+        Option<&ColorScale>,
         Has<CellColumns>,
         Has<Described>,
     )>,
@@ -219,7 +220,7 @@ pub fn rebuild_cell_panel(
         .entity()
         .and_then(|source| sources.get(source).ok().map(|found| (source, found)));
 
-    let Some((entity, (_, properties, has_columns, described))) = source else {
+    let Some((entity, (_, properties, scale, has_columns, described))) = source else {
         *shown = None;
         return;
     };
@@ -335,7 +336,7 @@ pub fn rebuild_cell_panel(
                     range::RangeOwner::CellProperty,
                     index,
                     range,
-                    properties.ramp().as_ref().filter(|_| coloring),
+                    properties.ramp(scale).as_ref().filter(|_| coloring),
                     &palette,
                 )]
             }

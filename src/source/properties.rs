@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-pub use super::gradient::Gradient;
+pub use super::gradient::{ColorScale, Gradient};
 pub use super::tree::{Tree, TreeLevel, TreeNode};
 
 /// One value a property can take.
@@ -443,8 +443,6 @@ pub struct CellProperties {
     pub properties: Vec<CellProperty>,
     /// Index into `properties` of the one points are colored by.
     pub color_by: Option<usize>,
-    /// The scale a numeric `color_by` is drawn along.
-    pub gradient: Gradient,
     pub state: PropertyState,
     pub provenance: Provenance,
     /// What the cells holding each value are colored, counted by the service
@@ -491,7 +489,6 @@ impl CellProperties {
         CellProperties {
             properties,
             color_by,
-            gradient: Gradient::default(),
             state: PropertyState::Ready,
             provenance: Provenance::Files,
             mixes: Mixes::default(),
@@ -668,13 +665,21 @@ impl CellProperties {
         property.color_column().map(|(column, _)| column)
     }
 
-    /// How points are colored, when they are colored by a numeric property.
-    pub fn ramp(&self) -> Option<Ramp> {
+    /// How points are colored, when they are colored by a numeric property,
+    /// drawn as `scale` says or as the default scale when the source has none.
+    pub fn ramp(&self, scale: Option<&ColorScale>) -> Option<Ramp> {
         let range = self.properties.get(self.color_by?)?.range()?;
+        let scale = scale.copied().unwrap_or_default();
+        let (from, to) = if scale.whole_extent {
+            (range.low, range.high)
+        } else {
+            (range.from, range.to)
+        };
         Some(Ramp {
-            gradient: self.gradient,
-            from: range.from,
-            to: range.to,
+            gradient: scale.gradient,
+            reversed: scale.reversed,
+            from,
+            to,
         })
     }
 
@@ -696,7 +701,7 @@ impl CellProperties {
             palette: coloring
                 .map(|(_, values)| palette_of(&values))
                 .unwrap_or_default(),
-            ramp: self.ramp(),
+            ramp: self.ramp(None),
             filters: self.filters(),
             draw_filtered: false,
         }
@@ -781,13 +786,15 @@ impl Shade {
 }
 
 /// How a numeric column is colored: along `gradient`, from its start at
-/// `from` to its end at `to`.
+/// `from` to its end at `to`, or the other way round when `reversed`.
 ///
-/// The span is the one the property admits, so narrowing a range spreads the
-/// whole gradient over what is left rather than drawing it in a sliver of one.
+/// The span is the one the property admits unless its [`ColorScale`] says to
+/// span the whole extent, so narrowing a range spreads the whole gradient over
+/// what is left rather than drawing it in a sliver of one.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Ramp {
     pub gradient: Gradient,
+    pub reversed: bool,
     pub from: f32,
     pub to: f32,
 }
@@ -797,12 +804,18 @@ impl Ramp {
     /// point's color is packed into can show.
     const STEPS: usize = 256;
 
+    /// How far along the gradient `value` is drawn, before clamping.
     pub fn fraction_of(&self, value: f32) -> f32 {
         let span = self.to - self.from;
         if span.abs() < f32::EPSILON {
             return 0.5;
         }
-        (value - self.from) / span
+        let fraction = (value - self.from) / span;
+        if self.reversed {
+            1.0 - fraction
+        } else {
+            fraction
+        }
     }
 
     /// The linear color of each value, sampling the gradient once per step
@@ -1021,6 +1034,12 @@ impl Column {
 }
 
 impl CellSelection {
+    /// Draw a numeric coloring as the source's own scale says.
+    pub fn with_scale(mut self, properties: &CellProperties, scale: Option<&ColorScale>) -> Self {
+        self.ramp = properties.ramp(scale);
+        self
+    }
+
     /// Draw filtered-out points as `filtered` says, if the source says at all.
     pub fn with_filtered(mut self, filtered: Option<&FilteredPoints>) -> Self {
         self.draw_filtered =
@@ -1213,6 +1232,19 @@ mod tests {
             .expect("a numeric property colors along a gradient");
         assert_eq!((ramp.from, ramp.to), (0.5, 1.0));
         assert_eq!(ramp.gradient, Gradient::Viridis);
+
+        let whole = ColorScale {
+            gradient: Gradient::Magma,
+            reversed: true,
+            whole_extent: true,
+        };
+        let ramp = selection
+            .with_scale(&properties, Some(&whole))
+            .ramp
+            .unwrap();
+        assert_eq!((ramp.from, ramp.to), (0.0, 1.0), "the filter is ignored");
+        assert_eq!(ramp.gradient, Gradient::Magma);
+        assert_eq!(ramp.fraction_of(0.0), 1.0, "low values take the far end");
     }
 
     #[test]
@@ -1243,6 +1275,7 @@ mod tests {
     fn a_ramp_spans_its_gradient_and_marks_what_has_no_value() {
         let ramp = Ramp {
             gradient: Gradient::Viridis,
+            reversed: false,
             from: 10.0,
             to: 20.0,
         };
@@ -1253,6 +1286,12 @@ mod tests {
         assert_eq!(colors[2], colors[0]);
         assert_eq!(colors[3], colors[1]);
         assert_eq!(colors[4], MISSING);
+
+        let reversed = Ramp {
+            reversed: true,
+            ..ramp
+        };
+        assert_eq!(reversed.colors(&[10.0, 20.0]), vec![colors[1], colors[0]]);
     }
 
     #[test]

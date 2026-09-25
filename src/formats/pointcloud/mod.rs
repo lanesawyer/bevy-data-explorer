@@ -22,7 +22,7 @@ use crate::formats::scatterbrain::{Rect, Scatterbrain, Slide};
 use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::hover::{HoverInfo, HoverProbe};
 use crate::source::properties::{
-    CellProperties, CellSelection, ColorOverrides, FilteredPoints, Shade,
+    CellProperties, CellSelection, ColorOverrides, ColorScale, FilteredPoints, Shade,
 };
 use crate::source::region::{RegionProbe, SelectedRegion, region_of};
 use crate::source::{self, DataSource, ShowsSource, SourceBusy, SourceExtent, SourceStatus};
@@ -314,20 +314,23 @@ fn apply_selection(
     mut streamers: Query<
         (
             &CellProperties,
+            Option<&ColorScale>,
             Option<&FilteredPoints>,
             Option<&ColorOverrides>,
             &mut PointStreamer,
         ),
         Or<(
             Changed<CellProperties>,
+            Changed<ColorScale>,
             Changed<FilteredPoints>,
             Changed<ColorOverrides>,
         )>,
     >,
 ) {
-    for (properties, filtered, overrides, mut streamer) in &mut streamers {
+    for (properties, scale, filtered, overrides, mut streamer) in &mut streamers {
         let selection = properties
             .selection()
+            .with_scale(properties, scale)
             .with_filtered(filtered)
             .with_overrides(properties.mix_column(), overrides);
         if streamer.selection != selection {

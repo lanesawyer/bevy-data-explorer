@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 use crate::render::points::{MAX_POINT_PX, MIN_POINT_PX};
 use crate::source::channels::{MAX_GAIN, SourceChannels};
 use crate::source::genes::Gene;
-use crate::source::properties::{CellProperties, PropertyKind, SavedColor, SavedFiltered};
+use crate::source::properties::{
+    CellProperties, ColorScale, PropertyKind, SavedColor, SavedFiltered,
+};
 use crate::source::stack::SliceStack;
 use crate::source::table::{
     ColumnWidths, HiddenColumns, SortKey, TableFilterKind, TableFilters, TablePaging, TableSort,
@@ -60,6 +62,10 @@ pub struct SourceState {
     /// Whether points the filters leave out are drawn, and in what color.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filtered: Option<SavedFiltered>,
+    /// The gradient numeric coloring was drawn along, and how, so a link
+    /// opens in the colors it was saved in whatever the reader prefers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<ColorScale>,
     /// Colors picked for values, by column id and code. Nothing saved leaves
     /// whatever was picked alone.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

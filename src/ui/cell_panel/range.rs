@@ -23,7 +23,7 @@ use bevy_feathers::tokens;
 
 use crate::app::theme::{Palette, token};
 use crate::source::compact_count;
-use crate::source::properties::{CellProperties, NumericRange, Ramp, RangeEnd};
+use crate::source::properties::{CellProperties, ColorScale, NumericRange, Ramp, RangeEnd};
 use crate::source::table::{TableFilters, TablePaging, to_first_page};
 use crate::view::SelectedSource;
 use crate::widgets::space;
@@ -530,7 +530,7 @@ pub fn drag_range_handles(
 pub fn update_range_controls(
     palette: Res<Palette>,
     selected: SelectedSource,
-    sources: Query<&CellProperties>,
+    sources: Query<(&CellProperties, Option<&ColorScale>)>,
     tables: Query<&TableFilters>,
     mut fills: Query<(&RangeFill, &mut Node), (Without<RangeHandle>, Without<RangeBar>)>,
     mut handles: Query<(&RangeHandle, &mut Node), (Without<RangeFill>, Without<RangeBar>)>,
@@ -547,7 +547,8 @@ pub fn update_range_controls(
     let Some(source) = selected.entity() else {
         return;
     };
-    let properties = sources.get(source).ok();
+    let (properties, scale) = sources.get(source).ok().unzip();
+    let scale = scale.flatten();
     let filters = tables.get(source).ok();
     let range_of = |owner: RangeOwner, index: usize| range_of(owner, index, properties, filters);
 
@@ -578,7 +579,7 @@ pub fn update_range_controls(
         });
     }
 
-    let ramp = properties.and_then(CellProperties::ramp);
+    let ramp = properties.and_then(|properties| properties.ramp(scale));
     // Bars are redrawn as well as recolored: a histogram is counted again
     // among the cells the other filters admit whenever they change.
     for (bar, mut color, mut node) in &mut bars {

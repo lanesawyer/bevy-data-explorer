@@ -11,7 +11,7 @@ use crate::render::points::SourcePointSize;
 use crate::render::settings::SourceOpacity;
 use crate::source::channels::SourceChannels;
 use crate::source::properties::{
-    CellProperties, ColorOverrides, FilteredPoints, PropertyState, Provenance,
+    CellProperties, ColorOverrides, ColorScale, FilteredPoints, PropertyState, Provenance,
 };
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::table::{ColumnWidths, HiddenColumns, TableFilters, TablePaging, TableSort};
@@ -193,6 +193,7 @@ fn source_state(source: EntityRef, url: String) -> SourceState {
         opacity: source.get::<SourceOpacity>().map(|opacity| opacity.0),
         point_size: source.get::<SourcePointSize>().map(|size| size.0),
         filtered: source.get::<FilteredPoints>().map(FilteredPoints::saved),
+        scale: source.get::<ColorScale>().copied(),
         colors: source
             .get::<ColorOverrides>()
             .map(ColorOverrides::saved)

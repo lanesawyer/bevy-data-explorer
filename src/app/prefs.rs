@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::app::schedule::Stage;
-use crate::source::properties::{FilteredPoints, SavedFiltered};
+use crate::source::properties::{ColorScale, FilteredPoints, SavedFiltered};
 
 /// How many picked colors are kept to pick again: one row of the picker.
 pub const RECENT_COLORS: usize = 12;
@@ -82,6 +82,8 @@ pub struct Preferences {
     pub system_accent: bool,
     /// The colors last picked for values, newest first, in sRGB.
     pub recent_colors: Vec<[f32; 3]>,
+    /// How points colored by a numeric property are drawn, in every source.
+    pub color_scale: ColorScale,
 }
 
 /// A sign-in to the BKP Registry: what renews its token, and whose it is.
@@ -104,6 +106,7 @@ impl Default for Preferences {
             sources_off: BTreeSet::new(),
             system_accent: true,
             recent_colors: Vec::new(),
+            color_scale: ColorScale::default(),
         }
     }
 }

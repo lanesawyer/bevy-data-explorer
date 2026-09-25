@@ -425,6 +425,9 @@ pub fn apply_pending_settings(
         if let Some(filtered) = state.filtered.take() {
             commands.entity(entity).insert(filtered.restored());
         }
+        if let Some(scale) = state.scale.take() {
+            commands.entity(entity).insert(scale);
+        }
         // Kept by column and code rather than in the properties, so they need
         // not wait for a service to describe the cells.
         let colors = std::mem::take(&mut state.colors);

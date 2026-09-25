@@ -82,6 +82,11 @@ mod tests {
                     shown: false,
                     color: [0.25, 0.25, 0.25],
                 }),
+                scale: Some(crate::source::properties::ColorScale {
+                    gradient: crate::source::properties::Gradient::Turbo,
+                    reversed: true,
+                    whole_extent: false,
+                }),
                 colors: vec![crate::source::properties::SavedColor {
                     column: "class".into(),
                     code: 3,

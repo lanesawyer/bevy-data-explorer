@@ -22,6 +22,7 @@ use crate::app::theme::{Palette, ThemeMode};
 use crate::catalog::Catalogs;
 use crate::catalog::registry::login::{self, SignIn};
 use crate::catalog::registry::{self, AssetSample};
+use crate::source::properties::{CellProperties, ColorScale, Gradient};
 use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::ui::log_panel::LogPanel;
 use crate::widgets::space;
@@ -55,6 +56,63 @@ pub struct RememberLayoutBox;
 
 #[derive(Component, Clone, Default)]
 pub struct SystemAccentBox;
+
+#[derive(Component, Clone, Default)]
+pub struct ReverseGradientBox;
+
+#[derive(Component, Clone, Default)]
+pub struct WholeExtentBox;
+
+/// One button of the gradient choice.
+#[derive(Component, Clone, Copy, Default)]
+pub struct GradientOption(pub Gradient);
+
+/// The swatch of a gradient on its button, drawn the way round it is used.
+#[derive(Component, Clone, Copy, Default)]
+pub struct GradientStrip(pub Gradient);
+
+/// Gradients offered in a row.
+const GRADIENT_COLUMNS: u16 = 3;
+const STRIP_PX: f32 = 40.0;
+const STRIP_HEIGHT_PX: f32 = 10.0;
+
+/// `gradient` drawn left to right, or right to left when `reversed`.
+fn strip(gradient: Gradient, reversed: bool) -> BackgroundGradient {
+    const STOPS: usize = 16;
+    let stops = (0..STOPS)
+        .map(|step| {
+            let fraction = step as f32 / (STOPS - 1) as f32;
+            let along = if reversed { 1.0 - fraction } else { fraction };
+            ColorStop::new(gradient.sample(along), Val::Percent(fraction * 100.0))
+        })
+        .collect();
+    LinearGradient::to_right(stops).into()
+}
+
+/// A button of the gradient choice: its swatch, then its name.
+fn gradient_option(gradient: Gradient) -> impl Scene {
+    bsn! {
+        @FeathersButton {
+            @caption: { bsn_list![
+                (
+                    Node {
+                        width: { Val::Px(STRIP_PX) },
+                        height: { Val::Px(STRIP_HEIGHT_PX) },
+                        flex_shrink: { 0.0_f32 },
+                    }
+                    template_value(strip(gradient, false))
+                    template_value(GradientStrip(gradient))
+                ),
+                button_text(gradient.name()),
+            ] }
+        }
+        Node {
+            column_gap: { Val::Px(space::CONTROLS * 2.0) },
+            justify_content: { JustifyContent::Start },
+        }
+        template_value(GradientOption(gradient))
+    }
+}
 
 /// One button of the theme group.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -280,6 +338,8 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>, catalo
             ]
         })
         .id();
+    let gradients = spawn_gradient_section(&mut commands);
+    commands.entity(general).add_child(gradients);
     let sources = commands
         .spawn_scene(bsn! {
             template_value(SettingsPage::DataSources)
@@ -333,6 +393,65 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>, catalo
     commands
         .entity(modal.panel)
         .add_children(&[subtitle, pages]);
+}
+
+/// The gradient numeric coloring is drawn along, and how.
+fn spawn_gradient_section(commands: &mut Commands) -> Entity {
+    let options: Vec<Entity> = Gradient::ALL
+        .into_iter()
+        .map(|gradient| commands.spawn_scene(gradient_option(gradient)).id())
+        .collect();
+    let grid = commands
+        .spawn(Node {
+            display: Display::Grid,
+            grid_template_columns: vec![RepeatedGridTrack::flex(GRADIENT_COLUMNS, 1.0)],
+            column_gap: Val::Px(space::CONTROLS),
+            row_gap: Val::Px(space::CONTROLS),
+            ..default()
+        })
+        .add_children(&options)
+        .id();
+    let heading = commands
+        .spawn_scene(bsn! {
+            text("Gradient", size::DOCK_TITLE)
+            Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
+        })
+        .id();
+    let rest = commands
+        .spawn_scene(bsn! {
+            Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(space::ROWS) } }
+            Children [
+                label_dim(
+                    "What points colored by a number are drawn along, in every \
+                     dataset open and every one opened after."
+                ),
+                (
+                    @FeathersCheckbox {
+                        @caption: { bsn_list![button_text("Reverse the gradient")] }
+                    }
+                    ReverseGradientBox
+                ),
+                (
+                    @FeathersCheckbox {
+                        @caption: { bsn_list![button_text("Span the whole range, ignoring filters")] }
+                    }
+                    WholeExtentBox
+                ),
+                label_dim(
+                    "Narrowing a range then leaves every point the color it was, \
+                     rather than spreading the gradient over what is left."
+                ),
+            ]
+        })
+        .id();
+    commands
+        .spawn(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(space::ROWS),
+            ..default()
+        })
+        .add_children(&[heading, grid, rest])
+        .id()
 }
 
 /// A data source's name and what it offers, with the switch that turns it on
@@ -878,6 +997,111 @@ pub fn sync_settings(
     }
 }
 
+pub fn on_gradient_option(
+    activate: On<Activate>,
+    options: Query<&GradientOption>,
+    mut prefs: ResMut<Preferences>,
+) {
+    if let Ok(&GradientOption(gradient)) = options.get(activate.entity)
+        && prefs.color_scale.gradient != gradient
+    {
+        prefs.color_scale.gradient = gradient;
+    }
+}
+
+pub fn on_reverse_gradient(
+    change: On<ValueChange<bool>>,
+    boxes: Query<(), With<ReverseGradientBox>>,
+    mut prefs: ResMut<Preferences>,
+) {
+    if boxes.contains(change.source) && prefs.color_scale.reversed != change.value {
+        prefs.color_scale.reversed = change.value;
+    }
+}
+
+pub fn on_whole_extent(
+    change: On<ValueChange<bool>>,
+    boxes: Query<(), With<WholeExtentBox>>,
+    mut prefs: ResMut<Preferences>,
+) {
+    if boxes.contains(change.source) && prefs.color_scale.whole_extent != change.value {
+        prefs.color_scale.whole_extent = change.value;
+    }
+}
+
+/// Mark the gradient chosen, draw each the way round it is used, and tick the
+/// boxes as the preferences stand.
+pub fn sync_gradient_controls(
+    mut commands: Commands,
+    prefs: Res<Preferences>,
+    mut options: Query<(&GradientOption, &mut ButtonVariant)>,
+    mut strips: Query<(&GradientStrip, &mut BackgroundGradient)>,
+    boxes: Query<
+        (Entity, Has<Checked>, Has<ReverseGradientBox>),
+        Or<(With<ReverseGradientBox>, With<WholeExtentBox>)>,
+    >,
+    mut drawn_reversed: Local<Option<bool>>,
+) {
+    let scale = prefs.color_scale;
+    for (option, mut variant) in &mut options {
+        variant.set_if_neq(if option.0 == scale.gradient {
+            ButtonVariant::Primary
+        } else {
+            ButtonVariant::Normal
+        });
+    }
+    if *drawn_reversed != Some(scale.reversed) && !strips.is_empty() {
+        *drawn_reversed = Some(scale.reversed);
+        for (GradientStrip(gradient), mut drawn) in &mut strips {
+            *drawn = strip(*gradient, scale.reversed);
+        }
+    }
+    for (entity, checked, reverse) in &boxes {
+        let on = if reverse {
+            scale.reversed
+        } else {
+            scale.whole_extent
+        };
+        if on && !checked {
+            commands.entity(entity).insert(Checked);
+        } else if !on && checked {
+            commands.entity(entity).remove::<Checked>();
+        }
+    }
+}
+
+/// Every source with cells to color starts drawing them as the preferences
+/// say. A bookmark being restored may already have said otherwise, and wins.
+fn start_scale_from_preference(
+    mut commands: Commands,
+    prefs: Res<Preferences>,
+    sources: Query<Entity, (With<CellProperties>, Without<ColorScale>)>,
+) {
+    for source in &sources {
+        commands.entity(source).insert_if_new(prefs.color_scale);
+    }
+}
+
+/// Carry a change of preference to every source already open, unlike the
+/// point cloud defaults: this is a way of looking rather than how a dataset
+/// opens.
+///
+/// Watches the scale rather than the preferences, which change with every
+/// dock dragged, and would put back a scale a bookmark had just restored.
+fn follow_scale_preference(
+    prefs: Res<Preferences>,
+    mut sources: Query<&mut ColorScale>,
+    mut followed: Local<Option<ColorScale>>,
+) {
+    let scale = prefs.color_scale;
+    if followed.replace(scale).is_none_or(|was| was == scale) {
+        return;
+    }
+    for mut current in &mut sources {
+        current.set_if_neq(scale);
+    }
+}
+
 /// The settings screen and the button that opens it.
 pub struct SettingsPlugin;
 
@@ -893,17 +1117,32 @@ impl Plugin for SettingsPlugin {
             .add_observer(on_remember_layout)
             .add_observer(on_theme_option)
             .add_observer(on_system_accent)
+            .add_observer(on_gradient_option)
+            .add_observer(on_reverse_gradient)
+            .add_observer(on_whole_extent)
             .init_resource::<RegistryProbe>()
             .add_observer(on_forget_token)
             .add_observer(on_test_registry)
             .add_observer(on_sign_in)
             .add_systems(
                 Update,
-                (poll_registry_probe, poll_sign_in).in_set(Stage::ControlsApply),
+                (
+                    poll_registry_probe,
+                    poll_sign_in,
+                    start_scale_from_preference,
+                    follow_scale_preference,
+                )
+                    .in_set(Stage::ControlsApply),
             )
             .add_systems(
                 Update,
-                (sync_settings, sync_registry, sync_page, sync_sources)
+                (
+                    sync_settings,
+                    sync_gradient_controls,
+                    sync_registry,
+                    sync_page,
+                    sync_sources,
+                )
                     .in_set(Stage::ControlsPlace),
             )
             .add_systems(Startup, spawn_settings.in_set(Boot::Shell));
