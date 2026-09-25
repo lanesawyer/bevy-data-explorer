@@ -7,7 +7,8 @@
 //!
 //! It holds far too many assets to list — 17.8 million on 2026-09-21 — so it
 //! is a searched catalog: what is typed into a picker is matched against
-//! asset names, among only the types the viewer can open.
+//! asset names, among only the types the viewer can open. Before anything is
+//! typed, a picker is sent the first of those assets by name, to browse.
 //!
 //! Settings also has a test request, which logs a page of assets of any type.
 
@@ -36,12 +37,23 @@ pub const SAMPLE: usize = 25;
 /// a short page.
 const PAGE_MAX: usize = 50;
 
-/// The asset types that are OME-Zarr stores, from the 134 the registry
-/// declared on 2026-09-21. `NGFF` sounds like one and holds no assets. Every
-/// store sampled from both was Zarr v2 in a public bucket.
-const OME_ZARR: [(&str, &str); 2] = [
-    ("zarr fileset", "OME-Zarr"),
-    ("MIP zarr fileset", "OME-Zarr projection"),
+/// The asset types the viewer can open, from the 134 the registry declared on
+/// 2026-09-21: what each is called beside an entry, and what it is drawn as.
+///
+/// Every OME-Zarr store sampled was Zarr v2 in a public bucket. Every table
+/// sampled was in a private bucket or on a file share, so most will not open
+/// until reads can carry credentials.
+///
+/// Types holding no assets are left out, since asking for them alone is not
+/// merely empty: the registry scans every asset for them and times out at
+/// 30 s. `NGFF` sounds like OME-Zarr, and `TSV`, `Parquet` and `SVG` like
+/// things the viewer reads, and all four hold nothing. Nothing held is
+/// Scatterbrain, so the registry has no cells to offer.
+const KINDS: [(&str, &str, Category); 4] = [
+    ("zarr fileset", "OME-Zarr", Category::Image),
+    ("MIP zarr fileset", "OME-Zarr projection", Category::Image),
+    ("CSV", "CSV", Category::Table),
+    ("parquet", "Parquet", Category::Table),
 ];
 
 /// The token in the preferences, copied here so a search running off the
@@ -117,7 +129,7 @@ pub fn renew_token(mut prefs: ResMut<Preferences>, mut renewing: Local<Renewing>
     }
 }
 
-/// The registry, searched for OME-Zarr stores by name.
+/// The registry, searched by name for what the viewer can open.
 pub struct Registry {
     endpoint: String,
 }
@@ -159,26 +171,58 @@ impl Catalog for Registry {
         text: String,
         only: Option<Category>,
     ) -> BoxFuture<'static, Result<Found, String>> {
-        // Only images are searched for so far, so any other filter has
-        // nothing to ask about.
-        if only.is_some_and(|only| only != Category::Image) {
+        // A category the registry holds nothing of is not worth a request.
+        if categories(only).is_empty() {
             return Box::pin(async { Ok(Found::default()) });
         }
         let endpoint = self.endpoint.clone();
         let token = TOKEN.read().ok().and_then(|token| token.clone());
         Box::pin(async move {
             let token = token.ok_or("Sign in to the BKP Registry in Settings to search it")?;
-            search(&endpoint, &token, &text).await
+            search(&endpoint, &token, &text, only).await
         })
     }
 }
 
-async fn search(endpoint: &str, token: &str, text: &str) -> Result<Found, String> {
-    let types: Vec<&str> = OME_ZARR.iter().map(|(name, _)| *name).collect();
-    let body = serde_json::json!({
-        "query": SEARCH,
-        "variables": { "first": PAGE_MAX, "types": types, "text": text },
-    });
+/// The categories asked about for `only`, in the order they are listed.
+fn categories(only: Option<Category>) -> Vec<Category> {
+    Category::ALL
+        .into_iter()
+        .filter(|category| only.is_none_or(|only| only == *category))
+        .filter(|category| KINDS.iter().any(|(_, _, of)| of == category))
+        .collect()
+}
+
+/// Assets of the categories `only` names whose names hold `text`, or the
+/// first of them by name when `text` is empty.
+///
+/// Each category is asked for in a page of its own, splitting one page
+/// between them. Asked together, tables outnumber images five to one and
+/// their names sort first, so a picker showing everything would show only
+/// tables.
+async fn search(
+    endpoint: &str,
+    token: &str,
+    text: &str,
+    only: Option<Category>,
+) -> Result<Found, String> {
+    let categories = categories(only);
+    let first = PAGE_MAX / categories.len().max(1);
+    let mut query = String::from("query($first: Int");
+    let mut fields = String::new();
+    let mut variables = serde_json::Map::new();
+    variables.insert("first".into(), first.into());
+    for (at, category) in categories.iter().enumerate() {
+        query.push_str(&format!(", $where{at}: DataAssetFilterInput"));
+        fields.push_str(&format!(
+            "  c{at}: dataAssets(first: $first, order: [{{ name: ASC }}], where: $where{at}) {{{ASSETS}}}\n"
+        ));
+        variables.insert(format!("where{at}"), filter(*category, text));
+    }
+    query.push_str(") {\n");
+    query.push_str(&fields);
+    query.push('}');
+    let body = serde_json::json!({ "query": query, "variables": variables });
     let text = crate::app::net::post_json_bearer(endpoint, body.to_string(), token).await?;
     let page = parse_sample(&text)?;
     Ok(Found {
@@ -187,15 +231,23 @@ async fn search(endpoint: &str, token: &str, text: &str) -> Result<Found, String
     })
 }
 
-const SEARCH: &str = "query($first: Int, $types: [String], $text: String) {
-  dataAssets(
-    first: $first
-    order: [{ name: ASC }]
-    where: { and: [
-      { type: { name: { in: $types } } }
-      { name: { containsInsensitive: $text } }
-    ] }
-  ) {
+/// Assets of one category, and whose names hold `text` unless it is empty.
+fn filter(category: Category, text: &str) -> serde_json::Value {
+    let types: Vec<&str> = KINDS
+        .iter()
+        .filter(|(_, _, of)| *of == category)
+        .map(|(name, _, _)| *name)
+        .collect();
+    let of_type = serde_json::json!({ "type": { "name": { "in": types } } });
+    if text.is_empty() {
+        of_type
+    } else {
+        serde_json::json!({ "and": [of_type, { "name": { "containsInsensitive": text } }] })
+    }
+}
+
+/// What is read of each asset, by both the search and the test request.
+const ASSETS: &str = "
     totalCount
     pageInfo { hasNextPage endCursor }
     nodes {
@@ -206,50 +258,35 @@ const SEARCH: &str = "query($first: Int, $types: [String], $text: String) {
       tags
       instances { downloadUrl }
     }
-  }
-}";
+  ";
 
-/// An asset as a dataset to open, if it is stored anywhere.
+/// An asset as a dataset to open, if it is stored anywhere that can be read.
 ///
-/// Opened from its first copy. The others are kept as keywords, so it can be
-/// found by any of its buckets.
+/// Opened from its first copy with an address, since a copy on a file share
+/// (`//host/share/...`) or a mounted path is nothing to fetch. The others are
+/// kept as keywords, so it can be found by any of its buckets.
 fn entry(asset: Asset) -> Option<Entry> {
-    let mut urls = asset
+    let &(_, kind, category) = KINDS
+        .iter()
+        .find(|(name, _, _)| asset.kind.as_deref() == Some(*name))?;
+    let mut urls: Vec<String> = asset
         .instances
         .into_iter()
-        .map(|instance| instance.download_url);
-    let url = urls.next()?;
-    let kind = OME_ZARR
-        .iter()
-        .find(|(name, _)| asset.kind.as_deref() == Some(*name))
-        .map_or("Data asset", |(_, kind)| *kind);
+        .map(|instance| instance.download_url)
+        .collect();
+    let url = urls.remove(urls.iter().position(|url| url.contains("://"))?);
     let mut keywords: Vec<String> = vec![asset.status, asset.id];
     keywords.extend(asset.tags.into_iter().flatten().flatten());
     keywords.extend(urls);
     Some(Entry {
         name: asset.name,
         kind: kind.to_string(),
-        category: Category::Image,
+        category,
         url,
         keywords: keywords.join(" "),
         cells: None,
     })
 }
-
-const QUERY: &str = "query($first: Int) {
-  dataAssets(first: $first) {
-    totalCount
-    pageInfo { hasNextPage endCursor }
-    nodes {
-      id
-      name
-      type
-      status
-      tags
-      instances { downloadUrl }
-    }
-  }
-}";
 
 /// Enough of a token to tell which one is saved, and no more.
 pub fn token_hint(token: &str) -> String {
@@ -308,16 +345,18 @@ impl AssetSample {
 /// Ask for the first [`SAMPLE`] data assets.
 pub async fn sample_assets(endpoint: String, token: String) -> Result<AssetSample, String> {
     let body = serde_json::json!({
-        "query": QUERY,
+        "query": format!("query($first: Int) {{ dataAssets(first: $first) {{{ASSETS}}} }}"),
         "variables": { "first": SAMPLE },
     });
     let text = crate::app::net::post_json_bearer(&endpoint, body.to_string(), &token).await?;
     parse_sample(&text)
 }
 
+/// A page of assets under each name it was asked for: `dataAssets`, or one
+/// alias a category when searching.
 #[derive(Deserialize)]
 struct Response {
-    data: Option<Data>,
+    data: Option<BTreeMap<String, Option<Connection>>>,
     #[serde(default)]
     errors: Vec<GraphQlError>,
 }
@@ -332,12 +371,6 @@ struct GraphQlError {
 #[derive(Deserialize)]
 struct Extensions {
     code: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Data {
-    data_assets: Option<Connection>,
 }
 
 #[derive(Deserialize)]
@@ -373,15 +406,26 @@ fn parse_sample(text: &str) -> Result<AssetSample, String> {
             None => format!("BKP Registry: {}", error.message),
         });
     }
-    let connection = response
+    let connections: Vec<Connection> = response
         .data
-        .and_then(|data| data.data_assets)
-        .ok_or("BKP Registry: the response held no data assets")?;
-    Ok(AssetSample {
-        total: connection.total_count,
-        more: connection.page_info.has_next_page,
-        assets: connection.nodes,
-    })
+        .into_iter()
+        .flat_map(BTreeMap::into_values)
+        .flatten()
+        .collect();
+    if connections.is_empty() {
+        return Err("BKP Registry: the response held no data assets".into());
+    }
+    let mut sample = AssetSample {
+        total: 0,
+        more: false,
+        assets: Vec::new(),
+    };
+    for connection in connections {
+        sample.total += connection.total_count;
+        sample.more |= connection.page_info.has_next_page;
+        sample.assets.extend(connection.nodes);
+    }
+    Ok(sample)
 }
 
 #[cfg(test)]
@@ -394,7 +438,7 @@ mod tests {
         "totalCount": 812,
         "pageInfo": {"hasNextPage": true, "endCursor": "Mg=="},
         "nodes": [
-            {"id": "5b1e", "name": "Brain 1 OME-Zarr", "type": "OME_ZARR", "status": "PUBLISHED",
+            {"id": "5b1e", "name": "Brain 1 OME-Zarr", "type": "zarr fileset", "status": "PUBLISHED",
              "tags": ["mouse", null],
              "instances": [{"downloadUrl": "https://example.org/brain1.ome.zarr"}]},
             {"id": "7c2f", "name": "No type yet", "type": null, "status": "PENDING_REVIEW",
@@ -413,7 +457,7 @@ mod tests {
             "https://example.org/brain1.ome.zarr"
         );
         let kinds = sample.kinds();
-        assert_eq!(kinds["OME_ZARR"], 1);
+        assert_eq!(kinds["zarr fileset"], 1);
         assert_eq!(kinds["(no type)"], 1);
     }
 
@@ -434,6 +478,59 @@ mod tests {
         assert!(entry.url.starts_with("s3://cortex-aav-toolbox"));
         assert!(entry.keywords.contains("s3://allen-genetic-tools"));
         assert!(entry.keywords.contains("PUBLISHED"));
+    }
+
+    #[test]
+    fn each_category_is_its_own_page_and_a_file_share_is_not_an_address() {
+        // Two aliases, as a search of everything asks for them.
+        let text = r#"{"data":{
+            "c0": {"totalCount": 18695, "pageInfo": {"hasNextPage": true}, "nodes": [
+                {"id": "1", "name": "1104197092_OME_zarr_image_series", "type": "MIP zarr fileset",
+                 "status": "PUBLISHED", "tags": null,
+                 "instances": [{"downloadUrl": "s3://allen-genetic-tools/1104197092.zarr"}]}]},
+            "c1": {"totalCount": 80639, "pageInfo": {"hasNextPage": true}, "nodes": [
+                {"id": "2", "name": "codebook.csv", "type": "CSV", "status": "PENDING_REVIEW",
+                 "tags": null,
+                 "instances": [{"downloadUrl": "//10.128.133.8/MERSCOPENAS03_data/codebook.csv"}]},
+                {"id": "3", "name": "clusters.csv", "type": "CSV", "status": "PENDING_REVIEW",
+                 "tags": null, "instances": [
+                    {"downloadUrl": "//10.128.133.8/share/clusters.csv"},
+                    {"downloadUrl": "s3://aibs-taxonomies-internal/clusters.csv"}]}]}
+        }}"#;
+        let sample = parse_sample(text).unwrap();
+        assert_eq!(sample.total, 18695 + 80639);
+        let entries: Vec<Entry> = sample.assets.into_iter().filter_map(entry).collect();
+        let found: Vec<(&str, Category, &str)> = entries
+            .iter()
+            .map(|entry| (entry.kind.as_str(), entry.category, entry.url.as_str()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (
+                    "OME-Zarr projection",
+                    Category::Image,
+                    "s3://allen-genetic-tools/1104197092.zarr"
+                ),
+                (
+                    "CSV",
+                    Category::Table,
+                    "s3://aibs-taxonomies-internal/clusters.csv"
+                ),
+            ]
+        );
+        assert!(entries[1].keywords.contains("//10.128.133.8/share"));
+    }
+
+    #[test]
+    fn a_category_it_holds_nothing_of_is_not_asked_about() {
+        assert_eq!(categories(None), [Category::Image, Category::Table]);
+        assert!(categories(Some(Category::Cells)).is_empty());
+        assert!(categories(Some(Category::Annotations)).is_empty());
+        let browse = filter(Category::Table, "");
+        assert_eq!(browse["type"]["name"]["in"][1], "parquet");
+        let search = filter(Category::Image, "brain");
+        assert_eq!(search["and"][1]["name"]["containsInsensitive"], "brain");
     }
 
     #[test]
@@ -464,12 +561,30 @@ mod tests {
     fn a_live_search_finds_stores_that_open() {
         let token = std::env::var("BKPR_TOKEN").expect("BKPR_TOKEN");
         let token = token.trim();
-        let found = crate::app::net::block_on(search(STAGE, token, "1370718127")).unwrap();
+        let found = crate::app::net::block_on(search(STAGE, token, "1370718127", None)).unwrap();
         assert_eq!(found.total, 1);
         let entry = &found.entries[0];
         println!("{} — {}", entry.name, entry.url);
         crate::app::net::block_on(crate::formats::discover::discover(&entry.url))
             .expect("the store should open");
+    }
+
+    #[test]
+    #[ignore = "reads the live BKP Registry, with BKPR_TOKEN set"]
+    fn a_live_browse_sends_a_page_of_each_category() {
+        let token = std::env::var("BKPR_TOKEN").expect("BKPR_TOKEN");
+        let found = crate::app::net::block_on(search(STAGE, token.trim(), "", None)).unwrap();
+        println!("{} in all, {} sent", found.total, found.entries.len());
+        for category in [Category::Image, Category::Table] {
+            assert!(
+                found.entries.iter().any(|entry| entry.category == category),
+                "no {category:?} browsed"
+            );
+        }
+        let images =
+            crate::app::net::block_on(search(STAGE, token.trim(), "", Some(Category::Image)))
+                .unwrap();
+        assert_eq!(images.entries.len(), PAGE_MAX);
     }
 
     #[test]

@@ -19,7 +19,9 @@
 //!
 //! A catalog too large to list, such as the BKP Registry, is searched instead:
 //! it lists nothing, and is asked again whenever what is typed into a picker
-//! settles. What it answers replaces what it answered before.
+//! settles. What it answers replaces what it answered before. Until enough is
+//! typed to search for, it is asked for the first of what it holds, so a
+//! picker has something to browse before anyone knows what to type.
 //!
 //! A catalog may belong to a [`Provider`], which settings can turn off. One
 //! turned off offers nothing to a picker and is never searched, but is still
@@ -293,7 +295,8 @@ pub trait Catalog: Send + Sync + 'static {
     }
 
     /// What matches `text`, which is at least [`SEARCH_MIN_CHARS`] long, of
-    /// the category `only` when one is named.
+    /// the category `only` when one is named. An empty `text` asks for the
+    /// first of everything of that category, to browse.
     fn search(
         &self,
         _text: String,
@@ -312,8 +315,37 @@ pub struct Found {
 }
 
 /// The shortest text a searched catalog is asked about. Shorter matches too
-/// much to be worth a request.
+/// much to be worth a request, so it browses instead.
 pub const SEARCH_MIN_CHARS: usize = 3;
+
+/// What a searched catalog is asked: text to match, empty to browse, and the
+/// category to keep to.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Asked {
+    text: String,
+    only: Option<Category>,
+}
+
+impl Asked {
+    /// What a picker holding `text` asks, which is nothing but its category
+    /// until the text is long enough to search for.
+    fn new(text: &str, only: Option<Category>) -> Self {
+        let text = text.trim();
+        let text = if text.chars().count() < SEARCH_MIN_CHARS {
+            ""
+        } else {
+            text
+        };
+        Asked {
+            text: text.to_string(),
+            only,
+        }
+    }
+
+    fn browsing(&self) -> bool {
+        self.text.is_empty()
+    }
+}
 
 /// How long typing must pause before a searched catalog is asked, so a word
 /// is one request rather than one a letter.
@@ -341,10 +373,9 @@ struct Slot {
 
 /// A searched catalog's side of its slot.
 struct Search {
-    /// The text last asked about, whether or not it has answered, and the
-    /// category it was narrowed to.
-    asked: String,
-    asked_only: Option<Category>,
+    /// What was last asked, whether or not it has answered. Nothing until a
+    /// picker first wants something.
+    asked: Option<Asked>,
     asking: Option<Fetching<Result<Found, String>>>,
     /// How many matched the last answer, of which `entries` are the first.
     total: usize,
@@ -356,30 +387,39 @@ struct Search {
 }
 
 impl Search {
-    /// Whether what was last asked about holds everything `text` could
-    /// match in `only`, so its answer is worth showing for it.
-    fn answers(&self, text: &str, only: Option<Category>) -> bool {
-        self.asked.chars().count() >= SEARCH_MIN_CHARS
-            && (self.asked_only.is_none() || self.asked_only == only)
-            && text
-                .trim()
+    /// Whether what was last asked is worth showing for `wanted`: a search
+    /// holding everything it could match, or the very page it browses.
+    fn answers(&self, wanted: &Asked) -> bool {
+        let Some(asked) = &self.asked else {
+            return false;
+        };
+        if asked.browsing() || wanted.browsing() {
+            return asked == wanted;
+        }
+        (asked.only.is_none() || asked.only == wanted.only)
+            && wanted
+                .text
                 .to_lowercase()
-                .contains(&self.asked.to_lowercase())
+                .contains(&asked.text.to_lowercase())
     }
 
-    fn asked_for(&self, text: &str, only: Option<Category>) -> bool {
-        self.asked == text && self.asked_only == only
+    fn asked_for(&self, wanted: &Asked) -> bool {
+        self.asked.as_ref() == Some(wanted)
     }
 }
 
 /// What a picker shows under a searched catalog's heading, in place of or
 /// after its entries.
 pub enum SearchNote {
-    /// Nothing has been typed, or not enough.
-    TypeToSearch,
     Searching,
     /// More matched than were sent.
     Showing {
+        shown: usize,
+        total: usize,
+    },
+    /// Nothing has been typed, or not enough, and what it browses is the
+    /// first of more.
+    Browsing {
         shown: usize,
         total: usize,
     },
@@ -389,13 +429,13 @@ pub enum SearchNote {
 impl SearchNote {
     pub fn text(&self) -> String {
         match self {
-            SearchNote::TypeToSearch => {
-                format!("Type {SEARCH_MIN_CHARS} or more characters to search")
-            }
             SearchNote::Searching => "Searching\u{2026}".into(),
             SearchNote::Showing { shown, total } => {
                 format!("The first {shown} of {total} matches. Type more to narrow them.")
             }
+            SearchNote::Browsing { shown, total } => format!(
+                "The first {shown} of {total}. Type {SEARCH_MIN_CHARS} or more characters to search them all."
+            ),
             SearchNote::Failed(problem) => problem.clone(),
         }
     }
@@ -408,10 +448,9 @@ pub struct Catalogs {
     /// Bumped whenever any catalog's entries or notes change, so a list built
     /// from them can tell it is stale.
     generation: usize,
-    /// The search typed, the category it is narrowed to, and when either
-    /// last changed.
-    wanted: String,
-    wanted_only: Option<Category>,
+    /// What the picker last typed in wants, once one has wanted anything,
+    /// and when that last changed.
+    wanted: Option<Asked>,
     wanted_at: f32,
     /// The keys of the providers turned off.
     off: BTreeSet<String>,
@@ -422,8 +461,7 @@ impl Catalogs {
     pub fn add(&mut self, catalog: impl Catalog) {
         let provider = catalog.provider();
         let search = catalog.searched().then(|| Search {
-            asked: String::new(),
-            asked_only: None,
+            asked: None,
             asking: None,
             total: 0,
             problem: None,
@@ -456,8 +494,7 @@ impl Catalogs {
             {
                 // Forgotten, so it is asked afresh when turned back on.
                 search.asking = None;
-                search.asked.clear();
-                search.asked_only = None;
+                search.asked = None;
                 search.total = 0;
                 slot.entries.clear();
             }
@@ -479,10 +516,9 @@ impl Catalogs {
     /// Note what a picker's search now says. The searched catalogs are asked
     /// once it has sat still for a moment.
     pub fn want(&mut self, text: &str, only: Option<Category>, now: f32) {
-        let text = text.trim();
-        if self.wanted != text || self.wanted_only != only {
-            self.wanted = text.to_string();
-            self.wanted_only = only;
+        let wanted = Some(Asked::new(text, only));
+        if self.wanted != wanted {
+            self.wanted = wanted;
             self.wanted_at = now;
             self.generation += 1;
         }
@@ -494,28 +530,27 @@ impl Catalogs {
         text: &str,
         only: Option<Category>,
     ) -> Vec<(&str, Option<SearchNote>)> {
-        let text = text.trim();
+        let wanted = Asked::new(text, only);
         self.slots
             .iter()
             .filter(|slot| slot.on)
             .filter_map(|slot| {
                 let search = slot.search.as_ref()?;
-                let note = if text.chars().count() < SEARCH_MIN_CHARS {
-                    Some(SearchNote::TypeToSearch)
-                } else if self.wanted == text
-                    && self.wanted_only == only
-                    && (search.asking.is_some() || !search.asked_for(text, only))
+                let note = if self.wanted.as_ref() == Some(&wanted)
+                    && (search.asking.is_some() || !search.asked_for(&wanted))
                 {
                     Some(SearchNote::Searching)
-                } else if !search.answers(text, only) {
+                } else if !search.answers(&wanted) {
                     // Another picker's search, not this one's.
                     None
                 } else if let Some(problem) = &search.problem {
                     Some(SearchNote::Failed(problem.clone()))
                 } else if search.total > slot.entries.len() {
-                    Some(SearchNote::Showing {
-                        shown: slot.entries.len(),
-                        total: search.total,
+                    let (shown, total) = (slot.entries.len(), search.total);
+                    Some(if wanted.browsing() {
+                        SearchNote::Browsing { shown, total }
+                    } else {
+                        SearchNote::Showing { shown, total }
                     })
                 } else {
                     None
@@ -525,28 +560,29 @@ impl Catalogs {
             .collect()
     }
 
-    /// Ask each searched catalog about the text wanted, once typing has
+    /// Ask each searched catalog about what is wanted, once typing has
     /// paused. Asking again drops the request before, which stops it.
     fn search(&mut self, now: f32) {
+        let Some(wanted) = self.wanted.clone() else {
+            return;
+        };
         if now - self.wanted_at < SEARCH_AFTER_SECS {
             return;
         }
-        let text = self.wanted.clone();
-        let only = self.wanted_only;
-        let long_enough = text.chars().count() >= SEARCH_MIN_CHARS;
         for slot in self.slots.iter_mut().filter(|slot| slot.on) {
             let Some(search) = slot.search.as_mut() else {
                 continue;
             };
-            if search.asked_for(&text, only) {
+            if search.asked_for(&wanted) {
                 continue;
             }
-            search.asked = text.clone();
-            search.asked_only = only;
+            search.asked = Some(wanted.clone());
             search.problem = None;
             search.total = 0;
             slot.entries.clear();
-            search.asking = long_enough.then(|| fetching(slot.catalog.search(text.clone(), only)));
+            search.asking = Some(fetching(
+                slot.catalog.search(wanted.text.clone(), wanted.only),
+            ));
             self.generation += 1;
         }
     }
@@ -562,13 +598,13 @@ impl Catalogs {
             search.asking = None;
             match result {
                 Ok(found) => {
-                    info!(
-                        "{}: {} match \"{}\", {} sent",
-                        slot.name,
-                        found.total,
-                        search.asked,
-                        found.entries.len()
-                    );
+                    let asked = search.asked.as_ref().map_or("", |asked| &asked.text);
+                    let (total, sent) = (found.total, found.entries.len());
+                    if asked.is_empty() {
+                        info!("{}: browsing {sent} of {total}", slot.name);
+                    } else {
+                        info!("{}: {total} match \"{asked}\", {sent} sent", slot.name);
+                    }
                     for entry in &found.entries {
                         search.seen.insert(entry.url.clone(), entry.clone());
                     }
@@ -576,10 +612,8 @@ impl Catalogs {
                     slot.entries = found.entries;
                 }
                 Err(e) => {
-                    warn!(
-                        "{}: could not search for \"{}\": {e}",
-                        slot.name, search.asked
-                    );
+                    let asked = search.asked.as_ref().map_or("", |asked| &asked.text);
+                    warn!("{}: could not search for \"{asked}\": {e}", slot.name);
                     search.problem = Some(e);
                 }
             }
@@ -643,7 +677,7 @@ impl Catalogs {
                     && slot
                         .search
                         .as_ref()
-                        .is_none_or(|search| search.answers(query, only))
+                        .is_none_or(|search| search.answers(&Asked::new(query, only)))
             })
             .flat_map(|(catalog, slot)| {
                 slot.entries.iter().enumerate().map(move |(entry, found)| {
@@ -765,9 +799,11 @@ fn search_catalogs(mut catalogs: ResMut<Catalogs>, time: Res<Time>) {
     // Checked before writing, so a frame with nothing to do leaves the
     // resource unchanged.
     let now = time.elapsed_secs();
-    let due = catalogs.slots.iter().filter(|slot| slot.on).any(|slot| {
-        slot.search.as_ref().is_some_and(|search| {
-            search.asking.is_some() || !search.asked_for(&catalogs.wanted, catalogs.wanted_only)
+    let due = catalogs.wanted.as_ref().is_some_and(|wanted| {
+        catalogs.slots.iter().filter(|slot| slot.on).any(|slot| {
+            slot.search
+                .as_ref()
+                .is_some_and(|search| search.asking.is_some() || !search.asked_for(wanted))
         })
     });
     if due {
@@ -864,18 +900,67 @@ mod tests {
     }
 
     #[test]
+    fn a_searched_catalog_is_browsed_until_there_is_enough_to_search_for() {
+        let mut catalogs = Catalogs::default();
+        catalogs.add(Searched);
+        let mut now = 0.0;
+        catalogs.search(10.0);
+        assert!(
+            catalogs.slots[0].search.as_ref().unwrap().asking.is_none(),
+            "nothing is asked before a picker wants anything"
+        );
+
+        searched_for(&mut catalogs, "", &mut now);
+        assert_eq!(catalogs.len(), 1);
+        assert_eq!(
+            catalogs
+                .get(EntryId {
+                    catalog: 0,
+                    entry: 0
+                })
+                .unwrap()
+                .url,
+            "s3://bucket/"
+        );
+        assert!(matches!(
+            catalogs.search_notes("ab", None)[0].1,
+            Some(SearchNote::Browsing {
+                shown: 1,
+                total: 70
+            })
+        ));
+        assert_eq!(
+            catalogs.unopened(&[], "ab", None).count(),
+            1,
+            "too short to search, so what it browses is offered"
+        );
+        assert_eq!(
+            catalogs.unopened(&[], "", Some(Category::Table)).count(),
+            0,
+            "browsing everything does not answer for one category"
+        );
+
+        catalogs.want("ab", None, now);
+        assert!(
+            !matches!(
+                catalogs.search_notes("ab", None)[0].1,
+                Some(SearchNote::Searching)
+            ),
+            "a sliver of text browses what was already browsed"
+        );
+        catalogs.want("x", Some(Category::Table), now);
+        assert!(matches!(
+            catalogs.search_notes("", Some(Category::Table))[0].1,
+            Some(SearchNote::Searching)
+        ));
+    }
+
+    #[test]
     fn a_searched_catalog_answers_what_is_typed_and_remembers_what_it_found() {
         let mut catalogs = Catalogs::default();
         catalogs.add(Searched);
         assert!(!catalogs.listing());
         let mut now = 0.0;
-
-        searched_for(&mut catalogs, "ab", &mut now);
-        assert_eq!(catalogs.len(), 0, "too short to ask about");
-        assert!(matches!(
-            catalogs.search_notes("ab", None)[0].1,
-            Some(SearchNote::TypeToSearch)
-        ));
 
         searched_for(&mut catalogs, "brain", &mut now);
         assert_eq!(catalogs.len(), 1);
@@ -903,7 +988,6 @@ mod tests {
         );
 
         searched_for(&mut catalogs, "", &mut now);
-        assert_eq!(catalogs.len(), 0);
         assert!(
             catalogs.find("s3://bucket/brain").is_some(),
             "what was opened from a search is still named after it"
