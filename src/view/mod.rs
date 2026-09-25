@@ -27,6 +27,7 @@ pub mod loading;
 pub mod orbit;
 pub mod overlay;
 pub mod requests;
+pub mod scale_bar;
 pub mod select;
 pub mod table;
 
@@ -259,6 +260,7 @@ impl Plugin for ViewPlugin {
             overlay::OverlayPlugin,
             browse::BrowsePlugin,
             capture::CapturePlugin,
+            scale_bar::ScaleBarPlugin,
             table::TablePlugin,
         ))
         .add_message::<PanelRequest>()
