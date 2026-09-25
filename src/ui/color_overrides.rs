@@ -67,6 +67,27 @@ pub struct PickColor {
     pub code: u16,
 }
 
+/// A dot in the middle of a value's square, saying its color was picked
+/// rather than its own. Only the cell panel's squares carry one: everything in
+/// the list here is picked.
+#[derive(Component, Clone, Default)]
+#[require(Pickable::IGNORE, BackgroundColor)]
+#[require(Node = Node {
+    width: Val::Px(MARK_PX),
+    height: Val::Px(MARK_PX),
+    border_radius: BorderRadius::all(Val::Px(MARK_PX / 2.0)),
+    display: Display::None,
+    ..default()
+})]
+pub struct OverrideMark;
+
+/// Small enough to leave the color around it readable.
+const MARK_PX: f32 = 4.0;
+
+/// Above this lightness a mark is drawn dark, and below it light, so it shows
+/// on whatever was picked.
+const LIGHT: f32 = 0.6;
+
 /// The value the picker is open on, on which source.
 #[derive(Resource, Default)]
 pub struct Picking {
@@ -529,11 +550,13 @@ fn rebuild_used_colors(
     *shown = Some(prefs.recent_colors.clone());
 }
 
-/// Paint every square in the color its value is drawn in.
+/// Paint every square in the color its value is drawn in, and mark the ones
+/// whose color was picked.
 fn paint_swatches(
     selected: SelectedSource,
     sources: Query<(&CellProperties, &ColorOverrides)>,
-    mut squares: Query<(&PickColor, &mut BackgroundColor)>,
+    mut squares: Query<(&PickColor, &mut BackgroundColor), Without<OverrideMark>>,
+    mut marks: Query<(&ChildOf, &mut Node, &mut BackgroundColor), With<OverrideMark>>,
 ) {
     let Some((properties, overrides)) = selected.get(&sources) else {
         return;
@@ -541,6 +564,21 @@ fn paint_swatches(
     for (square, mut background) in &mut squares {
         let wanted = current(properties, overrides, &square.column, square.code);
         background.set_if_neq(BackgroundColor(wanted));
+    }
+    for (parent, node, mut background) in &mut marks {
+        let Ok(square) = squares.get(parent.parent()) else {
+            continue;
+        };
+        let picked = overrides.get(&square.0.column, square.0.code);
+        patch_node(node, |node| node.display = display(picked.is_some()));
+        if let Some(color) = picked {
+            let mark = if Hsla::from(color).lightness > LIGHT {
+                Color::BLACK
+            } else {
+                Color::WHITE
+            };
+            background.set_if_neq(BackgroundColor(mark));
+        }
     }
 }
 

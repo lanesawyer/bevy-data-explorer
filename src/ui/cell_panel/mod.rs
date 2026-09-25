@@ -49,7 +49,7 @@ use crate::source::properties::{
     PropertyValue, Provenance,
 };
 use crate::source::{DataSource, compact_count};
-use crate::ui::color_overrides::PickColor;
+use crate::ui::color_overrides::{OverrideMark, PickColor};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedSource;
 use crate::widgets::space;
@@ -376,6 +376,8 @@ pub fn spawn_value_row(
                 flex_shrink: { 0.0_f32 },
                 border_radius: { BorderRadius::all(Val::Px(2.0)) },
                 display: { Display::None },
+                justify_content: { JustifyContent::Center },
+                align_items: { AlignItems::Center },
             }
             ValueSwatch
             ValueColumn {
@@ -386,6 +388,7 @@ pub fn spawn_value_row(
                 column: { column.column.clone() },
                 code: { column.code },
             }
+            Children [ OverrideMark ]
         })
         .id();
     let boxed = commands
