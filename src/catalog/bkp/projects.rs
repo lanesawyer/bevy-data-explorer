@@ -16,6 +16,7 @@ use futures::future::BoxFuture;
 use serde::Deserialize;
 
 use super::PRODUCTION;
+use crate::app::graphql::{self, Response};
 use crate::catalog::{Catalog, Entry, Provider};
 use crate::source::Category;
 
@@ -75,11 +76,8 @@ impl Catalog for SpecimenTables {
 pub(super) async fn list(endpoint: String) -> Result<Vec<Entry>, String> {
     let mut entries = Vec::new();
     for page in 0..MAX_PAGES {
-        let body = serde_json::json!({
-            "query": QUERY,
-            "variables": { "limit": PAGE, "offset": page * PAGE },
-        });
-        let text = crate::app::net::post_json(&endpoint, body.to_string()).await?;
+        let variables = serde_json::json!({ "limit": PAGE, "offset": page * PAGE });
+        let text = graphql::post(&endpoint, QUERY, variables, None).await?;
         let (found, read) = parse_page(&endpoint, &text)?;
         entries.extend(found);
         // A short page is the last one, whether or not any of it qualified.
@@ -90,18 +88,6 @@ pub(super) async fn list(endpoint: String) -> Result<Vec<Entry>, String> {
     // The API's own order changes from one request to the next.
     entries.sort_by_key(|entry| entry.name.to_lowercase());
     Ok(entries)
-}
-
-#[derive(Deserialize)]
-struct Response {
-    data: Option<Data>,
-    #[serde(default)]
-    errors: Vec<GraphQlError>,
-}
-
-#[derive(Deserialize)]
-struct GraphQlError {
-    message: String,
 }
 
 #[derive(Deserialize)]
@@ -139,13 +125,10 @@ fn address(endpoint: &str, project: &str) -> String {
 
 /// The qualifying entries on a page, and how many projects the page held.
 fn parse_page(endpoint: &str, text: &str) -> Result<(Vec<Entry>, usize), String> {
-    let response: Response =
-        serde_json::from_str(text).map_err(|e| format!("parsing BKP projects: {e}"))?;
-    if let Some(error) = response.errors.first() {
-        return Err(format!("BKP projects: {}", error.message));
-    }
-    let projects = response
-        .data
+    let projects = Response::<Data>::parse(text)
+        .map_err(|e| format!("parsing BKP projects: {e}"))?
+        .strict()
+        .map_err(|error| format!("BKP projects: {}", error.message))?
         .and_then(|data| data.data_collection_project_inventory)
         .ok_or("BKP projects: the response held no projects")?;
 

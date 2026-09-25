@@ -102,15 +102,11 @@ fn http_base(url: &str) -> String {
     url.trim_end_matches('/').to_string()
 }
 
-fn is_http(source: &str) -> bool {
-    source.starts_with("http://") || source.starts_with("https://")
-}
-
 fn open_store(url: &str) -> Result<ReadStore, String> {
     // Both backends come from `object_store`, which is the one zarrs can drive
     // asynchronously. A read here is a future that can be dropped, which is
     // what lets a tile nobody is waiting for any more be given up on.
-    if is_http(url) {
+    if crate::app::net::is_http(url) {
         let base = http_base(url);
         let parsed = url::Url::parse(&base).map_err(|e| format!("reading {base}: {e}"))?;
         let store = zarrs_object_store::object_store::http::HttpBuilder::new()

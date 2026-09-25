@@ -10,6 +10,7 @@ use bevy::window::PresentMode;
 
 pub mod accent;
 pub mod export;
+pub mod graphql;
 pub mod logs;
 pub mod net;
 pub mod prefs;

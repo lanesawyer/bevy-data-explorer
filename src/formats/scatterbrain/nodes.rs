@@ -557,7 +557,7 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
 }
 
 async fn fetch(url: &str) -> Result<Vec<u8>, String> {
-    crate::app::net::fetch(url).await
+    crate::app::net::read(url).await
 }
 
 /// Build a node's mesh, coloring each point by its category or value in the

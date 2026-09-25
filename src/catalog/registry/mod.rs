@@ -22,6 +22,7 @@ use futures::future::BoxFuture;
 use serde::Deserialize;
 
 use super::{Catalog, Entry, Found, Provider};
+use crate::app::graphql::{self, Response};
 use crate::app::net::{Fetching, fetching};
 use crate::app::prefs::Preferences;
 use crate::source::Category;
@@ -222,8 +223,7 @@ async fn search(
     query.push_str(") {\n");
     query.push_str(&fields);
     query.push('}');
-    let body = serde_json::json!({ "query": query, "variables": variables });
-    let text = crate::app::net::post_json_bearer(endpoint, body.to_string(), token).await?;
+    let text = graphql::post(endpoint, &query, variables.into(), Some(token)).await?;
     let page = parse_sample(&text)?;
     Ok(Found {
         total: page.total,
@@ -344,34 +344,15 @@ impl AssetSample {
 
 /// Ask for the first [`SAMPLE`] data assets.
 pub async fn sample_assets(endpoint: String, token: String) -> Result<AssetSample, String> {
-    let body = serde_json::json!({
-        "query": format!("query($first: Int) {{ dataAssets(first: $first) {{{ASSETS}}} }}"),
-        "variables": { "first": SAMPLE },
-    });
-    let text = crate::app::net::post_json_bearer(&endpoint, body.to_string(), &token).await?;
+    let query = format!("query($first: Int) {{ dataAssets(first: $first) {{{ASSETS}}} }}");
+    let variables = serde_json::json!({ "first": SAMPLE });
+    let text = graphql::post(&endpoint, &query, variables, Some(&token)).await?;
     parse_sample(&text)
 }
 
 /// A page of assets under each name it was asked for: `dataAssets`, or one
 /// alias a category when searching.
-#[derive(Deserialize)]
-struct Response {
-    data: Option<BTreeMap<String, Option<Connection>>>,
-    #[serde(default)]
-    errors: Vec<GraphQlError>,
-}
-
-#[derive(Deserialize)]
-struct GraphQlError {
-    message: String,
-    #[serde(default)]
-    extensions: Option<Extensions>,
-}
-
-#[derive(Deserialize)]
-struct Extensions {
-    code: Option<String>,
-}
+type Pages = BTreeMap<String, Option<Connection>>;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -389,25 +370,18 @@ struct PageInfo {
 }
 
 fn parse_sample(text: &str) -> Result<AssetSample, String> {
-    let response: Response = serde_json::from_str(text).map_err(|e| {
+    let response = Response::<Pages>::parse(text).map_err(|e| {
         let start: String = text.chars().take(300).collect();
         format!("parsing BKP Registry data assets: {e}: {start}")
     })?;
-    if let Some(error) = response.errors.first() {
-        let code = error
-            .extensions
-            .as_ref()
-            .and_then(|extensions| extensions.code.as_deref());
-        return Err(match code {
-            Some(code) if code.starts_with("AUTH_") => {
-                "BKP Registry: not authorized. Sign in again in Settings.".to_string()
-            }
-            Some(code) => format!("BKP Registry: {} ({code})", error.message),
-            None => format!("BKP Registry: {}", error.message),
-        });
-    }
-    let connections: Vec<Connection> = response
-        .data
+    let pages = response.strict().map_err(|error| match error.code() {
+        Some(code) if code.starts_with("AUTH_") => {
+            "BKP Registry: not authorized. Sign in again in Settings.".to_string()
+        }
+        Some(code) => format!("BKP Registry: {} ({code})", error.message),
+        None => format!("BKP Registry: {}", error.message),
+    })?;
+    let connections: Vec<Connection> = pages
         .into_iter()
         .flat_map(BTreeMap::into_values)
         .flatten()

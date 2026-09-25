@@ -25,9 +25,9 @@ use std::collections::{BTreeMap, HashMap};
 
 use bevy::prelude::*;
 use serde::Deserialize;
-use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+use crate::app::graphql::{self, Response};
 use crate::app::net::{Fetching, fetching};
 use crate::app::schedule::Stage;
 use crate::source::SourceBusy;
@@ -98,40 +98,6 @@ const BUCKETS: usize = 20;
 /// `measurementStats` sits on `aio_specimenFacetedSearchProperties`, which
 /// answers with an empty list for every project.
 const WIDEN: f64 = 0.5;
-
-/// What the API says went wrong, which arrives beside the data rather than as
-/// a status.
-#[derive(Deserialize)]
-struct GraphQlError {
-    message: String,
-}
-
-/// An answer from the API: whatever data it could give, and what went wrong.
-#[derive(Deserialize)]
-struct Response<T> {
-    data: Option<T>,
-    #[serde(default)]
-    errors: Vec<GraphQlError>,
-}
-
-impl<T> Response<T> {
-    /// The data, or the first error if there is none. Errors beside data are
-    /// left for the caller, since some queries answer part of what they ask.
-    fn data(self, endpoint: &str) -> Result<T, String> {
-        self.data.ok_or_else(|| {
-            self.errors.first().map_or_else(
-                || format!("{endpoint} answered with no data"),
-                |error| error.message.clone(),
-            )
-        })
-    }
-}
-
-/// Send a query and read the answer.
-async fn post<T: DeserializeOwned>(endpoint: &str, body: Value) -> Result<Response<T>, String> {
-    let text = crate::app::net::post_json(endpoint, body.to_string()).await?;
-    serde_json::from_str(&text).map_err(|e| format!("parsing {endpoint}: {e}"))
-}
 
 /// The query parameter that names a project's specimens.
 const PARAMETER: &str = "specimens";
@@ -331,22 +297,15 @@ async fn ask(
     terms: &[TableFilterTerm],
     sort: Value,
 ) -> Result<Data, String> {
-    let body = json!({
-        "query": QUERY,
-        "variables": {
-            "project": [{ "field": "referenceId", "operator": "EQ", "value": project }],
-            "specimens": specimen_filters(project, terms),
-            "sort": sort,
-            "groupBy": ["projectReferenceIds"],
-            "limit": PAGE,
-            "offset": offset,
-        }
+    let variables = json!({
+        "project": [{ "field": "referenceId", "operator": "EQ", "value": project }],
+        "specimens": specimen_filters(project, terms),
+        "sort": sort,
+        "groupBy": ["projectReferenceIds"],
+        "limit": PAGE,
+        "offset": offset,
     });
-    let response: Response<Data> = post(endpoint, body).await?;
-    if let Some(error) = response.errors.first() {
-        return Err(error.message.clone());
-    }
-    response.data(endpoint)
+    graphql::ask(endpoint, QUERY, variables).await
 }
 
 /// Which columns a specimen table has, and in what order.
@@ -591,17 +550,15 @@ async fn ask_values(
         .join(" ");
     let query = format!("query($specimens: [Filter]) {{ {fields} }}");
 
-    let body = json!({
-        "query": query,
-        "variables": { "specimens": specimen_filters(project, &[]) }
-    });
-    let response: Response<BTreeMap<String, Option<Vec<Grouped>>>> = post(endpoint, body).await?;
+    let variables = json!({ "specimens": specimen_filters(project, &[]) });
+    let response: Response<BTreeMap<String, Option<Vec<Grouped>>>> =
+        graphql::answer(endpoint, &query, variables).await?;
     // A column the platform could not group by is reported beside the ones it
     // could, and costs only itself.
     for error in &response.errors {
         debug!("a column cannot be grouped by: {}", error.message);
     }
-    let answers = response.data(endpoint)?;
+    let answers = response.partial(endpoint)?;
 
     let mut filters = Vec::new();
     for (index, (id, name, numeric)) in columns.iter().enumerate() {
@@ -674,12 +631,9 @@ async fn ask_cumulative(
         .join(" ");
     let query = format!("query($specimens: [Filter]) {{ {fields} }}");
 
-    let body = json!({
-        "query": query,
-        "variables": { "specimens": filters },
-    });
-    let response: Response<BTreeMap<String, Option<Vec<Aggregate>>>> = post(endpoint, body).await?;
-    let answers = response.data(endpoint)?;
+    let response: Response<BTreeMap<String, Option<Vec<Aggregate>>>> =
+        graphql::answer(endpoint, &query, json!({ "specimens": filters })).await?;
+    let answers = response.partial(endpoint)?;
 
     Ok((0..edges.len())
         .map(|index| {
@@ -811,10 +765,9 @@ async fn ask_recount(
             })
             .collect();
 
-        let body = json!({ "query": query, "variables": variables });
         let response: Response<BTreeMap<String, Option<Vec<Grouped>>>> =
-            post(endpoint, body).await?;
-        let answers = response.data(endpoint)?;
+            graphql::answer(endpoint, &query, Value::Object(variables)).await?;
+        let answers = response.partial(endpoint)?;
         for (index, column) in values.into_iter().enumerate() {
             // A column that could not be counted keeps the counts it had.
             if let Some(Some(groups)) = answers.get(&format!("c{index}")) {
@@ -952,13 +905,10 @@ fn bucket_edges(seen: &[f64]) -> Vec<f64> {
     } else {
         (0.0, 1.0)
     };
-    // A column of one value throughout still needs a span to draw across.
-    let span = (high - low)
-        .max(f64::EPSILON)
-        .max(high.abs().max(1.0) * 1e-6);
-    let (low, high) = (low - span * WIDEN, high + span * WIDEN);
-    let step = (high - low) / BUCKETS as f64;
-    (0..=BUCKETS).map(|i| low + step * i as f64).collect()
+    // A column of one value throughout still needs a span to widen, or its
+    // value would sit on the lowest edge and be counted in no bucket.
+    let pad = (high - low).max(high.abs().max(1.0) * 1e-6) * WIDEN;
+    NumericRange::bucket_edges(low - pad, high + pad, BUCKETS)
 }
 
 /// How many rows fall between each pair of edges, from how many fall below

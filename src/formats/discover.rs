@@ -95,7 +95,7 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
 
     // Parquet is binary, but named by its extension all the same.
     if is_parquet(source) {
-        let bytes = fetch_bytes(source).await?;
+        let bytes = crate::app::net::read(source).await?;
         return crate::formats::parquet::parse::parse(
             &crate::formats::parquet::label_for(source),
             bytes,
@@ -156,25 +156,7 @@ fn unrecognised(source: &str, image: &str, points: &str) -> String {
 
 /// Read a source, over HTTP or off disk.
 pub async fn fetch_text(source: &str) -> Result<String, String> {
-    let source = &crate::formats::plain_url(source);
-    if is_http(source) {
-        crate::app::net::fetch_text(source).await
-    } else {
-        std::fs::read_to_string(source).map_err(|e| format!("reading {source}: {e}"))
-    }
-}
-
-/// Read a source whole as bytes, over HTTP or off disk.
-async fn fetch_bytes(source: &str) -> Result<Vec<u8>, String> {
-    if is_http(source) {
-        crate::app::net::fetch(source).await
-    } else {
-        std::fs::read(source).map_err(|e| format!("reading {source}: {e}"))
-    }
-}
-
-fn is_http(source: &str) -> bool {
-    source.starts_with("http://") || source.starts_with("https://")
+    crate::app::net::read_text(&crate::formats::plain_url(source)).await
 }
 
 fn is_json(source: &str) -> bool {

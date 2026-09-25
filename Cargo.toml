@@ -19,7 +19,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 # The runtime the reads are driven by. Reqwest's futures register with tokio's
 # reactor, so something has to be driving one; this is also what makes a read
 # abortable, which is the whole point of doing them asynchronously.
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "io-util", "fs"] }
 # Half-precision floats, for channel intensities kept on the GPU unmixed.
 # Already in the tree through bevy_image.
 half = "2"

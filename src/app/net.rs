@@ -86,8 +86,34 @@ pub fn block_on<T>(work: impl Future<Output = T>) -> T {
     runtime().block_on(work)
 }
 
-/// Fetch a whole file.
-pub async fn fetch(url: &str) -> Result<Vec<u8>, String> {
+/// Whether `source` is read over HTTP rather than off disk.
+pub fn is_http(source: &str) -> bool {
+    source.starts_with("http://") || source.starts_with("https://")
+}
+
+/// Read a whole file, over HTTP or off disk.
+pub async fn read(source: &str) -> Result<Vec<u8>, String> {
+    if is_http(source) {
+        fetch(source).await
+    } else {
+        tokio::fs::read(source)
+            .await
+            .map_err(|e| format!("reading {source}: {e}"))
+    }
+}
+
+/// Read a whole file as text, over HTTP or off disk.
+pub async fn read_text(source: &str) -> Result<String, String> {
+    if is_http(source) {
+        fetch_text(source).await
+    } else {
+        tokio::fs::read_to_string(source)
+            .await
+            .map_err(|e| format!("reading {source}: {e}"))
+    }
+}
+
+async fn fetch(url: &str) -> Result<Vec<u8>, String> {
     let response = client()
         .get(url)
         .send()
@@ -105,17 +131,8 @@ pub async fn fetch(url: &str) -> Result<Vec<u8>, String> {
 ///
 /// The answer is read whatever the status, because a GraphQL error arrives as
 /// a 500 with the reason in the body; the status is only reported when the
-/// body says nothing better.
-pub async fn post_json(url: &str, body: String) -> Result<String, String> {
-    post(url, body, None).await
-}
-
-/// [`post_json`] for an API that wants a bearer token.
-pub async fn post_json_bearer(url: &str, body: String, token: &str) -> Result<String, String> {
-    post(url, body, Some(token)).await
-}
-
-async fn post(url: &str, body: String, token: Option<&str>) -> Result<String, String> {
+/// body says nothing better. A `token` is sent as a bearer.
+pub async fn post_json(url: &str, body: String, token: Option<&str>) -> Result<String, String> {
     let mut request = client()
         .post(url)
         .header("content-type", "application/json")
@@ -139,8 +156,7 @@ async fn post(url: &str, body: String, token: Option<&str>) -> Result<String, St
     Ok(text)
 }
 
-/// Fetch a whole file as text.
-pub async fn fetch_text(url: &str) -> Result<String, String> {
+async fn fetch_text(url: &str) -> Result<String, String> {
     let response = client()
         .get(url)
         .send()

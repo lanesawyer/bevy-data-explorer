@@ -214,11 +214,7 @@ pub fn tile_texture(pixels: TilePixels) -> Image {
 
 /// Fetch and decode one tile.
 pub async fn read_tile(url: &str) -> Result<TilePixels, String> {
-    let bytes = if url.starts_with("http://") || url.starts_with("https://") {
-        crate::app::net::fetch(url).await?
-    } else {
-        std::fs::read(url).map_err(|e| format!("reading {url}: {e}"))?
-    };
+    let bytes = crate::app::net::read(url).await?;
     decode(&bytes).map_err(|e| format!("decoding {url}: {e}"))
 }
 

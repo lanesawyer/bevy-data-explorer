@@ -23,9 +23,9 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use futures::future::{BoxFuture, join_all, try_join3};
 use serde::Deserialize;
-use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+use crate::app::graphql::ask;
 use crate::catalog::{CellCounts, CellRecord, DescribeCells, RegionFocus};
 use crate::source::genes::Gene;
 use crate::source::properties::{
@@ -525,35 +525,6 @@ fn cell_filter(property: &CellProperty) -> Option<Value> {
     Some(json!(conditions))
 }
 
-/// Ask one GraphQL question and take its `data`.
-async fn ask<T: DeserializeOwned>(
-    endpoint: &str,
-    query: &str,
-    variables: Value,
-) -> Result<T, String> {
-    #[derive(Deserialize)]
-    struct Response<T> {
-        data: Option<T>,
-        #[serde(default)]
-        errors: Vec<Error>,
-    }
-    #[derive(Deserialize)]
-    struct Error {
-        message: String,
-    }
-
-    let body = json!({ "query": query, "variables": variables });
-    let text = crate::app::net::post_json(endpoint, body.to_string()).await?;
-    let response: Response<T> =
-        serde_json::from_str(&text).map_err(|e| format!("parsing BKP answer: {e}"))?;
-    if let Some(error) = response.errors.first() {
-        return Err(error.message.clone());
-    }
-    response
-        .data
-        .ok_or_else(|| "BKP answered with no data".into())
-}
-
 const DISPLAY: &str = "query($filter: DisplayPropertyFilter!) {
   getDisplayProperty(displayPropertyFilter: $filter) {
     ... on DatasetDisplayProperty {
@@ -801,15 +772,11 @@ async fn histogram(
 ///
 /// The API's ranges are half-open, including their low end and not their high
 /// one, so the last edge sits just past the maximum to keep the cells holding
-/// it. A column with one value throughout gets a unit's width to count in.
+/// it.
 fn bucket_edges((low, high): (f32, f32)) -> Vec<f64> {
-    let low = f64::from(low);
-    let span = (f64::from(high) - low).max(f64::EPSILON);
-    let mut edges: Vec<f64> = (0..=BUCKETS)
-        .map(|i| low + span * i as f64 / BUCKETS as f64)
-        .collect();
-    let last = edges.len() - 1;
-    edges[last] += span.max(1.0) * 1e-6;
+    let mut edges = NumericRange::bucket_edges(f64::from(low), f64::from(high), BUCKETS);
+    let span = edges[BUCKETS] - edges[0];
+    edges[BUCKETS] += span.max(1.0) * 1e-6;
     edges
 }
 

@@ -21,6 +21,7 @@ use serde::Deserialize;
 
 use super::examples::Example;
 use super::{Catalog, CellService, Entry, Provider};
+use crate::app::graphql::{self, Response};
 use crate::source::Category;
 
 pub const PRODUCTION: &str = "https://idf-api-prod.aibs-idk-prod.net/";
@@ -155,14 +156,9 @@ async fn list(endpoint: String) -> Result<Vec<Entry>, String> {
     let mut entries = Vec::new();
     let mut after = None;
     for _ in 0..MAX_PAGES {
-        let body = serde_json::json!({
-            "query": QUERY,
-            "variables": { "first": PAGE, "after": after },
-        });
-        let (page, next) = parse_page(
-            &endpoint,
-            &crate::app::net::post_json(&endpoint, body.to_string()).await?,
-        )?;
+        let variables = serde_json::json!({ "first": PAGE, "after": after });
+        let text = graphql::post(&endpoint, QUERY, variables, None).await?;
+        let (page, next) = parse_page(&endpoint, &text)?;
         entries.extend(page);
         after = next;
         if after.is_none() {
@@ -172,18 +168,6 @@ async fn list(endpoint: String) -> Result<Vec<Entry>, String> {
     // The API's own order changes from one request to the next.
     entries.sort_by_key(|entry| entry.name.to_lowercase());
     Ok(entries)
-}
-
-#[derive(Deserialize)]
-struct Response {
-    data: Option<Data>,
-    #[serde(default)]
-    errors: Vec<GraphQlError>,
-}
-
-#[derive(Deserialize)]
-struct GraphQlError {
-    message: String,
 }
 
 #[derive(Deserialize)]
@@ -228,13 +212,10 @@ struct Visualization {
 
 /// One page's entries, and the cursor for the next page if there is one.
 fn parse_page(endpoint: &str, text: &str) -> Result<(Vec<Entry>, Option<String>), String> {
-    let response: Response =
-        serde_json::from_str(text).map_err(|e| format!("parsing BKP datasets: {e}"))?;
-    if let Some(error) = response.errors.first() {
-        return Err(format!("BKP datasets: {}", error.message));
-    }
-    let connection = response
-        .data
+    let connection = Response::<Data>::parse(text)
+        .map_err(|e| format!("parsing BKP datasets: {e}"))?
+        .strict()
+        .map_err(|error| format!("BKP datasets: {}", error.message))?
         .and_then(|data| data.bkp_datasets)
         .ok_or("BKP datasets: the response held no datasets")?;
 

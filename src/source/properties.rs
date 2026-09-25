@@ -66,6 +66,20 @@ impl NumericRange {
         }
     }
 
+    /// The `buckets + 1` edges of equal buckets across `low..=high`, the
+    /// shape every histogram here is counted in.
+    ///
+    /// A column of one value throughout still gets a sliver of span, so its
+    /// edges stay distinct and it has a bucket to count in.
+    pub fn bucket_edges(low: f64, high: f64, buckets: usize) -> Vec<f64> {
+        let span = (high - low)
+            .max(f64::EPSILON)
+            .max(high.abs().max(1.0) * 1e-6);
+        (0..=buckets)
+            .map(|i| low + span * i as f64 / buckets as f64)
+            .collect()
+    }
+
     /// Whether the chosen span is narrower than the data's full extent.
     pub fn restricts(&self) -> bool {
         self.from > self.low || self.to < self.high
