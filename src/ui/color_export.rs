@@ -34,7 +34,7 @@ pub struct ExportColors {
 /// A download button in `header` opening a menu that says what it exports,
 /// and offers it in each format.
 pub fn spawn_export_menu(commands: &mut Commands, header: Entity, overrides_only: bool) {
-    let (_, menu) = spawn_icon_menu(commands, header, Icon::Download, false);
+    let (_, menu) = spawn_icon_menu(commands, header, Icon::Download);
     let (title, description) = if overrides_only {
         (
             "Export color overrides",

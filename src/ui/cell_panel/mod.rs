@@ -310,7 +310,7 @@ pub fn rebuild_cell_panel(
         // A tree colors by one of its levels, so its button opens a menu of
         // them.
         let button = if let Some(tree) = property.tree() {
-            let (button, menu) = spawn_icon_menu(&mut commands, sub.header, Icon::Palette, true);
+            let (button, menu) = spawn_icon_menu(&mut commands, sub.header, Icon::Palette);
             // The popup is a root of its own, not under the section, so a
             // rebuild has to be told to take it too.
             commands.entity(menu).insert(CellPanelContent);

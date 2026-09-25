@@ -34,6 +34,14 @@ gets a file of its own there, re-exported from `widgets/mod.rs`.
   never redraws, and snaps the value to where the track was clicked.
 - **Button captions** use `button_text`, not `label`, or the text stays dark
   on a dark button in the light theme.
+- **A button that opens a menu** is `spawn_menu` (the ellipsis) or
+  `spawn_icon_menu` (any other icon, always followed by a chevron). The
+  ellipsis already says "menu"; any other icon reads as acting when pressed,
+  so the chevron is what warns it opens something instead. Never put a
+  `MenuButton` on a plain `spawn_header_button`, and never add a chevron to a
+  button that acts directly. A control that changes behavior by case — the
+  palette toggles on a flat property and picks a level on a tree — takes the
+  chevron only in the case that opens a menu.
 - **Icons** come from `Icon` (Lucide). The bundled text font has no icon
   glyphs, so anything else renders as a question mark.
 - **Colors** are theme tokens (`ThemeBackgroundColor`, `ThemeTextColor`),

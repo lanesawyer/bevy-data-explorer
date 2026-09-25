@@ -64,59 +64,58 @@ const MENU_MIN_HEIGHT: f32 = 120.0;
 /// the sidebar and a frame's header clip their contents and a menu is meant to
 /// overhang them.
 pub fn spawn_menu(commands: &mut Commands, parent: Entity) -> Entity {
-    spawn_icon_menu(commands, parent, Icon::Ellipsis, false).1
+    let menu = spawn_popup(commands);
+    let button = commands
+        .spawn_scene(bsn! {
+            @FeathersToolButton {
+                @caption: { bsn_list![button_icon(Icon::Ellipsis)] }
+            }
+            BlocksFrameInput
+            MenuButton { menu: { menu } }
+        })
+        .id();
+    anchor(commands, parent, button, menu);
+    menu
 }
 
-/// [`spawn_menu`] behind a button showing `icon`, returning the button and the
-/// popup.
+/// [`spawn_menu`] behind a button showing `icon` and a small chevron, returning
+/// the button and the popup.
 ///
-/// With `caret`, a small chevron follows the icon, for a menu that picks one
-/// of several values rather than offering actions — which is what sets it
-/// apart from the plain icon buttons beside it.
-pub fn spawn_icon_menu(
-    commands: &mut Commands,
-    parent: Entity,
-    icon: Icon,
-    caret: bool,
-) -> (Entity, Entity) {
+/// Only the ellipsis says "menu" by itself. Any other icon reads as a button
+/// that acts when pressed, so the chevron is what warns that this one opens
+/// something instead — and it is not optional, so no menu goes without it.
+pub fn spawn_icon_menu(commands: &mut Commands, parent: Entity, icon: Icon) -> (Entity, Entity) {
     let menu = spawn_popup(commands);
-    let button = if caret {
-        commands
-            .spawn_scene(bsn! {
-                @FeathersToolButton {
-                    @caption: { bsn_list![
-                        button_icon(icon),
-                        (
-                            button_icon(Icon::ChevronDown)
-                            TextFont { font_size: { FontSize::Px(10.0) } }
-                        ),
-                    ] }
-                }
-                BlocksFrameInput
-                MenuButton { menu: { menu } }
-                Node { column_gap: { Val::Px(space::SEAM) } }
-            })
-            .id()
-    } else {
-        commands
-            .spawn_scene(bsn! {
-                @FeathersToolButton {
-                    @caption: { bsn_list![button_icon(icon)] }
-                }
-                BlocksFrameInput
-                MenuButton { menu: { menu } }
-            })
-            .id()
-    };
+    let button = commands
+        .spawn_scene(bsn! {
+            @FeathersToolButton {
+                @caption: { bsn_list![
+                    button_icon(icon),
+                    (
+                        button_icon(Icon::ChevronDown)
+                        TextFont { font_size: { FontSize::Px(10.0) } }
+                    ),
+                ] }
+            }
+            BlocksFrameInput
+            MenuButton { menu: { menu } }
+            Node { column_gap: { Val::Px(space::SEAM) } }
+        })
+        .id();
+    anchor(commands, parent, button, menu);
+    (button, menu)
+}
 
+fn anchor(commands: &mut Commands, parent: Entity, button: Entity, menu: Entity) {
     commands.entity(parent).add_child(button);
     commands.entity(menu).insert(MenuAnchor { button });
-    (button, menu)
 }
 
 /// A closed popup of its own, for a caller that anchors it with a
 /// [`MenuAnchor`] and opens it itself — one popup that moves between several
-/// buttons, rather than a button apiece.
+/// buttons, rather than a button apiece. That popup opens from something that
+/// already looks like it opens one, such as a color swatch; an icon button
+/// opening a menu goes through [`spawn_icon_menu`] for its chevron.
 pub fn spawn_popup(commands: &mut Commands) -> Entity {
     commands
         .spawn_scene(bsn! {
