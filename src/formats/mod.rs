@@ -17,6 +17,7 @@ pub mod slices;
 pub mod specimens;
 pub mod svg;
 pub mod table;
+pub mod table_filters;
 pub mod tiles;
 
 use bevy::prelude::*;

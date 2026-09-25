@@ -16,8 +16,10 @@ use bevy::prelude::*;
 
 use crate::app::schedule::Stage;
 use crate::source::table::{
-    ColumnWidths, HiddenColumns, SourceTable, TableColumn, TablePaging, TableSort,
+    ColumnWidths, HiddenColumns, SourceTable, TableColumn, TableFilters, TablePaging, TableSort,
 };
+
+use super::table_filters::{FilterIndex, narrow, offer, take_counts};
 use crate::source::{self, SourceExtent, SourceStatus};
 
 /// Rows kept, past which a table is read as far as this and says so.
@@ -51,6 +53,10 @@ pub struct Table {
     /// and the one where the rows can be counted.
     pub total: Option<usize>,
     pub rows: SourceTable,
+    /// What a table read whole can be narrowed by, worked out as it is read
+    /// rather than as it opens, so a large one costs the reading task and not
+    /// a frame.
+    pub filters: Option<(TableFilters, FilterIndex)>,
 }
 
 impl Table {
@@ -66,7 +72,9 @@ impl Table {
         rows: Vec<Vec<String>>,
         note: Option<String>,
     ) -> Table {
-        Table::paged(name, detail, headers, rows, note, None)
+        let mut table = Table::paged(name, detail, headers, rows, note, None);
+        table.filters = Some(offer(&table.rows.columns, &table.rows.rows));
+        table
     }
 
     /// A table whose rows are a page of `total`, read from somewhere that will
@@ -103,6 +111,7 @@ impl Table {
             detail: detail.into(),
             note,
             total,
+            filters: None,
             rows: SourceTable {
                 first: 0,
                 columns: headers
@@ -133,15 +142,22 @@ pub struct WholeTable {
     /// In the order they were read, which is what a table goes back to when
     /// it is no longer sorted.
     pub rows: Vec<Vec<String>>,
-    /// Where each row falls as the table is sorted now: `rows[order[0]]` is
-    /// the first on the first page.
+    /// Where each row falls as the table is sorted now.
     pub order: Vec<usize>,
+    /// Which rows the filters admit, by where they were read.
+    admitted: Vec<bool>,
+    /// The rows on offer, in `order` and admitted: `rows[shown[0]]` is the
+    /// first on the first page.
+    shown: Vec<usize>,
 }
 
 impl WholeTable {
     fn new(rows: Vec<Vec<String>>) -> Self {
+        let order: Vec<usize> = (0..rows.len()).collect();
         WholeTable {
-            order: (0..rows.len()).collect(),
+            admitted: vec![true; rows.len()],
+            shown: order.clone(),
+            order,
             rows,
         }
     }
@@ -153,6 +169,9 @@ impl WholeTable {
 /// Slicing rather than fetching, because this serves the tables that were
 /// read whole. The page is clamped here rather than where it is written, so a
 /// frame asking past the end lands on the last page instead of an empty one.
+///
+/// Narrowed here too, and the filters counted again, whenever what is chosen
+/// in them changes; a change that was only to their counts is let pass.
 fn serve_pages(
     mut tables: Query<
         (
@@ -160,13 +179,42 @@ fn serve_pages(
             &mut TablePaging,
             &mut SourceTable,
             Ref<TableSort>,
+            Option<(&mut TableFilters, &mut FilterIndex)>,
         ),
-        Or<(Changed<TablePaging>, Changed<TableSort>)>,
+        Or<(
+            Changed<TablePaging>,
+            Changed<TableSort>,
+            Changed<TableFilters>,
+        )>,
     >,
 ) {
-    for (mut whole, mut paging, mut rows, sort) in &mut tables {
+    for (mut whole, mut paging, mut rows, sort, filtered) in &mut tables {
+        let mut reshown = sort.is_changed();
         if sort.is_changed() {
             whole.order = order_of(&whole.rows, &rows.columns, &sort);
+        }
+        if let Some((filters, mut index)) = filtered {
+            let terms = filters.chosen();
+            if index.applied.as_ref() != Some(&terms) {
+                let narrowed = narrow(&filters, &index, whole.rows.len());
+                whole.admitted = narrowed.admitted;
+                take_counts(filters, narrowed.counts);
+                index.applied = Some(terms);
+                reshown = true;
+            }
+        }
+        if reshown {
+            let shown: Vec<usize> = whole
+                .order
+                .iter()
+                .copied()
+                .filter(|&row| whole.admitted[row])
+                .collect();
+            whole.shown = shown;
+            let total = Some(whole.shown.len());
+            if paging.total != total {
+                paging.total = total;
+            }
         }
         let page = paging.clamped(paging.page);
         if page != paging.page {
@@ -174,7 +222,7 @@ fn serve_pages(
         }
         let first = paging.first();
         let wanted: Vec<Vec<String>> = whole
-            .order
+            .shown
             .iter()
             .skip(first)
             .take(paging.size)
@@ -305,6 +353,9 @@ pub fn spawn_source(world: &mut World, table: Table) -> Entity {
         let whole = std::mem::take(&mut page.rows);
         page.rows = whole.iter().take(PAGE_ROWS).cloned().collect();
         entity.insert(WholeTable::new(whole));
+        if let Some(filters) = table.filters {
+            entity.insert(filters);
+        }
     }
     entity.insert(page);
     source
@@ -402,6 +453,43 @@ mod tests {
         let paging = world.get::<TablePaging>(source).unwrap();
         assert_eq!(paging.pages(), Some(2));
         assert_eq!(paging.page, 0);
+    }
+
+    #[test]
+    fn ticking_a_value_serves_only_its_rows_and_counts_the_rest_again() {
+        let mut app = App::new();
+        app.add_systems(Update, serve_pages);
+        let rows: Vec<Vec<String>> = (0..250)
+            .map(|row| {
+                let kind = if row % 5 == 0 { "rare" } else { "common" };
+                vec![kind.to_string(), row.to_string()]
+            })
+            .collect();
+        let table = Table::new("t", "test", headers(&["kind", "n"]), rows, None);
+        let source = spawn_source(app.world_mut(), table);
+        app.update();
+
+        let mut filters = app.world_mut().get_mut::<TableFilters>(source).unwrap();
+        assert_eq!(filters.columns.len(), 2);
+        let rare = &mut filters.columns[0].listed_mut()[1];
+        assert_eq!((rare.label.as_str(), rare.count), ("rare", 50));
+        rare.chosen = true;
+        app.update();
+
+        let world = app.world();
+        let page = world.get::<SourceTable>(source).unwrap();
+        assert!(page.rows.iter().all(|row| row[0] == "rare"));
+        assert_eq!(page.rows.len(), 50);
+        assert_eq!(world.get::<TablePaging>(source).unwrap().total, Some(50));
+        let filters = world.get::<TableFilters>(source).unwrap();
+        let counts: Vec<u64> = filters.columns[0]
+            .listed()
+            .iter()
+            .map(|it| it.count)
+            .collect();
+        assert_eq!(counts, [0, 50], "an unticked value holds no row on screen");
+        let histogram = &filters.columns[1].span().unwrap().histogram;
+        assert_eq!(histogram.iter().sum::<u32>(), 50);
     }
 
     #[test]

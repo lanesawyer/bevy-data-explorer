@@ -86,7 +86,9 @@ place writes a `SourceTable` and draws nothing at all. `TablePaging`,
 `TableSort` and `TableFilters` beside it are more questions of the same kind:
 the frame's buttons write the page, its headings the sort, and the sidebar
 ticks the values, and whatever produced the rows serves them —
-`formats/table.rs` slices and sorts a table it read whole,
+`formats/table.rs` slices, sorts and narrows a table it read whole
+(`formats/table_filters.rs` indexes its columns as it is read, so narrowing
+never touches a string),
 `formats/specimens.rs` fetches one sorted and narrowed at the platform.
 `HiddenColumns` is the frame's alone: no format reads it. Neither
 knows about the controls, and `ui/table_filters.rs` names no format: a second

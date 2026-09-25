@@ -22,7 +22,10 @@ as you zoom. Five formats are supported so far:
 - **CSV and TSV tables**: delimited text shown as a table filling its frame,
   with a header that stays put and scrollbars, for the metadata that comes
   alongside the imagery — gene panels, region lists, cell annotations. Read
-  whole, but only the rows on screen are built.
+  whole, but only the rows on screen are built. The sidebar narrows one the
+  way it narrows cells: a column of words by ticking values, a column of
+  numbers by a span over its histogram. A column of more than a thousand
+  different words is a column of names or identifiers, and is not offered.
 - **Parquet tables**: shown the same way. The reference one is the Allen adult
   mouse terminology: 1,332 brain structures across 10 columns.
 - **Brain Knowledge Platform specimens**: one project's specimen records,
