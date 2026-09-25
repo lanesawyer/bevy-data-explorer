@@ -704,6 +704,7 @@ impl Plugin for CatalogPlugin {
                 turn_off_sources,
                 take_listings,
                 search_catalogs,
+                registry::renew_token,
                 registry::sync_token,
                 name_sources,
                 cells::ask,

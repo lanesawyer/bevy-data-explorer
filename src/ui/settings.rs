@@ -5,25 +5,22 @@
 //! own X, Escape, or a click outside it. Its pages are picked from a list down
 //! its left side: general settings, and the data sources offered to search.
 
-use bevy::input::keyboard::KeyboardInput;
-use bevy::input_focus::FocusedInput;
 use bevy::prelude::*;
-use bevy::text::EditableText;
 use bevy::ui::{Checked, InteractionDisabled};
 use bevy::window::WindowTheme;
 use bevy_feathers::controls::{
-    ButtonVariant, FeathersButton, FeathersCheckbox, FeathersTextInput, FeathersTextInputContainer,
-    FeathersToggleSwitch,
+    ButtonVariant, FeathersButton, FeathersCheckbox, FeathersToggleSwitch,
 };
 use bevy_feathers::display::label_dim;
 use bevy_feathers::rounded_corners::RoundedCorners;
 use bevy_ui_widgets::{Activate, ValueChange};
 
 use crate::app::net::{Fetching, fetching};
-use crate::app::prefs::{Preferences, PreferencesFile};
+use crate::app::prefs::{Preferences, PreferencesFile, RegistryLogin};
 use crate::app::schedule::{Boot, Stage};
 use crate::app::theme::{Palette, ThemeMode};
 use crate::catalog::Catalogs;
+use crate::catalog::registry::login::{self, SignIn};
 use crate::catalog::registry::{self, AssetSample};
 use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::ui::log_panel::LogPanel;
@@ -377,41 +374,23 @@ fn spawn_source_switch(
         .id()
 }
 
-/// Where the BKP Registry token is pasted, and the button that tries it.
-///
-/// The field has no masking, so it is only ever a place to paste into: saving
-/// empties it, and from then on the token is shown by its last characters.
+/// Signing in to the BKP Registry, and the button that tries it.
 fn spawn_registry_section(commands: &mut Commands) -> Entity {
     commands
         .spawn_scene(bsn! {
             Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(space::ROWS) } }
             Children [
-                label_dim("Paste a bearer token to use it."),
+                label_dim("Sign in with your Institute account in the browser."),
                 (
                     field_well()
                     Children [
                         (
-                            Node {
-                                width: { Val::Percent(100.0) },
-                                align_items: { AlignItems::Center },
-                                column_gap: { Val::Px(space::CONTROLS) },
+                            @FeathersButton {
+                                @variant: { ButtonVariant::Primary },
+                                @caption: { bsn_list![button_text("Sign in with browser")] }
                             }
-                            Children [
-                                (
-                                    @FeathersTextInputContainer
-                                    Children [(
-                                        @FeathersTextInput
-                                        RegistryTokenInput
-                                    )]
-                                ),
-                                (
-                                    @FeathersButton {
-                                        @caption: { bsn_list![button_text("Save")] }
-                                    }
-                                    Node { flex_shrink: { 0.0_f32 } }
-                                    SaveTokenButton
-                                ),
-                            ]
+                            Node { align_self: { AlignSelf::Start } }
+                            SignInButton
                         ),
                         (
                             RegistryStatus
@@ -431,7 +410,7 @@ fn spawn_registry_section(commands: &mut Commands) -> Entity {
                         ),
                         (
                             @FeathersButton {
-                                @caption: { bsn_list![button_text("Forget token")] }
+                                @caption: { bsn_list![button_text("Sign out")] }
                             }
                             ForgetTokenButton
                         ),
@@ -442,12 +421,9 @@ fn spawn_registry_section(commands: &mut Commands) -> Entity {
         .id()
 }
 
-/// The field a token is pasted into.
+/// Opens the login page, or opens it again while a sign-in is waiting.
 #[derive(Component, Clone, Default)]
-pub struct RegistryTokenInput;
-
-#[derive(Component, Clone, Default)]
-pub struct SaveTokenButton;
+pub struct SignInButton;
 
 #[derive(Component, Clone, Default)]
 pub struct ForgetTokenButton;
@@ -455,25 +431,38 @@ pub struct ForgetTokenButton;
 #[derive(Component, Clone, Default)]
 pub struct TestRegistryButton;
 
-/// The line saying which token is saved and how the last request went.
+/// The line saying who is signed in and how the last request went.
 #[derive(Component, Clone, Default)]
 pub struct RegistryStatus;
 
-/// The test request in flight, if any, and how the last one went.
+/// The test request or sign-in in flight, if any, and how the last one went.
 #[derive(Resource, Default)]
 pub struct RegistryProbe {
     task: Option<Fetching<Result<AssetSample, String>>>,
+    signing_in: Option<SignIn>,
     outcome: Option<Result<String, String>>,
 }
 
 impl RegistryProbe {
     /// What the status line says, and whether it is a problem.
-    fn message(&self, token: Option<&str>) -> (String, bool) {
-        let saved = match token {
-            Some(token) => format!("Token {} saved.", registry::token_hint(token)),
-            None => "No token saved.".to_string(),
+    fn message(&self, token: Option<&str>, login: Option<&RegistryLogin>) -> (String, bool) {
+        let saved = match (token, login) {
+            (
+                Some(_),
+                Some(RegistryLogin {
+                    email: Some(email), ..
+                }),
+            ) => {
+                format!("Signed in as {email}.")
+            }
+            (Some(_), Some(_)) => "Signed in.".to_string(),
+            (Some(token), None) => format!("Token {} saved.", registry::token_hint(token)),
+            (None, _) => "Not signed in.".to_string(),
         };
         match &self.outcome {
+            _ if self.signing_in.is_some() => {
+                (format!("{saved} Waiting for the browser\u{2026}"), false)
+            }
             _ if self.task.is_some() => (format!("{saved} Asking\u{2026}"), false),
             Some(Ok(answer)) => (format!("{saved} {answer}"), false),
             Some(Err(problem)) => (format!("{saved} {problem}"), true),
@@ -482,51 +471,67 @@ impl RegistryProbe {
     }
 }
 
-fn save_token(
-    prefs: &mut Preferences,
-    probe: &mut RegistryProbe,
-    inputs: &mut Query<&mut EditableText, With<RegistryTokenInput>>,
+/// Open the login page, starting a sign-in unless one is already waiting,
+/// in which case its page is opened again in case its tab was lost.
+pub fn on_sign_in(
+    activate: On<Activate>,
+    buttons: Query<(), With<SignInButton>>,
+    mut probe: ResMut<RegistryProbe>,
 ) {
-    let Ok(mut field) = inputs.single_mut() else {
+    if !buttons.contains(activate.entity) {
+        return;
+    }
+    if probe.signing_in.is_none() {
+        match login::sign_in() {
+            Ok(sign_in) => probe.signing_in = Some(sign_in),
+            Err(problem) => {
+                warn!("{problem}");
+                probe.outcome = Some(Err(problem));
+                return;
+            }
+        }
+    }
+    let Some(url) = probe.signing_in.as_ref().map(|sign_in| sign_in.url.clone()) else {
         return;
     };
-    let token = registry::clean_token(&field.value().to_string());
-    if token.is_empty() {
+    // Detached, as a link is: a browser that is not already running would
+    // otherwise hold the frame until it finished starting.
+    match open::that_detached(&url) {
+        Ok(()) => info!("BKP Registry: opened the login page in the browser"),
+        Err(error) => warn!("BKP Registry: could not open a browser ({error}); sign in at {url}"),
+    }
+}
+
+/// Keep what the browser came back with.
+pub fn poll_sign_in(mut probe: ResMut<RegistryProbe>, mut prefs: ResMut<Preferences>) {
+    let Some(outcome) = probe
+        .signing_in
+        .as_mut()
+        .and_then(|sign_in| sign_in.waiting.take())
+    else {
         return;
-    }
-    field.clear();
-    info!(
-        "saved a BKP Registry token ({})",
-        registry::token_hint(&token)
-    );
-    prefs.registry_token = Some(token);
-    probe.outcome = None;
-}
-
-pub fn on_save_token(
-    activate: On<Activate>,
-    buttons: Query<(), With<SaveTokenButton>>,
-    mut inputs: Query<&mut EditableText, With<RegistryTokenInput>>,
-    mut prefs: ResMut<Preferences>,
-    mut probe: ResMut<RegistryProbe>,
-) {
-    if buttons.contains(activate.entity) {
-        save_token(&mut prefs, &mut probe, &mut inputs);
-    }
-}
-
-/// Return in the field saves it, as it reads an address typed into a search.
-pub fn on_token_submitted(
-    key: On<FocusedInput<KeyboardInput>>,
-    mut inputs: Query<&mut EditableText, With<RegistryTokenInput>>,
-    mut prefs: ResMut<Preferences>,
-    mut probe: ResMut<RegistryProbe>,
-) {
-    if inputs.contains(key.focused_entity)
-        && key.input.state.is_pressed()
-        && matches!(key.input.key_code, KeyCode::Enter | KeyCode::NumpadEnter)
-    {
-        save_token(&mut prefs, &mut probe, &mut inputs);
+    };
+    probe.signing_in = None;
+    match outcome {
+        Ok(tokens) => {
+            info!(
+                "signed in to the BKP Registry as {}",
+                tokens.email.as_deref().unwrap_or("an unnamed account")
+            );
+            if tokens.refresh.is_none() {
+                warn!("BKP Registry: no refresh token came back, so this sign-in will not renew");
+            }
+            prefs.registry_token = Some(tokens.access);
+            prefs.registry_login = Some(RegistryLogin {
+                refresh_token: tokens.refresh,
+                email: tokens.email,
+            });
+            probe.outcome = None;
+        }
+        Err(problem) => {
+            warn!("{problem}");
+            probe.outcome = Some(Err(problem));
+        }
     }
 }
 
@@ -536,10 +541,15 @@ pub fn on_forget_token(
     mut prefs: ResMut<Preferences>,
     mut probe: ResMut<RegistryProbe>,
 ) {
-    if buttons.contains(activate.entity) && prefs.registry_token.is_some() {
+    if !buttons.contains(activate.entity) {
+        return;
+    }
+    probe.signing_in = None;
+    probe.outcome = None;
+    if prefs.registry_token.is_some() || prefs.registry_login.is_some() {
         prefs.registry_token = None;
-        probe.outcome = None;
-        info!("forgot the BKP Registry token");
+        prefs.registry_login = None;
+        info!("signed out of the BKP Registry");
     }
 }
 
@@ -632,15 +642,16 @@ pub fn sync_registry(
 ) {
     let token = prefs.registry_token.as_deref();
     let can_test = token.is_some() && probe.task.is_none();
+    let can_sign_out = token.is_some() || probe.signing_in.is_some();
     for (entity, disabled, test) in &buttons {
-        let enabled = if test { can_test } else { token.is_some() };
+        let enabled = if test { can_test } else { can_sign_out };
         if enabled && disabled {
             commands.entity(entity).remove::<InteractionDisabled>();
         } else if !enabled && !disabled {
             commands.entity(entity).insert(InteractionDisabled);
         }
     }
-    let (message, problem) = probe.message(token);
+    let (message, problem) = probe.message(token, prefs.registry_login.as_ref());
     let color = if problem {
         palette.problem
     } else {
@@ -883,11 +894,13 @@ impl Plugin for SettingsPlugin {
             .add_observer(on_theme_option)
             .add_observer(on_system_accent)
             .init_resource::<RegistryProbe>()
-            .add_observer(on_save_token)
-            .add_observer(on_token_submitted)
             .add_observer(on_forget_token)
             .add_observer(on_test_registry)
-            .add_systems(Update, poll_registry_probe.in_set(Stage::ControlsApply))
+            .add_observer(on_sign_in)
+            .add_systems(
+                Update,
+                (poll_registry_probe, poll_sign_in).in_set(Stage::ControlsApply),
+            )
             .add_systems(
                 Update,
                 (sync_settings, sync_registry, sync_page, sync_sources)

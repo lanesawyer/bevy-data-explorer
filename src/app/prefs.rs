@@ -66,14 +66,25 @@ pub struct Preferences {
     /// none while it follows the built-in default, so a change to that
     /// reaches anyone who never changed theirs.
     pub filtered_points: Option<SavedFiltered>,
-    /// The bearer token for the BKP Registry, pasted in settings. Kept in
-    /// plain text, like anything else in this file.
+    /// The bearer token for the BKP Registry, got by signing in, or pasted
+    /// by an older version. Kept in plain text, like anything else in this
+    /// file.
     pub registry_token: Option<String>,
+    /// What renews that token, and whose it is; none for a pasted one.
+    pub registry_login: Option<RegistryLogin>,
     /// The data sources turned off, by `Provider::key`. Kept as what is off
     /// rather than what is on, so a source added later starts on.
     pub sources_off: BTreeSet<String>,
     /// Whether the accent is the desktop's rather than Feathers' blue.
     pub system_accent: bool,
+}
+
+/// A sign-in to the BKP Registry: what renews its token, and whose it is.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+#[serde(default)]
+pub struct RegistryLogin {
+    pub refresh_token: Option<String>,
+    pub email: Option<String>,
 }
 
 impl Default for Preferences {
@@ -84,6 +95,7 @@ impl Default for Preferences {
             theme: None,
             filtered_points: None,
             registry_token: None,
+            registry_login: None,
             sources_off: BTreeSet::new(),
             system_accent: true,
         }

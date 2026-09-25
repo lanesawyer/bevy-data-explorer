@@ -2,14 +2,16 @@
 //! where each one is stored.
 //!
 //! A separate API from the public platform in [`super::bkp`], and one that
-//! answers nobody without a bearer token, which is pasted into settings. Only
-//! the pre-production service exists so far.
+//! answers nobody without a bearer token, got by signing in through the
+//! browser ([`login`]). Only the pre-production service exists so far.
 //!
 //! It holds far too many assets to list — 17.8 million on 2026-09-21 — so it
 //! is a searched catalog: what is typed into a picker is matched against
 //! asset names, among only the types the viewer can open.
 //!
 //! Settings also has a test request, which logs a page of assets of any type.
+
+pub mod login;
 
 use std::collections::BTreeMap;
 use std::sync::RwLock;
@@ -19,6 +21,7 @@ use futures::future::BoxFuture;
 use serde::Deserialize;
 
 use super::{Catalog, Entry, Found, Provider};
+use crate::app::net::{Fetching, fetching};
 use crate::app::prefs::Preferences;
 use crate::source::Category;
 
@@ -41,7 +44,7 @@ const OME_ZARR: [(&str, &str); 2] = [
     ("MIP zarr fileset", "OME-Zarr projection"),
 ];
 
-/// The token pasted into settings, copied here so a search running off the
+/// The token in the preferences, copied here so a search running off the
 /// main thread can send it.
 static TOKEN: RwLock<Option<String>> = RwLock::new(None);
 
@@ -52,6 +55,65 @@ pub fn sync_token(prefs: Res<Preferences>) {
         && *token != prefs.registry_token
     {
         token.clone_from(&prefs.registry_token);
+    }
+}
+
+/// A renewal in flight, and when the next may start after one failed.
+#[derive(Default)]
+pub struct Renewing {
+    task: Option<Fetching<Result<login::Tokens, login::Failure>>>,
+    not_before: u64,
+}
+
+/// How long to wait after a renewal before trying another, so a registry
+/// that is down, or tokens with no expiry to read, are not asked every frame.
+const RENEW_BACKOFF_SECS: u64 = 60;
+
+/// Renew a signed-in token before it expires, including one that expired
+/// while the app was closed. A pasted token has nothing to renew it.
+pub fn renew_token(mut prefs: ResMut<Preferences>, mut renewing: Local<Renewing>) {
+    let now = login::now();
+    if let Some(task) = renewing.task.as_mut() {
+        let Some(outcome) = task.take() else { return };
+        renewing.task = None;
+        renewing.not_before = now + RENEW_BACKOFF_SECS;
+        match outcome {
+            Ok(tokens) => {
+                prefs.registry_token = Some(tokens.access);
+                if let Some(login) = prefs.registry_login.as_mut() {
+                    if tokens.refresh.is_some() {
+                        login.refresh_token = tokens.refresh;
+                    }
+                    if tokens.email.is_some() {
+                        login.email = tokens.email;
+                    }
+                }
+                info!("renewed the BKP Registry sign-in");
+            }
+            Err(login::Failure(problem, login::Retry::SignInAgain)) => {
+                warn!("{problem}. Sign in to the BKP Registry again in Settings.");
+                prefs.registry_login = None;
+            }
+            Err(login::Failure(problem, login::Retry::Later)) => warn!("{problem}"),
+        }
+        return;
+    }
+    if now < renewing.not_before {
+        return;
+    }
+    let Some(refresh) = prefs
+        .registry_login
+        .as_ref()
+        .and_then(|login| login.refresh_token.clone())
+    else {
+        return;
+    };
+    if prefs
+        .registry_token
+        .as_deref()
+        .is_none_or(|token| login::due(token, now))
+    {
+        renewing.task = Some(fetching(login::renew(refresh)));
     }
 }
 
@@ -71,7 +133,7 @@ impl Registry {
 pub const PROVIDER: Provider = Provider {
     key: "bkp-registry",
     name: "BKP Registry",
-    about: "The Institute's internal record of data assets. Pre-production, and needs a token.",
+    about: "The Institute's internal record of data assets. Pre-production, and needs signing in.",
     examples: &[],
 };
 
@@ -105,7 +167,7 @@ impl Catalog for Registry {
         let endpoint = self.endpoint.clone();
         let token = TOKEN.read().ok().and_then(|token| token.clone());
         Box::pin(async move {
-            let token = token.ok_or("Paste a BKP Registry token in Settings to search it")?;
+            let token = token.ok_or("Sign in to the BKP Registry in Settings to search it")?;
             search(&endpoint, &token, &text).await
         })
     }
@@ -188,17 +250,6 @@ const QUERY: &str = "query($first: Int) {
     }
   }
 }";
-
-/// The token as it is to be sent: pasted with or without its `Bearer`.
-pub fn clean_token(pasted: &str) -> String {
-    let pasted = pasted.trim();
-    pasted
-        .strip_prefix("Bearer ")
-        .or_else(|| pasted.strip_prefix("bearer "))
-        .unwrap_or(pasted)
-        .trim()
-        .to_string()
-}
 
 /// Enough of a token to tell which one is saved, and no more.
 pub fn token_hint(token: &str) -> String {
@@ -316,7 +367,7 @@ fn parse_sample(text: &str) -> Result<AssetSample, String> {
             .and_then(|extensions| extensions.code.as_deref());
         return Err(match code {
             Some(code) if code.starts_with("AUTH_") => {
-                "BKP Registry: not authorized. Update your token in Settings.".to_string()
+                "BKP Registry: not authorized. Sign in again in Settings.".to_string()
             }
             Some(code) => format!("BKP Registry: {} ({code})", error.message),
             None => format!("BKP Registry: {}", error.message),
@@ -403,9 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn a_pasted_token_loses_its_bearer_and_is_only_hinted_at() {
-        assert_eq!(clean_token("  Bearer abc.def.ghij \n"), "abc.def.ghij");
-        assert_eq!(clean_token("abc.def.ghij"), "abc.def.ghij");
+    fn a_token_is_only_hinted_at() {
         assert_eq!(token_hint("abc.def.ghij"), "\u{2026}ghij");
         assert_eq!(token_hint("ab"), "\u{2026}ab");
     }
@@ -413,8 +462,9 @@ mod tests {
     #[test]
     #[ignore = "reads the live BKP Registry, with BKPR_TOKEN set"]
     fn a_live_search_finds_stores_that_open() {
-        let token = clean_token(&std::env::var("BKPR_TOKEN").expect("BKPR_TOKEN"));
-        let found = crate::app::net::block_on(search(STAGE, &token, "1370718127")).unwrap();
+        let token = std::env::var("BKPR_TOKEN").expect("BKPR_TOKEN");
+        let token = token.trim();
+        let found = crate::app::net::block_on(search(STAGE, token, "1370718127")).unwrap();
         assert_eq!(found.total, 1);
         let entry = &found.entries[0];
         println!("{} — {}", entry.name, entry.url);
@@ -427,7 +477,7 @@ mod tests {
     fn the_stage_registry_answers_a_token() {
         let token = std::env::var("BKPR_TOKEN").expect("BKPR_TOKEN");
         let sample =
-            crate::app::net::block_on(sample_assets(STAGE.to_string(), clean_token(&token)))
+            crate::app::net::block_on(sample_assets(STAGE.to_string(), token.trim().to_string()))
                 .unwrap();
         println!("{} data assets; types on the first page:", sample.total);
         for (kind, count) in sample.kinds() {

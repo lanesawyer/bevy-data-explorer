@@ -19,7 +19,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 # The runtime the reads are driven by. Reqwest's futures register with tokio's
 # reactor, so something has to be driving one; this is also what makes a read
 # abortable, which is the whole point of doing them asynchronously.
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "io-util"] }
 # Half-precision floats, for channel intensities kept on the GPU unmixed.
 # Already in the tree through bevy_image.
 half = "2"
@@ -60,6 +60,9 @@ rfd = "0.17"
 # a file compressed with it says so rather than opening.
 parquet = { version = "60", default-features = false, features = ["snap", "zstd", "lz4", "flate2", "flate2-zlib-rs"] }
 bytes = "1"
+# The random verifier and its SHA-256 for signing in to the BKP Registry.
+# Already in the tree as rustls' crypto.
+ring = "0.17"
 
 [lints.rust]
 unsafe_code = "forbid"
