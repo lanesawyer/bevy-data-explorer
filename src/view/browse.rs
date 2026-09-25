@@ -24,6 +24,7 @@ use super::overlay::PanelHeader;
 use super::{Browsing, FrameArea, MAX_PANELS, Panel, PanelRequest, PendingShow, ShowFailed};
 use crate::app::schedule::Stage;
 use crate::app::theme::{Palette, token};
+use crate::catalog::Catalogs;
 use crate::source::{DataSource, ShowsSource};
 use crate::widgets::space;
 use crate::widgets::{
@@ -120,6 +121,7 @@ impl Default for BrowseClose {
 /// typing searches straight away.
 pub fn sync_browse_panes(
     mut commands: Commands,
+    catalogs: Res<Catalogs>,
     panels: Query<Entity, (With<Panel>, With<Browsing>)>,
     panes: Query<(Entity, &BrowsePane)>,
     mut focus: ResMut<InputFocus>,
@@ -133,13 +135,13 @@ pub fn sync_browse_panes(
         if panes.iter().any(|(_, pane)| pane.panel == panel) {
             continue;
         }
-        let field = spawn_pane(&mut commands, panel);
+        let field = spawn_pane(&mut commands, &catalogs, panel);
         focus.set(field, FocusCause::Navigated);
     }
 }
 
 /// Build the browser over `panel`, returning its search field.
-fn spawn_pane(commands: &mut Commands, panel: Entity) -> Entity {
+fn spawn_pane(commands: &mut Commands, catalogs: &Catalogs, panel: Entity) -> Entity {
     let pane = commands
         .spawn_scene(bsn! {
             BrowsePane { panel: { panel } }
@@ -201,7 +203,7 @@ fn spawn_pane(commands: &mut Commands, panel: Entity) -> Entity {
         })
         .id();
 
-    let (browser, field) = spawn_dataset_browser(commands, PickerTarget::Frame(panel));
+    let (browser, field) = spawn_dataset_browser(commands, catalogs, PickerTarget::Frame(panel));
     commands
         .entity(column)
         .add_children(&[header, status, browser]);

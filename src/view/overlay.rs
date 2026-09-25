@@ -834,6 +834,7 @@ impl Plugin for OverlayPlugin {
             .add_observer(on_source_chosen)
             .add_observer(super::dataset_menu::on_search_key)
             .add_observer(super::dataset_menu::on_filter_chip)
+            .add_observer(super::dataset_menu::on_source_chip)
             .add_observer(super::dataset_menu::on_browse_item)
             .add_systems(Update, sync_hud.in_set(Stage::FrameChrome))
             .add_systems(
@@ -845,6 +846,7 @@ impl Plugin for OverlayPlugin {
                     super::dataset_menu::search_catalogs,
                     super::dataset_menu::rebuild_dataset_lists,
                     super::dataset_menu::sync_filter_chips,
+                    super::dataset_menu::sync_source_chips,
                 )
                     .chain()
                     .in_set(Stage::Chrome),

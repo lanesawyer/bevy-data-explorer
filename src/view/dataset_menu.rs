@@ -21,7 +21,10 @@
 //! [`super::overlay::on_source_chosen`] wherever the picker is.
 //!
 //! An empty frame holds a larger picker, [`spawn_dataset_browser`], with
-//! buttons narrowing it to one [`Category`]. Whatever is typed that looks like
+//! buttons narrowing it to one [`Category`], and another row keeping it to
+//! one source. That is the frame's own narrowing, not settings' switch: the
+//! other sources are only left out of this list and are not searched for it.
+//! Whatever is typed that looks like
 //! an address is offered as one to read, ahead of any match, so the search is
 //! also where a URL is pasted.
 
@@ -37,7 +40,7 @@ use bevy_feathers::controls::{
 };
 use bevy_feathers::display::label_dim;
 use bevy_feathers::rounded_corners::RoundedCorners;
-use bevy_feathers::theme::ThemeTextColor;
+use bevy_feathers::theme::{ThemeBorderColor, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, MenuAction, MenuEvent, ScrollArea};
 
@@ -51,7 +54,7 @@ use crate::source::table::SourceTable;
 use crate::source::{Category, DataSource, ShowsSource, SourceUrl};
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, MENU_WIDTH, button_text, field_well, matches_search, size,
+    BlocksFrameInput, MENU_WIDTH, button_text, field_well, matches_search, patch_node, size,
     spawn_search_field, text, text_dim, truncate_to_width,
 };
 
@@ -72,6 +75,9 @@ pub enum PickerTarget {
 pub struct DatasetList {
     picker: Entity,
     target: PickerTarget,
+    /// Whether it fills a frame, where its section headings have room to
+    /// stand out, rather than a dropdown.
+    browser: bool,
 }
 
 impl Default for DatasetList {
@@ -79,6 +85,7 @@ impl Default for DatasetList {
         DatasetList {
             picker: Entity::PLACEHOLDER,
             target: PickerTarget::NewFrame,
+            browser: false,
         }
     }
 }
@@ -112,6 +119,27 @@ pub struct FilterChip {
 impl Default for FilterChip {
     fn default() -> Self {
         FilterChip {
+            picker: Entity::PLACEHOLDER,
+            only: None,
+        }
+    }
+}
+
+/// The source a picker is kept to, if any, by its key in
+/// [`Catalogs::sources`]. On the picker's column.
+#[derive(Component, Clone, Default, PartialEq)]
+pub struct PickerSource(pub Option<String>);
+
+/// A button keeping a picker to one source, or opening it to all.
+#[derive(Component, Clone)]
+pub struct SourceChip {
+    picker: Entity,
+    only: Option<String>,
+}
+
+impl Default for SourceChip {
+    fn default() -> Self {
+        SourceChip {
             picker: Entity::PLACEHOLDER,
             only: None,
         }
@@ -200,21 +228,33 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
 
 /// A search field over a list of datasets, returning the column holding both.
 pub fn spawn_dataset_picker(commands: &mut Commands, target: PickerTarget) -> Entity {
-    let (picker, _) = spawn_picker(commands, target, false);
+    let (picker, _) = spawn_picker(commands, target, None);
     picker
 }
 
 /// A picker that fills whatever holds it, with buttons narrowing it by
 /// category: what an empty frame shows. Returns the column and its search
 /// field, which is given the keyboard as the frame opens.
-pub fn spawn_dataset_browser(commands: &mut Commands, target: PickerTarget) -> (Entity, Entity) {
-    spawn_picker(commands, target, true)
+pub fn spawn_dataset_browser(
+    commands: &mut Commands,
+    catalogs: &Catalogs,
+    target: PickerTarget,
+) -> (Entity, Entity) {
+    spawn_picker(commands, target, Some(catalogs))
 }
 
-fn spawn_picker(commands: &mut Commands, target: PickerTarget, fill: bool) -> (Entity, Entity) {
+/// `browser` is the catalogs whose sources a browser offers to keep to;
+/// nothing for a dropdown's picker, which has no room for its buttons.
+fn spawn_picker(
+    commands: &mut Commands,
+    target: PickerTarget,
+    browser: Option<&Catalogs>,
+) -> (Entity, Entity) {
+    let fill = browser.is_some();
     let picker = commands
         .spawn_scene(bsn! {
             PickerFilter
+            PickerSource
             Node {
                 flex_direction: { FlexDirection::Column },
                 width: { Val::Percent(100.0) },
@@ -235,7 +275,7 @@ fn spawn_picker(commands: &mut Commands, target: PickerTarget, fill: bool) -> (E
 
     let list = commands
         .spawn_scene(bsn! {
-            DatasetList { picker: { picker }, target: { target } }
+            DatasetList { picker: { picker }, target: { target }, browser: { fill } }
             ScrollArea
             Node {
                 flex_direction: { FlexDirection::Column },
@@ -248,9 +288,10 @@ fn spawn_picker(commands: &mut Commands, target: PickerTarget, fill: bool) -> (E
     // The field would not show against the menu on its own.
     let well = commands.spawn_scene(field_well()).id();
     commands.entity(well).add_child(search.entry);
-    if fill {
+    if let Some(catalogs) = browser {
         let chips = spawn_filter_chips(commands, picker);
-        commands.entity(well).add_child(chips);
+        let sources = spawn_source_chips(commands, catalogs, picker);
+        commands.entity(well).add_children(&[chips, sources]);
         // The list takes whatever height the frame has, and scrolls within it.
         commands.entity(picker).insert(Node {
             flex_direction: FlexDirection::Column,
@@ -275,6 +316,36 @@ fn spawn_picker(commands: &mut Commands, target: PickerTarget, fill: bool) -> (E
 /// One button per category and one for all of them, joined into one control
 /// as the theme buttons in settings are.
 fn spawn_filter_chips(commands: &mut Commands, picker: Entity) -> Entity {
+    let options: Vec<(Option<Category>, &'static str)> = std::iter::once((None, "All"))
+        .chain(Category::ALL.map(|category| (Some(category), category.plural())))
+        .collect();
+    spawn_chip_row(commands, options, |only| FilterChip { picker, only })
+}
+
+/// One button per source a picker can be kept to, and one for all of them.
+///
+/// Every source is given a button, turned on or not, and those turned off in
+/// settings are hidden by [`sync_source_chips`], so switching one back on
+/// needs no rebuild.
+fn spawn_source_chips(commands: &mut Commands, catalogs: &Catalogs, picker: Entity) -> Entity {
+    let options: Vec<(Option<String>, String)> = std::iter::once((None, "All sources".to_string()))
+        .chain(
+            catalogs
+                .sources()
+                .into_iter()
+                .map(|(key, name)| (Some(key.to_string()), name.to_string())),
+        )
+        .collect();
+    spawn_chip_row(commands, options, |only| SourceChip { picker, only })
+}
+
+/// Buttons joined into one control as the theme buttons in settings are,
+/// each carrying the chip `chip` makes of its option.
+fn spawn_chip_row<T, C: Component>(
+    commands: &mut Commands,
+    options: Vec<(T, impl Into<String>)>,
+    chip: impl Fn(T) -> C,
+) -> Entity {
     let row = commands
         .spawn_scene(bsn! {
             Node {
@@ -283,29 +354,28 @@ fn spawn_filter_chips(commands: &mut Commands, picker: Entity) -> Entity {
             }
         })
         .id();
-    let options: Vec<(Option<Category>, &'static str)> = std::iter::once((None, "All"))
-        .chain(Category::ALL.map(|category| (Some(category), category.plural())))
-        .collect();
-    let last = options.len() - 1;
+    let last = options.len().saturating_sub(1);
     let chips: Vec<Entity> = options
         .into_iter()
         .enumerate()
         .map(|(at, (only, label))| {
+            let label: String = label.into();
             let corners = match at {
                 0 => RoundedCorners::Left,
                 _ if at == last => RoundedCorners::Right,
                 _ => RoundedCorners::None,
             };
-            commands
+            let button = commands
                 .spawn_scene(bsn! {
                     @FeathersButton {
                         @caption: { bsn_list![button_text(label)] },
                         @corners: { corners }
                     }
                     Node { flex_grow: { 1.0_f32 } }
-                    FilterChip { picker: { picker }, only: { only } }
                 })
-                .id()
+                .id();
+            commands.entity(button).insert(chip(only));
+            button
         })
         .collect();
     commands.entity(row).add_children(&chips);
@@ -343,6 +413,59 @@ pub fn sync_filter_chips(
     }
 }
 
+/// Keep a picker to the source its button names.
+pub fn on_source_chip(
+    activate: On<Activate>,
+    chips: Query<&SourceChip>,
+    mut sources: Query<&mut PickerSource>,
+) {
+    let Ok(chip) = chips.get(activate.entity) else {
+        return;
+    };
+    if let Ok(mut source) = sources.get_mut(chip.picker) {
+        source.set_if_neq(PickerSource(chip.only.clone()));
+    }
+}
+
+/// Mark the button of the source each picker is kept to, and hide those of
+/// sources turned off in settings. A picker kept to one turned off is opened
+/// to all again rather than left listing nothing.
+pub fn sync_source_chips(
+    catalogs: Res<Catalogs>,
+    mut sources: Query<&mut PickerSource>,
+    mut chips: Query<(&SourceChip, &mut ButtonVariant, &mut Node)>,
+) {
+    for mut source in &mut sources {
+        if source
+            .0
+            .as_deref()
+            .is_some_and(|key| !catalogs.source_on(key))
+        {
+            source.0 = None;
+        }
+    }
+    for (chip, mut variant, node) in &mut chips {
+        let chosen = sources
+            .get(chip.picker)
+            .is_ok_and(|source| source.0 == chip.only);
+        variant.set_if_neq(if chosen {
+            ButtonVariant::Primary
+        } else {
+            ButtonVariant::Normal
+        });
+        let display = if chip
+            .only
+            .as_deref()
+            .is_none_or(|key| catalogs.source_on(key))
+        {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        patch_node(node, |node| node.display = display);
+    }
+}
+
 /// Turn a frame into a browser for what it shows, from its dropdown.
 pub fn on_browse_item(
     activate: On<Activate>,
@@ -374,6 +497,7 @@ pub struct ListState {
     stack: Vec<Entity>,
     query: String,
     only: Option<Category>,
+    from: Option<String>,
     sources: usize,
     /// The catalogs' generation.
     catalogued: usize,
@@ -391,6 +515,7 @@ pub fn rebuild_dataset_lists(
     lists: Query<(Entity, &DatasetList)>,
     fields: Query<(&DatasetSearch, &EditableText)>,
     filters: Query<&PickerFilter>,
+    picker_sources: Query<&PickerSource>,
     // An empty frame shows no source but still holds a picker, so the source
     // is optional here.
     panels: Query<(Option<&ShowsSource>, Option<&FrameLayers>), With<Panel>>,
@@ -425,6 +550,10 @@ pub fn rebuild_dataset_lists(
                 stack,
                 query,
                 only: filters.get(list.picker).ok().and_then(|filter| filter.0),
+                from: picker_sources
+                    .get(list.picker)
+                    .ok()
+                    .and_then(|source| source.0.clone()),
                 sources: source_count,
                 catalogued: catalogs.generation(),
                 room,
@@ -474,6 +603,8 @@ pub fn rebuild_dataset_lists(
             }
         };
         let layering = matches!(list.target, PickerTarget::Layer(_));
+        let from = state.from.as_deref();
+        let big = list.browser;
         let base = state
             .stack
             .first()
@@ -516,7 +647,7 @@ pub fn rebuild_dataset_lists(
                 PickerTarget::Layer(panel) => DatasetTarget::Layer(panel),
             };
             section = Some("Address");
-            items.push(heading(&mut commands, "Address", true));
+            items.push(heading(&mut commands, "Address", true, big));
             let item = item(
                 &mut commands,
                 &url,
@@ -538,14 +669,18 @@ pub fn rebuild_dataset_lists(
             if layering && (state.stack.contains(entity) || tables.contains(*entity)) {
                 continue;
             }
+            // What is open is kept to a source by the catalog that lists it;
+            // one no catalog lists, such as a pasted address, belongs to none.
             if !matches_search(&state.query, &[&data.name, &data.detail, url.unwrap_or("")])
                 || state.only.is_some_and(|only| data.category != only)
+                || from
+                    .is_some_and(|from| url.and_then(|url| catalogs.source_of(url)) != Some(from))
             {
                 continue;
             }
             if section.is_none() {
                 section = Some("Open");
-                items.push(heading(&mut commands, "Open", items.len() == noted));
+                items.push(heading(&mut commands, "Open", items.len() == noted, big));
             }
             // Drawn anyway, since nothing rescales a layer, so say why it may
             // not line up rather than leave the two to look aligned by
@@ -572,7 +707,7 @@ pub fn rebuild_dataset_lists(
             );
             items.push(item);
         }
-        for (id, catalog, entry) in catalogs.unopened(&opened, &state.query, state.only) {
+        for (id, catalog, entry) in catalogs.unopened(&opened, &state.query, state.only, from) {
             if layering && names_a_table(&entry.url) {
                 continue;
             }
@@ -590,7 +725,7 @@ pub fn rebuild_dataset_lists(
             }
             if section != Some(catalog) {
                 section = Some(catalog);
-                items.push(heading(&mut commands, catalog, items.len() == noted));
+                items.push(heading(&mut commands, catalog, items.len() == noted, big));
             }
             let item = item(
                 &mut commands,
@@ -609,11 +744,11 @@ pub fn rebuild_dataset_lists(
         }
         // A searched catalog has nothing to offer until asked, so it says what
         // it is doing under its heading instead.
-        for (catalog, note) in catalogs.search_notes(&state.query, state.only) {
+        for (catalog, note) in catalogs.search_notes(&state.query, state.only, from) {
             let Some(note) = note else { continue };
             if section != Some(catalog) {
                 section = Some(catalog);
-                items.push(heading(&mut commands, catalog, items.len() == noted));
+                items.push(heading(&mut commands, catalog, items.len() == noted, big));
             }
             let note = note.text();
             items.push(
@@ -642,14 +777,35 @@ pub fn rebuild_dataset_lists(
 }
 
 /// The name over one section of a list: what is open, or a catalog.
-fn heading(commands: &mut Commands, content: &str, first: bool) -> Entity {
+///
+/// In a browser, where a list runs long and one catalog's rows look much like
+/// the next's, it is set at a heading's size under a rule, so a new section is
+/// seen in passing rather than read for.
+fn heading(commands: &mut Commands, content: &str, first: bool, big: bool) -> Entity {
     let content = content.to_string();
-    let gap = if first { 2.0 } else { 10.0 };
+    if !big {
+        let gap = if first { 2.0 } else { 10.0 };
+        return commands
+            .spawn_scene(bsn! {
+                DatasetListContent
+                text_dim(content, size::SMALL)
+                Node { margin: { UiRect::new(Val::Px(space::CONTROL_INSET), Val::Px(space::CONTROL_INSET), Val::Px(gap), Val::Px(space::STACKED)) } }
+            })
+            .id();
+    }
+    let (gap, rule) = if first { (2.0, 0.0) } else { (18.0, 1.0) };
     commands
         .spawn_scene(bsn! {
             DatasetListContent
-            text_dim(content, size::SMALL)
-            Node { margin: { UiRect::new(Val::Px(space::CONTROL_INSET), Val::Px(space::CONTROL_INSET), Val::Px(gap), Val::Px(space::STACKED)) } }
+            Node {
+                margin: { UiRect::new(Val::Px(space::CONTROL_INSET), Val::Px(space::CONTROL_INSET), Val::Px(gap), Val::Px(space::ROWS)) },
+                padding: { UiRect::top(Val::Px(if first { 0.0 } else { 10.0 })) },
+                border: { UiRect::top(Val::Px(rule)) },
+            }
+            ThemeBorderColor({ tokens::GROUP_BODY_BORDER })
+            Children [
+                text(content, size::DOCK_TITLE)
+            ]
         })
         .id()
 }
@@ -739,6 +895,7 @@ pub fn search_catalogs(
     focus: Res<InputFocus>,
     fields: Query<(Entity, &DatasetSearch, &EditableText)>,
     filters: Query<&PickerFilter>,
+    sources: Query<&PickerSource>,
     mut catalogs: ResMut<Catalogs>,
     time: Res<Time>,
     mut typing_in: Local<Option<Entity>>,
@@ -750,7 +907,11 @@ pub fn search_catalogs(
         return;
     };
     let only = filters.get(search.picker).ok().and_then(|filter| filter.0);
-    catalogs.want(&text.value().to_string(), only, time.elapsed_secs());
+    let from = sources
+        .get(search.picker)
+        .ok()
+        .and_then(|source| source.0.as_deref());
+    catalogs.want(&text.value().to_string(), only, from, time.elapsed_secs());
 }
 
 /// Start each frame's dropdown afresh: once closed, whatever was typed into it is
@@ -881,6 +1042,7 @@ mod tests {
             .spawn(DatasetList {
                 picker,
                 target: PickerTarget::Frame(panel),
+                browser: true,
             })
             .id();
         app.update();

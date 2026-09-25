@@ -29,6 +29,11 @@
 //! that dataset should still be named, and its cells described, as the
 //! catalog has them. A catalog with no provider, like the examples, is always
 //! on.
+//!
+//! A picker can also be kept to one source — a provider, or a catalog no
+//! provider runs — without turning anything off. That is the picker's own
+//! narrowing: the other catalogs are neither offered to it nor searched on its
+//! behalf, and every other picker still sees them.
 
 pub mod bkp;
 pub mod cells;
@@ -371,6 +376,24 @@ struct Slot {
     search: Option<Search>,
 }
 
+impl Slot {
+    /// The key of the source it belongs to: its provider's, or its own name.
+    fn source(&self) -> &str {
+        self.provider
+            .map_or(self.name.as_str(), |provider| provider.key)
+    }
+
+    fn source_name(&self) -> &str {
+        self.provider
+            .map_or(self.name.as_str(), |provider| provider.name)
+    }
+
+    /// Whether it offers anything to a picker kept to `from`.
+    fn offers(&self, from: Option<&str>) -> bool {
+        self.on && from.is_none_or(|from| from == self.source())
+    }
+}
+
 /// A searched catalog's side of its slot.
 struct Search {
     /// What was last asked, whether or not it has answered. Nothing until a
@@ -452,6 +475,9 @@ pub struct Catalogs {
     /// and when that last changed.
     wanted: Option<Asked>,
     wanted_at: f32,
+    /// The one source that picker is kept to, if any: only its catalogs are
+    /// searched.
+    wanted_from: Option<String>,
     /// The keys of the providers turned off.
     off: BTreeSet<String>,
 }
@@ -502,6 +528,32 @@ impl Catalogs {
         self.generation += 1;
     }
 
+    /// Every source a picker can be kept to, as its key and name, once each
+    /// and in the order registered: each provider, and each catalog no
+    /// provider runs.
+    pub fn sources(&self) -> Vec<(&str, &str)> {
+        let mut sources: Vec<(&str, &str)> = Vec::new();
+        for slot in &self.slots {
+            let source = (slot.source(), slot.source_name());
+            if !sources.contains(&source) {
+                sources.push(source);
+            }
+        }
+        sources
+    }
+
+    /// Whether the source keyed `key` is turned on.
+    pub fn source_on(&self, key: &str) -> bool {
+        self.slots
+            .iter()
+            .any(|slot| slot.on && slot.source() == key)
+    }
+
+    /// The key of the source that lists `url`, if any does.
+    pub fn source_of(&self, url: &str) -> Option<&str> {
+        self.slot_listing(url).map(|(slot, _)| slot.source())
+    }
+
     /// Every provider some catalog names, once each, in the order registered.
     pub fn providers(&self) -> Vec<Provider> {
         let mut providers: Vec<Provider> = Vec::new();
@@ -515,11 +567,12 @@ impl Catalogs {
 
     /// Note what a picker's search now says. The searched catalogs are asked
     /// once it has sat still for a moment.
-    pub fn want(&mut self, text: &str, only: Option<Category>, now: f32) {
+    pub fn want(&mut self, text: &str, only: Option<Category>, from: Option<&str>, now: f32) {
         let wanted = Some(Asked::new(text, only));
-        if self.wanted != wanted {
+        if self.wanted != wanted || self.wanted_from.as_deref() != from {
             self.wanted = wanted;
             self.wanted_at = now;
+            self.wanted_from = from.map(str::to_string);
             self.generation += 1;
         }
     }
@@ -529,11 +582,12 @@ impl Catalogs {
         &self,
         text: &str,
         only: Option<Category>,
+        from: Option<&str>,
     ) -> Vec<(&str, Option<SearchNote>)> {
         let wanted = Asked::new(text, only);
         self.slots
             .iter()
-            .filter(|slot| slot.on)
+            .filter(|slot| slot.offers(from))
             .filter_map(|slot| {
                 let search = slot.search.as_ref()?;
                 let note = if self.wanted.as_ref() == Some(&wanted)
@@ -569,7 +623,8 @@ impl Catalogs {
         if now - self.wanted_at < SEARCH_AFTER_SECS {
             return;
         }
-        for slot in self.slots.iter_mut().filter(|slot| slot.on) {
+        let from = self.wanted_from.as_deref();
+        for slot in self.slots.iter_mut().filter(|slot| slot.offers(from)) {
             let Some(search) = slot.search.as_mut() else {
                 continue;
             };
@@ -639,12 +694,17 @@ impl Catalogs {
     /// The entry listed at `url`, with the name of the catalog listing it.
     /// A searched catalog also answers for what earlier searches found.
     pub fn find(&self, url: &str) -> Option<(&str, &Entry)> {
+        self.slot_listing(url)
+            .map(|(slot, entry)| (slot.name.as_str(), entry))
+    }
+
+    fn slot_listing(&self, url: &str) -> Option<(&Slot, &Entry)> {
         self.slots.iter().find_map(|slot| {
             slot.entries
                 .iter()
                 .find(|entry| entry.url == url)
                 .or_else(|| slot.search.as_ref()?.seen.get(url))
-                .map(|entry| (slot.name.as_str(), entry))
+                .map(|entry| (slot, entry))
         })
     }
 
@@ -668,12 +728,13 @@ impl Catalogs {
         opened: &'a [&'a str],
         query: &'a str,
         only: Option<Category>,
+        from: Option<&'a str>,
     ) -> impl Iterator<Item = (EntryId, &'a str, &'a Entry)> + 'a {
         self.slots
             .iter()
             .enumerate()
             .filter(move |(_, slot)| {
-                slot.on
+                slot.offers(from)
                     && slot
                         .search
                         .as_ref()
@@ -799,12 +860,17 @@ fn search_catalogs(mut catalogs: ResMut<Catalogs>, time: Res<Time>) {
     // Checked before writing, so a frame with nothing to do leaves the
     // resource unchanged.
     let now = time.elapsed_secs();
+    let from = catalogs.wanted_from.as_deref();
     let due = catalogs.wanted.as_ref().is_some_and(|wanted| {
-        catalogs.slots.iter().filter(|slot| slot.on).any(|slot| {
-            slot.search
-                .as_ref()
-                .is_some_and(|search| search.asking.is_some() || !search.asked_for(wanted))
-        })
+        catalogs
+            .slots
+            .iter()
+            .filter(|slot| slot.offers(from))
+            .any(|slot| {
+                slot.search
+                    .as_ref()
+                    .is_some_and(|search| search.asking.is_some() || !search.asked_for(wanted))
+            })
     });
     if due {
         catalogs.search(now);
@@ -888,7 +954,7 @@ mod tests {
     }
 
     fn searched_for(catalogs: &mut Catalogs, text: &str, now: &mut f32) {
-        catalogs.want(text, None, *now);
+        catalogs.want(text, None, None, *now);
         *now += 1.0;
         catalogs.search(*now);
         let started = Instant::now();
@@ -923,34 +989,36 @@ mod tests {
             "s3://bucket/"
         );
         assert!(matches!(
-            catalogs.search_notes("ab", None)[0].1,
+            catalogs.search_notes("ab", None, None)[0].1,
             Some(SearchNote::Browsing {
                 shown: 1,
                 total: 70
             })
         ));
         assert_eq!(
-            catalogs.unopened(&[], "ab", None).count(),
+            catalogs.unopened(&[], "ab", None, None).count(),
             1,
             "too short to search, so what it browses is offered"
         );
         assert_eq!(
-            catalogs.unopened(&[], "", Some(Category::Table)).count(),
+            catalogs
+                .unopened(&[], "", Some(Category::Table), None)
+                .count(),
             0,
             "browsing everything does not answer for one category"
         );
 
-        catalogs.want("ab", None, now);
+        catalogs.want("ab", None, None, now);
         assert!(
             !matches!(
-                catalogs.search_notes("ab", None)[0].1,
+                catalogs.search_notes("ab", None, None)[0].1,
                 Some(SearchNote::Searching)
             ),
             "a sliver of text browses what was already browsed"
         );
-        catalogs.want("x", Some(Category::Table), now);
+        catalogs.want("x", Some(Category::Table), None, now);
         assert!(matches!(
-            catalogs.search_notes("", Some(Category::Table))[0].1,
+            catalogs.search_notes("", Some(Category::Table), None)[0].1,
             Some(SearchNote::Searching)
         ));
     }
@@ -965,25 +1033,25 @@ mod tests {
         searched_for(&mut catalogs, "brain", &mut now);
         assert_eq!(catalogs.len(), 1);
         assert!(matches!(
-            catalogs.search_notes("brain", None)[0].1,
+            catalogs.search_notes("brain", None, None)[0].1,
             Some(SearchNote::Showing {
                 shown: 1,
                 total: 70
             })
         ));
-        assert_eq!(catalogs.unopened(&[], "brain scan", None).count(), 1);
+        assert_eq!(catalogs.unopened(&[], "brain scan", None, None).count(), 1);
         assert_eq!(
-            catalogs.unopened(&[], "", None).count(),
+            catalogs.unopened(&[], "", None, None).count(),
             0,
             "another picker's empty search is not offered this answer"
         );
-        catalogs.want("brains", None, now);
+        catalogs.want("brains", None, None, now);
         assert!(matches!(
-            catalogs.search_notes("brains", None)[0].1,
+            catalogs.search_notes("brains", None, None)[0].1,
             Some(SearchNote::Searching)
         ));
         assert!(
-            catalogs.search_notes("other", None)[0].1.is_none(),
+            catalogs.search_notes("other", None, None)[0].1.is_none(),
             "a picker nobody is typing in is not left saying it is searching"
         );
 
@@ -998,7 +1066,7 @@ mod tests {
     fn typing_is_asked_about_only_once_it_pauses() {
         let mut catalogs = Catalogs::default();
         catalogs.add(Searched);
-        catalogs.want("brain", None, 10.0);
+        catalogs.want("brain", None, None, 10.0);
         catalogs.search(10.1);
         assert!(catalogs.slots[0].search.as_ref().unwrap().asking.is_none());
         catalogs.search(10.0 + SEARCH_AFTER_SECS);
@@ -1013,13 +1081,13 @@ mod tests {
         listed(&mut catalogs);
 
         let urls: Vec<&str> = catalogs
-            .unopened(&["b"], "", None)
+            .unopened(&["b"], "", None, None)
             .map(|(_, _, entry)| entry.url.as_str())
             .collect();
         assert_eq!(urls, ["a", "c"]);
         assert_eq!(catalogs.len(), 3);
 
-        let (id, name, _) = catalogs.unopened(&[], "", None).last().unwrap();
+        let (id, name, _) = catalogs.unopened(&[], "", None, None).last().unwrap();
         assert_eq!(name, "second");
         assert_eq!(catalogs.get(id).unwrap().url, "c");
     }
@@ -1057,21 +1125,55 @@ mod tests {
         let keys: Vec<&str> = catalogs.providers().iter().map(|p| p.key).collect();
         assert_eq!(keys, [PROVIDER.key]);
         listed(&mut catalogs);
-        assert_eq!(catalogs.unopened(&[], "", None).count(), 1);
+        assert_eq!(catalogs.unopened(&[], "", None, None).count(), 1);
         assert!(
             catalogs.find("a").is_some(),
             "still listed, so what it knows is named after it"
         );
 
         catalogs.turn_off(&BTreeSet::new());
-        assert_eq!(catalogs.unopened(&[], "", None).count(), 2);
+        assert_eq!(catalogs.unopened(&[], "", None, None).count(), 2);
 
         catalogs.turn_off(&off);
         let urls: Vec<&str> = catalogs
-            .unopened(&[], "", None)
+            .unopened(&[], "", None, None)
             .map(|(_, _, entry)| entry.url.as_str())
             .collect();
         assert_eq!(urls, ["b"]);
+    }
+
+    #[test]
+    fn a_picker_kept_to_one_source_neither_sees_nor_searches_the_others() {
+        let mut catalogs = Catalogs::default();
+        catalogs.add(Provided(Fixed("provided", vec!["a"])));
+        catalogs.add(Searched);
+        catalogs.add(Fixed("always", vec!["b"]));
+        listed(&mut catalogs);
+        let keys: Vec<&str> = catalogs.sources().iter().map(|(key, _)| *key).collect();
+        assert_eq!(keys, [PROVIDER.key, "searched", "always"]);
+        assert_eq!(catalogs.source_of("a"), Some(PROVIDER.key));
+        assert_eq!(catalogs.source_of("b"), Some("always"));
+
+        let urls: Vec<&str> = catalogs
+            .unopened(&[], "", None, Some(PROVIDER.key))
+            .map(|(_, _, entry)| entry.url.as_str())
+            .collect();
+        assert_eq!(urls, ["a"]);
+        assert!(
+            catalogs
+                .search_notes("", None, Some(PROVIDER.key))
+                .is_empty()
+        );
+
+        catalogs.want("brain", None, Some("always"), 0.0);
+        catalogs.search(10.0);
+        assert!(
+            catalogs.slots[1].search.as_ref().unwrap().asking.is_none(),
+            "a searched catalog outside the source is not asked"
+        );
+        catalogs.want("brain", None, None, 10.0);
+        catalogs.search(20.0);
+        assert!(catalogs.slots[1].search.as_ref().unwrap().asking.is_some());
     }
 
     #[test]
