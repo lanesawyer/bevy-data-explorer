@@ -470,6 +470,7 @@ pub fn sync_value_lists(
                 let shown = PropertyValue {
                     code: 0,
                     label: value.label.clone(),
+                    reference: None,
                     color: None,
                     count: Some(value.count),
                     selected: value.chosen,

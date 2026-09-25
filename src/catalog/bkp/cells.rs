@@ -999,11 +999,12 @@ fn build(
         }
         listed.push(Listed {
             priority: index.priority_order.unwrap_or(i32::MAX),
-            reference: index.reference_id,
+            reference: index.reference_id.clone(),
             parent: index.parent_reference_id,
             value: PropertyValue {
                 code,
                 label: index.value,
+                reference: index.reference_id,
                 color: record.color.as_deref().and_then(parse_color),
                 count: None,
                 selected: false,

@@ -571,6 +571,7 @@ pub fn placeholder_properties(
                     .map(|code| PropertyValue {
                         code: code as u16,
                         label: format!("{} {code}", column.description),
+                        reference: None,
                         color: None,
                         count: None,
                         selected: false,

@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use bevy::window::PresentMode;
 
 pub mod accent;
+pub mod export;
 pub mod logs;
 pub mod net;
 pub mod prefs;
@@ -50,6 +51,7 @@ impl Plugin for ExplorerPlugin {
 
         app.add_plugins(bevy_feathers::FeathersPlugins)
             .add_plugins(prefs::PreferencesPlugin)
+            .add_plugins(export::ExportPlugin)
             .add_plugins(theme::ThemePlugin)
             .add_plugins(crate::render::points::PointRenderPlugin)
             .add_plugins(crate::render::lines::LineRenderPlugin)

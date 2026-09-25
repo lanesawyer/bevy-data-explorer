@@ -777,6 +777,7 @@ mod tests {
             kind: PropertyKind::Categorical(vec![PropertyValue {
                 code: 2,
                 label: "L2/3 IT".into(),
+                reference: None,
                 color: None,
                 count: None,
                 selected: false,

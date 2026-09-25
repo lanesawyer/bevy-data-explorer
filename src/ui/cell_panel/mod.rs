@@ -49,6 +49,7 @@ use crate::source::properties::{
     PropertyValue, Provenance,
 };
 use crate::source::{DataSource, compact_count};
+use crate::ui::color_export::spawn_export_menu;
 use crate::ui::color_overrides::{OverrideMark, PickColor};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedSource;
@@ -186,6 +187,7 @@ pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<Side
     // there is nothing to clear.
     let clear = spawn_header_button(&mut commands, accordion.header, Icon::FilterX);
     commands.entity(clear).insert(ClearAllButton);
+    spawn_export_menu(&mut commands, accordion.header, false);
 
     let menu = spawn_menu(&mut commands, accordion.header);
     commands.entity(menu).insert(CellPanelMenu);

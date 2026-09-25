@@ -804,6 +804,7 @@ mod tests {
         PropertyValue {
             code,
             label: label.into(),
+            reference: None,
             color: None,
             count: None,
             selected: false,

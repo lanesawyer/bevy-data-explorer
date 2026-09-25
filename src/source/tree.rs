@@ -193,6 +193,7 @@ pub mod tests {
             value: PropertyValue {
                 code,
                 label: format!("{level}.{code}"),
+                reference: None,
                 color: None,
                 count: None,
                 selected: false,

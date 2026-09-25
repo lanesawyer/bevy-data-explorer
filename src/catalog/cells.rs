@@ -493,6 +493,7 @@ mod tests {
                     .map(|code| PropertyValue {
                         code,
                         label: format!("Braak {code}"),
+                        reference: None,
                         color: None,
                         count: None,
                         selected: false,

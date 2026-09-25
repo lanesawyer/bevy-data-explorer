@@ -25,6 +25,9 @@ pub struct PropertyValue {
     /// The code stored in the dataset's column for this value.
     pub code: u16,
     pub label: String,
+    /// The publisher's own id for this value, where it has one: what another
+    /// tool reading the same taxonomy would know it by.
+    pub reference: Option<String>,
     /// The color the dataset's publisher gives this value, if it gives one.
     /// Values without one are colored by [`default_color`].
     pub color: Option<Color>,
@@ -1086,6 +1089,7 @@ mod tests {
                     .map(|code| PropertyValue {
                         code: *code,
                         label: format!("value {code}"),
+                        reference: None,
                         color: None,
                         count: None,
                         selected: false,

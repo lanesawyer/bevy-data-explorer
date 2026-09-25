@@ -556,6 +556,7 @@ mod tests {
         PropertyValue {
             code,
             label: format!("v{code}"),
+            reference: None,
             color: None,
             count: None,
             selected: false,
