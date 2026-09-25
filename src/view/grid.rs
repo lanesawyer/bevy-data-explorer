@@ -147,9 +147,9 @@ pub(super) mod tests {
             let cell = Vec2::new(window.x / columns as f32, window.y / rows as f32);
             for index in 0..count {
                 let (col, row) = (index % columns, index / columns);
-                let centre = Vec2::new(cell.x * (col as f32 + 0.5), cell.y * (row as f32 + 0.5));
+                let center = Vec2::new(cell.x * (col as f32 + 0.5), cell.y * (row as f32 + 0.5));
                 assert_eq!(
-                    panel_under_cursor(centre, window, count),
+                    panel_under_cursor(center, window, count),
                     index,
                     "{count} panels, cell {index}"
                 );

@@ -123,7 +123,7 @@ struct Layout {
 impl Layout {
     /// Lay the slides out in a roughly square grid of uniform cells.
     ///
-    /// Slices vary in size, so each is centred in a cell sized to the largest
+    /// Slices vary in size, so each is centered in a cell sized to the largest
     /// of them. Packing each slide's own extent instead would misalign the
     /// anatomy from one row to the next.
     fn build(cloud: &Scatterbrain) -> Self {
@@ -184,16 +184,16 @@ impl SliceStreamer {
 
     /// Translation applied to a slide's points in the current mode.
     ///
-    /// Each slide is re-centred on its own tight bounds first, so slices of
+    /// Each slide is re-centered on its own tight bounds first, so slices of
     /// different sizes line up rather than drifting with their raw coordinates.
     pub fn offset(&self, slide: usize) -> Vec2 {
         let bounds = self.cloud.slides[slide].tight_bounds;
-        let (cx, cy) = bounds.centre();
+        let (cx, cy) = bounds.center();
         // World y is negated for display, matching the other panels.
-        let centred = Vec2::new(-cx, cy);
+        let centered = Vec2::new(-cx, cy);
         match self.mode {
-            SliceMode::Grid => centred + self.layout.grid[slide],
-            SliceMode::Single => centred,
+            SliceMode::Grid => centered + self.layout.grid[slide],
+            SliceMode::Single => centered,
         }
     }
 
@@ -245,7 +245,7 @@ impl SliceStreamer {
     ///
     /// Slides share one coordinate system and are pulled apart into cells, so a
     /// rectangle drawn over the grid means one slide's coordinates and not
-    /// another's. The nearest visible cell centre wins, which is what picks a
+    /// another's. The nearest visible cell center wins, which is what picks a
     /// slide for a rectangle straddling the padding between two of them rather
     /// than answering with nothing.
     pub fn slide_at(&self, world: Vec2) -> Option<usize> {
@@ -275,15 +275,15 @@ impl SliceStreamer {
         match self.mode {
             SliceMode::Grid => {
                 let e = self.layout.grid_extent;
-                let (cx, cy) = e.centre();
+                let (cx, cy) = e.center();
                 SourceExtent {
-                    centre: Vec2::new(cx, cy),
+                    center: Vec2::new(cx, cy),
                     size: Vec2::new(e.width(), e.height()),
                     finest: e.width() / 200_000.0,
                 }
             }
             SliceMode::Single => SourceExtent {
-                centre: Vec2::ZERO,
+                center: Vec2::ZERO,
                 size: self.layout.cell,
                 finest: self.layout.cell.x / 100_000.0,
             },
@@ -371,7 +371,7 @@ pub fn select_slice_nodes(
                 continue;
             };
 
-            let centre = transform.translation().truncate();
+            let center = transform.translation().truncate();
             let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
             let units_per_px = ortho.area.width() / viewport.x.max(1.0);
 
@@ -383,10 +383,10 @@ pub fn select_slice_nodes(
                 // Compare in the slide's own coordinates by moving the view rather
                 // than the points, which keeps node bounds usable as they are.
                 let view = Rect {
-                    min_x: centre.x - half.x - offset.x,
-                    min_y: -(centre.y + half.y - offset.y),
-                    max_x: centre.x + half.x - offset.x,
-                    max_y: -(centre.y - half.y - offset.y),
+                    min_x: center.x - half.x - offset.x,
+                    min_y: -(center.y + half.y - offset.y),
+                    max_x: center.x + half.x - offset.x,
+                    max_y: -(center.y - half.y - offset.y),
                 };
 
                 let slide = &cloud.slides[slide_index];
@@ -610,7 +610,7 @@ pub fn refit_slice_camera(
             };
             let fitted = streamer.limits(viewport);
             *limits = fitted;
-            transform.translation = fitted.centre.extend(transform.translation.z);
+            transform.translation = fitted.center.extend(transform.translation.z);
             ortho.scale = fitted.fit_scale;
             streamer.refit = false;
         }
@@ -719,7 +719,7 @@ pub fn spawn_source(world: &mut World, cloud: Arc<Scatterbrain>, budget: usize) 
         // Replaced on the first update by `publish_extent`, once the grid
         // layout is known.
         SourceExtent {
-            centre: Vec2::ZERO,
+            center: Vec2::ZERO,
             size: Vec2::new(w, h),
             finest: w / 100_000.0,
         },
@@ -777,8 +777,8 @@ pub fn resolve_region(
 ) {
     for (entity, streamer, probe, current) in &sources {
         let wanted = probe.and_then(|probe| {
-            let centre = (probe.min + probe.max) * 0.5;
-            let slide = streamer.slide_at(centre)?;
+            let center = (probe.min + probe.max) * 0.5;
+            let slide = streamer.slide_at(center)?;
             Some(region_of(
                 probe,
                 streamer.offset(slide),
@@ -965,7 +965,7 @@ mod tests {
         // in either transform shows up only as a tooltip that never appears.
         let mut streamer = streamer();
         let slide = 3;
-        let point = streamer.cloud.slides[slide].tight_bounds.centre();
+        let point = streamer.cloud.slides[slide].tight_bounds.center();
         let point = [point.0, point.1];
         resident(&mut streamer, slide, point, 5);
 
@@ -981,7 +981,7 @@ mod tests {
         // Slides share one coordinate system, so using raw coordinates would
         // pick from whichever slide happened to be at the origin.
         let mut streamer = streamer();
-        let point = streamer.cloud.slides[4].tight_bounds.centre();
+        let point = streamer.cloud.slides[4].tight_bounds.center();
         let point = [point.0, point.1];
         resident(&mut streamer, 4, point, 0);
 
@@ -1003,7 +1003,7 @@ mod tests {
         // Single-slice mode leaves every other slide resident but not drawn,
         // and what is not drawn must not answer the pointer.
         let mut streamer = streamer();
-        let point = streamer.cloud.slides[2].tight_bounds.centre();
+        let point = streamer.cloud.slides[2].tight_bounds.center();
         let point = [point.0, point.1];
         resident(&mut streamer, 2, point, 0);
 
@@ -1048,7 +1048,7 @@ mod tests {
     }
 
     #[test]
-    fn slides_are_recentred_so_differently_sized_slices_align() {
+    fn slides_are_recentered_so_differently_sized_slices_align() {
         let mut streamer = streamer();
         streamer.mode = SliceMode::Single;
 
@@ -1056,7 +1056,7 @@ mod tests {
         // where its raw coordinates happen to fall.
         for slide in [0usize, 18, 52] {
             let bounds = streamer.cloud.slides[slide].tight_bounds;
-            let (cx, cy) = bounds.centre();
+            let (cx, cy) = bounds.center();
             let offset = streamer.offset(slide);
             assert!((offset.x + cx).abs() < 1e-4);
             assert!((offset.y - cy).abs() < 1e-4);
@@ -1097,8 +1097,8 @@ mod tests {
 
         assert!(grid.size.x > single.size.x);
         assert!(grid.size.y > single.size.y);
-        // One slice is centred on the origin; the grid is not.
-        assert_eq!(single.centre, Vec2::ZERO);
+        // One slice is centered on the origin; the grid is not.
+        assert_eq!(single.center, Vec2::ZERO);
     }
 
     #[test]

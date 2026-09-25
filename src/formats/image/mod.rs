@@ -56,7 +56,7 @@ enum TileOutcome {
     Blank,
     Failed(String),
     /// The view moved on before this tile started, so its work was skipped.
-    Cancelled,
+    Canceled,
 }
 
 type ShardKey = (usize, Vec<u64>);
@@ -191,7 +191,7 @@ pub fn select_tiles(
     }
 }
 
-/// The tiles of one level within `half` of a view's centre, nearest the middle
+/// The tiles of one level within `half` of a view's center, nearest the middle
 /// first: on a fast pan or zoom those are what the eye lands on, and the outer
 /// ones are the likeliest to be abandoned.
 fn tiles_over(dataset: &Dataset, level_index: usize, view: &View, half: Vec2) -> Vec<TileKey> {
@@ -201,7 +201,7 @@ fn tiles_over(dataset: &Dataset, level_index: usize, view: &View, half: Vec2) ->
     if scale_x <= 0.0 || scale_y <= 0.0 {
         return Vec::new();
     }
-    let (min, max) = (view.centre - half, view.centre + half);
+    let (min, max) = (view.center - half, view.center + half);
 
     // World rect -> level pixels -> tile indices. World y runs downward in
     // image space but upward in Bevy, hence the negation.
@@ -227,7 +227,7 @@ fn tiles_over(dataset: &Dataset, level_index: usize, view: &View, half: Vec2) ->
                 ty,
                 tx,
             };
-            tiles.push((mid.distance_squared(view.centre) as u64, key));
+            tiles.push((mid.distance_squared(view.center) as u64, key));
         }
     }
     tiles.sort_unstable_by_key(|(distance, _)| *distance);
@@ -255,7 +255,7 @@ pub fn spawn_tile_tasks(mut streamers: Query<&mut TileStreamer>) {
                     shared.read().map_or(true, |w| w.contains(&key))
                 };
                 if !still_wanted(&shared) {
-                    return TileOutcome::Cancelled;
+                    return TileOutcome::Canceled;
                 }
 
                 let level = &dataset.levels[key.level];
@@ -275,7 +275,7 @@ pub fn spawn_tile_tasks(mut streamers: Query<&mut TileStreamer>) {
                 // Fetching a shard index is itself a round trip, so check again
                 // before paying for the tile body.
                 if !still_wanted(&shared) {
-                    return TileOutcome::Cancelled;
+                    return TileOutcome::Canceled;
                 }
                 let source = match decoder.as_ref() {
                     Some(decoder) => TileSource::Shard(decoder.as_ref()),
@@ -313,7 +313,7 @@ pub fn collect_tile_tasks(
             let state = match outcome {
                 // It did no work, and forgetting it lets it be requested again
                 // if the view comes back.
-                TileOutcome::Cancelled => {
+                TileOutcome::Canceled => {
                     streamer.tiles.forget(key);
                     continue;
                 }
@@ -469,7 +469,7 @@ pub fn spawn_source(
         },
         SourceExtent {
             // World y is negated so the image reads top-down.
-            centre: Vec2::new(f32::midpoint(x0, x1), -(y0 + y1) * 0.5),
+            center: Vec2::new(f32::midpoint(x0, x1), -(y0 + y1) * 0.5),
             size: Vec2::new((x1 - x0).abs(), (y1 - y0).abs()),
             finest: dataset.levels[0].scale_x as f32 / 8.0,
         },
@@ -503,11 +503,11 @@ pub fn spawn_source(
     // Offered in 3D only when the metadata puts every slice somewhere, and only
     // when some level of it fits a texture; a stack that is merely paged
     // through never shows the control.
-    if let Some((centre, size)) = dataset.volume_extent()
+    if let Some((center, size)) = dataset.volume_extent()
         && let Some(whole) =
             dataset.whole_volume(volume::VOLUME_VOXEL_BUDGET, volume::MAX_TEXTURE_EDGE)
     {
-        source::volume::advertise(world, source, centre, size);
+        source::volume::advertise(world, source, center, size);
         world
             .entity_mut(source)
             .insert(volume::ImageVolume::new(whole));

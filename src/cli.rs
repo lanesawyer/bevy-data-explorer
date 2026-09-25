@@ -26,7 +26,7 @@ pub struct Args {
     pub source: Option<String>,
 
     /// Another dataset in a frame of its own, usually Scatterbrain metadata
-    /// JSON (http(s) URL or local file). Recognised by reading it, like any
+    /// JSON (http(s) URL or local file). Recognized by reading it, like any
     /// other.
     #[arg(long)]
     pub points: Option<String>,
@@ -102,7 +102,7 @@ impl Args {
     }
 }
 
-/// A dataset the command line named, read and recognised.
+/// A dataset the command line named, read and recognized.
 pub struct Opened {
     /// The address as it was given, recorded on the source it becomes.
     pub url: String,
@@ -115,7 +115,7 @@ impl Args {
     /// Read every dataset named, in the order their frames open, reporting
     /// each as it lands.
     ///
-    /// Every one is recognised by reading it, exactly as a URL typed into the
+    /// Every one is recognized by reading it, exactly as a URL typed into the
     /// sidebar is, so the flags say only where a dataset goes and not what it
     /// is. Frames first, then layers, so a layer is never mistaken for the
     /// frame it is meant to be drawn over.

@@ -318,7 +318,7 @@ impl Dataset {
         })
     }
 
-    /// Where the stack lies in three dimensions, as its display centre and
+    /// Where the stack lies in three dimensions, as its display center and
     /// extent — or `None` when it cannot honestly be drawn that way.
     ///
     /// Display coordinates follow the flat view: x right, y negated so the
@@ -414,13 +414,13 @@ impl Dataset {
 
     /// The display box a region fills, through the whole depth of the stack.
     pub fn region_box(&self, region: &VolumeRegion) -> Option<(Vec3, Vec3)> {
-        let (centre, size) = self.volume_extent()?;
+        let (center, size) = self.volume_extent()?;
         let level = self.levels.get(region.level)?;
         let x = |px: u64| (level.origin_x + px as f64 * level.scale_x) as f32;
         let y = |px: u64| -((level.origin_y + px as f64 * level.scale_y) as f32);
         Some((
-            Vec3::new(x(region.x.0), y(region.y.1), centre.z - size.z * 0.5),
-            Vec3::new(x(region.x.1), y(region.y.0), centre.z + size.z * 0.5),
+            Vec3::new(x(region.x.0), y(region.y.1), center.z - size.z * 0.5),
+            Vec3::new(x(region.x.1), y(region.y.0), center.z + size.z * 0.5),
         ))
     }
 
@@ -785,7 +785,7 @@ fn build_channels(
     count: usize,
     array: &SharedArray,
 ) -> Vec<Channel> {
-    // Fallbacks when a channel carries no color: grey for a single channel,
+    // Fallbacks when a channel carries no color: gray for a single channel,
     // then the usual RGB assignment.
     const FALLBACK: [[f32; 3]; 6] = [
         [1.0, 0.0, 0.0],
@@ -1234,8 +1234,8 @@ mod tests {
             )
             .await
             .unwrap();
-            let (centre, size) = dataset.volume_extent().expect("the stack is spatial");
-            println!("volume centre {centre:?} size {size:?}");
+            let (center, size) = dataset.volume_extent().expect("the stack is spatial");
+            println!("volume center {center:?} size {size:?}");
             assert!((size.z - 14.2).abs() < 1e-3, "142 sections 0.1 mm apart");
 
             let budget = crate::formats::image::volume::VOLUME_VOXEL_BUDGET;
@@ -1281,7 +1281,7 @@ mod tests {
             // fits, and it reads the same tissue in more pixels.
             let half = Vec3::new(0.5, 0.5, size.z);
             let detail = dataset
-                .region_within(centre - half, centre + half, budget, edge)
+                .region_within(center - half, center + half, budget, edge)
                 .expect("a small region fits");
             assert!(detail.level < index, "{detail:?} is no finer");
             let started = std::time::Instant::now();

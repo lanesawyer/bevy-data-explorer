@@ -814,7 +814,7 @@ fn heading(commands: &mut Commands, content: &str, first: bool, big: bool) -> En
 ///
 /// Both are cut to fit rather than wrapped, as the layers menu's rows are.
 ///
-/// A disabled item is dimmed here rather than left to Feathers: it greys an
+/// A disabled item is dimmed here rather than left to Feathers: it grays an
 /// item's text through the color the caption inherits, and these lines name
 /// their own colors, so an item it had disabled looked no different. It is
 /// also left out of picking, item and caption alike, since Feathers lights a
@@ -1027,7 +1027,7 @@ mod tests {
                 category: Category::Image,
             },
             crate::source::SourceExtent {
-                centre: Vec2::ZERO,
+                center: Vec2::ZERO,
                 size: Vec2::splat(10.0),
                 finest: 1.0,
             },

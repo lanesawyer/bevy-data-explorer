@@ -254,7 +254,7 @@ the dock itself — View configuration, Layers, Cell properties — is drawn as 
 **pane**; a section inside one, such as a single cell property, is drawn as a
 **group**, whose darker header says it belongs to the pane above it rather than
 competing with it. Feathers has no collapsing container, so the open and close
-behaviour is still ours: the header is a full-width plain button that hides the
+behavior is still ours: the header is a full-width plain button that hides the
 body under it, and a closed header rounds all four corners, since it no longer
 has a body to finish the box.
 
@@ -275,11 +275,11 @@ a sectioned dataset are all pasted into the same search. A `.dzi`, `.svg`, `.csv
 extension, since nothing else uses those. A `.json` is tried as Scatterbrain
 metadata first and as an image manifest second; anything else is tried as a
 Zarr store. A
-sectioned dataset is recognised by its metadata listing more than one slide.
+sectioned dataset is recognized by its metadata listing more than one slide.
 The command line reads what it is given the same way, so `--points` and
 `--slices` say only that a dataset gets a frame of its own, not what it is.
 
-Whatever is recognised is registered as a source like any other and fills the
+Whatever is recognized is registered as a source like any other and fills the
 frame it was chosen in, so it is indistinguishable afterwards from one named on
 the command line — it appears in every picker, carries its own transparency and
 point size, and offers its cell properties in the sidebar. An address that
@@ -338,7 +338,7 @@ be closed too: the window returns to the empty state it started in, examples and
 all.
 
 Duplicating: The copy inherits the source's
-current centre and zoom rather than its fitted defaults, so it starts as the
+current center and zoom rather than its fitted defaults, so it starts as the
 same view and can then be driven somewhere else — useful for watching an
 overview and a detail of the same data at once. Duplicates cost no extra
 geometry: they are another camera on the same render layer, drawing the same
@@ -418,7 +418,7 @@ A catalogued dataset that is not open yet is read when it is chosen and layered
 once it lands, so nothing has to be opened in a frame of its own first. Choices made
 while one is still being read wait their turn rather than being dropped, since
 the menu they were made from is far from any status line that could say so. A
-dataset is recognised as open by the address it was read from, which every
+dataset is recognized as open by the address it was read from, which every
 source records — including one named on the command line — so choosing it
 again reaches the source it already is rather than fetching it twice.
 
@@ -583,7 +583,7 @@ Frames refer to a source by entity rather than by a format tag, which is what
 keeps `panel` and `hud` from knowing anything about OME-Zarr or Scatterbrain —
 the overlay reads a name and a status string off whichever entity its panel
 points at. Adding a format means writing its systems plugin, a `spawn_source`,
-and teaching `formats::discover` to recognise it; nothing else changes, and
+and teaching `formats::discover` to recognize it; nothing else changes, and
 frames are opened by querying the world for sources rather than listing them.
 
 Render layers are allocated at registration, one per source, so two sources can
@@ -741,11 +741,11 @@ The same format also describes a specimen cut into slices: instead of one tree
 at the top level, the metadata carries a `slides` list, each with its own
 octree. All slides share one reference id and one coordinate system — the slide
 index is encoded in the node file name (`s13r6.bin`) rather than in the path.
-Both shapes are modelled as a list of slides so the rest of the viewer does not
+Both shapes are modeled as a list of slides so the rest of the viewer does not
 have to know which it opened.
 
 Because the slices share a coordinate system they would otherwise pile up, so
-each is re-centred on its own bounds and given a layout offset. Slices differ
+each is re-centered on its own bounds and given a layout offset. Slices differ
 in size, so the grid uses a cell sized to the largest of them, which keeps the
 anatomy aligned from one row to the next rather than drifting. The offset lives
 in each node's transform, so switching between grid and single-slice layouts
@@ -1002,7 +1002,7 @@ measuring against it, and are worth knowing before changing them:
 
 - OME-NGFF specifies omero channel colors as six bare hex digits, and
   `ome_zarr_metadata` enforces that. Real converters write `#RRGGBB`, and
-  sometimes the CSS shorthand `#0df`. Both are normalised rather than rejected.
+  sometimes the CSS shorthand `#0df`. Both are normalized rather than rejected.
 - An axis is a name, a type and a unit. The reference v2 image also writes a
   `scale` on every axis — the same number its `coordinateTransformations`
   already carries — and the metadata crate refuses the whole document over it.
@@ -1072,6 +1072,6 @@ the ones worth reading.
 ## Icons
 
 Button icons are glyphs from [Lucide](https://lucide.dev) 1.47.0, embedded as
-its icon font (`src/widgets/assets/lucide.ttf`, ISC licence alongside it). The
+its icon font (`src/widgets/assets/lucide.ttf`, ISC license alongside it). The
 codepoints in `src/widgets/icons.rs` come from that release's `font/info.json`
 and move between releases, so upgrade the font and the table together.

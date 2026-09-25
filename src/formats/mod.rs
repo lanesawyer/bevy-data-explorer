@@ -96,7 +96,7 @@ impl Default for LoadSettings {
     }
 }
 
-/// Register a recognised dataset as a source, whichever format it turned out
+/// Register a recognized dataset as a source, whichever format it turned out
 /// to be.
 ///
 /// The one place that maps a [`Discovered`] onto a format, so nothing above

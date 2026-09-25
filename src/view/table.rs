@@ -1492,7 +1492,7 @@ mod tests {
 
     #[test]
     fn a_step_that_would_not_move_leads_nowhere() {
-        // Which is what greys its button out, so the ends of a table are not
+        // Which is what grays its button out, so the ends of a table are not
         // buttons that look pressable and do nothing.
         let first = TablePaging::new(100, Some(250));
         assert_eq!(PageStep::First.from(&first), None);

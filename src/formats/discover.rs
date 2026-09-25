@@ -2,7 +2,7 @@
 //!
 //! The command line says which format it is opening; a URL typed into the
 //! sidebar does not. So the bytes decide: whatever a source resolves to is
-//! recognised by reading it rather than by asking the user to classify it
+//! recognized by reading it rather than by asking the user to classify it
 //! first, and a source that matches nothing reports what was tried rather than
 //! failing silently.
 //!
@@ -52,7 +52,7 @@ impl Discovered {
     }
 }
 
-/// Recognise whatever `source` points at, or say why it could not be.
+/// Recognize whatever `source` points at, or say why it could not be.
 ///
 /// The same reading the command line does, which blocks on it before the
 /// window is up; callers with a window open run it on a task instead.
@@ -116,7 +116,7 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
         return crate::formats::image::store::open(source)
             .await
             .map(|dataset| Discovered::Image(Box::new(dataset)))
-            .map_err(|image| unrecognised(source, &image, &points));
+            .map_err(|image| unrecognized(source, &image, &points));
     }
 
     crate::formats::image::store::open(source)
@@ -146,9 +146,9 @@ fn classify(source: &str, cloud: Scatterbrain) -> Discovered {
     }
 }
 
-fn unrecognised(source: &str, image: &str, points: &str) -> String {
+fn unrecognized(source: &str, image: &str, points: &str) -> String {
     format!(
-        "could not recognise {source}\n\
+        "could not recognize {source}\n\
          as an OME-Zarr image: {image}\n\
          as Scatterbrain metadata: {points}"
     )
@@ -337,8 +337,8 @@ mod tests {
     }
 
     #[test]
-    fn an_unrecognised_source_says_what_was_tried() {
-        let message = unrecognised("https://store/x.json", "no multiscales", "no `root`");
+    fn an_unrecognized_source_says_what_was_tried() {
+        let message = unrecognized("https://store/x.json", "no multiscales", "no `root`");
         assert!(message.contains("https://store/x.json"));
         assert!(message.contains("no multiscales"));
         assert!(message.contains("no `root`"));

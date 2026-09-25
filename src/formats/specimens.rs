@@ -573,7 +573,7 @@ async fn ask_values(
             }
             continue;
         };
-        let values: Vec<TableFilterValue> = labelled(groups)
+        let values: Vec<TableFilterValue> = labeled(groups)
             .into_iter()
             .map(|(label, count)| TableFilterValue {
                 label,
@@ -660,7 +660,7 @@ struct Property {
 }
 
 /// Each value a column's groups name, with its count; blank values dropped.
-fn labelled(groups: &[Grouped]) -> Vec<(String, u64)> {
+fn labeled(groups: &[Grouped]) -> Vec<(String, u64)> {
     groups
         .iter()
         .filter_map(|group| {
@@ -771,7 +771,7 @@ async fn ask_recount(
         for (index, column) in values.into_iter().enumerate() {
             // A column that could not be counted keeps the counts it had.
             if let Some(Some(groups)) = answers.get(&format!("c{index}")) {
-                recounted.push(Recounted::Values(column.id, labelled(groups)));
+                recounted.push(Recounted::Values(column.id, labeled(groups)));
             }
         }
     }

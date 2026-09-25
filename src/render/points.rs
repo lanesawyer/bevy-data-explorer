@@ -39,7 +39,7 @@ pub const ATTRIBUTE_CORNER: MeshVertexAttribute =
 const NO_CATEGORY: u16 = u16::MAX;
 
 /// The highlight uniform when nothing is hovered. Above `u16::MAX`, so it can
-/// never equal a vertex's category however the data is labelled.
+/// never equal a vertex's category however the data is labeled.
 pub const HIGHLIGHT_NONE: u32 = u32::MAX;
 
 /// How much larger a highlighted point is drawn than its neighbours.
@@ -49,7 +49,7 @@ pub const HIGHLIGHT_NONE: u32 = u32::MAX;
 pub const HIGHLIGHT_SCALE: f32 = 2.6;
 
 /// Point color, as bytes rather than floats for the same reason. The shader
-/// still receives it normalised to a `vec4<f32>`.
+/// still receives it normalized to a `vec4<f32>`.
 pub const ATTRIBUTE_POINT_COLOR: MeshVertexAttribute =
     MeshVertexAttribute::new("Vertex_PointColor", 0x9c0d_7e12, VertexFormat::Unorm8x4);
 
@@ -200,11 +200,11 @@ pub fn build_point_mesh(positions: &[Vec2], colors: &[[f32; 4]], categories: &[u
 
     for (index, (point, color)) in positions.iter().zip(colors).enumerate() {
         // World y is negated for display, matching every other source.
-        let centre = [point.x, -point.y, 0.0];
+        let center = [point.x, -point.y, 0.0];
         let packed = color.map(|channel| (channel.clamp(0.0, 1.0) * 255.0) as u8);
         let category = categories.get(index).copied().unwrap_or(NO_CATEGORY);
         for corner in CORNERS {
-            vertices.push(centre);
+            vertices.push(center);
             color_data.push(packed);
             corners.push(pack_corner(corner, category));
         }

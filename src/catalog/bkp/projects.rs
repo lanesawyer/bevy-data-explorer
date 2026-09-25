@@ -237,7 +237,7 @@ mod tests {
         }
         // Opening every one would read tens of megabytes, so the smallest
         // stands for the rest: what this is checking is that the address a
-        // listing hands out is one `discover` recognises.
+        // listing hands out is one `discover` recognizes.
         let smallest = entries
             .iter()
             .find(|entry| entry.url.ends_with("5O3GAQDWZK5ZM3IMWWB"))

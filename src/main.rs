@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let source = formats::spawn_discovered(app.world_mut(), dataset, settings);
         let mut source = app.world_mut().entity_mut(source);
-        // What a dataset named here is recognised by, so the menus do not offer
+        // What a dataset named here is recognized by, so the menus do not offer
         // it again as one to download.
         source.insert(source::SourceUrl(url));
         if as_layer {

@@ -284,7 +284,7 @@ pub struct NodeCache<K> {
     /// Reads given up on because the view moved off them, counted for the
     /// status line: it is the number that says whether panning is costing
     /// anything.
-    cancelled: usize,
+    canceled: usize,
     resident_points: usize,
     pub budget: usize,
 }
@@ -296,7 +296,7 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
             wanted: Vec::new(),
             retiring: Vec::new(),
             in_flight: 0,
-            cancelled: 0,
+            canceled: 0,
             resident_points: 0,
             budget,
         }
@@ -316,14 +316,14 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
     /// it started. It also frees a place in the queue for a node that is wanted.
     pub fn start(&mut self, mut read: impl FnMut(K) -> Fetching<NodeOutcome>) {
         let keep: HashSet<K> = self.wanted.iter().copied().collect();
-        let mut cancelled = 0usize;
+        let mut canceled = 0usize;
         self.slots.retain(|key, slot| {
             let abandon = matches!(slot, Slot::Loading(_)) && !keep.contains(key);
-            cancelled += usize::from(abandon);
+            canceled += usize::from(abandon);
             !abandon
         });
-        self.in_flight = self.in_flight.saturating_sub(cancelled);
-        self.cancelled += cancelled;
+        self.in_flight = self.in_flight.saturating_sub(canceled);
+        self.canceled += canceled;
 
         for index in 0..self.wanted.len() {
             if self.in_flight >= MAX_IN_FLIGHT {
@@ -539,13 +539,13 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
 
     /// The cache's lines of a source's status.
     pub fn status(&self) -> String {
-        let cancelled = if self.cancelled > 0 {
-            format!(", {} cancelled", self.cancelled)
+        let canceled = if self.canceled > 0 {
+            format!(", {} canceled", self.canceled)
         } else {
             String::new()
         };
         format!(
-            "{} nodes loaded, {} loading{cancelled}\n\
+            "{} nodes loaded, {} loading{canceled}\n\
              {} / {} points resident ({} MB)",
             self.loaded(),
             self.in_flight,

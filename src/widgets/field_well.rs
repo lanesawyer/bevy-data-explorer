@@ -7,7 +7,7 @@ use super::space;
 
 /// A box to set text fields in.
 ///
-/// Feathers fills a field with the same grey as a pane's body and a menu, so
+/// Feathers fills a field with the same gray as a pane's body and a menu, so
 /// a field placed straight in either could not be seen. It is drawn to sit in
 /// a group, a step lighter, and this is that group's body standing alone.
 pub fn field_well() -> impl Scene {

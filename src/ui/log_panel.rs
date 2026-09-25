@@ -334,7 +334,7 @@ pub fn rebuild_log_lines(
     text.editor_mut().set_text(&lines.join("\n"));
 }
 
-/// Grey the copy button out when there is nothing to copy.
+/// Gray the copy button out when there is nothing to copy.
 pub fn sync_copy_button(
     mut commands: Commands,
     panel: Res<LogPanel>,

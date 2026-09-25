@@ -94,7 +94,7 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
     let title = commands
         .spawn_scene(bsn! {
             title("Bevy Data Explorer")
-            // Centred by auto margins at either end rather than by
+            // Centered by auto margins at either end rather than by
             // `JustifyContent::Center`, which overflows both ways once the
             // content is taller than the screen and puts the top out of reach
             // of the scroll. Auto margins shrink to nothing instead.
@@ -189,7 +189,7 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
     children.push(browse);
 
     // Pushed to the foot of the screen by its auto margin, which with the
-    // title's leaves the rest centred in what is between them.
+    // title's leaves the rest centered in what is between them.
     let footer = commands
         .spawn_scene(bsn! {
             Node {

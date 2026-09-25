@@ -27,7 +27,7 @@ use super::{
 };
 
 /// Space between a body's sides and what is in it, the same on both so its
-/// contents sit centred in the box rather than against its right edge.
+/// contents sit centered in the box rather than against its right edge.
 pub const ACCORDION_INDENT: f32 = space::CONTROL_INSET;
 /// Size the accordion titles are drawn at, which sets how many characters fit.
 const TITLE_FONT: f32 = size::BODY;
@@ -101,7 +101,7 @@ pub struct AccordionParts {
 /// Spawn an accordion, drawn as the Feathers container `level` names.
 ///
 /// The container supplies the look — a headed box with its own background,
-/// border and rounded corners — and this supplies the behaviour Feathers has
+/// border and rounded corners — and this supplies the behavior Feathers has
 /// none of: a header that collapses the body under it. What the header holds
 /// beyond its title is the caller's business, so the header is returned along
 /// with the body.

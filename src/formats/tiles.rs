@@ -41,7 +41,7 @@ const EMPTY_SLOT_FRAMES: u64 = 600;
 
 /// What one frame is looking at, in display coordinates.
 pub struct View {
-    pub centre: Vec2,
+    pub center: Vec2,
     pub half: Vec2,
     /// How far past the edges a pan is likely to go next.
     pub margin: Vec2,
@@ -51,7 +51,7 @@ impl View {
     pub fn new(transform: &GlobalTransform, ortho: &OrthographicProjection) -> Self {
         let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
         View {
-            centre: transform.translation().truncate(),
+            center: transform.translation().truncate(),
             half,
             margin: half * 0.15,
         }
@@ -205,7 +205,7 @@ pub struct TileCache<K, O, M = ()> {
     pub budget_bytes: usize,
     /// Reads given up on because the view moved off them, for the status line:
     /// it is the number that says whether panning is costing anything.
-    cancelled: usize,
+    canceled: usize,
 }
 
 impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
@@ -218,7 +218,7 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
             in_flight: 0,
             resident_bytes: 0,
             budget_bytes,
-            cancelled: 0,
+            canceled: 0,
         }
     }
 
@@ -301,7 +301,7 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
     /// asked for again if the view comes back.
     pub fn forget(&mut self, key: K) {
         self.slots.remove(&key);
-        self.cancelled += 1;
+        self.canceled += 1;
     }
 
     /// Abandon reads the view has moved off, and keep resident tiles inside the
@@ -318,14 +318,14 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
         // Dropping a slot aborts its read, which for an image tile is
         // megabytes of chunk fetched and decoded for a view nobody is looking
         // at any more.
-        let mut cancelled = 0usize;
+        let mut canceled = 0usize;
         self.slots.retain(|key, slot| {
             let abandon = matches!(slot.state, SlotState::Loading(_)) && !wanted.contains(key);
-            cancelled += usize::from(abandon);
+            canceled += usize::from(abandon);
             !abandon
         });
-        self.in_flight = self.in_flight.saturating_sub(cancelled);
-        self.cancelled += cancelled;
+        self.in_flight = self.in_flight.saturating_sub(canceled);
+        self.canceled += canceled;
 
         // Nothing wanted means the view has left the image. Its reads are
         // abandoned above, but what is already drawn is kept: panning back
@@ -435,8 +435,8 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
             self.budget_bytes / (1024 * 1024),
             self.in_flight,
         );
-        if self.cancelled > 0 {
-            line.push_str(&format!(", {} cancelled", self.cancelled));
+        if self.canceled > 0 {
+            line.push_str(&format!(", {} canceled", self.canceled));
         }
         let failed = self.failed();
         if failed > 0 {
@@ -535,7 +535,7 @@ mod tests {
         const {
             assert!(
                 TILE_FETCH_THREADS > 4,
-                "a pool this small would serialise tile loading"
+                "a pool this small would serialize tile loading"
             );
         };
         assert_eq!(MAX_IN_FLIGHT, TILE_FETCH_THREADS);
@@ -576,7 +576,7 @@ mod tests {
     #[test]
     fn the_overview_comes_first_and_neighbours_last() {
         let view = View {
-            centre: Vec2::ZERO,
+            center: Vec2::ZERO,
             half: Vec2::ONE,
             margin: Vec2::ONE,
         };

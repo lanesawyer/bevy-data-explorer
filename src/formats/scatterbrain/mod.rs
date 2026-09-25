@@ -8,7 +8,7 @@
 //!
 //! A dataset is either a single cloud or a list of *slides* — physical
 //! sections of the same specimen, each with its own octree. Both shapes are
-//! modelled as a list of slides so the rest of the viewer does not have to care
+//! modeled as a list of slides so the rest of the viewer does not have to care
 //! which it opened.
 //!
 //! Columns are stored one per directory, split by node:
@@ -44,7 +44,7 @@ impl Rect {
         self.max_y - self.min_y
     }
 
-    pub fn centre(&self) -> (f32, f32) {
+    pub fn center(&self) -> (f32, f32) {
         (
             f32::midpoint(self.min_x, self.max_x),
             f32::midpoint(self.min_y, self.max_y),
@@ -224,7 +224,7 @@ impl Scatterbrain {
             ));
         }
 
-        // Normalise both metadata shapes into a list of slides.
+        // Normalize both metadata shapes into a list of slides.
         let trees: Vec<(Option<String>, RawTree)> = if !raw.slides.is_empty() {
             raw.slides
                 .into_iter()
@@ -455,7 +455,7 @@ fn flatten(
 /// indices 0, 2, 4 and 6 ever appear — which is why the node names look like
 /// they skip numbers.
 pub fn child_bounds(bounds: Rect, index: u8) -> Rect {
-    let (cx, cy) = bounds.centre();
+    let (cx, cy) = bounds.center();
     let (min_x, max_x) = if index & 0b100 != 0 {
         (cx, bounds.max_x)
     } else {
@@ -682,7 +682,7 @@ mod tests {
     #[test]
     fn flattens_the_whole_tree() {
         let sb = reference();
-        // A single-cloud dataset is modelled as one slide.
+        // A single-cloud dataset is modeled as one slide.
         assert_eq!(sb.slides.len(), 1);
         assert_eq!(sb.slides[0].nodes.len(), 135);
         assert_eq!(sb.slides[0].root().name, "r");

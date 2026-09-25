@@ -23,7 +23,7 @@ use super::SourceRegistry;
 pub struct SourceVolume {
     /// Middle of the data, in display coordinates: x right, y up, and z out of
     /// the screen, so that looking down -z is looking at it as a frame does.
-    pub centre: Vec3,
+    pub center: Vec3,
     /// Extent along each axis, in the source's unit.
     pub size: Vec3,
     /// Render layer the 3D form is drawn on, apart from the source's own.
@@ -33,7 +33,7 @@ pub struct SourceVolume {
 impl SourceVolume {
     /// The smallest and largest corners.
     pub fn bounds(&self) -> (Vec3, Vec3) {
-        (self.centre - self.size * 0.5, self.centre + self.size * 0.5)
+        (self.center - self.size * 0.5, self.center + self.size * 0.5)
     }
 
     /// Radius of the sphere that holds the whole volume, which is what a camera
@@ -81,14 +81,14 @@ fn crossing(ray: &Ray3d, min: Vec3, max: Vec3) -> Option<(f32, f32)> {
     (far >= near).then_some((near, far))
 }
 
-/// Mark `source` as occupying `size` of real depth around `centre`, and give its
+/// Mark `source` as occupying `size` of real depth around `center`, and give its
 /// 3D form a render layer of its own.
-pub fn advertise(world: &mut World, source: Entity, centre: Vec3, size: Vec3) -> SourceVolume {
+pub fn advertise(world: &mut World, source: Entity, center: Vec3, size: Vec3) -> SourceVolume {
     let layer = world
         .get_resource_or_init::<SourceRegistry>()
         .allocate_layer();
     let volume = SourceVolume {
-        centre,
+        center,
         size,
         layer,
     };
@@ -112,7 +112,7 @@ mod tests {
                 category: crate::source::Category::Image,
             },
             SourceExtent {
-                centre: Vec2::ZERO,
+                center: Vec2::ZERO,
                 size: Vec2::splat(10.0),
                 finest: 0.01,
             },
@@ -139,7 +139,7 @@ mod tests {
 
     fn stack() -> SourceVolume {
         SourceVolume {
-            centre: Vec3::ZERO,
+            center: Vec3::ZERO,
             size: Vec3::new(14.0, 10.0, 14.0),
             layer: 1,
         }
@@ -185,14 +185,14 @@ mod tests {
     #[test]
     fn bounds_and_radius_enclose_the_whole_volume() {
         let volume = SourceVolume {
-            centre: Vec3::new(1.0, -2.0, -7.0),
+            center: Vec3::new(1.0, -2.0, -7.0),
             size: Vec3::new(14.0, 10.0, 14.2),
             layer: 1,
         };
         let (min, max) = volume.bounds();
-        assert_eq!((min + max) * 0.5, volume.centre);
+        assert_eq!((min + max) * 0.5, volume.center);
         assert!((max - min - volume.size).abs().max_element() < 1e-5);
         // Every corner lies on or inside the sphere a camera frames.
-        assert!((max - volume.centre).length() <= volume.radius() + 1e-4);
+        assert!((max - volume.center).length() <= volume.radius() + 1e-4);
     }
 }

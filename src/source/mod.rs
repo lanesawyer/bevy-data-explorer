@@ -29,13 +29,13 @@ pub struct ViewLimits {
     pub min_scale: f32,
     pub max_scale: f32,
     pub fit_scale: f32,
-    pub centre: Vec2,
+    pub center: Vec2,
 }
 
 impl ViewLimits {
     /// Frame `width` x `height` of world in a viewport, allowing zoom in to
     /// `finest_detail` world units per pixel and out to a few screens' worth.
-    pub fn fit(centre: Vec2, width: f32, height: f32, viewport: Vec2, finest_detail: f32) -> Self {
+    pub fn fit(center: Vec2, width: f32, height: f32, viewport: Vec2, finest_detail: f32) -> Self {
         let fit_scale = (width / viewport.x.max(1.0))
             .max(height / viewport.y.max(1.0))
             .max(f32::MIN_POSITIVE);
@@ -43,7 +43,7 @@ impl ViewLimits {
             min_scale: finest_detail.min(fit_scale),
             max_scale: fit_scale * 4.0,
             fit_scale,
-            centre,
+            center,
         }
     }
 }
@@ -123,7 +123,7 @@ pub struct SourceInfo {
 /// panel that opens onto it.
 #[derive(Component, Clone, Copy)]
 pub struct SourceExtent {
-    pub centre: Vec2,
+    pub center: Vec2,
     pub size: Vec2,
     /// Finest meaningful detail, in world units per pixel. Sets how far a
     /// panel may zoom in before it is magnifying beyond the data.
@@ -132,13 +132,13 @@ pub struct SourceExtent {
 
 impl SourceExtent {
     pub fn limits(&self, viewport: Vec2) -> ViewLimits {
-        ViewLimits::fit(self.centre, self.size.x, self.size.y, viewport, self.finest)
+        ViewLimits::fit(self.center, self.size.x, self.size.y, viewport, self.finest)
     }
 }
 
 /// Where a source was read from, as it was asked for.
 ///
-/// What lets a known dataset be recognised as already open, so choosing it
+/// What lets a known dataset be recognized as already open, so choosing it
 /// again reaches the source it opened as rather than fetching it a second time.
 /// Absent on a source that did not come from an address.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
@@ -289,7 +289,7 @@ mod tests {
 
     fn extent() -> SourceExtent {
         SourceExtent {
-            centre: Vec2::ZERO,
+            center: Vec2::ZERO,
             size: Vec2::splat(10.0),
             finest: 0.01,
         }
@@ -371,12 +371,12 @@ mod tests {
     #[test]
     fn extent_frames_the_whole_source() {
         let extent = SourceExtent {
-            centre: Vec2::new(5.0, -5.0),
+            center: Vec2::new(5.0, -5.0),
             size: Vec2::new(40.0, 40.0),
             finest: 0.001,
         };
         let limits = extent.limits(Vec2::new(800.0, 400.0));
-        assert_eq!(limits.centre, Vec2::new(5.0, -5.0));
+        assert_eq!(limits.center, Vec2::new(5.0, -5.0));
         // Limited by height: 40 world units across 400 pixels.
         assert!((limits.fit_scale - 0.1).abs() < 1e-6);
     }

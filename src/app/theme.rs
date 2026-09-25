@@ -73,7 +73,7 @@ pub fn light() -> ThemeProps {
 
 /// Text that must not turn over, because what it is written on does not.
 ///
-/// A button keeps its pale label — over a mid grey in the light theme, which is
+/// A button keeps its pale label — over a mid gray in the light theme, which is
 /// what it already was over a dark one — and the primary button's label sits on
 /// the accent, which never moves. A slider's readout is written over the filled
 /// part of its bar, and that is the accent too.

@@ -50,7 +50,7 @@ pub fn spawn_source(world: &mut World, data: Arc<MyData>) -> Entity {
             detail: ...,  // provenance, shown in listings
             stat: ...,    // headline figure, e.g. "3.74M CELLS"
         },
-        SourceExtent { centre, size, finest },
+        SourceExtent { center, size, finest },
     );
     world.entity_mut(source).insert(MyStreamer::new(data, source));
     source
@@ -61,7 +61,7 @@ Then wire it into `src/formats/`, which is the only place outside the module
 that names it:
 
 - add `MyFormatSystems` to `FormatsPlugin`;
-- add a `Discovered` variant, and recognise it in `discover::discover` from the
+- add a `Discovered` variant, and recognize it in `discover::discover` from the
   bytes (or an unambiguous extension) rather than from anything the user says;
 - map that variant to `spawn_source` in `spawn_discovered`;
 - add an entry to `EXAMPLES` if there is a public dataset to offer.

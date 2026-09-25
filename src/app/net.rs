@@ -7,7 +7,7 @@
 //! crossed, not the ones it stopped on.
 //!
 //! So reads run on an async runtime instead, and what a caller holds is a
-//! [`Fetching`] — a handle that aborts its task when dropped. Cancelling is
+//! [`Fetching`] — a handle that aborts its task when dropped. Canceling is
 //! then the same act as forgetting: a streamer drops the slot of a node it no
 //! longer wants, and the request behind it stops.
 //!

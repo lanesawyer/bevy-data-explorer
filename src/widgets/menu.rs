@@ -214,9 +214,9 @@ pub fn position_menus(
         // Layout reports physical pixels; `left` and `top` are logical.
         let scale = computed.inverse_scale_factor();
         let size = computed.size() * scale;
-        let centre = Vec2::new(transform.translation.x, transform.translation.y) * scale;
-        let left = (centre.x - size.x * 0.5).min(window.width() - MENU_WIDTH - 8.0);
-        let top = centre.y + size.y * 0.5 + 4.0;
+        let center = Vec2::new(transform.translation.x, transform.translation.y) * scale;
+        let left = (center.x - size.x * 0.5).min(window.width() - MENU_WIDTH - 8.0);
+        let top = center.y + size.y * 0.5 + 4.0;
         patch_node(node, |node| {
             node.display = Display::Flex;
             node.left = Val::Px(left.max(8.0));

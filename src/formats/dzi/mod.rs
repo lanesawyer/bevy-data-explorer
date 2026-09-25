@@ -71,12 +71,12 @@ fn select_tiles(
     }
 }
 
-/// The tiles of one level within `half` of a view's centre, nearest the middle
+/// The tiles of one level within `half` of a view's center, nearest the middle
 /// first.
 fn tiles_over(dzi: &DeepZoom, level: u32, view: &View, half: Vec2) -> Vec<TileKey> {
     // Display y is negated; the pyramid is laid out top-down.
-    let (x0, x1) = (view.centre.x - half.x, view.centre.x + half.x);
-    let (y0, y1) = (-(view.centre.y + half.y), -(view.centre.y - half.y));
+    let (x0, x1) = (view.center.x - half.x, view.center.x + half.x);
+    let (y0, y1) = (-(view.center.y + half.y), -(view.center.y - half.y));
     let span = (dzi.tile_size * dzi.scale(level)) as f32;
     let (columns, rows) = dzi.tile_count(level);
     let first = |at: f32| (at / span).floor().max(0.0) as u64;
@@ -87,7 +87,7 @@ fn tiles_over(dzi: &DeepZoom, level: u32, view: &View, half: Vec2) -> Vec<TileKe
         for column in first(x0)..last(x1, columns) {
             let middle = Vec2::new((column as f32 + 0.5) * span, -(row as f32 + 0.5) * span);
             let key = TileKey { level, column, row };
-            tiles.push((middle.distance_squared(view.centre) as u64, key));
+            tiles.push((middle.distance_squared(view.center) as u64, key));
         }
     }
     tiles.sort_unstable_by_key(|(distance, _)| *distance);
@@ -261,7 +261,7 @@ pub fn spawn_source(world: &mut World, dzi: Arc<DeepZoom>, budget_bytes: usize) 
             category: source::Category::Image,
         },
         SourceExtent {
-            centre: Vec2::new(width * 0.5, -height * 0.5),
+            center: Vec2::new(width * 0.5, -height * 0.5),
             size: Vec2::new(width, height),
             finest: 1.0 / 8.0,
         },

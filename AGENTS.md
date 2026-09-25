@@ -9,7 +9,7 @@ easy to get wrong.
 Every format is a module under `src/formats/` with two halves: a systems
 plugin, added once by `FormatsPlugin` whether or not anything of that format is
 open, and a `spawn_source` that registers one dataset as a *source entity*.
-`formats::discover` recognises a dataset by reading it and `spawn_discovered`
+`formats::discover` recognizes a dataset by reading it and `spawn_discovered`
 hands it to its format, and that one path serves the command line, the URL
 field and the examples alike. Adding a format touches `formats` and nothing in
 `view`, `ui` or `main`; frames are opened by querying the world for sources.

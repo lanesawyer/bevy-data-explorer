@@ -150,7 +150,7 @@ pub fn spawn_source(world: &mut World, svg: Arc<Svg>) -> Entity {
             category: source::Category::Annotations,
         },
         SourceExtent {
-            centre: Vec2::new(width * 0.5, -height * 0.5),
+            center: Vec2::new(width * 0.5, -height * 0.5),
             size: Vec2::new(width, height),
             finest: 1.0 / 8.0,
         },

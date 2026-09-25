@@ -168,15 +168,15 @@ fn select_for(
             continue;
         };
 
-        let centre = transform.translation().truncate();
+        let center = transform.translation().truncate();
         let half = Vec2::new(ortho.area.width(), ortho.area.height()) * 0.5;
         let view = Rect {
-            min_x: centre.x - half.x,
+            min_x: center.x - half.x,
             // World y is negated for display, so the visible band in dataset
             // coordinates is the mirror of the camera's.
-            min_y: -(centre.y + half.y),
-            max_x: centre.x + half.x,
-            max_y: -(centre.y - half.y),
+            min_y: -(center.y + half.y),
+            max_x: center.x + half.x,
+            max_y: -(center.y - half.y),
         };
         let units_per_px = ortho.area.width() / viewport.x.max(1.0);
 
@@ -379,7 +379,7 @@ pub fn spawn_source(
     budget: usize,
 ) -> Entity {
     let bounds = cloud.slides[0].tight_bounds;
-    let (cx, cy) = bounds.centre();
+    let (cx, cy) = bounds.center();
     let source = source::register_in(
         world,
         source::SourceInfo {
@@ -391,7 +391,7 @@ pub fn spawn_source(
         },
         SourceExtent {
             // World y is negated for display, matching the image panel.
-            centre: Vec2::new(cx, -cy),
+            center: Vec2::new(cx, -cy),
             size: Vec2::new(bounds.width(), bounds.height()),
             finest: bounds.width() / 100_000.0,
         },
@@ -589,7 +589,7 @@ mod tests {
         let wide = select(full, full.width() / 1000.0, usize::MAX, &cloud);
 
         // Zoom into the middle tenth of the cloud.
-        let (cx, cy) = full.centre();
+        let (cx, cy) = full.center();
         let span = full.width() / 20.0;
         let close = Rect {
             min_x: cx - span,
@@ -675,7 +675,7 @@ mod tests {
     #[test]
     fn hovering_picks_the_nearest_point_and_the_value_it_is_colored_by() {
         let cloud = cloud();
-        let (cx, cy) = slide_of(&cloud).bounds.centre();
+        let (cx, cy) = slide_of(&cloud).bounds.center();
         let streamer = resident(&[[cx, cy], [cx + 100.0, cy]], &[3, 9]);
 
         // Display space negates y, so the probe mirrors the dataset coordinate.
@@ -692,7 +692,7 @@ mod tests {
         // appears, which looks like picking not working at all.
         let cloud = cloud();
         let bounds = slide_of(&cloud).bounds;
-        let (cx, _) = bounds.centre();
+        let (cx, _) = bounds.center();
         // Well off the axis, so mirroring it lands far outside the pick radius.
         let y = bounds.max_y - bounds.height() * 0.1;
         let streamer = resident(&[[cx, y]], &[0]);
@@ -704,7 +704,7 @@ mod tests {
     #[test]
     fn the_pointer_has_to_come_close_to_pick() {
         let cloud = cloud();
-        let (cx, cy) = slide_of(&cloud).bounds.centre();
+        let (cx, cy) = slide_of(&cloud).bounds.center();
         let streamer = resident(&[[cx, cy]], &[0]);
         assert!(
             streamer
@@ -719,7 +719,7 @@ mod tests {
         // has to be measured in pixels or picking would get harder the further
         // out you went.
         let cloud = cloud();
-        let (cx, cy) = slide_of(&cloud).bounds.centre();
+        let (cx, cy) = slide_of(&cloud).bounds.center();
         let streamer = resident(&[[cx, cy]], &[0]);
         let away = Vec2::new(cx + 50.0, -cy);
         assert!(streamer.pick(&probe_at(away, 1.0)).is_none());
@@ -744,7 +744,7 @@ mod tests {
     #[test]
     fn an_uncolored_cloud_still_identifies_what_is_under_the_pointer() {
         let cloud = cloud();
-        let (cx, cy) = slide_of(&cloud).bounds.centre();
+        let (cx, cy) = slide_of(&cloud).bounds.center();
         let streamer = resident(&[[cx, cy]], &[]);
         let hit = streamer.pick(&probe_at(Vec2::new(cx, -cy), 1.0)).unwrap();
         // Nothing to highlight, but the point still has an address.
@@ -758,7 +758,7 @@ mod tests {
         };
 
         let cloud = cloud();
-        let (cx, cy) = slide_of(&cloud).bounds.centre();
+        let (cx, cy) = slide_of(&cloud).bounds.center();
         let streamer = resident(&[[cx, cy], [cx + 0.5, cy]], &[0, 2]);
         let hit = streamer
             .pick(&probe_at(Vec2::new(cx + 0.5, -cy), 1.0))

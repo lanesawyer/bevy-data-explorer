@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     #[ignore = "reads every example from the live store"]
-    fn every_example_is_recognised() {
+    fn every_example_is_recognized() {
         for example in &EXAMPLES {
             let found = crate::app::net::block_on(crate::formats::discover::discover(example.url));
             assert!(found.is_ok(), "{}: {}", example.name, found.err().unwrap());
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     #[ignore = "reads the live BKP API and every dataset it lists"]
-    fn every_live_entry_is_recognised() {
+    fn every_live_entry_is_recognized() {
         let entries = crate::app::net::block_on(list(PRODUCTION.to_string())).unwrap();
         assert!(!entries.is_empty());
         for entry in &entries {

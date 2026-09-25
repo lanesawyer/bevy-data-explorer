@@ -225,7 +225,7 @@ pub fn sync_duplicate_buttons(
 
 /// Duplicate a panel when its button is pressed.
 ///
-/// The copy inherits the source panel's current centre and zoom rather than its
+/// The copy inherits the source panel's current center and zoom rather than its
 /// fitted defaults, so a duplicate starts as the same view and can then be
 /// driven somewhere else.
 pub fn panel_buttons(

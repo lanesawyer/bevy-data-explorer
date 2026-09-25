@@ -1,7 +1,7 @@
 //! Putting a [`Bookmark`] back on screen.
 //!
 //! Restoring goes through the same doors opening a dataset by hand does:
-//! each address is recognised by `discover` and registered with
+//! each address is recognized by `discover` and registered with
 //! `spawn_discovered`, and a dataset already open is reused rather than read
 //! again. The reads run at once rather than one after another, and the frames
 //! are laid out only when every one has landed or failed, so a slow dataset
@@ -263,7 +263,7 @@ pub fn drive_restore(
         let cell = area.cell(count, position).size();
         let limits = extent.limits(cell);
         let flat = View {
-            centre: Vec2::from_array(frame.view.centre),
+            center: Vec2::from_array(frame.view.center),
             scale: frame
                 .view
                 .scale_in(cell.to_array())
@@ -655,7 +655,7 @@ mod tests {
                 category: crate::source::Category::Image,
             },
             SourceExtent {
-                centre: Vec2::ZERO,
+                center: Vec2::ZERO,
                 size: Vec2::splat(100.0),
                 finest: 0.1,
             },

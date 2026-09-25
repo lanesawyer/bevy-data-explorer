@@ -161,7 +161,7 @@ impl NumericRange {
 
     /// The value at the middle of a histogram bucket, which is what decides
     /// whether the bucket counts as inside the span.
-    pub fn bucket_centre(&self, bucket: usize) -> f32 {
+    pub fn bucket_center(&self, bucket: usize) -> f32 {
         let (start, end) = self.bucket_span(bucket);
         f32::midpoint(start, end)
     }
@@ -175,7 +175,7 @@ impl NumericRange {
             .enumerate()
             .fold((0, 0), |(inside, total), (bucket, &count)| {
                 let count = u64::from(count);
-                let admitted = self.admits(self.bucket_centre(bucket));
+                let admitted = self.admits(self.bucket_center(bucket));
                 (inside + if admitted { count } else { 0 }, total + count)
             })
     }
@@ -190,7 +190,7 @@ pub enum RangeEnd {
 /// What a property is filtered by.
 #[derive(Debug, Clone)]
 pub enum PropertyKind {
-    /// A fixed set of labelled values, ticked individually.
+    /// A fixed set of labeled values, ticked individually.
     Categorical(Vec<PropertyValue>),
     /// A continuous span, chosen between two ends.
     Numeric(NumericRange),
@@ -1309,7 +1309,7 @@ mod tests {
     }
 
     #[test]
-    fn a_numeric_value_is_labelled_by_its_property() {
+    fn a_numeric_value_is_labeled_by_its_property() {
         let mut properties = CellProperties::ready(vec![numeric("score")]);
         properties.properties[0].name = "Score".into();
         assert_eq!(

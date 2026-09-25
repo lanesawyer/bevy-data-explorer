@@ -278,7 +278,7 @@ pub fn collect_volumes(
                     commands.spawn((
                         Mesh2d(meshes.add(Cuboid::from_size(placed.size))),
                         MeshMaterial2d(material.clone()),
-                        Transform::from_translation(placed.centre),
+                        Transform::from_translation(placed.center),
                         RenderLayers::layer(placed.layer),
                     ));
                     info!(

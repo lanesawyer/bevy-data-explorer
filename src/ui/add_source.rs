@@ -5,7 +5,7 @@
 //! One already open is shown where it was asked for; anything else is read.
 //!
 //! What the URL points at is worked out by reading it rather than by asking:
-//! `formats::discover` recognises the format, and whatever it finds is
+//! `formats::discover` recognizes the format, and whatever it finds is
 //! registered as a source like any other, so a dataset opened here is
 //! indistinguishable afterwards from one named on the command line. A source
 //! that matches nothing leaves the message it failed with on screen.
@@ -147,7 +147,7 @@ pub fn status_line() -> impl Scene {
 /// Answer requests for known datasets: one already open goes straight to the
 /// frame it was asked for, and anything else is read.
 ///
-/// Recognised by the address it was read from rather than by a record kept
+/// Recognized by the address it was read from rather than by a record kept
 /// here, so a dataset named on the command line counts as open too.
 pub fn answer_dataset_requests(
     mut requests: MessageReader<DatasetRequest>,
@@ -280,8 +280,8 @@ mod tests {
     fn a_failure_is_shown_in_its_own_color() {
         let palette = Palette::dark();
         let (message, color) =
-            LoadStatus::Failed("could not recognise it".into()).message(&palette);
-        assert_eq!(message, "could not recognise it");
+            LoadStatus::Failed("could not recognize it".into()).message(&palette);
+        assert_eq!(message, "could not recognize it");
         assert_eq!(color, palette.problem);
         assert_ne!(palette.problem, palette.progress);
     }
@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn asking_again_for_what_is_already_queued_is_recognised() {
+    fn asking_again_for_what_is_already_queued_is_recognized() {
         let panel = Entity::from_raw_u32(7).unwrap();
         let mut load = CustomLoad::default();
         load.queued

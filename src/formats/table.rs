@@ -272,7 +272,7 @@ pub fn spawn_source(world: &mut World, table: Table) -> Entity {
         // world. It is still registered with one because every source is
         // framed from an extent when its panel opens.
         SourceExtent {
-            centre: Vec2::ZERO,
+            center: Vec2::ZERO,
             size: Vec2::ONE,
             finest: 1.0,
         },

@@ -72,7 +72,7 @@ pub fn reset_selected_view(
     let Projection::Orthographic(ortho) = projection.as_mut() else {
         return;
     };
-    transform.translation = limits.centre.extend(transform.translation.z);
+    transform.translation = limits.center.extend(transform.translation.z);
     ortho.scale = limits.fit_scale;
 }
 

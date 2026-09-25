@@ -102,7 +102,7 @@ impl Material2d for ChannelTileMaterial {
 
 /// Channel intensities as a texture: half floats, four channels to a texel.
 ///
-/// Half floats because tiles are sampled filtered and 16-bit normalised
+/// Half floats because tiles are sampled filtered and 16-bit normalized
 /// formats are an optional GPU feature; a half keeps three significant
 /// figures at any magnitude, which holds a window as narrow as a fiftieth of
 /// the stored range. `layers` are array layers for a tile, and slices when

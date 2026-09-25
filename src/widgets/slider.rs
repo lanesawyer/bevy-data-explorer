@@ -34,7 +34,7 @@ pub fn spawn_slider(
                 @min: { range.0 },
                 @max: { range.1 }
             }
-            // After the scene, so this patches the track behaviour it set.
+            // After the scene, so this patches the track behavior it set.
             Slider { track_click: { TrackClick::Snap } }
             SliderPrecision({ decimals })
         })

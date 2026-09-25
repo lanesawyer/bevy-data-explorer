@@ -80,7 +80,7 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
                 let flat = match (orbit, projection) {
                     (Some(orbit), _) => Some(orbit.flat),
                     (None, Projection::Orthographic(ortho)) => Some(View {
-                        centre: transform.translation.truncate(),
+                        center: transform.translation.truncate(),
                         scale: ortho.scale,
                     }),
                     (None, _) => None,
@@ -148,7 +148,7 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
         }
         frames.push(FrameState {
             source,
-            view: ViewState::new(flat.centre.to_array(), flat.scale, cell.to_array()),
+            view: ViewState::new(flat.center.to_array(), flat.scale, cell.to_array()),
             orbit: orbit.map(|orbit| OrbitState {
                 target: orbit.target.to_array(),
                 yaw: orbit.yaw,

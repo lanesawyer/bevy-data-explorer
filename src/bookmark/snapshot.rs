@@ -200,7 +200,7 @@ pub struct FrameState {
 /// A rectangle selecting cells, and the column its summary is broken down by.
 ///
 /// Kept in the frame's own display coordinates, the space [`ViewState`] saves
-/// its centre in, so the two are restored consistently: a rectangle saved in
+/// its center in, so the two are restored consistently: a rectangle saved in
 /// the dataset's coordinates would need the section layout to be rebuilt the
 /// same way before it meant anything.
 ///
@@ -231,14 +231,16 @@ pub struct FocusState {
 /// cell the frame is restored into.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 pub struct ViewState {
-    pub centre: [f32; 2],
+    /// Saved as `centre` before the spelling changed; still read that way.
+    #[serde(alias = "centre")]
+    pub center: [f32; 2],
     pub extent: [f32; 2],
 }
 
 impl ViewState {
-    pub fn new(centre: [f32; 2], scale: f32, cell: [f32; 2]) -> Self {
+    pub fn new(center: [f32; 2], scale: f32, cell: [f32; 2]) -> Self {
         ViewState {
-            centre,
+            center,
             extent: [scale * cell[0], scale * cell[1]],
         }
     }
@@ -894,5 +896,12 @@ mod tests {
     fn a_bookmark_from_before_tables_still_reads() {
         let saved: SourceState = serde_json::from_str(r#"{"url":"a"}"#).unwrap();
         assert_eq!(saved.table, None);
+    }
+
+    #[test]
+    fn a_view_saved_with_its_centre_spelled_the_old_way_still_reads() {
+        let saved: ViewState =
+            serde_json::from_str(r#"{"centre":[1.0,2.0],"extent":[3.0,4.0]}"#).unwrap();
+        assert_eq!(saved.center, [1.0, 2.0]);
     }
 }

@@ -66,7 +66,7 @@ impl Orbit {
     /// that going 3D looks like it.
     pub fn fit(volume: &SourceVolume, flat: View) -> Self {
         let home = Home {
-            target: volume.centre,
+            target: volume.center,
             yaw: -0.6,
             pitch: 0.35,
             // Far enough that the sphere round the volume fits the narrower
@@ -260,7 +260,7 @@ pub fn on_view_toggled(
                 return;
             };
             let flat = View {
-                centre: transform.translation.truncate(),
+                center: transform.translation.truncate(),
                 scale: ortho.scale,
             };
             commands
@@ -275,7 +275,7 @@ pub fn on_view_toggled(
 /// Put a frame back to the 2D view it left, on its source's own layer.
 fn leave(commands: &mut Commands, panel: Entity, orbit: &Orbit, layer: usize) {
     commands.entity(panel).remove::<Orbit>().insert((
-        Transform::from_translation(orbit.flat.centre.extend(1000.0)),
+        Transform::from_translation(orbit.flat.center.extend(1000.0)),
         Projection::Orthographic(OrthographicProjection {
             scale: orbit.flat.scale,
             ..OrthographicProjection::default_2d()
@@ -290,7 +290,7 @@ mod tests {
 
     fn volume() -> SourceVolume {
         SourceVolume {
-            centre: Vec3::new(7.0, -5.0, -7.1),
+            center: Vec3::new(7.0, -5.0, -7.1),
             size: Vec3::new(14.0, 10.5, 14.2),
             layer: 9,
         }
@@ -298,7 +298,7 @@ mod tests {
 
     fn flat() -> View {
         View {
-            centre: Vec2::new(7.0, -5.0),
+            center: Vec2::new(7.0, -5.0),
             scale: 0.02,
         }
     }
@@ -310,9 +310,9 @@ mod tests {
         let camera = orbit.transform();
         // Looking at the middle of the volume, from outside it.
         let forward = camera.forward().as_vec3();
-        let to_centre = (volume.centre - camera.translation).normalize();
-        assert!(forward.dot(to_centre) > 0.9999);
-        let distance = camera.translation.distance(volume.centre);
+        let to_center = (volume.center - camera.translation).normalize();
+        assert!(forward.dot(to_center) > 0.9999);
+        let distance = camera.translation.distance(volume.center);
         assert!(distance > volume.radius());
         // The sphere round it subtends no more than the field of view.
         assert!((volume.radius() / distance).asin() * 2.0 <= FOV);

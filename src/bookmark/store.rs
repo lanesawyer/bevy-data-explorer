@@ -138,7 +138,7 @@ fn save(folder: &Path, bookmark: &Bookmark) -> Result<PathBuf, String> {
 /// for the timestamp and extension.
 const STEM_BYTES: usize = 80;
 
-/// A name made safe to be a file's, keeping it recognisable.
+/// A name made safe to be a file's, keeping it recognizable.
 pub fn file_stem(name: &str) -> String {
     let stem: String = name
         .trim()
@@ -173,7 +173,7 @@ pub fn file_stem(name: &str) -> String {
 
 /// What a file dialog came back with.
 pub enum DialogOutcome {
-    /// Written to this path; nothing if the dialog was cancelled.
+    /// Written to this path; nothing if the dialog was canceled.
     Exported(Result<Option<PathBuf>, String>),
     Imported(Result<Option<Bookmark>, String>),
 }

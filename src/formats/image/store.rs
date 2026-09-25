@@ -13,7 +13,7 @@ use zarrs_object_store::AsyncObjectStore;
 
 use crate::formats::image::dataset::{Dataset, ReadStore};
 
-/// A multiscale image normalised across OME-Zarr versions. The 0.4 and 0.5
+/// A multiscale image normalized across OME-Zarr versions. The 0.4 and 0.5
 /// types are separate wrappers around identical axis and dataset types.
 #[derive(Debug, Clone)]
 pub struct MultiscaleSpec {
@@ -97,7 +97,7 @@ async fn load_manifest(source: &str) -> Result<Manifest, String> {
 /// that already ends in one yields `.../image.zarr//zarr.json`. Object stores
 /// treat that as a distinct key and return 404 for every read, which surfaces
 /// as "group metadata is missing" rather than anything about the URL. Manifest
-/// `url` fields conventionally carry the trailing slash, so normalise here.
+/// `url` fields conventionally carry the trailing slash, so normalize here.
 fn http_base(url: &str) -> String {
     url.trim_end_matches('/').to_string()
 }
@@ -182,7 +182,7 @@ pub(crate) fn parse_ome(
 /// enforces that. Real converters are looser: both reference images here write
 /// a leading `#`, and one uses the three-digit CSS shorthand (`#0df`). Rejecting
 /// those would mean refusing to open working datasets over a cosmetic
-/// difference, so normalise instead.
+/// difference, so normalize instead.
 fn normalize_omero_colors(attrs: &mut serde_json::Value) {
     for root in ["ome", ""] {
         let node = if root.is_empty() {
@@ -277,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn recognises_manifests_by_extension() {
+    fn recognizes_manifests_by_extension() {
         assert!(is_manifest("image.json"));
         assert!(is_manifest("https://example.com/a/image.json"));
         assert!(!is_manifest("https://example.com/image.zarr/"));
@@ -302,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn the_example_store_survives_normalisation() {
+    fn the_example_store_survives_normalization() {
         assert!(!http_base(crate::catalog::examples::EXAMPLES[0].url).ends_with('/'));
     }
 
@@ -476,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn normalises_the_color_forms_real_converters_emit() {
+    fn normalizes_the_color_forms_real_converters_emit() {
         // Both reference images prefix with `#`, which the spec does not allow.
         assert_eq!(canonical_hex("#FF0000").unwrap(), "FF0000");
         assert_eq!(canonical_hex("FF0000").unwrap(), "FF0000");

@@ -187,7 +187,7 @@ pub fn spawn_browse_panel(commands: &mut Commands, index: usize, background: Col
         min_scale: 1.0,
         max_scale: 1.0,
         fit_scale: 1.0,
-        centre: Vec2::ZERO,
+        center: Vec2::ZERO,
     };
     commands
         .spawn_scene(bsn! {
@@ -209,7 +209,7 @@ pub fn spawn_browse_panel(commands: &mut Commands, index: usize, background: Col
 /// The view a panel is currently showing, used when duplicating it.
 #[derive(Clone, Copy, Debug)]
 pub struct View {
-    pub centre: Vec2,
+    pub center: Vec2,
     pub scale: f32,
 }
 
@@ -224,7 +224,7 @@ pub fn spawn_panel(
     background: Color,
 ) -> Entity {
     let view = view.unwrap_or(View {
-        centre: limits.centre,
+        center: limits.center,
         scale: limits.fit_scale,
     });
     commands
@@ -241,7 +241,7 @@ pub fn spawn_panel(
                 ..OrthographicProjection::default_2d()
             }))
             template_value(RenderLayers::layer(layer))
-            Transform { translation: { view.centre.extend(1000.0) } }
+            Transform { translation: { view.center.extend(1000.0) } }
             Panel { index: { index } }
             ShowsSource({ source })
             template_value(limits)

@@ -142,7 +142,7 @@ pub enum RangeDrag {
 /// While points are colored by this property the lit buckets take the colors
 /// those points are drawn in, which makes the histogram its legend.
 fn bar_color(range: &NumericRange, bucket: usize, ramp: Option<&Ramp>, palette: &Palette) -> Color {
-    let value = range.bucket_centre(bucket);
+    let value = range.bucket_center(bucket);
     match ramp {
         _ if !range.admits(value) => palette.bar_dim,
         Some(ramp) => ramp.gradient.sample(ramp.fraction_of(value)),

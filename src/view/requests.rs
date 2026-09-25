@@ -172,7 +172,7 @@ pub fn apply_panel_requests(
                 let flat = match (orbit, projection) {
                     (Some(orbit), _) => orbit.flat,
                     (None, Projection::Orthographic(ortho)) => View {
-                        centre: transform.translation.truncate(),
+                        center: transform.translation.truncate(),
                         scale: ortho.scale,
                     },
                     (None, _) => continue,
@@ -293,7 +293,7 @@ pub fn apply_panel_requests(
                         ShowsSource(source),
                         RenderLayers::layer(data.layer),
                         limits,
-                        Transform::from_translation(limits.centre.extend(1000.0)),
+                        Transform::from_translation(limits.center.extend(1000.0)),
                         Projection::Orthographic(OrthographicProjection {
                             scale: limits.fit_scale,
                             ..OrthographicProjection::default_2d()
@@ -449,7 +449,7 @@ mod tests {
                 category: crate::source::Category::Image,
             },
             SourceExtent {
-                centre: Vec2::ZERO,
+                center: Vec2::ZERO,
                 size: Vec2::splat(100.0),
                 finest: 0.1,
             },
