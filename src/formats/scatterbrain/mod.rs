@@ -22,8 +22,7 @@ pub mod nodes;
 use serde::Deserialize;
 
 use crate::source::properties::{
-    CellColumn, CellColumns, CellProperties, CellProperty, Column, NumericRange, PropertyKind,
-    PropertyValue,
+    CellColumn, CellColumns, CellProperties, CellProperty, Column, PropertyKind, PropertyValue,
 };
 
 /// Axis-aligned rectangle in dataset coordinates.
@@ -533,19 +532,6 @@ pub fn decode_categories(bytes: &[u8], expected: u64) -> Result<Vec<u16>, String
         .collect())
 }
 
-/// Whether the placeholder offers the numeric columns as properties.
-///
-/// Off. A categorical placeholder invents only the *labels* — the column, its
-/// codes and the points they color are the dataset's own, so the control does
-/// something real. A numeric one invents the bounds and the whole histogram,
-/// which makes the control a picture of nothing: a span chosen against it
-/// filters by numbers that came from here rather than from the data.
-///
-/// Everything behind it stays — the range control, the filtering, the tests —
-/// because what is missing is the measurement, not the code. Turn this on when
-/// a service supplies real bounds and counts.
-const PLACEHOLDER_RANGES: bool = false;
-
 /// Stand-in properties built from a Scatterbrain's own categorical columns.
 ///
 /// The column names and identifiers are real, so coloring by a property works
@@ -553,13 +539,14 @@ const PLACEHOLDER_RANGES: bool = false;
 /// codes, and the names behind them come from whichever service knows the
 /// dataset. A catalog that has one replaces these (see
 /// `catalog::cells`); a dataset no service knows keeps them.
-pub fn placeholder_properties(
-    categorical: &[&PointAttribute],
-    numeric: &[&PointAttribute],
-) -> CellProperties {
+///
+/// Numeric columns are left out: a placeholder for one would have to invent
+/// its bounds and histogram too, and a span chosen against those filters by
+/// numbers from nowhere. A service that measures them offers them instead.
+pub fn placeholder_properties(categorical: &[&PointAttribute]) -> CellProperties {
     const SAMPLE_VALUES: usize = 6;
 
-    let mut properties: Vec<CellProperty> = categorical
+    let properties: Vec<CellProperty> = categorical
         .iter()
         .map(|column| CellProperty {
             id: column.name.clone(),
@@ -581,33 +568,7 @@ pub fn placeholder_properties(
         })
         .collect();
 
-    if PLACEHOLDER_RANGES {
-        properties.extend(numeric.iter().map(|column| CellProperty {
-            id: column.name.clone(),
-            name: column.description.clone(),
-            shown: true,
-            gene: None,
-            kind: PropertyKind::Numeric(NumericRange::full(0.0, 1.0, placeholder_histogram())),
-        }));
-    }
-
     CellProperties::ready(properties)
-}
-
-/// A stand-in distribution, skewed high the way a confidence score tends to be.
-///
-/// Real counts have to be binned over the whole dataset, which is a question
-/// for the service that will supply the labels rather than something to compute
-/// from the nodes that happen to be resident.
-fn placeholder_histogram() -> Vec<u32> {
-    const BUCKETS: usize = 24;
-    (0..BUCKETS)
-        .map(|bucket| {
-            let t = bucket as f32 / (BUCKETS - 1) as f32;
-            let weight = 0.05 + t.powi(3);
-            (weight * 900.0) as u32 + 12
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -622,15 +583,12 @@ mod tests {
         let cloud =
             Scatterbrain::parse(include_str!("../../../testdata/scatterbrain_cells.json")).unwrap();
         let categorical = cloud.category_columns();
-        let numeric = cloud.numeric_columns();
-        assert!(!numeric.is_empty(), "this dataset has float columns");
 
-        let properties = placeholder_properties(&categorical, &numeric);
+        let properties = placeholder_properties(&categorical);
         assert_eq!(properties.state, PropertyState::Ready);
 
         let known: Vec<&str> = categorical
             .iter()
-            .chain(numeric.iter())
             .map(|column| column.name.as_str())
             .collect();
         for property in &properties.properties {
@@ -650,8 +608,7 @@ mod tests {
             "this dataset has float columns, so the placeholder has the chance"
         );
 
-        let properties =
-            placeholder_properties(&cloud.category_columns(), &cloud.numeric_columns());
+        let properties = placeholder_properties(&cloud.category_columns());
         assert!(
             properties
                 .properties
@@ -666,8 +623,7 @@ mod tests {
         // Opening the panel must not silently hide anything.
         let cloud =
             Scatterbrain::parse(include_str!("../../../testdata/scatterbrain_cells.json")).unwrap();
-        let properties =
-            placeholder_properties(&cloud.category_columns(), &cloud.numeric_columns());
+        let properties = placeholder_properties(&cloud.category_columns());
         assert!(properties.selection().filters.is_empty());
     }
 

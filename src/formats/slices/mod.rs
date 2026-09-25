@@ -733,10 +733,7 @@ pub fn spawn_source(world: &mut World, cloud: Arc<Scatterbrain>, budget: usize) 
         HoverInfo::default(),
         // Placeholder until a catalog's service supplies the real value
         // labels; the column names and ids are the dataset's own.
-        crate::formats::scatterbrain::placeholder_properties(
-            &cloud.category_columns(),
-            &cloud.numeric_columns(),
-        ),
+        crate::formats::scatterbrain::placeholder_properties(&cloud.category_columns()),
         cloud.cell_columns(),
     ));
     if cloud.reads_genes() {
