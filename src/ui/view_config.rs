@@ -7,9 +7,9 @@
 
 use bevy::prelude::*;
 use bevy::ui::Checked;
-use bevy_feathers::controls::FeathersCheckbox;
+use bevy_feathers::controls::{FeathersCheckbox, FeathersToolButton};
 use bevy_feathers::theme::ThemeTextColor;
-use bevy_ui_widgets::{SliderRange, SliderValue, ValueChange};
+use bevy_ui_widgets::{Activate, SliderRange, SliderValue, ValueChange};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::render::points::{DEFAULT_POINT_PX, MAX_POINT_PX, MIN_POINT_PX, SourcePointSize};
@@ -19,10 +19,10 @@ use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::table::SourceTable;
 use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
-use crate::view::SelectedSource;
+use crate::view::{PageSlices, SelectedSource};
 use crate::widgets::{
-    BlocksFrameInput, SectionLevel, button_text, patch_node, set_text, size, spawn_accordion,
-    spawn_slider, text,
+    BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, patch_node, set_text, size,
+    space, spawn_accordion, spawn_slider, text,
 };
 
 /// The opacity slider runs 0..100, so its built-in readout is a percentage.
@@ -55,6 +55,10 @@ pub struct SliceSlider;
 /// The row holding the paging control, hidden for sources with no stack.
 #[derive(Component, Clone, Default)]
 pub struct SliceRow;
+
+/// Steps the selected frame's stack one slice back, or on.
+#[derive(Component, Clone, Default)]
+pub struct SliceStep(i64);
 
 /// The line naming which slice is showing.
 #[derive(Component, Clone, Default)]
@@ -145,9 +149,33 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     // The range is rewritten for whichever source is selected; a stack's depth
     // is its own.
     let slice_slider = spawn_slider(&mut commands, 1.0, (1.0, 2.0), 0);
+    commands.entity(slice_slider).insert(SliceSlider);
+    // A single step either side, for when the slider is too coarse to land on
+    // the slice beside this one and the keys are not to hand.
+    let step = |delta: i64, icon: Icon| {
+        bsn! {
+            @FeathersToolButton {
+                @caption: { bsn_list![button_icon(icon)] }
+            }
+            BlocksFrameInput
+            SliceStep({ delta })
+        }
+    };
+    let back = commands.spawn_scene(step(-1, Icon::ChevronLeft)).id();
+    let on = commands.spawn_scene(step(1, Icon::ChevronRight)).id();
+    let slice_row = commands
+        .spawn_scene(bsn! {
+            SliceRow
+            Node {
+                width: { Val::Percent(100.0) },
+                align_items: { AlignItems::Center },
+                column_gap: { Val::Px(space::CONTROLS) },
+            }
+        })
+        .id();
     commands
-        .entity(slice_slider)
-        .insert((SliceSlider, SliceRow));
+        .entity(slice_row)
+        .add_children(&[back, slice_slider, on]);
     // Beside the paging it undoes: a step from the grid shows one slice, and
     // this is the way back.
     let grid_box = commands
@@ -171,10 +199,21 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         size_slider,
         filtered,
         slice_label,
-        slice_slider,
+        slice_row,
         grid_box,
         channels,
     ]);
+}
+
+/// Page by one slice from the buttons beside the slider.
+pub fn on_slice_step(
+    activate: On<Activate>,
+    steps: Query<&SliceStep>,
+    mut pages: MessageWriter<PageSlices>,
+) {
+    if let Ok(step) = steps.get(activate.entity) {
+        pages.write(PageSlices(step.0));
+    }
 }
 
 /// Show the grid box for a stack that can be laid out every slice at once,
@@ -352,6 +391,7 @@ pub struct ViewConfigPlugin;
 impl Plugin for ViewConfigPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_slice_grid_toggled)
+            .add_observer(on_slice_step)
             .add_systems(
                 Update,
                 (

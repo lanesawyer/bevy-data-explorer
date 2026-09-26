@@ -49,6 +49,7 @@ use chrome::{
     update_selection_border,
 };
 use grid::clear_color_for;
+pub use input::PageSlices;
 use input::{
     page_slice_stack, panel_controls, probe_hover, reset_selected_view, toggle_channels,
     toggle_slice_grid, track_text_focus,
@@ -273,6 +274,7 @@ impl Plugin for ViewPlugin {
         .add_message::<PanelRequest>()
         .add_message::<DatasetRequest>()
         .add_message::<AwaitDataset>()
+        .add_message::<PageSlices>()
         .init_resource::<FrameArea>()
         // Created on the first registration otherwise; a frame drawing
         // cross-sections can ask for a layer before any source is open.

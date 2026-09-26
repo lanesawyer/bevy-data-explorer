@@ -84,12 +84,18 @@ pub fn reset_selected_view(
 /// through the link; a linked stack with no depth to place it is paged by the
 /// same step.
 ///
+/// Asked for by a control rather than a key: page the selected frame's stack
+/// by this many slices, exactly as the arrow keys would.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct PageSlices(pub i64);
+
 /// Volumetric images and sectioned datasets both carry a stack, so arrows,
 /// brackets and page keys page either: paging a volume and stepping a
 /// specimen's sections are the same gesture, and a viewer where the same thing
 /// is done two ways is a viewer with two things to learn.
 pub fn page_slice_stack(
     keys: Res<ButtonInput<KeyCode>>,
+    mut asked: MessageReader<PageSlices>,
     typing: Res<TextEntryFocused>,
     selected: SelectedSource,
     selected_panel: Res<SelectedPanel>,
@@ -97,20 +103,20 @@ pub fn page_slice_stack(
     axes: Query<&crate::source::stack::SourceAxes>,
     mut stacks: Query<&mut crate::source::stack::SliceStack>,
 ) {
-    if typing.0 {
-        return;
-    }
-    let mut delta = 0i64;
-    for (key, step) in [
-        (KeyCode::ArrowRight, 1),
-        (KeyCode::ArrowLeft, -1),
-        (KeyCode::PageDown, 1),
-        (KeyCode::PageUp, -1),
-        (KeyCode::BracketRight, 1),
-        (KeyCode::BracketLeft, -1),
-    ] {
-        if keys.just_pressed(key) {
-            delta += step;
+    let mut delta: i64 = asked.read().map(|page| page.0).sum();
+    // Keys typed into a field are the field's, not the frame's.
+    if !typing.0 {
+        for (key, step) in [
+            (KeyCode::ArrowRight, 1),
+            (KeyCode::ArrowLeft, -1),
+            (KeyCode::PageDown, 1),
+            (KeyCode::PageUp, -1),
+            (KeyCode::BracketRight, 1),
+            (KeyCode::BracketLeft, -1),
+        ] {
+            if keys.just_pressed(key) {
+                delta += step;
+            }
         }
     }
     if delta == 0 {
@@ -480,5 +486,40 @@ pub fn panel_controls(
 
     if let Some(state) = drag.as_mut() {
         state.last = cursor;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::source::stack::SliceStack;
+
+    #[test]
+    fn a_control_pages_the_selected_stack_as_a_key_would() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<TextEntryFocused>()
+            .init_resource::<SelectedPanel>()
+            .add_message::<PageSlices>()
+            .add_systems(Update, page_slice_stack);
+        let source = app
+            .world_mut()
+            .spawn(SliceStack {
+                current: 5,
+                count: 10,
+            })
+            .id();
+        let panel = app.world_mut().spawn(ShowsSource(source)).id();
+        app.world_mut().resource_mut::<SelectedPanel>().0 = Some(panel);
+
+        app.world_mut().write_message(PageSlices(1));
+        app.update();
+        assert_eq!(app.world().get::<SliceStack>(source).unwrap().current, 6);
+
+        // Even while something is being typed: only keys are the field's.
+        app.world_mut().resource_mut::<TextEntryFocused>().0 = true;
+        app.world_mut().write_message(PageSlices(-1));
+        app.update();
+        assert_eq!(app.world().get::<SliceStack>(source).unwrap().current, 5);
     }
 }
