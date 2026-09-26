@@ -126,6 +126,26 @@ fn http_base(url: &str) -> String {
     url.trim_end_matches('/').to_string()
 }
 
+/// How long a read may go without a byte arriving before it is given up on
+/// and retried.
+const STALL_SECS: u64 = 30;
+
+/// The HTTP client a store reads through: no limit on how long a read takes,
+/// only on how long it goes without receiving anything.
+///
+/// object_store's default gives a request 30 s end to end, body included. A
+/// tile cut across a stack reads whole chunks for one slice of each — 75 MB a
+/// tile on the SmartSPIM stack — and with several frames paging at once the
+/// chunks under way could all run past that together, be retried together,
+/// and never land. A read nobody wants any more is abandoned by dropping it,
+/// so a total limit protects nothing; a stalled connection is what still needs
+/// catching.
+fn client_options() -> zarrs_object_store::object_store::ClientOptions {
+    zarrs_object_store::object_store::ClientOptions::new()
+        .with_timeout_disabled()
+        .with_read_timeout(std::time::Duration::from_secs(STALL_SECS))
+}
+
 fn open_store(url: &str) -> Result<ReadStore, String> {
     // Both backends come from `object_store`, which is the one zarrs can drive
     // asynchronously. A read here is a future that can be dropped, which is
@@ -135,6 +155,7 @@ fn open_store(url: &str) -> Result<ReadStore, String> {
         let parsed = url::Url::parse(&base).map_err(|e| format!("reading {base}: {e}"))?;
         let store = zarrs_object_store::object_store::http::HttpBuilder::new()
             .with_url(parsed.as_str())
+            .with_client_options(client_options())
             .build()
             .map_err(|e| format!("opening HTTP store {base}: {e}"))?;
         Ok(Arc::new(AsyncObjectStore::new(store)))
