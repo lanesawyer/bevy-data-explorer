@@ -12,7 +12,7 @@
 use bevy::prelude::*;
 use bevy::window::{Monitor, OnMonitor, PrimaryMonitor};
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::theme::{ThemeBackgroundColor, ThemeBorderColor, ThemeTextColor};
+use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
@@ -22,7 +22,7 @@ use crate::view::{Browsing, FrameArea, Panel, SelectedPanel};
 use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, button_text, display,
-    dock_handle, patch_node, set_text, size,
+    dock_band, dock_handle, patch_node, set_text, size,
 };
 
 /// Width when collapsed. Enough for the short title and the toggle beneath it.
@@ -242,16 +242,6 @@ fn inset() -> UiRect {
     }
 }
 
-/// The shading of the title's band and the footer's, a step off the dock's
-/// own, with a rule where each meets the sections. Without them the sections
-/// scrolled out of sight against a hard edge nothing marked.
-fn band() -> impl Scene {
-    bsn! {
-        ThemeBackgroundColor({ tokens::PANE_BODY_BG })
-        ThemeBorderColor({ tokens::PANE_HEADER_BORDER })
-    }
-}
-
 fn spawn_sidebar(mut commands: Commands) {
     commands.spawn_scene(bsn! {
         SidebarRoot
@@ -278,7 +268,7 @@ fn spawn_sidebar(mut commands: Commands) {
                     padding: { inset() },
                     border: { UiRect::bottom(Val::Px(1.0)) },
                 }
-                band()
+                dock_band()
                 Children [
                     (
                         SidebarTitle
@@ -330,7 +320,7 @@ fn spawn_sidebar(mut commands: Commands) {
                     padding: { inset() },
                     border: { UiRect::top(Val::Px(1.0)) },
                 }
-                band()
+                dock_band()
                 Children [
             (
                 Node {

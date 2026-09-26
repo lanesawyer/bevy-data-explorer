@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use bevy::ui::FocusPolicy;
 use bevy::window::SystemCursorIcon;
 use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
-use bevy_feathers::theme::ThemeBackgroundColor;
+use bevy_feathers::theme::{ThemeBackgroundColor, ThemeBorderColor};
 use bevy_feathers::tokens;
 
 use super::{BlocksFrameInput, display, patch_node};
@@ -188,6 +188,18 @@ pub fn dock_handle(edge: DockEdge) -> impl Scene {
             height: { height },
         }
         ThemeBackgroundColor({ tokens::BUTTON_BG })
+    }
+}
+
+/// The shading of a dock's fixed bands — a title above what scrolls, controls
+/// below it — a step off the dock's own, with a rule where each meets the
+/// scrolling part. Without them rows scrolled out of sight against a hard
+/// edge nothing marked. The caller says which side the rule is on, by giving
+/// the band a border there.
+pub fn dock_band() -> impl Scene {
+    bsn! {
+        ThemeBackgroundColor({ tokens::PANE_BODY_BG })
+        ThemeBorderColor({ tokens::PANE_HEADER_BORDER })
     }
 }
 

@@ -49,7 +49,8 @@ use crate::view::{FrameArea, FrameRegion, SelectMode, SelectedPanel, SelectedSou
 use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, DockWidth, Icon, SelectableText, button_icon,
-    button_text, dock_handle, place_right_dock, scroll_list, set_text, size, text, text_dim,
+    button_text, dock_band, dock_handle, place_right_dock, scroll_list, set_text, size, text,
+    text_dim,
 };
 
 /// Wide enough for a cluster's name beside its count without either wrapping.
@@ -236,12 +237,22 @@ fn spawn_selection_dock(mut commands: Commands) {
             height: { Val::Percent(100.0) },
             display: { Display::None },
             flex_direction: { FlexDirection::Column },
-            row_gap: { Val::Px(space::ROWS) },
-            padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
         }
         ThemeBackgroundColor({ tokens::WINDOW_BG })
         InheritableFont { font_size: { 13.0f32 } }
         Children [
+            (
+                // The title and the count of what is selected, on a band that
+                // stays put above the lists that scroll.
+                Node {
+                    width: { Val::Percent(100.0) },
+                    flex_direction: { FlexDirection::Column },
+                    row_gap: { Val::Px(space::ROWS) },
+                    padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
+                    border: { UiRect::bottom(Val::Px(1.0)) },
+                }
+                dock_band()
+                Children [
             (
                 Node {
                     width: { Val::Percent(100.0) },
@@ -272,6 +283,19 @@ fn spawn_selection_dock(mut commands: Commands) {
                 SelectionStatus
                 text_dim("", size::SMALL)
             ),
+                ]
+            ),
+            (
+                // The padding the lists' scrollbars reach into.
+                Node {
+                    width: { Val::Percent(100.0) },
+                    flex_direction: { FlexDirection::Column },
+                    flex_grow: { 1.0_f32 },
+                    min_height: { Val::ZERO },
+                    row_gap: { Val::Px(space::ROWS) },
+                    padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
+                }
+                Children [
             (
                 SelectionBody
                 scroll_list(LIST_MAX_PX)
@@ -285,6 +309,8 @@ fn spawn_selection_dock(mut commands: Commands) {
                     flex_grow: { 1.0_f32 },
                     min_height: { Val::ZERO },
                 }
+            ),
+                ]
             ),
         ]
     });
