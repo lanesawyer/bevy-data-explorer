@@ -13,6 +13,7 @@ pub mod cell_panel;
 pub mod channels;
 pub mod color_export;
 pub mod color_overrides;
+pub mod dashboards;
 pub mod filtered;
 pub mod genes;
 pub mod help;
@@ -54,6 +55,7 @@ impl Plugin for UiPlugin {
         .add_plugins((
             table_filters::TableFilterPlugin,
             welcome::WelcomePlugin,
+            dashboards::DashboardsPlugin,
             log_panel::LogPanelPlugin,
             help::HelpPlugin,
             settings::SettingsPlugin,

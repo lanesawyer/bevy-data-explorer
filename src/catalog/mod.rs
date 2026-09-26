@@ -34,9 +34,16 @@
 //! provider runs — without turning anything off. That is the picker's own
 //! narrowing: the other catalogs are neither offered to it nor searched on its
 //! behalf, and every other picker still sees them.
+//!
+//! A catalog may also have a [`dashboard::Dashboard`]: its source's front
+//! page, counting what it holds and offering a few datasets to start from.
+//! The home page shows one for each source that is on. It is asked for once
+//! the source is on, and again whenever the catalog says it is worth asking
+//! again — the BKP Registry's, whenever someone signs in or out.
 
 pub mod bkp;
 pub mod cells;
+pub mod dashboard;
 pub mod examples;
 pub mod genes;
 pub mod registry;
@@ -54,6 +61,7 @@ use crate::source::genes::Gene;
 use crate::source::properties::{CellColumns, CellProperties, CellProperty};
 use crate::source::region::SelectedRegion;
 use crate::source::{Category, DataSource, SourceUrl};
+use dashboard::{Dashboard, DashboardState};
 use examples::Example;
 
 /// One dataset a catalog offers.
@@ -309,6 +317,17 @@ pub trait Catalog: Send + Sync + 'static {
     ) -> BoxFuture<'static, Result<Found, String>> {
         Box::pin(async { Ok(Found::default()) })
     }
+
+    /// Whether it has a front page to show. One that does not never has
+    /// [`Self::dashboard`] called.
+    fn has_dashboard(&self) -> bool {
+        false
+    }
+
+    /// Its front page, counted afresh. Run off the main thread.
+    fn dashboard(&self) -> BoxFuture<'static, Result<Dashboard, String>> {
+        Box::pin(async { Err("this catalog has no dashboard".into()) })
+    }
 }
 
 /// What a searched catalog answered: the entries it sent, and how many
@@ -374,6 +393,9 @@ struct Slot {
     entries: Vec<Entry>,
     listing: Option<Fetching<Result<Vec<Entry>, String>>>,
     search: Option<Search>,
+    /// Its front page, if it has one.
+    dashboard: Option<DashboardState>,
+    asking_dashboard: Option<Fetching<Result<Dashboard, String>>>,
 }
 
 impl Slot {
@@ -480,6 +502,23 @@ pub struct Catalogs {
     wanted_from: Option<String>,
     /// The keys of the providers turned off.
     off: BTreeSet<String>,
+    /// Bumped whenever any dashboard changes, apart from [`Self::generation`]
+    /// so typing into a picker does not redraw them.
+    dashboards_generation: usize,
+}
+
+/// Which catalog's dashboard, by its place among them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DashboardId(usize);
+
+/// One dashboard as the home page draws it.
+pub struct DashboardView<'a> {
+    pub id: DashboardId,
+    /// Who runs it, for showing it only while they are on. One no provider
+    /// runs is always on.
+    pub provider: Option<Provider>,
+    pub name: &'a str,
+    pub state: &'a DashboardState,
 }
 
 impl Catalogs {
@@ -498,6 +537,8 @@ impl Catalogs {
             on: provider.is_none_or(|provider| !self.off.contains(provider.key)),
             provider,
             listing: search.is_none().then(|| fetching(catalog.list())),
+            dashboard: catalog.has_dashboard().then_some(DashboardState::Waiting),
+            asking_dashboard: None,
             catalog: Arc::new(catalog),
             entries: Vec::new(),
             search,
@@ -704,7 +745,85 @@ impl Catalogs {
                 .iter()
                 .find(|entry| entry.url == url)
                 .or_else(|| slot.search.as_ref()?.seen.get(url))
+                .or_else(|| match &slot.dashboard {
+                    Some(DashboardState::Ready(dashboard)) => {
+                        dashboard.entries().find(|entry| entry.url == url)
+                    }
+                    _ => None,
+                })
                 .map(|entry| (slot, entry))
+        })
+    }
+
+    /// Every catalog's dashboard, in the order registered, whether or not
+    /// its source is on.
+    pub fn dashboards(&self) -> impl Iterator<Item = DashboardView<'_>> {
+        self.slots.iter().enumerate().filter_map(|(at, slot)| {
+            Some(DashboardView {
+                id: DashboardId(at),
+                provider: slot.provider,
+                name: slot.source_name(),
+                state: slot.dashboard.as_ref()?,
+            })
+        })
+    }
+
+    /// Changes whenever any dashboard does.
+    pub fn dashboards_generation(&self) -> usize {
+        self.dashboards_generation
+    }
+
+    /// Count every dashboard of the source keyed `key` again, dropping any
+    /// request in flight. For when what it can see has changed, such as
+    /// signing in or out.
+    pub fn refresh_dashboards(&mut self, key: &str) {
+        for slot in &mut self.slots {
+            if slot.source() != key {
+                continue;
+            }
+            if let Some(state) = slot.dashboard.as_mut() {
+                *state = DashboardState::Waiting;
+                slot.asking_dashboard = None;
+                self.dashboards_generation += 1;
+            }
+        }
+    }
+
+    /// Start asking for each dashboard waiting to be asked whose source is
+    /// on, and take in those that have answered.
+    fn ask_dashboards(&mut self) {
+        for slot in &mut self.slots {
+            let Some(state) = slot.dashboard.as_mut() else {
+                continue;
+            };
+            if matches!(state, DashboardState::Waiting) && slot.on {
+                *state = DashboardState::Loading;
+                slot.asking_dashboard = Some(fetching(slot.catalog.dashboard()));
+                self.dashboards_generation += 1;
+            }
+            let Some(result) = slot.asking_dashboard.as_mut().and_then(Fetching::take) else {
+                continue;
+            };
+            slot.asking_dashboard = None;
+            *state = match result {
+                Ok(dashboard) => {
+                    info!("{}: dashboard counted", slot.name);
+                    DashboardState::Ready(dashboard)
+                }
+                Err(e) => {
+                    warn!("{}: no dashboard: {e}", slot.name);
+                    DashboardState::Failed(e)
+                }
+            };
+            self.dashboards_generation += 1;
+        }
+    }
+
+    /// Whether any dashboard is waiting to be asked for or on its way.
+    fn dashboards_due(&self) -> bool {
+        self.slots.iter().any(|slot| {
+            slot.asking_dashboard.is_some()
+                || (slot.on && matches!(slot.dashboard, Some(DashboardState::Waiting)))
         })
     }
 
@@ -801,6 +920,7 @@ impl Plugin for CatalogPlugin {
                 search_catalogs,
                 registry::renew_token,
                 registry::sync_token,
+                ask_dashboards,
                 name_sources,
                 cells::ask,
                 cells::take_answers,
@@ -853,6 +973,12 @@ fn turn_off_sources(prefs: Res<Preferences>, mut catalogs: ResMut<Catalogs>) {
 fn take_listings(mut catalogs: ResMut<Catalogs>) {
     if catalogs.listing() {
         catalogs.take_listings();
+    }
+}
+
+fn ask_dashboards(mut catalogs: ResMut<Catalogs>) {
+    if catalogs.dashboards_due() {
+        catalogs.ask_dashboards();
     }
 }
 

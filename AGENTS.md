@@ -43,6 +43,15 @@ real cell properties means implementing `DescribeCells` for it, as
 `catalog/bkp/cells/` does. It never means touching a format or the panel.
 See `.agents/skills/add-catalog`.
 
+A catalog may also have a front page: `has_dashboard` and `dashboard` on
+`Catalog`, answering a `catalog::dashboard::Dashboard` composed of blocks —
+headline figures, breakdowns, datasets to open. What goes in one is the
+source's own business; `ui/dashboards.rs` draws any of them as a card on the
+home page while the source is on, and names no source. There is no button to
+count one again; a dashboard whose answer depends on something else, as the
+BKP Registry's depends on being signed in, is counted again with
+`Catalogs::refresh_dashboards` when that changes.
+
 A bookmark (`src/bookmark/`) saves intent, not entities: addresses, labels,
 column ids and codes, restored through `discover` and the frame spawners like
 anything opened by hand. A new per-source setting worth keeping goes in

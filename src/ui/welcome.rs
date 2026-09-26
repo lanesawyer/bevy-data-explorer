@@ -2,8 +2,10 @@
 //!
 //! Nothing is loaded at startup any more, so the frame area would otherwise be
 //! a cleared rectangle with no way into the app. This fills it: what the viewer
-//! is for, the bookmarks saved so far, every dataset it knows the address of —
-//! each data source's that is on beside the rest — a button opening the same
+//! is for, the bookmarks saved so far, the front page of each data source
+//! that has one ([`crate::ui::dashboards`]), every dataset it knows the
+//! address of — each data source's that is on beside the rest — a button
+//! opening the same
 //! empty frame the sidebar's New frame does, for anything else, and who made
 //! it.
 //!
@@ -137,6 +139,9 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
         })
         .id();
 
+    // Each data source's front page: what it holds, and where to start in it.
+    let dashboards = crate::ui::dashboards::spawn_dashboards(&mut commands, &catalogs);
+
     // Each data source's own examples lead, since they are what most people
     // come to look at, each shown while its source is on; the formats the
     // viewer reads follow beside them.
@@ -166,7 +171,9 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
         .id();
     commands.entity(columns).add_children(&examples);
 
-    let mut children = vec![title, blurb, bookmarks, columns];
+    let mut children = vec![title, blurb, bookmarks];
+    children.extend(dashboards);
+    children.push(columns);
 
     // Everything else, and any address, is found in an empty frame: the same
     // one the sidebar's New frame button opens.

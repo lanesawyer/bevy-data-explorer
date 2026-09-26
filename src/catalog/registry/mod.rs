@@ -11,7 +11,11 @@
 //! typed, a picker is sent the first of those assets by name, to browse.
 //!
 //! Settings also has a test request, which logs a page of assets of any type.
+//!
+//! Its [`dashboard`] counts what it holds, and offers the newest of what the
+//! viewer can open.
 
+pub mod dashboard;
 pub mod login;
 
 use std::collections::BTreeMap;
@@ -21,7 +25,8 @@ use bevy::prelude::*;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 
-use super::{Catalog, Entry, Found, Provider};
+use super::dashboard::Dashboard;
+use super::{Catalog, Catalogs, Entry, Found, Provider};
 use crate::app::graphql::{self, Response};
 use crate::app::net::{Fetching, fetching};
 use crate::app::prefs::Preferences;
@@ -41,7 +46,8 @@ const PAGE_MAX: usize = 50;
 /// The asset types the viewer can open, from the 134 the registry declared on
 /// 2026-09-21: what each is called beside an entry, and what it is drawn as.
 ///
-/// Every OME-Zarr store sampled was Zarr v2 in a public bucket. Every table
+/// Every OME-Zarr store sampled was in a public bucket, in either Zarr
+/// version: the older ones v2, the newest sampled (September 2026) v3. Every table
 /// sampled was in a private bucket or on a file share, so most will not open
 /// until reads can carry credentials.
 ///
@@ -78,13 +84,19 @@ const KINDS: [(&str, &str, Category, Option<&str>); 5] = [
 /// main thread can send it.
 static TOKEN: RwLock<Option<String>> = RwLock::new(None);
 
-/// Keep [`TOKEN`] the one in the preferences.
-pub fn sync_token(prefs: Res<Preferences>) {
+/// Keep [`TOKEN`] the one in the preferences, and count the dashboard again
+/// on signing in or out, since what it can see changes with it. A renewal
+/// swaps one token for another and changes nothing it could see.
+pub fn sync_token(prefs: Res<Preferences>, mut catalogs: ResMut<Catalogs>) {
     if prefs.is_changed()
         && let Ok(mut token) = TOKEN.write()
         && *token != prefs.registry_token
     {
+        let signed_in = token.is_some();
         token.clone_from(&prefs.registry_token);
+        if token.is_some() != signed_in {
+            catalogs.refresh_dashboards(PROVIDER.key);
+        }
     }
 }
 
@@ -198,6 +210,20 @@ impl Catalog for Registry {
         Box::pin(async move {
             let token = token.ok_or("Sign in to the BKP Registry in Settings to search it")?;
             search(&endpoint, &token, &text, only).await
+        })
+    }
+
+    fn has_dashboard(&self) -> bool {
+        true
+    }
+
+    fn dashboard(&self) -> BoxFuture<'static, Result<Dashboard, String>> {
+        let endpoint = self.endpoint.clone();
+        let token = TOKEN.read().ok().and_then(|token| token.clone());
+        Box::pin(async move {
+            let token =
+                token.ok_or("Sign in to the BKP Registry in Settings to see what it holds.")?;
+            dashboard::dashboard(&endpoint, &token).await
         })
     }
 }
@@ -349,6 +375,9 @@ pub struct Asset {
     #[serde(rename = "type")]
     pub kind: Option<String>,
     pub status: String,
+    /// When it was registered. Only the dashboard asks for it.
+    #[serde(default, rename = "createdAt")]
+    pub created_at: Option<String>,
     #[serde(default)]
     pub tags: Option<Vec<Option<String>>>,
     #[serde(default)]
