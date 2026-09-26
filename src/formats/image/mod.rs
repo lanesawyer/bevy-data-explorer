@@ -151,9 +151,19 @@ impl TileStreamer {
             .collect()
     }
 
-    /// Drop every tile and start over, e.g. after changing channels.
-    pub fn reset(&mut self, commands: &mut Commands) {
-        self.tiles.clear(commands);
+    /// Start over on another slice, leaving this one's tiles drawn until the
+    /// next one's cover them. Put back half a level, so each lies under a
+    /// tile of its own level that lands over it, and still over coarser ones:
+    /// the old slice's detail is a closer likeness than the new one's blur.
+    fn page(&mut self, commands: &mut Commands) {
+        for entity in self.tiles.retire() {
+            commands
+                .entity(entity)
+                .entry::<Transform>()
+                .and_modify(|mut transform| {
+                    transform.translation.z = transform.translation.z.floor() - 0.5;
+                });
+        }
     }
 }
 
@@ -665,7 +675,7 @@ fn follow_slice_stack(
             continue;
         }
         streamer.z_slice = stack.current;
-        streamer.reset(&mut commands);
+        streamer.page(&mut commands);
         info!("image: showing {}", stack.label());
     }
 }

@@ -206,6 +206,12 @@ pub struct TileCache<K, O, M = ()> {
     /// Reads given up on because the view moved off them, for the status line:
     /// it is the number that says whether panning is costing anything.
     canceled: usize,
+    /// Tiles of what was shown before, kept on screen until what replaced it
+    /// covers the frames, so paging never flashes the frame empty.
+    retired: Vec<Entity>,
+    /// Whether every tile the frames show has landed, as of the last
+    /// [`Self::want`].
+    covered: bool,
 }
 
 impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
@@ -219,6 +225,8 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
             resident_bytes: 0,
             budget_bytes,
             canceled: 0,
+            retired: Vec::new(),
+            covered: true,
         }
     }
 
@@ -233,11 +241,13 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
                 slot.last_wanted = self.frame;
             }
         }
-        self.wanted = request_order(&visible.order, &prefetch.order, |key| {
+        let resolved = |key: &K| {
             self.slots
                 .get(key)
                 .is_some_and(|slot| !matches!(slot.state, SlotState::Loading(_)))
-        });
+        };
+        self.covered = visible.order.iter().all(resolved);
+        self.wanted = request_order(&visible.order, &prefetch.order, resolved);
         self.retained = prefetch.seen;
         &self.wanted
     }
@@ -313,6 +323,11 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
     /// again a moment later when zooming back out. Holding them until memory
     /// runs short makes that round trip free.
     pub fn evict(&mut self, commands: &mut Commands) {
+        if self.covered {
+            for entity in self.retired.drain(..) {
+                commands.entity(entity).despawn();
+            }
+        }
         let wanted: HashSet<K> = self.wanted.iter().copied().collect();
 
         // Dropping a slot aborts its read, which for an image tile is
@@ -369,14 +384,22 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
         }
     }
 
-    /// Drop every tile and start over, e.g. after moving to another slice.
-    pub fn clear(&mut self, commands: &mut Commands) {
-        for (_, entity, _) in self.ready() {
-            commands.entity(entity).despawn();
-        }
+    /// Start over, e.g. after moving to another slice, leaving what is drawn
+    /// on screen until the tiles that replace it cover the frames. Returns the
+    /// tiles newly retired, for the caller to draw beneath their successors.
+    ///
+    /// Reads under way are dropped with their slots, so paging quickly never
+    /// piles up reads of slices already passed. Tiles retired by an earlier
+    /// call stay until the same moment: on a quick run of pages, whatever last
+    /// covered the frames is still under whatever has landed since.
+    pub fn retire(&mut self) -> Vec<Entity> {
+        let retiring: Vec<Entity> = self.ready().map(|(_, entity, _)| entity).collect();
+        self.retired.extend(&retiring);
         self.slots.clear();
         self.in_flight = 0;
         self.resident_bytes = 0;
+        self.covered = false;
+        retiring
     }
 
     /// Every resident tile, with its entity and what it keeps beside it.
@@ -489,6 +512,46 @@ mod tests {
             last_wanted,
             bytes,
         }
+    }
+
+    #[test]
+    fn retired_tiles_stay_until_what_replaced_them_covers_the_view() {
+        let mut world = World::new();
+        let old = world.spawn_empty().id();
+        let mut cache: TileCache<Key, ()> = TileCache::new(usize::MAX);
+        cache.settle(
+            (0, 0),
+            SlotState::Ready {
+                entity: old,
+                bytes: 1,
+                material: (),
+            },
+        );
+        assert_eq!(cache.retire(), vec![old]);
+        assert_eq!(cache.loaded(), 0, "the old slice is no longer the cache's");
+
+        let tiers = |keys: &[Key]| {
+            let mut visible = Tiers::default();
+            visible.extend(keys.iter().copied());
+            let prefetch = visible.followed_by();
+            (visible, prefetch)
+        };
+        let evict = |world: &mut World, cache: &mut TileCache<Key, ()>| {
+            let mut queue = bevy::ecs::world::CommandQueue::default();
+            cache.evict(&mut Commands::new(&mut queue, world));
+            queue.apply(world);
+        };
+
+        // The new slice's tile has not landed: the old one stays drawn.
+        cache.want(tiers(&[(0, 0)]));
+        evict(&mut world, &mut cache);
+        assert!(world.get_entity(old).is_ok());
+
+        // Once it has, the old one goes.
+        cache.settle((0, 0), SlotState::Blank);
+        cache.want(tiers(&[(0, 0)]));
+        evict(&mut world, &mut cache);
+        assert!(world.get_entity(old).is_err());
     }
 
     #[test]
