@@ -51,7 +51,7 @@ pub struct Example {
     pub url: &'static str,
 }
 
-pub const EXAMPLES: [Example; 7] = [
+pub const EXAMPLES: [Example; 8] = [
     Example {
         name: "Epifluorescence whole slide",
         kind: "OME-Zarr image",
@@ -69,6 +69,14 @@ pub const EXAMPLES: [Example; 7] = [
         kind: "OME-Zarr image stack",
         category: Category::Image,
         url: "zarr2://s3://allen-genetic-tools/tissuecyte/1219090168/ome_zarr_conversion/1219090168.zarr/",
+    },
+    Example {
+        // Three stores on one grid, opened as one image of their channels
+        // where the state looks.
+        name: "SmartSPIM, 3 channels",
+        kind: "Neuroglancer state",
+        category: Category::Image,
+        url: "s3://aind-open-data/SmartSPIM_719692_2024-03-13_16-03-36_stitched_2024-04-02_12-50-17/neuroglancer_config.json",
     },
     Example {
         name: "SEA-AD pathology slide",
