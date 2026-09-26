@@ -54,12 +54,10 @@ impl Default for PlaneChoice {
 
 /// Add a frame's plane menu to its header.
 pub(super) fn spawn_plane_menu(commands: &mut Commands, header: Entity, panel: Entity) {
+    // Hidden and shown by `sync_plane_menus`, which patches the display on
+    // the button's own node rather than replacing it: a new `Node` would
+    // drop the size Feathers gives a tool button.
     let (button, menu) = spawn_icon_menu(commands, header, Icon::Axis3d);
-    commands.entity(button).insert(Node {
-        display: Display::None,
-        column_gap: Val::Px(space::SEAM),
-        ..default()
-    });
     commands
         .entity(menu)
         .insert(PanelPlaneMenu { panel, button });
