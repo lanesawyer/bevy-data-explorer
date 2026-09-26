@@ -8,6 +8,8 @@
 pub mod blocks;
 pub mod chunk_cache;
 pub mod dataset;
+mod overlay;
+pub mod plane;
 pub mod store;
 pub mod volume;
 

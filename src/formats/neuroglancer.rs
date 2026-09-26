@@ -24,7 +24,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::formats::discover::Discovered;
-use crate::formats::image::dataset::{Channel, Dataset, Home, Plane};
+use crate::formats::image::dataset::{Channel, Dataset, Home};
+use crate::formats::image::plane::Plane;
 
 /// Several datasets a state asked to be shown together.
 #[derive(Debug, Clone)]

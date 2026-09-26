@@ -16,7 +16,8 @@ use zarrs_object_store::object_store::limit::LimitStore;
 use zarrs_object_store::object_store::path::Path as StorePath;
 use zarrs_object_store::object_store::prefix::PrefixStore;
 
-use crate::formats::image::dataset::{Dataset, Plane, ReadStore};
+use crate::formats::image::dataset::{Dataset, ReadStore};
+use crate::formats::image::plane::Plane;
 
 /// A multiscale image normalized across OME-Zarr versions. The 0.4 and 0.5
 /// types are separate wrappers around identical axis and dataset types.

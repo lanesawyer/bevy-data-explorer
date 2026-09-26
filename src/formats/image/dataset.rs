@@ -10,6 +10,7 @@ use bevy::math::Vec3;
 use ome_zarr_metadata::v0_4::AxisType;
 
 use crate::formats::image::blocks::BlockReader;
+use crate::formats::image::plane::Plane;
 use crate::formats::image::store::MultiscaleSpec;
 use crate::render::channels::{MAX_CHANNELS, VOLUME_CHANNELS};
 use zarrs::array::{Array, ArraySubset, ChunkShapeTraits};
@@ -40,7 +41,7 @@ pub struct AxisLayout {
 }
 
 impl AxisLayout {
-    fn infer(axes: &[ome_zarr_metadata::v0_4::Axis]) -> Result<Self, String> {
+    pub(super) fn infer(axes: &[ome_zarr_metadata::v0_4::Axis]) -> Result<Self, String> {
         let named = |want: &str| axes.iter().position(|a| a.name.eq_ignore_ascii_case(want));
         let spatial: Vec<usize> = axes
             .iter()
@@ -74,67 +75,6 @@ impl AxisLayout {
             c,
             z,
         })
-    }
-}
-
-/// Which two of an image's spatial axes a frame shows, by name: the one
-/// across the frame and the one down it. The third is paged through.
-///
-/// Every image opens looking down z, x across and y down. A volume imaged
-/// whole can be cut any of three ways, and a viewer written for one — as
-/// Neuroglancer lists its dimensions — may look along another; naming the
-/// plane is what lets the same store be seen the way it was meant to be.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Plane {
-    pub across: char,
-    pub down: char,
-}
-
-impl Plane {
-    /// Two distinct axis letters, across then down, as `zy`.
-    pub fn parse(text: &str) -> Option<Plane> {
-        let mut letters = text.trim().chars().map(|c| c.to_ascii_lowercase());
-        let (across, down) = (letters.next()?, letters.next()?);
-        (letters.next().is_none()
-            && across != down
-            && across.is_alphabetic()
-            && down.is_alphabetic())
-        .then_some(Plane { across, down })
-    }
-
-    pub fn name(self) -> String {
-        format!("{}{}", self.across, self.down)
-    }
-
-    /// The native plane, which needs no remapping.
-    fn is_native(self) -> bool {
-        (self.across, self.down) == ('x', 'y')
-    }
-}
-
-impl AxisLayout {
-    /// This layout seen in `plane`: its across axis read as x, its down axis
-    /// as y, and whichever spatial axis is left as z.
-    fn in_plane(
-        self,
-        axes: &[ome_zarr_metadata::v0_4::Axis],
-        plane: Plane,
-    ) -> Result<Self, String> {
-        let named = |letter: char| {
-            axes.iter()
-                .position(|a| a.name.eq_ignore_ascii_case(&letter.to_string()))
-                .ok_or_else(|| format!("the image has no {letter} axis to show"))
-        };
-        let (x, y) = (named(plane.across)?, named(plane.down)?);
-        let spatial = |i: usize| {
-            matches!(axes[i].r#type, Some(AxisType::Space))
-                || ["x", "y", "z"].contains(&axes[i].name.to_ascii_lowercase().as_str())
-        };
-        if !spatial(x) || !spatial(y) {
-            return Err(format!("{} is not a plane through space", plane.name()));
-        }
-        let z = (0..axes.len()).find(|&i| i != x && i != y && spatial(i));
-        Ok(AxisLayout { x, y, z, ..self })
     }
 }
 
@@ -414,69 +354,9 @@ impl Dataset {
     }
 
     /// The channels held in this store itself, ahead of any member's.
-    fn own_channels(&self) -> usize {
+    pub(super) fn own_channels(&self) -> usize {
         let members: usize = self.members.iter().map(|it| it.channels.len()).sum();
         self.channels.len() - members
-    }
-
-    /// One image of `first` and `others`, their channels one after another.
-    ///
-    /// Only stores that line up pixel for pixel: the same levels, each the
-    /// same size and scale, the same slices and the same kind of sample. A
-    /// tile is then the same tile of every one of them, which is what lets
-    /// their channels be read side by side and mixed as one store's are.
-    pub fn overlay(mut first: Dataset, others: Vec<Dataset>) -> Result<Dataset, String> {
-        for other in &others {
-            first.lines_up_with(other)?;
-        }
-        let channels =
-            first.channels.len() + others.iter().map(|it| it.channels.len()).sum::<usize>();
-        if channels > MAX_CHANNELS {
-            return Err(format!(
-                "{channels} channels between them, more than the {MAX_CHANNELS} one image mixes"
-            ));
-        }
-        for other in others {
-            first.channels.extend(other.channels.iter().cloned());
-            first.members.push(Arc::new(other));
-        }
-        Ok(first)
-    }
-
-    /// Why `other` cannot be read tile for tile beside this, if it cannot.
-    fn lines_up_with(&self, other: &Dataset) -> Result<(), String> {
-        let differs =
-            |what: &str| Err(format!("{} and {} differ in {what}", self.name, other.name));
-        if self.levels.len() != other.levels.len() {
-            return differs("how many levels they have");
-        }
-        if self.depth() != other.depth() {
-            return differs("how many slices they have");
-        }
-        if self.sample_scale != other.sample_scale {
-            return differs("the kind of sample they store");
-        }
-        let close = |a: f64, b: f64| (a - b).abs() <= 1e-6 * a.abs().max(b.abs()).max(1.0);
-        for (mine, theirs) in self.levels.iter().zip(&other.levels) {
-            if mine.width != theirs.width
-                || mine.height != theirs.height
-                || mine.tile_px != theirs.tile_px
-                || mine.array.shape().len() != theirs.array.shape().len()
-                || !close(mine.scale_x, theirs.scale_x)
-                || !close(mine.scale_y, theirs.scale_y)
-                || !close(mine.origin_x, theirs.origin_x)
-                || !close(mine.origin_y, theirs.origin_y)
-                || self.level_depth(mine) != other.level_depth(theirs)
-            {
-                return differs(&format!("level {}", mine.index));
-            }
-        }
-        Ok(())
-    }
-
-    /// How many slices `level` holds.
-    fn level_depth(&self, level: &Level) -> u64 {
-        self.layout.z.map_or(1, |axis| level.array.shape()[axis])
     }
 
     /// Where the stack lies in three dimensions, as its display center and
@@ -653,55 +533,14 @@ pub struct ChannelSamples {
 }
 
 impl ChannelSamples {
-    /// The channels of `parts` one after another, as if one store held them,
-    /// each part holding its own `count` channels.
-    ///
-    /// Every part covers the same texels. A tile keeps four channels to a
-    /// layer, as many layers as it needs; a volume's layers are its slices,
-    /// so it keeps the first four channels, one to a component.
-    fn stacked(parts: &[(ChannelSamples, usize)], volume: bool) -> Self {
-        let first = &parts[0].0;
-        let total: usize = parts.iter().map(|(_, count)| count).sum();
-        let (width, height) = (first.width as usize, first.height as usize);
-        let (layers, texels) = if volume {
-            let slices = first.layers as usize;
-            (slices, width * height * slices)
-        } else {
-            (total.div_ceil(4).max(1), width * height)
-        };
-        let place = |channel: usize| {
-            if volume {
-                (channel < VOLUME_CHANNELS).then_some((0, channel))
-            } else {
-                Some((channel / 4, channel % 4))
-            }
-        };
-        let mut out = ChannelSamples::zeroed(width, height, layers);
-        let mut next = 0;
-        for (samples, count) in parts {
-            for channel in 0..*count {
-                if let (Some((from_layer, from)), Some((to_layer, to))) =
-                    (place(channel), place(next))
-                {
-                    for texel in 0..texels {
-                        let value = samples.get(from_layer * texels + texel, from);
-                        out.put(to_layer * texels + texel, to, value);
-                    }
-                }
-                next += 1;
-            }
-        }
-        out
-    }
-
     /// Channel `component` of texel `texel`.
     #[inline]
-    fn get(&self, texel: usize, component: usize) -> f32 {
+    pub(super) fn get(&self, texel: usize, component: usize) -> f32 {
         let at = (texel * 4 + component) * size_of::<half::f16>();
         half::f16::from_ne_bytes([self.data[at], self.data[at + 1]]).to_f32()
     }
 
-    fn zeroed(width: usize, height: usize, layers: usize) -> Self {
+    pub(super) fn zeroed(width: usize, height: usize, layers: usize) -> Self {
         ChannelSamples {
             width: width as u32,
             height: height as u32,
@@ -712,7 +551,7 @@ impl ChannelSamples {
 
     /// Store `value` as channel `component` of texel `texel`.
     #[inline]
-    fn put(&mut self, texel: usize, component: usize, value: f32) {
+    pub(super) fn put(&mut self, texel: usize, component: usize, value: f32) {
         let at = (texel * 4 + component) * size_of::<half::f16>();
         self.data[at..at + 2].copy_from_slice(&half::f16::from_f32(value).to_ne_bytes());
     }
@@ -757,27 +596,9 @@ pub async fn read_tile(
     let Some(own) = own else {
         return Ok(None);
     };
-    if dataset.members.is_empty() {
-        return Ok(Some(own));
-    }
-
-    // Every member's tile at the same place, read together. A member is read
-    // from its array: the shard decoder above is positioned on this store's
-    // shard, not on theirs.
-    let reads = dataset.members.iter().map(|member| {
-        let level = &member.levels[level.index];
-        Box::pin(read_tile(member, level, TileSource::Array, ty, tx, full_z))
-    });
-    let mut parts = vec![(own, dataset.own_channels())];
-    for (member, read) in dataset
-        .members
-        .iter()
-        .zip(futures::future::join_all(reads).await)
-    {
-        let samples = read?.ok_or_else(|| format!("{} has no tile ({ty},{tx})", member.name))?;
-        parts.push((samples, member.channels.len()));
-    }
-    Ok(Some(ChannelSamples::stacked(&parts, false)))
+    super::overlay::beside_members_tile(dataset, level, own, ty, tx, full_z)
+        .await
+        .map(Some)
 }
 
 /// Read one tile through zarrs, whole chunks at a time.
@@ -1171,18 +992,7 @@ pub async fn read_volume(
     progress: &AtomicU64,
 ) -> Result<ChannelSamples, String> {
     let own = read_own_volume(dataset, region, progress).await?;
-    if dataset.members.is_empty() {
-        return Ok(own);
-    }
-    // A member's slices are counted into a progress of their own: the status
-    // line follows this store's, which the members keep pace with.
-    let ignored = AtomicU64::new(0);
-    let mut parts = vec![(own, dataset.own_channels())];
-    for member in &dataset.members {
-        let samples = Box::pin(read_volume(member, region, &ignored)).await?;
-        parts.push((samples, member.channels.len()));
-    }
-    Ok(ChannelSamples::stacked(&parts, true))
+    super::overlay::beside_members_volume(dataset, region, own).await
 }
 
 /// [`read_volume`] of this store's own channels.
@@ -1507,36 +1317,6 @@ mod tests {
         let axes = axes_of(include_str!("../../../testdata/root_zarr_v2_stack.json"));
         let layout = AxisLayout::infer(&axes).unwrap();
         assert!(z_is_measured(&axes, &layout));
-    }
-
-    #[test]
-    fn a_plane_is_two_axes_across_then_down() {
-        assert_eq!(
-            Plane::parse("ZY"),
-            Some(Plane {
-                across: 'z',
-                down: 'y'
-            })
-        );
-        assert_eq!(Plane::parse("zz"), None);
-        assert_eq!(Plane::parse("xyz"), None);
-        let (store, plane) = crate::formats::image::store::split_plane("https://h/a.zarr#plane=zy");
-        assert_eq!(store, "https://h/a.zarr");
-        assert_eq!(plane.map(Plane::name).as_deref(), Some("zy"));
-        assert_eq!(
-            crate::formats::image::store::split_plane("https://h/a.zarr").1,
-            None
-        );
-    }
-
-    #[test]
-    fn a_plane_reads_its_axes_as_x_and_y_and_pages_the_third() {
-        let axes = axes_of(include_str!("../../../testdata/root_zarr_v2_stack.json"));
-        let native = AxisLayout::infer(&axes).unwrap();
-        let (x, y, z) = (native.x, native.y, native.z.unwrap());
-        let cut = native.in_plane(&axes, Plane::parse("zy").unwrap()).unwrap();
-        assert_eq!((cut.x, cut.y, cut.z), (z, y, Some(x)));
-        assert!(native.in_plane(&axes, Plane::parse("cy").unwrap()).is_err());
     }
 
     #[test]
