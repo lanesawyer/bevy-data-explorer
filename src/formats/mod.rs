@@ -55,6 +55,10 @@ impl Plugin for FormatsPlugin {
 /// The region is the one these datasets live in. A bucket elsewhere would
 /// answer with a redirect naming its own, which is a better error than
 /// refusing to try.
+///
+/// A `file://` address is a path on this machine written as a URL, as a
+/// browser's address bar shows a file opened in it, and becomes that path,
+/// its escapes such as `%20` undone.
 pub fn plain_url(source: &str) -> String {
     const REGION: &str = "us-west-2";
 
@@ -66,6 +70,12 @@ pub fn plain_url(source: &str) -> String {
         }
     }
 
+    if rest.starts_with("file://") {
+        return url::Url::parse(rest)
+            .ok()
+            .and_then(|url| url.to_file_path().ok())
+            .map_or_else(|| rest.to_string(), |path| path.display().to_string());
+    }
     let Some(bucket_and_key) = rest.strip_prefix("s3://") else {
         return rest.to_string();
     };
@@ -160,6 +170,19 @@ mod tests {
             let url = plain_url(&format!("{prefix}https://example.com/a.zarr/"));
             assert_eq!(url, "https://example.com/a.zarr/");
         }
+    }
+
+    #[test]
+    fn a_file_address_is_the_path_it_names() {
+        assert_eq!(plain_url("file:///data/cells.csv"), "/data/cells.csv");
+        assert_eq!(
+            plain_url("file:///data/my%20cells.csv"),
+            "/data/my cells.csv"
+        );
+        assert_eq!(
+            plain_url("zarr://file:///data/stack.zarr"),
+            "/data/stack.zarr"
+        );
     }
 
     #[test]
