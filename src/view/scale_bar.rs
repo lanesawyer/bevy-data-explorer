@@ -143,6 +143,10 @@ fn update_scale_bars(
     windows: Query<&Window>,
     area: Res<FrameArea>,
     panels: Query<(&Panel, &Camera, &Projection, &ShowsSource)>,
+    // Every frame, an empty one included: `panels` sees only those showing a
+    // source, and cells counted from it land where a smaller grid would put
+    // them.
+    frames: Query<(), With<Panel>>,
     sources: Query<&DataSource>,
     tables: Query<(), With<SourceTable>>,
     mut bars: Query<(&ScaleBar, &Children, &mut Node)>,
@@ -150,7 +154,7 @@ fn update_scale_bars(
     mut rules: Query<&mut Node, (With<ScaleBarRule>, Without<ScaleBar>)>,
 ) {
     let Ok(window) = windows.single() else { return };
-    let count = panels.iter().count();
+    let count = frames.iter().count();
     for (bar, children, node) in &mut bars {
         let shown = panels
             .get(bar.panel)

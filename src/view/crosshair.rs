@@ -92,11 +92,16 @@ fn place_crosshairs(
     mut commands: Commands,
     area: Res<FrameArea>,
     panels: Query<(&Panel, &ShowsSource, &Projection, Has<Linked>)>,
+    // Every frame, an empty one included: `panels` sees only those showing a
+    // source, and cells counted from it land where a smaller grid would put
+    // them — the crosshairs of a grid of four stayed where they were when a
+    // fifth, empty frame was opened.
+    frames: Query<(), With<Panel>>,
     axes: Query<&SourceAxes>,
     tables: Query<(), With<SourceTable>>,
     mut lines: Query<(Entity, &CrosshairLine, &mut Node, &ThemeBackgroundColor)>,
 ) {
-    let count = panels.iter().count();
+    let count = frames.iter().count();
     for (entity, line, node, color) in &mut lines {
         let shown = panels
             .get(line.panel)
@@ -143,5 +148,46 @@ impl Plugin for CrosshairPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, sync_crosshairs.in_set(Stage::FrameChrome))
             .add_systems(Update, place_crosshairs.in_set(Stage::Chrome));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_crosshair_stays_on_its_frame_when_an_empty_one_opens_beside_it() {
+        let mut app = App::new();
+        app.init_resource::<FrameArea>()
+            .add_systems(Update, place_crosshairs);
+        let source = app.world_mut().spawn(SourceAxes::default()).id();
+        let linked = app
+            .world_mut()
+            .spawn((
+                Panel { index: 0 },
+                ShowsSource(source),
+                Projection::Orthographic(OrthographicProjection::default_2d()),
+                Linked::default(),
+            ))
+            .id();
+        // Empty: browsing for something to show, with no source.
+        app.world_mut().spawn(Panel { index: 1 });
+        let line = app
+            .world_mut()
+            .spawn((
+                CrosshairLine {
+                    panel: linked,
+                    across: false,
+                },
+                Node::default(),
+                ThemeBackgroundColor(crate::app::theme::token::OVERLAY_TEXT),
+            ))
+            .id();
+        app.update();
+
+        let cell = FrameArea::default().cell(2, 0);
+        let node = app.world().get::<Node>(line).unwrap();
+        assert_eq!(node.left, Val::Px(cell.center().x - LINE_PX * 0.5));
+        assert_eq!(node.height, Val::Px(cell.height()));
     }
 }
