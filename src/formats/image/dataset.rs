@@ -436,6 +436,19 @@ impl Dataset {
             .max(1)
     }
 
+    /// Where full-resolution slice `z` falls in `level`.
+    ///
+    /// A stack of sections keeps every section at every level, but a volume
+    /// imaged whole — a light-sheet brain — is downsampled along z as well,
+    /// so its coarse levels hold fewer slices. Asking one of those for a
+    /// full-resolution index reads past its end, which reads as nothing.
+    pub fn level_z(&self, level: &Level, z: u64) -> u64 {
+        let Some(axis) = self.layout.z else {
+            return z;
+        };
+        z_within(z, level.array.shape()[axis], self.depth())
+    }
+
     /// Pick the coarsest level that still resolves `world_units_per_screen_px`,
     /// so that one level pixel covers at most one screen pixel.
     pub fn level_for(&self, world_units_per_screen_px: f32) -> usize {
@@ -496,7 +509,16 @@ impl ChannelSamples {
     }
 }
 
-/// Read one tile, every channel of it, as stored.
+/// Slice `z` of `finest` in a level holding `here` slices.
+fn z_within(z: u64, here: u64, finest: u64) -> u64 {
+    if here >= finest {
+        return z;
+    }
+    (z * here / finest).min(here.saturating_sub(1))
+}
+
+/// Read one tile, every channel of it, as stored, at full-resolution slice
+/// `z` — whichever slice of this level that falls in.
 ///
 /// From deep chunks, only the blocks holding the slice are fetched; see
 /// [`super::blocks`]. Should that fail for any reason, the tile is read whole
@@ -512,6 +534,7 @@ pub async fn read_tile(
     let Some(extent) = level.tile_extent(ty, tx) else {
         return Ok(None);
     };
+    let z = dataset.level_z(level, z);
     if let (TileSource::Array, Some(reader)) = (&source, &level.blocks) {
         match read_tile_by_blocks(dataset, level, reader, extent, z).await {
             Ok(samples) => return Ok(Some(samples)),
@@ -1097,6 +1120,16 @@ fn whole_chunks_per_tile(chunk: u64, target: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_slice_falls_where_it_should_in_a_level_downsampled_along_z() {
+        // 5568 slices at full resolution, 696 at an eighth: the middle is the
+        // middle, and the last is the last rather than past the end.
+        assert_eq!(z_within(2784, 696, 5568), 348);
+        assert_eq!(z_within(5567, 696, 5568), 695);
+        // A stack of sections keeps every one at every level.
+        assert_eq!(z_within(71, 142, 142), 71);
+    }
 
     /// The reference image's root attributes, parsed the way the viewer does.
     fn reference_multiscale() -> Vec<MultiscaleSpec> {

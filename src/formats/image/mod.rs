@@ -263,7 +263,8 @@ pub fn spawn_tile_tasks(mut streamers: Query<&mut TileStreamer>) {
                 // decoder to hold, so the tile is read from the array and its
                 // chunks are fetched together.
                 let decoder = if level.sharded {
-                    let shard = level.shard_of(&dataset.layout, key.ty, key.tx, z);
+                    let shard =
+                        level.shard_of(&dataset.layout, key.ty, key.tx, dataset.level_z(level, z));
                     match decoders.get(&dataset, (key.level, shard)).await {
                         Ok(d) => Some(d),
                         Err(e) => return TileOutcome::Failed(e),
@@ -381,7 +382,12 @@ pub fn evict_tiles(mut commands: Commands, mut streamers: Query<&mut TileStreame
                 let level = &dataset.levels[key.level];
                 (
                     key.level,
-                    level.shard_of(&dataset.layout, key.ty, key.tx, streamer.z_slice),
+                    level.shard_of(
+                        &dataset.layout,
+                        key.ty,
+                        key.tx,
+                        dataset.level_z(level, streamer.z_slice),
+                    ),
                 )
             })
             .collect();
