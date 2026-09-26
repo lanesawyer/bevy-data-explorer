@@ -480,18 +480,27 @@ fn default_name(panels: &Query<(&Panel, &ShowsSource)>, sources: &Query<&DataSou
         .map(|(panel, shows)| (panel.index, shows.0))
         .collect();
     frames.sort_unstable();
-    let mut names: Vec<&str> = Vec::new();
-    for (_, source) in frames {
-        if let Ok(data) = sources.get(source)
-            && !names.contains(&data.name.as_str())
-        {
-            names.push(&data.name);
+    joined_names(
+        frames
+            .into_iter()
+            .filter_map(|(_, source)| sources.get(source).ok())
+            .map(|data| data.name.as_str()),
+    )
+}
+
+/// The datasets named in the order their frames sit, each once however many
+/// frames show it, or a plain "Bookmark" when nothing is open.
+fn joined_names<'a>(names: impl IntoIterator<Item = &'a str>) -> String {
+    let mut unique: Vec<&str> = Vec::new();
+    for name in names {
+        if !unique.contains(&name) {
+            unique.push(name);
         }
     }
-    if names.is_empty() {
+    if unique.is_empty() {
         "Bookmark".into()
     } else {
-        names.join(" + ")
+        unique.join(" + ")
     }
 }
 
@@ -688,5 +697,25 @@ impl Plugin for BookmarksPlugin {
                 Update,
                 (start_renaming, sync_status).in_set(Stage::ControlsPlace),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bookmark_is_named_after_its_datasets_in_the_order_their_frames_sit() {
+        assert_eq!(joined_names(["Slide", "Cells"]), "Slide + Cells");
+    }
+
+    #[test]
+    fn a_dataset_in_several_frames_is_named_once() {
+        assert_eq!(joined_names(["Stack", "Stack", "Cells"]), "Stack + Cells");
+    }
+
+    #[test]
+    fn a_bookmark_of_nothing_is_still_named() {
+        assert_eq!(joined_names([]), "Bookmark");
     }
 }

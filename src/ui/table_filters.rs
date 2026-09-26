@@ -754,3 +754,32 @@ impl Plugin for TableFilterPlugin {
             );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::source::table::TableFilterValue;
+
+    fn value(label: &str) -> TableFilterValue {
+        TableFilterValue {
+            label: label.into(),
+            count: 1,
+            chosen: false,
+        }
+    }
+
+    #[test]
+    fn a_column_of_values_says_how_many_it_offers() {
+        let column = TableFilter::values("sex", "Sex", vec![value("F"), value("M")]);
+        assert_eq!(heading(&column), "Sex (2)");
+    }
+
+    #[test]
+    fn a_span_or_an_empty_column_has_no_count_to_give() {
+        assert_eq!(heading(&TableFilter::range("age", "Age")), "Age");
+        assert_eq!(
+            heading(&TableFilter::values("x", "Nothing", vec![])),
+            "Nothing"
+        );
+    }
+}

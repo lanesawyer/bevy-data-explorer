@@ -733,14 +733,31 @@ fn paint_swatches(
         let picked = overrides.get(&square.0.column, square.0.code);
         patch_node(node, |node| node.display = display(picked.is_some()));
         if let Some(color) = picked {
-            let mark = if Hsla::from(color).lightness > LIGHT {
-                Color::BLACK
-            } else {
-                Color::WHITE
-            };
-            background.set_if_neq(BackgroundColor(mark));
+            background.set_if_neq(BackgroundColor(mark_color(color)));
         }
     }
+}
+
+/// The dot on a picked square: dark on a light color and light on a dark one,
+/// so it shows whatever was picked.
+fn mark_color(picked: Color) -> Color {
+    if Hsla::from(picked).lightness > LIGHT {
+        Color::BLACK
+    } else {
+        Color::WHITE
+    }
+}
+
+/// Where the hue and saturation plane's thumb sits for `color`, with its
+/// lightness alongside. A gray has no hue to read back, so it keeps the one
+/// the thumb is `across` at rather than jumping to the left edge.
+fn plane_position(color: Hsla, across: f32) -> Vec3 {
+    let across = if color.saturation < GRAY {
+        across
+    } else {
+        color.hue / 360.0
+    };
+    Vec3::new(across, 1.0 - color.saturation, color.lightness)
 }
 
 /// Show the picker as what it is open on stands, and close it when that
@@ -787,12 +804,7 @@ fn sync_picker(
         }
     }
     for mut plane in &mut planes {
-        let across = if hsla.saturation < GRAY {
-            plane.0.x
-        } else {
-            hsla.hue / 360.0
-        };
-        let wanted = Vec3::new(across, 1.0 - hsla.saturation, hsla.lightness);
+        let wanted = plane_position(hsla, plane.0.x);
         if plane.0 != wanted {
             plane.0 = wanted;
         }
@@ -838,5 +850,142 @@ impl Plugin for ColorOverridesPlugin {
             )
             .add_systems(Update, remember_picked.in_set(Stage::ControlsApply))
             .add_systems(Startup, spawn_color_overrides.in_set(Boot::DockContent));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::ecs::system::SystemState;
+
+    use super::*;
+    use crate::source::channels::ChannelSetting;
+    use crate::source::properties::{CellProperty, PropertyKind, PropertyValue};
+
+    const RED: Color = Color::srgb(1.0, 0.0, 0.0);
+    const TEAL: Color = Color::srgb(0.0, 0.5, 0.5);
+
+    /// A source with one categorical column, whose code 1 the publisher
+    /// colors red, and an image's two channels.
+    fn world() -> (World, Entity) {
+        let mut world = World::new();
+        let properties = CellProperties::ready(vec![CellProperty {
+            id: "CLASS".into(),
+            name: "Class".into(),
+            shown: true,
+            gene: None,
+            kind: PropertyKind::Categorical(vec![PropertyValue {
+                code: 1,
+                label: "Astrocyte".into(),
+                reference: None,
+                color: Some(RED),
+                count: None,
+                selected: false,
+            }]),
+        }]);
+        let channels = SourceChannels::new(vec![
+            ChannelSetting::new("DAPI", [0.0, 0.0, 1.0], true),
+            ChannelSetting::new("GFP", [0.0, 1.0, 0.0], true),
+        ]);
+        let source = world
+            .spawn((properties, ColorOverrides::default(), channels))
+            .id();
+        (world, source)
+    }
+
+    fn value() -> Target {
+        Target::Value {
+            column: "CLASS".into(),
+            code: 1,
+        }
+    }
+
+    /// Run `work` against the picker's view of `world`.
+    fn with_colors<T>(world: &mut World, work: impl FnOnce(&mut Colors) -> T) -> T {
+        let mut state = SystemState::<Colors>::new(world);
+        let mut colors = state.get_mut(world).unwrap();
+        let out = work(&mut colors);
+        state.apply(world);
+        out
+    }
+
+    #[test]
+    fn a_value_is_drawn_in_its_own_color_until_one_is_picked() {
+        let (mut world, source) = world();
+        with_colors(&mut world, |colors| {
+            assert_eq!(colors.current(source, &value()), Some(RED));
+            assert!(!colors.picked(source, &value()));
+            colors.set(source, &value(), TEAL);
+            assert_eq!(colors.current(source, &value()), Some(TEAL));
+            assert!(colors.picked(source, &value()));
+        });
+    }
+
+    #[test]
+    fn a_reset_value_goes_back_to_its_own_color() {
+        let (mut world, source) = world();
+        with_colors(&mut world, |colors| {
+            colors.set(source, &value(), TEAL);
+            colors.reset(source, &value());
+            assert_eq!(colors.current(source, &value()), Some(RED));
+            assert!(!colors.picked(source, &value()));
+        });
+    }
+
+    #[test]
+    fn a_channel_is_picked_for_and_reset_the_same_way_as_a_value() {
+        let (mut world, source) = world();
+        let gfp = Target::Channel(1);
+        with_colors(&mut world, |colors| {
+            assert_eq!(
+                colors.current(source, &gfp),
+                Some(Color::srgb(0.0, 1.0, 0.0))
+            );
+            colors.set(source, &gfp, TEAL);
+            assert!(colors.picked(source, &gfp));
+            colors.reset(source, &gfp);
+            assert!(!colors.picked(source, &gfp), "back to how it was published");
+            assert_eq!(
+                colors.current(source, &gfp),
+                Some(Color::srgb(0.0, 1.0, 0.0))
+            );
+        });
+    }
+
+    #[test]
+    fn the_picker_names_a_value_by_its_column_and_label_and_a_channel_by_its_label() {
+        let (mut world, source) = world();
+        with_colors(&mut world, |colors| {
+            assert_eq!(colors.describe(source, &value()), "Class: Astrocyte");
+            assert_eq!(colors.describe(source, &Target::Channel(0)), "DAPI");
+            // What the source does not hold is still named, by where it is.
+            assert_eq!(colors.describe(source, &Target::Channel(5)), "channel 6");
+            let unknown = Target::Value {
+                column: "CLASS".into(),
+                code: 9,
+            };
+            assert_eq!(colors.describe(source, &unknown), "CLASS: code 9");
+        });
+    }
+
+    #[test]
+    fn nothing_is_drawn_for_what_the_source_does_not_hold() {
+        let (mut world, source) = world();
+        with_colors(&mut world, |colors| {
+            assert_eq!(colors.current(source, &Target::Channel(5)), None);
+        });
+    }
+
+    #[test]
+    fn a_gray_keeps_the_hue_its_thumb_was_left_at() {
+        let gray = Hsla::hsl(0.0, 0.0, 0.5);
+        assert_eq!(plane_position(gray, 0.4).x, 0.4);
+        let teal = Hsla::hsl(180.0, 1.0, 0.25);
+        assert_eq!(plane_position(teal, 0.4), Vec3::new(0.5, 0.0, 0.25));
+    }
+
+    #[test]
+    fn a_picked_mark_shows_on_light_and_dark_colors_alike() {
+        assert_eq!(mark_color(Color::srgb(1.0, 1.0, 0.8)), Color::BLACK);
+        assert_eq!(mark_color(Color::srgb(0.1, 0.1, 0.3)), Color::WHITE);
     }
 }

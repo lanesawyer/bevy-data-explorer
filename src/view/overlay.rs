@@ -866,3 +866,41 @@ impl Plugin for OverlayPlugin {
             );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::source::Category;
+
+    fn source(unit: &str, detail: &str) -> DataSource {
+        DataSource {
+            name: "a dataset".into(),
+            unit: unit.into(),
+            detail: detail.into(),
+            stat: String::new(),
+            category: Category::Image,
+            layer: 1,
+        }
+    }
+
+    #[test]
+    fn a_layer_measured_like_its_frame_is_described_as_itself() {
+        let base = source("µm", "OME-Zarr image");
+        let layer = source("µm", "SVG annotations");
+        assert_eq!(layer_note(Some(&base), &layer), "SVG annotations");
+    }
+
+    #[test]
+    fn a_layer_measured_differently_says_it_is_not_rescaled() {
+        let base = source("µm", "OME-Zarr image");
+        let layer = source("px", "SVG annotations");
+        assert_eq!(layer_note(Some(&base), &layer), "px over µm, not rescaled");
+    }
+
+    #[test]
+    fn every_button_in_a_row_takes_room_from_its_text() {
+        assert!(menu_text_px(3) < menu_text_px(1));
+        // The most any row holds still leaves room for a name.
+        assert!(menu_text_px(3) > 100.0);
+    }
+}

@@ -178,6 +178,34 @@ fn handle_placement(fraction: f32) -> (f32, f32) {
     (fraction * 100.0, -RANGE_THUMB_PX * fraction)
 }
 
+/// How far along a track the pointer is, from 0 at its left end to 1 at its
+/// right, however far past either end it has gone.
+///
+/// The pointer is in logical pixels and the track's layout in physical ones,
+/// its center and its width both, so the layout is scaled down first: read
+/// unscaled, a track on a display at twice the density put its ends in the
+/// wrong place. `None` for a track not laid out yet.
+fn fraction_along(
+    pointer_x: f32,
+    physical_center_x: f32,
+    physical_width: f32,
+    inverse_scale: f32,
+) -> Option<f32> {
+    let width = physical_width * inverse_scale;
+    if width <= 0.0 {
+        return None;
+    }
+    let left = physical_center_x * inverse_scale - width * 0.5;
+    Some(((pointer_x - left) / width).clamp(0.0, 1.0))
+}
+
+/// Where a span grabbed at `grabbed` along its track, starting at `from`,
+/// starts once the pointer is at `fraction`: moved by as much of the extent
+/// `low..high` as the pointer moved of the track.
+fn slid_from(from: f32, grabbed: f32, fraction: f32, low: f32, high: f32) -> f32 {
+    from + (fraction - grabbed) * (high - low)
+}
+
 /// A histogram of the data's distribution, with a two-ended control under it.
 ///
 /// The bars are drawn behind the control rather than beside it so the span
@@ -402,13 +430,12 @@ pub fn drag_range_handles(
         let (_, node, transform) = tracks
             .iter()
             .find(|(track, _, _)| track.owner == owner && track.property == property)?;
-        let scale = node.inverse_scale_factor();
-        let width = node.size().x * scale;
-        if width <= 0.0 {
-            return None;
-        }
-        let left = transform.translation.x * scale - width * 0.5;
-        Some(((pointer.x - left) / width).clamp(0.0, 1.0))
+        fraction_along(
+            pointer.x,
+            transform.translation.x,
+            node.size().x,
+            node.inverse_scale_factor(),
+        )
     };
     // A source holds one or the other, never both, so both are taken and
     // whichever the control names is the one written to.
@@ -515,8 +542,7 @@ pub fn drag_range_handles(
             ) else {
                 return;
             };
-            let moved = (fraction - grabbed) * (range.high - range.low);
-            range.slide_to(from + moved);
+            range.slide_to(slid_from(from, grabbed, fraction, range.low, range.high));
             to_first_page(paging);
         }
     }
@@ -618,5 +644,90 @@ pub fn update_range_controls(
             let wanted = count_text(range);
             set_text(text, &wanted);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_middle_of_a_track_is_halfway_along_at_any_display_density() {
+        // A track 200 logical pixels wide centered at 300, as laid out at one
+        // pixel to the point and at two.
+        assert_eq!(fraction_along(300.0, 300.0, 200.0, 1.0), Some(0.5));
+        assert_eq!(fraction_along(300.0, 600.0, 400.0, 0.5), Some(0.5));
+        assert_eq!(fraction_along(250.0, 600.0, 400.0, 0.5), Some(0.25));
+    }
+
+    #[test]
+    fn a_pointer_past_either_end_holds_that_end() {
+        assert_eq!(fraction_along(0.0, 300.0, 200.0, 1.0), Some(0.0));
+        assert_eq!(fraction_along(900.0, 300.0, 200.0, 1.0), Some(1.0));
+    }
+
+    #[test]
+    fn a_track_not_laid_out_yet_says_nothing() {
+        assert_eq!(fraction_along(300.0, 300.0, 0.0, 1.0), None);
+    }
+
+    #[test]
+    fn a_span_moves_as_much_of_the_extent_as_the_pointer_moves_of_the_track() {
+        // Grabbed halfway along a track over 0..100 and moved a quarter of it.
+        assert_eq!(slid_from(10.0, 0.5, 0.75, 0.0, 100.0), 35.0);
+        assert_eq!(
+            slid_from(10.0, 0.5, 0.25, 0.0, 100.0),
+            -15.0,
+            "slide_to clamps"
+        );
+    }
+
+    #[test]
+    fn the_tallest_bucket_fills_the_histogram_and_an_empty_one_is_a_sliver() {
+        let range = NumericRange::full(0.0, 3.0, vec![10, 5, 0]);
+        assert_eq!(bar_height(&range, 0), Val::Px(HISTOGRAM_PX));
+        assert_eq!(bar_height(&range, 1), Val::Px(HISTOGRAM_PX * 0.5));
+        // Still drawn, so the width of the distribution reads even where it
+        // is empty.
+        assert_eq!(bar_height(&range, 2), Val::Px(HISTOGRAM_PX * 0.02));
+    }
+
+    #[test]
+    fn a_histogram_with_nothing_counted_yet_draws_no_bar_and_no_count() {
+        let range = NumericRange::full(0.0, 1.0, vec![0, 0]);
+        assert_eq!(bar_height(&range, 0), Val::Px(HISTOGRAM_PX * 0.02));
+        assert_eq!(count_text(&range), "");
+    }
+
+    #[test]
+    fn the_count_says_of_how_many_only_when_the_span_leaves_some_out() {
+        let mut range = NumericRange::full(0.0, 4.0, vec![10, 20, 30, 40]);
+        assert_eq!(count_text(&range), "100");
+        range.from = 2.0;
+        assert_eq!(count_text(&range), "70 of 100");
+    }
+
+    #[test]
+    fn the_readout_names_both_ends_of_the_span() {
+        let mut range = NumericRange::full(0.0, 10.0, vec![]);
+        range.from = 1.5;
+        assert_eq!(span_text(&range), "1.50 - 10.00");
+    }
+
+    #[test]
+    fn a_handle_at_either_end_stays_on_its_rail() {
+        assert_eq!(handle_placement(0.0), (0.0, 0.0));
+        // All the way along, pulled back by its own width so it does not
+        // hang off the end.
+        assert_eq!(handle_placement(1.0), (100.0, -RANGE_THUMB_PX));
+    }
+
+    #[test]
+    fn a_bucket_outside_the_span_is_dimmed_and_one_inside_is_lit() {
+        let palette = Palette::dark();
+        let mut range = NumericRange::full(0.0, 4.0, vec![1, 1, 1, 1]);
+        range.from = 2.0;
+        assert_eq!(bar_color(&range, 0, None, &palette), palette.bar_dim);
+        assert_eq!(bar_color(&range, 3, None, &palette), palette.fill);
     }
 }

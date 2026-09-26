@@ -264,4 +264,91 @@ pub mod tests {
         tree.set(0, false);
         assert!(tree.admitted().is_empty());
     }
+
+    /// Three levels: class 0 holds subclasses 1 and 2, subclass 1 holds
+    /// clusters 10 and 11, subclass 2 holds cluster 12; class 3 holds
+    /// subclass 4, which holds cluster 13. Indices follow in that order.
+    fn taxonomy() -> Tree {
+        let level = |id: &str| TreeLevel {
+            id: id.into(),
+            name: id.into(),
+        };
+        Tree {
+            levels: vec![level("class"), level("subclass"), level("cluster")],
+            nodes: vec![
+                node(0, None, 0),     // 0
+                node(1, Some(0), 1),  // 1
+                node(1, Some(0), 2),  // 2
+                node(2, Some(1), 10), // 3
+                node(2, Some(1), 11), // 4
+                node(2, Some(2), 12), // 5
+                node(0, None, 3),     // 6
+                node(1, Some(6), 4),  // 7
+                node(2, Some(7), 13), // 8
+            ],
+            color_level: 0,
+        }
+    }
+
+    #[test]
+    fn a_tick_that_completes_every_level_rises_all_the_way_up() {
+        let mut tree = taxonomy();
+        tree.set(3, true);
+        tree.set(4, true);
+        assert!(
+            tree.nodes[1].value.selected,
+            "both clusters are the subclass"
+        );
+        tree.set(5, true);
+        assert!(
+            tree.nodes[0].value.selected,
+            "both subclasses are the class"
+        );
+        assert_eq!(tree.applied(), 1);
+        assert_eq!(tree.admitted(), HashSet::from([10, 11, 12]));
+    }
+
+    #[test]
+    fn unticking_two_levels_under_a_tick_keeps_everything_else_it_covered() {
+        let mut tree = taxonomy();
+        tree.set(0, true);
+        tree.set(3, false);
+        // The class tick is split down the path to the cluster: its other
+        // subclass whole, and the cluster's sibling.
+        assert!(!tree.nodes[0].value.selected);
+        assert!(tree.nodes[2].value.selected && tree.nodes[4].value.selected);
+        assert_eq!(tree.applied(), 2);
+        assert_eq!(tree.admitted(), HashSet::from([11, 12]));
+    }
+
+    #[test]
+    fn a_grandchild_ticked_leaves_every_level_above_it_partly_ticked() {
+        let mut tree = taxonomy();
+        tree.set(5, true);
+        assert!(tree.partly_checked(0));
+        assert!(!tree.partly_checked(1), "nothing under the other subclass");
+        assert!(!tree.partly_checked(6), "nor under the other class");
+    }
+
+    #[test]
+    fn asking_for_what_is_already_so_changes_nothing() {
+        let mut tree = taxonomy();
+        tree.set(0, true);
+        // Already admitted through its class, so not ticked on its own.
+        tree.set(3, true);
+        assert_eq!(tree.applied(), 1);
+        tree.set(8, false);
+        tree.set(99, true);
+        assert_eq!(tree.applied(), 1);
+    }
+
+    #[test]
+    fn clearing_unticks_every_level() {
+        let mut tree = taxonomy();
+        tree.set(0, true);
+        tree.set(8, true);
+        tree.clear();
+        assert_eq!(tree.applied(), 0);
+        assert!(tree.admitted().is_empty());
+    }
 }

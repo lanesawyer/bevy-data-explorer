@@ -1142,3 +1142,56 @@ impl Plugin for SettingsPlugin {
             .add_systems(Startup, spawn_settings.in_set(Boot::Shell));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn login(email: Option<&str>) -> RegistryLogin {
+        RegistryLogin {
+            refresh_token: Some("refresh".into()),
+            email: email.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn nothing_saved_says_so() {
+        let notice = RegistryProbe::default().notice(None, None);
+        assert_eq!(notice, Notice::new(Tone::Info, "Not signed in."));
+    }
+
+    #[test]
+    fn a_sign_in_names_who_signed_in_where_it_knows() {
+        let probe = RegistryProbe::default();
+        let known = probe.notice(Some("token"), Some(&login(Some("lane@example.org"))));
+        assert_eq!(known.message, "Signed in as lane@example.org.");
+        assert_eq!(
+            probe.notice(Some("token"), Some(&login(None))).message,
+            "Signed in."
+        );
+    }
+
+    #[test]
+    fn a_pasted_token_is_named_by_its_end_rather_than_shown() {
+        let notice = RegistryProbe::default().notice(Some("secret-token-1234"), None);
+        assert!(notice.message.starts_with("Token "), "{}", notice.message);
+        assert!(!notice.message.contains("secret"), "{}", notice.message);
+    }
+
+    #[test]
+    fn a_test_request_reports_how_it_went_in_its_tone() {
+        let answered = RegistryProbe {
+            outcome: Some(Ok("12 assets.".into())),
+            ..default()
+        };
+        let notice = answered.notice(None, None);
+        assert_eq!(notice.tone, Tone::Success);
+        assert_eq!(notice.message, "Not signed in. 12 assets.");
+
+        let refused = RegistryProbe {
+            outcome: Some(Err("401 Unauthorized".into())),
+            ..default()
+        };
+        assert_eq!(refused.notice(None, None).tone, Tone::Error);
+    }
+}
