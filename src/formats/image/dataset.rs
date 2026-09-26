@@ -1560,8 +1560,9 @@ mod tests {
     #[test]
     #[ignore = "reads the live Tissuecyte store"]
     fn the_reference_stack_reads_as_a_volume() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(async {
+        // On the app's own runtime: stores on one host share a client, and
+        // a connection pooled on a runtime of the test's own dies with it.
+        crate::app::net::block_on(async {
             let dataset = crate::formats::image::store::open(
                 "https://allen-genetic-tools.s3.us-west-2.amazonaws.com/tissuecyte/1219090168/ome_zarr_conversion/1219090168.zarr/",
             )
@@ -1654,8 +1655,9 @@ mod block_reads {
     #[ignore = "reads a live SmartSPIM store"]
     fn a_voxel_reads_the_same_in_any_plane() {
         const STORE: &str = "https://aind-open-data.s3.us-west-2.amazonaws.com/SmartSPIM_719692_2024-03-13_16-03-36_stitched_2024-04-02_12-50-17/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr";
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(async {
+        // On the app's own runtime: stores on one host share a client, and
+        // a connection pooled on a runtime of the test's own dies with it.
+        crate::app::net::block_on(async {
             let native = crate::formats::image::store::open(STORE).await.unwrap();
             let cut = crate::formats::image::store::open(&format!("{STORE}#plane=zy"))
                 .await
@@ -1685,8 +1687,9 @@ mod block_reads {
     #[test]
     #[ignore = "reads the live Tissuecyte store"]
     fn tiles_read_by_block_match_tiles_read_whole() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(async {
+        // On the app's own runtime: stores on one host share a client, and
+        // a connection pooled on a runtime of the test's own dies with it.
+        crate::app::net::block_on(async {
             let dataset = crate::formats::image::store::open(
                 "https://allen-genetic-tools.s3.us-west-2.amazonaws.com/tissuecyte/1219090168/ome_zarr_conversion/1219090168.zarr/",
             )
@@ -1719,7 +1722,10 @@ mod block_reads {
                     // The middle of the specimen has tissue in it; the ends
                     // may not, and matching zeros would prove nothing.
                     if z == 71 {
-                        assert!(fast.data.iter().any(|b| *b != 0), "an empty tile proves nothing");
+                        assert!(
+                            fast.data.iter().any(|b| *b != 0),
+                            "an empty tile proves nothing"
+                        );
                     }
                     by_block += fast_time;
                     whole += slow_time;

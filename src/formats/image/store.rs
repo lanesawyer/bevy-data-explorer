@@ -4,12 +4,17 @@
 //! JSON of the kind produced alongside these conversions, which carries the
 //! store URL plus a copy of the root attributes.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use ome_zarr_metadata::v0_4::{Axis, MultiscaleImageDataset, Omero};
 use serde::Deserialize;
 
 use zarrs_object_store::AsyncObjectStore;
+use zarrs_object_store::object_store::ObjectStore;
+use zarrs_object_store::object_store::limit::LimitStore;
+use zarrs_object_store::object_store::path::Path as StorePath;
+use zarrs_object_store::object_store::prefix::PrefixStore;
 
 use crate::formats::image::dataset::{Dataset, Plane, ReadStore};
 
@@ -146,6 +151,39 @@ fn client_options() -> zarrs_object_store::object_store::ClientOptions {
         .with_read_timeout(std::time::Duration::from_secs(STALL_SECS))
 }
 
+/// Requests in flight to one host at once, across every store read from it.
+///
+/// A tile cut across a stack reads up to sixteen chunks from each of its
+/// stores, and every frame of "All views" reads its own tiles, so uncapped
+/// they asked for over a thousand connections at once: most failed to
+/// connect and were retried, and every read crawled while they did. Past the
+/// cap they queue, in the order asked for, so the tiles on screen, asked for
+/// first, are served first.
+const MAX_REQUESTS_PER_HOST: usize = 64;
+
+/// One client for each host, shared by every store read from it, so a stack
+/// open three ways — or three stores overlaid, as a Neuroglancer state is —
+/// share one pool of connections and one queue rather than each opening its
+/// own.
+fn host_store(origin: &str) -> Result<Arc<dyn ObjectStore>, String> {
+    static HOSTS: OnceLock<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> = OnceLock::new();
+    let mut hosts = HOSTS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    if let Some(store) = hosts.get(origin) {
+        return Ok(store.clone());
+    }
+    let http = zarrs_object_store::object_store::http::HttpBuilder::new()
+        .with_url(origin)
+        .with_client_options(client_options())
+        .build()
+        .map_err(|e| format!("opening HTTP store {origin}: {e}"))?;
+    let store: Arc<dyn ObjectStore> = Arc::new(LimitStore::new(http, MAX_REQUESTS_PER_HOST));
+    hosts.insert(origin.to_string(), store.clone());
+    Ok(store)
+}
+
 fn open_store(url: &str) -> Result<ReadStore, String> {
     // Both backends come from `object_store`, which is the one zarrs can drive
     // asynchronously. A read here is a future that can be dropped, which is
@@ -153,11 +191,9 @@ fn open_store(url: &str) -> Result<ReadStore, String> {
     if crate::app::net::is_http(url) {
         let base = http_base(url);
         let parsed = url::Url::parse(&base).map_err(|e| format!("reading {base}: {e}"))?;
-        let store = zarrs_object_store::object_store::http::HttpBuilder::new()
-            .with_url(parsed.as_str())
-            .with_client_options(client_options())
-            .build()
-            .map_err(|e| format!("opening HTTP store {base}: {e}"))?;
+        let prefix =
+            StorePath::from_url_path(parsed.path()).map_err(|e| format!("reading {base}: {e}"))?;
+        let store = PrefixStore::new(host_store(&parsed.origin().ascii_serialization())?, prefix);
         Ok(Arc::new(AsyncObjectStore::new(store)))
     } else {
         let path = std::path::Path::new(url)
