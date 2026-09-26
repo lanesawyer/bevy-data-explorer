@@ -853,7 +853,7 @@ on the theme's own background, and the table starts below the frame's own
 chrome — measured from the header rather than assumed, since a header is as
 tall as the status it reports.
 
-The drawing lives in `view/table.rs` rather than in the format, keyed off a
+The drawing lives in `view/table/` rather than in the format, keyed off a
 `SourceTable` on the source entity. So a table looks the same whatever produced
 the rows, and a format that has rows to show writes that component rather than
 learning to draw. It is the third of the things `source/` carries between a

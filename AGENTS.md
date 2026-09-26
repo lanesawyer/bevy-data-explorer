@@ -112,7 +112,7 @@ A numeric column is narrowed by a span, and that span is drawn by the same
 control the cell properties use. `ui/cell_panel/range.rs` takes a `RangeOwner`
 saying where its `NumericRange` lives — a cell property or a table column — so
 there is one histogram-and-two-ends widget rather than two that drift apart.
-Anything else that grows a numeric range should name itself there too. `view/table.rs` fills
+Anything else that grows a numeric range should name itself there too. `view/table/` fills
 that frame with a scrolling table — there is nothing to pan over, so its frame
 scrolls rather than moves. Only the rows on screen are built. A format's whole
 job there is producing rows, which is why neither `formats/csv` nor
