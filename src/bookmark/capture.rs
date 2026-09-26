@@ -42,17 +42,12 @@ fn empty_positions(world: &mut World) -> (usize, Vec<usize>) {
 /// The address a dataset is saved under.
 ///
 /// A local path is made absolute, so the bookmark opens from wherever the app
-/// is started next time. Anything with a scheme is left as it was typed.
+/// is started next time. A remote address is left as it was typed.
 pub fn saved_address(url: &str) -> String {
-    if is_remote(url) {
+    if crate::app::net::is_remote(url) {
         return url.to_string();
     }
     std::fs::canonicalize(url).map_or_else(|_| url.to_string(), |path| path.display().to_string())
-}
-
-/// Whether someone on another machine could open this address.
-pub fn is_remote(url: &str) -> bool {
-    url.contains("://")
 }
 
 /// Everything on screen, as a bookmark named `name`.

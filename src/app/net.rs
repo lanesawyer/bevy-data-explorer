@@ -91,6 +91,30 @@ pub fn is_http(source: &str) -> bool {
     source.starts_with("http://") || source.starts_with("https://")
 }
 
+/// Whether someone on another machine could open this address: anything
+/// with a scheme but `file://`.
+///
+/// Not the same question as [`is_http`], which asks how to fetch: an `s3://`
+/// address is fetched over HTTP once it is translated, but is remote as typed.
+/// A Neuroglancer format prefix is looked through to the address it wraps, so
+/// `zarr2://s3://bucket/key` is as remote as the bucket.
+pub fn is_remote(source: &str) -> bool {
+    let mut scheme = None;
+    let mut rest = source.trim();
+    while let Some((name, after)) = rest.split_once("://") {
+        let is_scheme = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+        if !is_scheme {
+            break;
+        }
+        scheme = Some(name);
+        rest = after;
+    }
+    scheme.is_some_and(|scheme| !scheme.eq_ignore_ascii_case("file"))
+}
+
 /// Read a whole file, over HTTP or off disk.
 pub async fn read(source: &str) -> Result<Vec<u8>, String> {
     if is_http(source) {
@@ -175,6 +199,29 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
+
+    #[test]
+    fn an_address_is_remote_unless_it_is_on_this_machine() {
+        for remote in [
+            "https://example.com/a.zarr/",
+            "http://example.com/metadata.json",
+            "s3://allen-genetic-tools/tissuecyte/1219090168.zarr/",
+            "zarr2://s3://allen-genetic-tools/tissuecyte/1219090168.zarr/",
+            "https://neuroglancer-demo.appspot.com/#!s3://bucket/state.json",
+        ] {
+            assert!(is_remote(remote), "{remote}");
+        }
+        for local in [
+            "/data/local.zarr",
+            "./metadata.json",
+            "metadata.json",
+            "file:///data/local.zarr",
+            "zarr://file:///data/local.zarr",
+            "",
+        ] {
+            assert!(!is_remote(local), "{local}");
+        }
+    }
 
     /// The property the streamers rely on: forgetting a read stops it.
     ///

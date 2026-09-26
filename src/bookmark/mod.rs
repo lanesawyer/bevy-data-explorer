@@ -92,7 +92,7 @@ pub fn local_addresses(bookmark: &Bookmark) -> Vec<&str> {
         .sources
         .iter()
         .map(|source| source.url.as_str())
-        .filter(|url| !capture::is_remote(url))
+        .filter(|url| !crate::app::net::is_remote(url))
         .collect()
 }
 
