@@ -40,7 +40,7 @@ dataset's cells better than its files: labels, colors, counts.
 format's placeholder `CellProperties` with the service's answer. Formats hand
 the service a `CellColumns` rather than their own types. Giving a new catalog
 real cell properties means implementing `DescribeCells` for it, as
-`catalog/bkp/cells.rs` does. It never means touching a format or the panel.
+`catalog/bkp/cells/` does. It never means touching a format or the panel.
 See `.agents/skills/add-catalog`.
 
 A bookmark (`src/bookmark/`) saves intent, not entities: addresses, labels,

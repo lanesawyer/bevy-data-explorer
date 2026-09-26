@@ -74,7 +74,7 @@ slot, so a slow one never reorders those listed before it.
 
 If the catalog's service knows more about a dataset's cells than the files do
 (labels for codes, colors, which properties matter, counts), implement
-`DescribeCells` and put a `CellService` on each entry. `catalog/bkp/cells.rs`
+`DescribeCells` and put a `CellService` on each entry. `catalog/bkp/cells/`
 is the worked example.
 
 - `describe(columns)` gets `CellColumns`, the columns *the files* hold. Only
