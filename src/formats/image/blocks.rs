@@ -91,6 +91,12 @@ impl Header {
         (blocksize > 0).then(|| HEADER + word(4).div_ceil(blocksize) * 4)
     }
 
+    /// Whether each block starts after the one before it, as blosc's own
+    /// partial decoding assumes.
+    fn in_order(&self) -> bool {
+        self.starts.windows(2).all(|pair| pair[0] < pair[1])
+    }
+
     /// Where block `index` lies in the stored chunk.
     fn block_range(&self, index: usize) -> (usize, usize) {
         let start = self.starts[index];
@@ -214,6 +220,14 @@ impl BlockReader {
             return Ok(Some(bytes.into_iter().map(|b| b.to_vec()).collect()));
         }
 
+        // Blosc may write a chunk's blocks in any order — threads finishing
+        // out of turn — and `blosc1_getitem` assumes each block ends where the
+        // next begins, which reads past the end of one written out of order.
+        // Such a chunk is read whole instead, as any other would be.
+        if !header.in_order() {
+            return Err(format!("{key}: blosc blocks are out of order"));
+        }
+
         // Every block any part touches, each fetched once and all at once.
         let mut blocks: Vec<usize> = parts
             .iter()
@@ -314,6 +328,22 @@ mod tests {
         let header = Header::parse(&reference_header()).unwrap();
         let (_, end) = header.block_range(14);
         assert_eq!(end, 2_343_375);
+    }
+
+    #[test]
+    fn a_chunk_written_out_of_order_is_left_to_zarrs() {
+        assert!(Header::parse(&reference_header()).unwrap().in_order());
+        // A chunk of the SmartSPIM sagittal projection: 24 blocks, the first
+        // written after the second.
+        let mut bytes = vec![2, 1, 0b0010_0001, 2];
+        for word in [6_291_456u32, 262_144, 97_611] {
+            bytes.extend_from_slice(&word.to_le_bytes());
+        }
+        for start in [8_560u32, 112, 1_168, 3_280] {
+            bytes.extend_from_slice(&start.to_le_bytes());
+        }
+        bytes.resize(16 + 24 * 4, 0);
+        assert!(!Header::parse(&bytes).unwrap().in_order());
     }
 
     #[test]
