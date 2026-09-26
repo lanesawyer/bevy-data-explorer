@@ -275,6 +275,7 @@ impl Plugin for ViewPlugin {
         // cross-sections can ask for a layer before any source is open.
         .init_resource::<crate::source::SourceRegistry>()
         .init_resource::<SelectedPanel>()
+        .init_resource::<plane::DefaultPlanes>()
         .init_resource::<TextEntryFocused>()
         .add_observer(panel_buttons)
         .add_observer(orbit::on_view_toggled)

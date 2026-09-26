@@ -21,7 +21,8 @@ use crate::source::stack::{SliceStack, SourceAxes};
 use crate::source::{ShowsSource, SourceUrl};
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, Menu, button_text, set_display, size, spawn_icon_menu, text, text_dim,
+    BlocksFrameInput, Icon, Menu, button_text, set_display, set_text, size, spawn_icon_menu, text,
+    text_dim,
 };
 
 use super::link::Linked;
@@ -87,6 +88,32 @@ impl Default for BackToDefault {
     }
 }
 
+/// The caption of the way back, which names the plane it goes back to once
+/// that is known.
+#[derive(Component, Clone)]
+pub struct BackToDefaultLabel {
+    panel: Entity,
+}
+
+impl Default for BackToDefaultLabel {
+    fn default() -> Self {
+        BackToDefaultLabel {
+            panel: Entity::PLACEHOLDER,
+        }
+    }
+}
+
+/// The axis each address looks along when opened without a plane, noted from
+/// every source opened that way.
+///
+/// Knowing it otherwise means reading the dataset again, and a state from
+/// another viewer can open in any plane. But a plane is chosen from a frame,
+/// and that frame usually showed the default first, so it has been seen by
+/// the time the way back is offered. Kept after the source goes, which it does
+/// when a plane replaces it.
+#[derive(Resource, Default)]
+pub struct DefaultPlanes(std::collections::HashMap<String, char>);
+
 /// One choice in the menu: a plane, or none for the dataset's own.
 #[derive(Component, Clone)]
 pub struct PlaneChoice {
@@ -151,7 +178,15 @@ pub(super) fn spawn_plane_menu(commands: &mut Commands, header: Entity, panel: E
                     }
                     BackToDefault { panel: { panel } }
                     Children [
-                        {choice(None, "Back to the default view")},
+                        (
+                            @FeathersButton {
+                                @caption: { bsn_list![
+                                    (button_text(back_label(None)) BackToDefaultLabel { panel: { panel } })
+                                ] }
+                            }
+                            BlocksFrameInput
+                            PlaneChoice { panel: { panel }, plane: { None } }
+                        ),
                         text_dim(
                             "Undo the plane chosen, and cut the stack the way it opens on its own.",
                             size::SMALL
@@ -164,16 +199,47 @@ pub(super) fn spawn_plane_menu(commands: &mut Commands, header: Entity, panel: E
     commands.entity(menu).add_child(content);
 }
 
+/// What the way back is called: the plane it returns to, when known.
+fn back_label(looking: Option<char>) -> String {
+    PLANES
+        .iter()
+        .find(|(.., along)| Some(*along) == looking)
+        .map_or_else(
+            || "Back to the default view".to_string(),
+            |(_, described, _)| format!("Back to the default, {}", described.to_lowercase()),
+        )
+}
+
 /// Offer the menu only over a stack read from an address, which is what can
-/// be cut another way, and the way back only over one cut in a chosen plane.
+/// be cut another way, and the way back only over one cut in a chosen plane,
+/// named for the plane it goes back to.
 pub fn sync_plane_menus(
     menus: Query<&PanelPlaneMenu>,
     backs: Query<(Entity, &BackToDefault)>,
     frames: Query<&ShowsSource>,
     stacks: Query<(), (With<SliceStack>, With<SourceUrl>)>,
     urls: Query<&SourceUrl>,
+    opened: Query<(&SourceUrl, &SourceAxes), Or<(Changed<SourceUrl>, Changed<SourceAxes>)>>,
+    mut defaults: ResMut<DefaultPlanes>,
+    mut labels: Query<(&BackToDefaultLabel, &mut Text)>,
     mut nodes: Query<&mut Node>,
 ) {
+    for (url, axes) in &opened {
+        let (address, plane) = split_plane(&url.0);
+        if let (None, Some(through)) = (plane, axes.through)
+            && defaults.0.get(address) != Some(&through.axis)
+        {
+            defaults.0.insert(address.to_string(), through.axis);
+        }
+    }
+    for (label, text) in &mut labels {
+        let looking = frames
+            .get(label.panel)
+            .ok()
+            .and_then(|shows| urls.get(shows.0).ok())
+            .and_then(|url| defaults.0.get(split_plane(&url.0).0).copied());
+        set_text(text, &back_label(looking));
+    }
     for menu in &menus {
         let shown = frames
             .get(menu.panel)
@@ -331,5 +397,14 @@ mod tests {
         assert_eq!(other_planes(Some('x')).collect::<Vec<_>>(), ["xy", "xz"]);
         // Without knowing, every plane is asked for.
         assert_eq!(other_planes(None).count(), 3);
+    }
+
+    #[test]
+    fn the_way_back_names_the_plane_it_returns_to_once_known() {
+        assert_eq!(
+            back_label(Some('x')),
+            "Back to the default, looking along x"
+        );
+        assert_eq!(back_label(None), "Back to the default view");
     }
 }
