@@ -25,7 +25,7 @@ use crate::formats::tiles::{self, SlotState, TileCache, View};
 use crate::render::channels::{ChannelTileMaterial, MixChannel, channel_texture};
 use crate::source::channels::{ChannelSetting, SourceChannels};
 use crate::source::hover::{DescribesHover, HoverInfo, HoverProbe, resolve_hover};
-use crate::source::stack::SliceStack;
+use crate::source::stack::{SliceStack, SourceAxes, Through};
 use crate::source::{self, ShowsSource, SourceBusy, SourceExtent, SourceStatus};
 
 /// Cached shard decoders. Each holds a shard index, so reusing one saves both a
@@ -499,12 +499,31 @@ pub fn spawn_source(
     // gives the frame's keys something to step; a flat image offers neither.
     let depth = dataset.depth();
     let mut stack = SliceStack::new(depth);
-    if let Some(named) = z_slice {
+    if let Some(named) = z_slice.or(dataset.home.and_then(|home| home.slice)) {
         stack.go_to(named);
+    }
+    if let Some(home) = dataset.home {
+        world.entity_mut(source).insert(source::HomeView {
+            center: home.center,
+            units_per_px: home.units_per_px,
+        });
     }
     if depth > 1 {
         world.entity_mut(source).insert(stack);
     }
+    // Which place each pixel and slice is, for frames linked across planes.
+    let (across, down, through) = dataset.axis_names;
+    world.entity_mut(source).insert(SourceAxes {
+        across,
+        down,
+        through: through
+            .filter(|_| depth > 1 && dataset.spatial_stack)
+            .map(|axis| Through {
+                axis,
+                origin: level.origin_z as f32,
+                step: level.scale_z as f32,
+            }),
+    });
 
     // Offered in 3D only when the metadata puts every slice somewhere, and only
     // when some level of it fits a texture; a stack that is merely paged

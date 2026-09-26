@@ -76,15 +76,21 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
             .map(|specimens| Discovered::Specimens(Box::new(specimens)));
     }
 
+    // An image can be asked for cut in a plane other than its own, which is
+    // named after its address; everything below recognizes the address
+    // without it, and an image reader is handed it with.
+    let with_plane = source;
+    let (source, plane) = crate::formats::image::store::split_plane(source);
+
     // A Neuroglancer link carries its state after `#!`: the address of one,
     // or the whole of it.
     if let Some(state) = neuroglancer::in_link(source) {
         if state.trim_start().starts_with('{') {
-            return neuroglancer::read(source, &state).await;
+            return neuroglancer::read(source, &state, plane).await;
         }
         let address = crate::formats::plain_url(&state);
         let text = fetch_text(&address).await?;
-        return neuroglancer::read(&address, &text).await;
+        return neuroglancer::read(&address, &text, plane).await;
     }
 
     // A Deep Zoom image is named by its descriptor, and nothing else ends in
@@ -124,7 +130,7 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
     if is_json(source) {
         let text = fetch_text(source).await?;
         if serde_json::from_str(&text).is_ok_and(|value| neuroglancer::is_state(&value)) {
-            return neuroglancer::read(source, &text).await;
+            return neuroglancer::read(source, &text, plane).await;
         }
         let points = match Scatterbrain::parse(&text) {
             Ok(cloud) => return Ok(classify(source, cloud)),
@@ -132,13 +138,13 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
         };
         // Not Scatterbrain, so the other thing a `.json` can be is an image
         // manifest naming the store that holds the pyramid.
-        return crate::formats::image::store::open(source)
+        return crate::formats::image::store::open(with_plane)
             .await
             .map(|dataset| Discovered::Image(Box::new(dataset)))
             .map_err(|image| unrecognized(source, &image, &points));
     }
 
-    crate::formats::image::store::open(source)
+    crate::formats::image::store::open(with_plane)
         .await
         .map(|dataset| Discovered::Image(Box::new(dataset)))
         .map_err(|image| {

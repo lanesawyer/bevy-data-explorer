@@ -77,6 +77,76 @@ impl AxisLayout {
     }
 }
 
+/// Which two of an image's spatial axes a frame shows, by name: the one
+/// across the frame and the one down it. The third is paged through.
+///
+/// Every image opens looking down z, x across and y down. A volume imaged
+/// whole can be cut any of three ways, and a viewer written for one — as
+/// Neuroglancer lists its dimensions — may look along another; naming the
+/// plane is what lets the same store be seen the way it was meant to be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Plane {
+    pub across: char,
+    pub down: char,
+}
+
+impl Plane {
+    /// Two distinct axis letters, across then down, as `zy`.
+    pub fn parse(text: &str) -> Option<Plane> {
+        let mut letters = text.trim().chars().map(|c| c.to_ascii_lowercase());
+        let (across, down) = (letters.next()?, letters.next()?);
+        (letters.next().is_none()
+            && across != down
+            && across.is_alphabetic()
+            && down.is_alphabetic())
+        .then_some(Plane { across, down })
+    }
+
+    pub fn name(self) -> String {
+        format!("{}{}", self.across, self.down)
+    }
+
+    /// The native plane, which needs no remapping.
+    fn is_native(self) -> bool {
+        (self.across, self.down) == ('x', 'y')
+    }
+}
+
+impl AxisLayout {
+    /// This layout seen in `plane`: its across axis read as x, its down axis
+    /// as y, and whichever spatial axis is left as z.
+    fn in_plane(
+        self,
+        axes: &[ome_zarr_metadata::v0_4::Axis],
+        plane: Plane,
+    ) -> Result<Self, String> {
+        let named = |letter: char| {
+            axes.iter()
+                .position(|a| a.name.eq_ignore_ascii_case(&letter.to_string()))
+                .ok_or_else(|| format!("the image has no {letter} axis to show"))
+        };
+        let (x, y) = (named(plane.across)?, named(plane.down)?);
+        let spatial = |i: usize| {
+            matches!(axes[i].r#type, Some(AxisType::Space))
+                || ["x", "y", "z"].contains(&axes[i].name.to_ascii_lowercase().as_str())
+        };
+        if !spatial(x) || !spatial(y) {
+            return Err(format!("{} is not a plane through space", plane.name()));
+        }
+        let z = (0..axes.len()).find(|&i| i != x && i != y && spatial(i));
+        Ok(AxisLayout { x, y, z, ..self })
+    }
+}
+
+/// Where a frame first looks at an image: a place in its world coordinates,
+/// as displayed (y negated), how close, and which slice.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Home {
+    pub center: bevy::math::Vec2,
+    pub units_per_px: Option<f32>,
+    pub slice: Option<u64>,
+}
+
 /// A channel's display mapping: intensity window and tint.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Channel {
@@ -197,6 +267,12 @@ pub struct Dataset {
     /// What intensities are divided by before they are stored for the GPU;
     /// see [`sample_scale`].
     pub sample_scale: f32,
+    /// The names of the axes read as x, y and z, in lower case: what a frame
+    /// shows across and down, and what it pages through.
+    pub axis_names: (char, char, Option<char>),
+    /// Where a frame opening onto it should first look, when whatever
+    /// described it says; otherwise a frame is fitted to the whole image.
+    pub home: Option<Home>,
     /// Stores on the same grid whose channels follow this one's own in
     /// `channels`, read at the same tile and added to the same mix: the
     /// channels of one specimen written a store apiece. See [`Dataset::overlay`].
@@ -208,8 +284,12 @@ impl Dataset {
         store: ReadStore,
         multiscale: &MultiscaleSpec,
         omero: Option<&ome_zarr_metadata::v0_4::Omero>,
+        plane: Option<Plane>,
     ) -> Result<Self, String> {
-        let layout = AxisLayout::infer(&multiscale.axes)?;
+        let mut layout = AxisLayout::infer(&multiscale.axes)?;
+        if let Some(plane) = plane.filter(|plane| !plane.is_native()) {
+            layout = layout.in_plane(&multiscale.axes, plane)?;
+        }
 
         let unit = multiscale
             .axes
@@ -305,6 +385,14 @@ impl Dataset {
             (finest.origin_y + finest.height as f64 * finest.scale_y) as f32,
         );
 
+        let letter = |axis: usize| {
+            multiscale.axes[axis]
+                .name
+                .chars()
+                .next()
+                .map_or('?', |c| c.to_ascii_lowercase())
+        };
+        let axis_names = (letter(layout.x), letter(layout.y), layout.z.map(letter));
         let channel_count = layout.c.map_or(1, |c| finest.array.shape()[c] as usize);
         let channels = build_channels(omero, channel_count, &finest.array);
         let spatial_stack = z_is_measured(&multiscale.axes, &layout);
@@ -319,6 +407,8 @@ impl Dataset {
             world,
             spatial_stack,
             sample_scale,
+            axis_names,
+            home: None,
             members: Vec::new(),
         })
     }
@@ -796,13 +886,26 @@ async fn read_tile_whole(
             .into_fixed()
             .map_err(|_| "variable-length data types are not supported".to_string())?;
 
+        // Strides of the subset as read. A plane other than the store's own
+        // can put the across axis before the down one, so rows are not
+        // assumed to run along x.
+        let lengths: Vec<usize> = ranges.iter().map(|r| (r.end - r.start) as usize).collect();
+        let mut strides = vec![1usize; layout.ndim];
+        for axis in (0..layout.ndim.saturating_sub(1)).rev() {
+            strides[axis] = strides[axis + 1] * lengths[axis + 1];
+        }
         for &ci in &members {
-            let offset = (ci as u64 - group_base) as usize * plane * element;
+            let base = layout
+                .c
+                .map_or(0, |c| (ci as u64 - group_base) as usize * strides[c]);
             let (layer, component) = (ci / 4, ci % 4);
-            for i in 0..plane {
-                let at = offset + i * element;
-                let value = sample(&raw[at..at + element]) / scale;
-                samples.put(layer * plane + i, component, value);
+            for row in 0..h {
+                for column in 0..w {
+                    let at =
+                        (base + row * strides[layout.y] + column * strides[layout.x]) * element;
+                    let value = sample(&raw[at..at + element]) / scale;
+                    samples.put(layer * plane + row * w + column, component, value);
+                }
             }
         }
     }
@@ -1407,6 +1510,36 @@ mod tests {
     }
 
     #[test]
+    fn a_plane_is_two_axes_across_then_down() {
+        assert_eq!(
+            Plane::parse("ZY"),
+            Some(Plane {
+                across: 'z',
+                down: 'y'
+            })
+        );
+        assert_eq!(Plane::parse("zz"), None);
+        assert_eq!(Plane::parse("xyz"), None);
+        let (store, plane) = crate::formats::image::store::split_plane("https://h/a.zarr#plane=zy");
+        assert_eq!(store, "https://h/a.zarr");
+        assert_eq!(plane.map(Plane::name).as_deref(), Some("zy"));
+        assert_eq!(
+            crate::formats::image::store::split_plane("https://h/a.zarr").1,
+            None
+        );
+    }
+
+    #[test]
+    fn a_plane_reads_its_axes_as_x_and_y_and_pages_the_third() {
+        let axes = axes_of(include_str!("../../../testdata/root_zarr_v2_stack.json"));
+        let native = AxisLayout::infer(&axes).unwrap();
+        let (x, y, z) = (native.x, native.y, native.z.unwrap());
+        let cut = native.in_plane(&axes, Plane::parse("zy").unwrap()).unwrap();
+        assert_eq!((cut.x, cut.y, cut.z), (z, y, Some(x)));
+        assert!(native.in_plane(&axes, Plane::parse("cy").unwrap()).is_err());
+    }
+
+    #[test]
     fn a_z_in_another_unit_or_not_spatial_says_nothing_about_depth() {
         let mut axes = axes_of(include_str!("../../../testdata/root_zarr_v2_stack.json"));
         let layout = AxisLayout::infer(&axes).unwrap();
@@ -1514,6 +1647,37 @@ mod tests {
 #[cfg(test)]
 mod block_reads {
     use super::*;
+
+    /// One voxel of the SmartSPIM volume, read looking down z and again cut
+    /// across z and y, is the same voxel.
+    #[test]
+    #[ignore = "reads a live SmartSPIM store"]
+    fn a_voxel_reads_the_same_in_any_plane() {
+        const STORE: &str = "https://aind-open-data.s3.us-west-2.amazonaws.com/SmartSPIM_719692_2024-03-13_16-03-36_stitched_2024-04-02_12-50-17/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr";
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let native = crate::formats::image::store::open(STORE).await.unwrap();
+            let cut = crate::formats::image::store::open(&format!("{STORE}#plane=zy"))
+                .await
+                .unwrap();
+            let (a, b) = (native.levels.last().unwrap(), cut.levels.last().unwrap());
+            assert_eq!((b.width, b.height), (696, a.height), "z across, y down");
+            // Level voxel (x 100, y 100, z 348), as full-resolution slices.
+            let flat = read_tile(&native, a, TileSource::Array, 0, 0, 348 * 8)
+                .await
+                .unwrap()
+                .unwrap();
+            let side = read_tile(&cut, b, TileSource::Array, 0, 0, 801)
+                .await
+                .unwrap()
+                .unwrap();
+            let at = |samples: &ChannelSamples, row: usize, column: usize| {
+                samples.get(row * samples.width as usize + column, 0)
+            };
+            assert!(at(&flat, 100, 100) > 0.0, "a voxel in the tissue");
+            assert_eq!(at(&flat, 100, 100), at(&side, 100, 348));
+        });
+    }
 
     /// Reads the same tiles of the live Tissuecyte stack block by block and
     /// whole, checks they agree to the byte, and prints how long each took.

@@ -9,6 +9,54 @@
 
 use bevy::prelude::*;
 
+/// Which named axes a source shows across and down its frames, and which it
+/// pages through, so that frames cut different ways through one volume can
+/// be linked by the place they share rather than by where their pixels are.
+///
+/// Written by a format that knows; a source without one is flat, x across
+/// and y down, as every one was before a volume could be cut another way.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct SourceAxes {
+    pub across: char,
+    pub down: char,
+    /// The axis paged through, and where each slice of the stack lies along
+    /// it, in the source's own unit: slice `n` is at `origin + n * step`.
+    pub through: Option<Through>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Through {
+    pub axis: char,
+    pub origin: f32,
+    pub step: f32,
+}
+
+impl Default for SourceAxes {
+    fn default() -> Self {
+        SourceAxes {
+            across: 'x',
+            down: 'y',
+            through: None,
+        }
+    }
+}
+
+impl Through {
+    /// Where slice `slice` lies.
+    pub fn at(&self, slice: u64) -> f32 {
+        self.origin + slice as f32 * self.step
+    }
+
+    /// The slice nearest `position`, if the stack reaches it at all.
+    pub fn slice_at(&self, position: f32, count: u64) -> u64 {
+        if self.step <= 0.0 {
+            return 0;
+        }
+        let at = ((position - self.origin) / self.step).round().max(0.0) as u64;
+        at.min(count.saturating_sub(1))
+    }
+}
+
 /// A source that shows one slice of a stack at a time.
 ///
 /// Sources without one are flat, and nothing offers to page through them.

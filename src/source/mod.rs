@@ -162,6 +162,32 @@ impl SourceExtent {
     }
 }
 
+/// Where a frame opening onto a source first looks, when whatever described
+/// the dataset says — a place, and how close — rather than at the whole of
+/// it. Also where `R` takes the frame back to.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct HomeView {
+    pub center: Vec2,
+    /// World units per logical pixel; the fit to the whole extent without.
+    pub units_per_px: Option<f32>,
+}
+
+impl SourceExtent {
+    /// [`SourceExtent::limits`], looking first where `home` says.
+    pub fn limits_from(&self, home: Option<&HomeView>, viewport: Vec2) -> ViewLimits {
+        let mut limits = self.limits(viewport);
+        if let Some(home) = home {
+            limits.center = home.center;
+            if let Some(scale) = home.units_per_px.filter(|it| it.is_finite() && *it > 0.0) {
+                limits.min_scale = limits.min_scale.min(scale);
+                limits.max_scale = limits.max_scale.max(scale);
+                limits.fit_scale = scale;
+            }
+        }
+        limits
+    }
+}
+
 /// Where a source was read from, as it was asked for.
 ///
 /// What lets a known dataset be recognized as already open, so choosing it

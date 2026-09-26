@@ -123,7 +123,7 @@ pub fn apply_panel_requests(
     )>,
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     layer_opacities: Query<(&ShowsSource, &LayerOpacity), With<LayerOf>>,
-    sources: Query<(&DataSource, &SourceExtent)>,
+    sources: Query<(&DataSource, &SourceExtent, Option<&crate::source::HomeView>)>,
     tables: Query<(), With<SourceTable>>,
     pending: Query<&PendingShow>,
     urls: Query<&SourceUrl>,
@@ -148,7 +148,7 @@ pub fn apply_panel_requests(
 
     let mut closing: Vec<Entity> = Vec::new();
     let mut spawned = 0usize;
-    let lookup = |entity: Entity| sources.get(entity).ok().map(|(data, _)| data);
+    let lookup = |entity: Entity| sources.get(entity).ok().map(|(data, ..)| data);
     // Layers added by an earlier request this frame, which the query cannot
     // see until the commands have run.
     let mut added: Vec<(Entity, Entity)> = Vec::new();
@@ -164,7 +164,7 @@ pub fn apply_panel_requests(
                 else {
                     continue;
                 };
-                let Ok((source, _)) = sources.get(shows.0) else {
+                let Ok((source, ..)) = sources.get(shows.0) else {
                     continue;
                 };
                 // A 3D frame is duplicated in 3D, turned the same way, and
@@ -206,7 +206,7 @@ pub fn apply_panel_requests(
                 if open.len() + spawned >= MAX_PANELS {
                     continue;
                 }
-                let Ok((source, extent)) = sources.get(source_entity) else {
+                let Ok((source, extent, home)) = sources.get(source_entity) else {
                     continue;
                 };
                 spawn_panel(
@@ -214,7 +214,7 @@ pub fn apply_panel_requests(
                     source_entity,
                     source.layer,
                     open.len() + spawned,
-                    extent.limits(viewport),
+                    extent.limits_from(home, viewport),
                     None,
                     palette.frame_bg,
                 );
@@ -227,7 +227,7 @@ pub fn apply_panel_requests(
                         .get(panel)
                         .ok()
                         .and_then(|(_, _, shows, ..)| sources.get(shows.0).ok())
-                        .map_or("nothing", |(source, _)| source.name.as_str());
+                        .map_or("nothing", |(source, ..)| source.name.as_str());
                     info!("closed the frame showing {name}");
                     closing.push(panel);
                 }
@@ -276,13 +276,13 @@ pub fn apply_panel_requests(
                     commands.entity(panel).remove::<(Browsing, ShowFailed)>();
                     continue;
                 }
-                let Ok((data, extent)) = sources.get(source) else {
+                let Ok((data, extent, home)) = sources.get(source) else {
                     continue;
                 };
                 // Repointing is the whole reason a frame holds a source entity
                 // rather than naming a format: the camera moves to that
                 // source's layer and is reframed to its extent.
-                let limits = extent.limits(viewport);
+                let limits = extent.limits_from(home, viewport);
                 info!("frame now showing {}", data.name);
                 // In 2D, whatever it was: the new dataset may have no depth, and
                 // one that does has its own to be framed to.

@@ -6,22 +6,30 @@
 //! place across several datasets. A frame that joins takes the group's view
 //! rather than pulling the group to its own.
 //!
-//! What is shared is a place and a magnification: the point at the center of
-//! the frame, and world units per screen pixel. Frames of different sizes
-//! therefore show more or less around the same point at the same zoom. Two
-//! datasets measured in different lengths are converted, so a stack in
-//! microns and a cloud in millimeters still line up; a slide in its own
-//! pixels shares nothing with either and is left where it is. A frame looking
-//! at a volume in 3D, or filled with a table, has no flat view to share and
-//! sits the group out until it has one.
+//! What is shared is a place and a magnification: a point in space, and world
+//! units per screen pixel. A frame's point is its center, along the axes it
+//! shows across and down, and its slice, along the axis it pages through —
+//! which [`SourceAxes`] names — so a volume cut looking down z and the same
+//! volume cut looking along x meet where they cross, as Neuroglancer's
+//! panels do: paging one moves the line the other is centered on. A source
+//! that names no axes is flat, x across and y down.
 //!
-//! Paging a linked frame's stack pages every linked frame's stack by the same
-//! step, which is `view/input.rs`'s side of this.
+//! Frames of different sizes show more or less around the same point at the
+//! same zoom. Two datasets measured in different lengths are converted, so a
+//! stack in microns and a cloud in millimeters still line up; a slide in its
+//! own pixels shares nothing with either and is left where it is. A frame
+//! looking at a volume in 3D, or filled with a table, has no flat view to
+//! share and sits the group out until it has one.
+//!
+//! A stack with no place along its depth — sections with no z — is paged
+//! step for step with the frame being paged instead, which is
+//! `view/input.rs`'s side of this.
 
 use bevy::prelude::*;
 use bevy_feathers::controls::{ButtonVariant, FeathersToolButton};
 use bevy_ui_widgets::Activate;
 
+use crate::source::stack::{SliceStack, SourceAxes};
 use crate::source::table::SourceTable;
 use crate::source::{DataSource, ShowsSource, ViewLimits};
 use crate::widgets::{BlocksFrameInput, Icon, button_icon, set_display};
@@ -35,8 +43,11 @@ pub struct Linked {
     /// frame whose view no longer matches has moved on its own, and leads.
     /// Nothing until the frame has been seen linked once, which is what marks
     /// a frame that has just joined.
-    last: Option<(Vec2, f32)>,
+    last: Option<Seen>,
 }
+
+/// A frame's view as the link compares it: center, scale, and slice.
+type Seen = (Vec2, f32, Option<u64>);
 
 /// The header button that links and unlinks a frame.
 #[derive(Component, Clone)]
@@ -115,8 +126,21 @@ struct Member {
     entity: Entity,
     index: usize,
     source: Entity,
-    view: (Vec2, f32),
-    last: Option<(Vec2, f32)>,
+    view: Seen,
+    last: Option<Seen>,
+    axes: SourceAxes,
+}
+
+impl Member {
+    /// Where this frame is along each axis it names.
+    fn point(&self) -> Vec<(char, f32)> {
+        let (center, _, slice) = self.view;
+        let mut point = vec![(self.axes.across, center.x), (self.axes.down, -center.y)];
+        if let (Some(through), Some(slice)) = (self.axes.through, slice) {
+            point.push((through.axis, through.at(slice)));
+        }
+        point
+    }
 }
 
 /// Which member the rest follow this frame, if any: one that moved, the
@@ -145,7 +169,31 @@ fn leader(members: &[Member], selected: Option<Entity>) -> Option<usize> {
     first(&|member| member.last.is_some()).or_else(|| first(&|_| true))
 }
 
-/// Move every linked frame to the view of whichever one leads.
+/// Where `member` should look to share `point`, at `scale` of the leader's
+/// units, `factor` of its own to one of the leader's: each axis it names that
+/// the point has, and its own view for the rest.
+fn follow(member: &Member, point: &[(char, f32)], scale: f32, factor: f32, count: u64) -> Seen {
+    let along = |axis: char| {
+        point
+            .iter()
+            .find(|(named, _)| *named == axis)
+            .map(|(_, at)| at * factor)
+    };
+    let (center, _, slice) = member.view;
+    let center = Vec2::new(
+        along(member.axes.across).unwrap_or(center.x),
+        along(member.axes.down).map_or(center.y, |at| -at),
+    );
+    let slice = match (member.axes.through, slice) {
+        (Some(through), Some(slice)) => {
+            Some(along(through.axis).map_or(slice, |at| through.slice_at(at, count)))
+        }
+        _ => slice,
+    };
+    (center, scale * factor, slice)
+}
+
+/// Move every linked frame to the place and zoom of whichever one leads.
 pub fn follow_links(
     selected: Res<SelectedPanel>,
     mut frames: Query<
@@ -160,7 +208,8 @@ pub fn follow_links(
         ),
         Without<Orbit>,
     >,
-    sources: Query<&DataSource>,
+    sources: Query<(&DataSource, Option<&SourceAxes>)>,
+    mut stacks: Query<&mut SliceStack>,
     tables: Query<(), With<SourceTable>>,
 ) {
     let members: Vec<Member> = frames
@@ -170,20 +219,28 @@ pub fn follow_links(
             let Projection::Orthographic(ortho) = projection else {
                 return None;
             };
+            let axes = sources
+                .get(shows.0)
+                .ok()
+                .and_then(|(_, axes)| axes.copied())
+                .unwrap_or_default();
+            let slice = stacks.get(shows.0).ok().map(|stack| stack.current);
             Some(Member {
                 entity,
                 index: panel.index,
                 source: shows.0,
-                view: (transform.translation.truncate(), ortho.scale),
+                view: (transform.translation.truncate(), ortho.scale, slice),
                 last: linked.last,
+                axes,
             })
         })
         .collect();
     let Some(lead) = leader(&members, selected.0) else {
         return;
     };
-    let (center, scale) = members[lead].view;
-    let Ok(from) = sources.get(members[lead].source) else {
+    let point = members[lead].point();
+    let scale = members[lead].view.1;
+    let Ok((from, _)) = sources.get(members[lead].source) else {
         return;
     };
 
@@ -196,26 +253,35 @@ pub fn follow_links(
         let factor = sources
             .get(member.source)
             .ok()
-            .and_then(|to| from.units_in(to));
-        let view = match factor {
+            .and_then(|(to, _)| from.units_in(to));
+        let seen = match factor {
             Some(factor) if member.entity != members[lead].entity => {
-                let view = (
-                    center * factor,
-                    (scale * factor).clamp(limits.min_scale, limits.max_scale),
-                );
-                if view != member.view {
-                    transform.translation = view.0.extend(transform.translation.z);
-                    if let Projection::Orthographic(ortho) = projection.as_mut() {
-                        ortho.scale = view.1;
-                    }
+                let count = stacks.get(member.source).map_or(1, |stack| stack.count);
+                let (center, scale, slice) = follow(member, &point, scale, factor, count);
+                let scale = scale.clamp(limits.min_scale, limits.max_scale);
+                if center != member.view.0 {
+                    transform.translation = center.extend(transform.translation.z);
                 }
-                view
+                if scale != member.view.1
+                    && let Projection::Orthographic(ortho) = projection.as_mut()
+                {
+                    ortho.scale = scale;
+                }
+                // Read before writing: a stack taken mutably is a stack
+                // changed, and a changed stack reads its tiles again.
+                if let Some(slice) = slice
+                    && slice != member.view.2.unwrap_or(slice)
+                    && let Ok(mut stack) = stacks.get_mut(member.source)
+                {
+                    stack.go_to(slice);
+                }
+                (center, scale, slice)
             }
             // The leader, and anything in a space of its own, stay put.
             _ => member.view,
         };
-        if linked.last != Some(view) {
-            linked.last = Some(view);
+        if linked.last != Some(seen) {
+            linked.last = Some(seen);
         }
     }
 }
@@ -229,9 +295,55 @@ mod tests {
             entity: Entity::from_raw_u32(index as u32 + 1).unwrap(),
             index,
             source: Entity::PLACEHOLDER,
-            view: (Vec2::splat(view), 1.0),
-            last: last.map(|last| (Vec2::splat(last), 1.0)),
+            view: (Vec2::splat(view), 1.0, None),
+            last: last.map(|last| (Vec2::splat(last), 1.0, None)),
+            axes: SourceAxes::default(),
         }
+    }
+
+    fn cut(across: char, down: char, through: char, center: Vec2, slice: u64) -> Member {
+        Member {
+            entity: Entity::PLACEHOLDER,
+            index: 0,
+            source: Entity::PLACEHOLDER,
+            view: (center, 2.0, Some(slice)),
+            last: None,
+            axes: SourceAxes {
+                across,
+                down,
+                through: Some(crate::source::stack::Through {
+                    axis: through,
+                    origin: 0.0,
+                    step: 2.0,
+                }),
+            },
+        }
+    }
+
+    #[test]
+    fn frames_cut_two_ways_meet_where_they_cross() {
+        // Looking down z at x 100, y 300, on slice 40 (z 80).
+        let flat = cut('x', 'y', 'z', Vec2::new(100.0, -300.0), 40);
+        // Looking along x, z across and y down.
+        let side = cut('z', 'y', 'x', Vec2::new(7.0, -9.0), 3);
+        let (center, scale, slice) = follow(&side, &flat.point(), 2.0, 1.0, 1000);
+        assert_eq!(
+            center,
+            Vec2::new(80.0, -300.0),
+            "centered on z 80 and y 300"
+        );
+        assert_eq!(slice, Some(50), "on the slice at x 100");
+        assert_eq!(scale, 2.0);
+    }
+
+    #[test]
+    fn a_flat_source_follows_only_the_axes_it_has() {
+        let flat = cut('x', 'y', 'z', Vec2::new(100.0, -300.0), 40);
+        let cloud = member(1, 5.0, Some(5.0));
+        // A cloud in millimeters following a stack in microns.
+        let (center, _, slice) = follow(&cloud, &flat.point(), 2.0, 1e-3, 1);
+        assert_eq!(center, Vec2::new(0.1, -0.3));
+        assert_eq!(slice, None);
     }
 
     #[test]

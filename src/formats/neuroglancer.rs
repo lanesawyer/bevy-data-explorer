@@ -19,10 +19,12 @@
 //! link naming one, or as a link carrying the whole state after the `#!`.
 
 use bevy::color::Srgba;
+use bevy::math::{Quat, Vec2, Vec3};
+use serde::Deserialize;
 use serde_json::Value;
 
 use crate::formats::discover::Discovered;
-use crate::formats::image::dataset::{Channel, Dataset};
+use crate::formats::image::dataset::{Channel, Dataset, Home, Plane};
 
 /// Several datasets a state asked to be shown together.
 #[derive(Debug, Clone)]
@@ -87,6 +89,159 @@ fn percent_decode(text: &str) -> String {
 pub fn is_state(value: &Value) -> bool {
     value.get("layers").is_some_and(Value::is_array)
         && value.get("dimensions").is_some_and(Value::is_object)
+}
+
+/// A state's dimensions in the order it lists them, which is what decides
+/// the plane its views are cut in: a JSON object read into a map would sort
+/// them, and `z, y, x` would read as `x, y, z`.
+#[derive(Debug, Default, PartialEq)]
+struct Dimensions(Vec<(String, f64, String)>);
+
+impl<'de> Deserialize<'de> for Dimensions {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Ordered;
+        impl<'de> serde::de::Visitor<'de> for Ordered {
+            type Value = Dimensions;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a map of dimension names to [scale, unit]")
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> Result<Dimensions, M::Error> {
+                let mut dimensions = Vec::new();
+                while let Some((name, value)) = map.next_entry::<String, Value>()? {
+                    let scale = value.get(0).and_then(Value::as_f64).unwrap_or(1.0);
+                    let unit = value.get(1).and_then(Value::as_str).unwrap_or_default();
+                    dimensions.push((name, scale, unit.to_string()));
+                }
+                Ok(Dimensions(dimensions))
+            }
+        }
+        deserializer.deserialize_map(Ordered)
+    }
+}
+
+/// What a state says about where its views look.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct Looking {
+    #[serde(default)]
+    dimensions: Dimensions,
+    #[serde(default)]
+    position: Vec<f64>,
+    cross_section_orientation: Option<[f32; 4]>,
+    cross_section_scale: Option<f64>,
+    layout: Option<Value>,
+}
+
+impl Looking {
+    /// The spatial dimensions a view is cut through: the first three
+    /// measured in meters, as Neuroglancer displays them.
+    fn displayed(&self) -> Vec<usize> {
+        self.dimensions
+            .0
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, _, unit))| unit == "m")
+            .map(|(at, _)| at)
+            .take(3)
+            .collect()
+    }
+
+    /// The plane a state's main view is cut in, as dimensions across, down
+    /// and through: its layout picks two of the three displayed, and its
+    /// orientation may turn the view onto another pair.
+    fn plane(&self) -> Option<[usize; 3]> {
+        let shown = self.displayed();
+        let [d0, d1, d2] = shown[..] else {
+            return None;
+        };
+        let layout = self.layout.as_ref().and_then(Value::as_str).unwrap_or("xy");
+        let turned = |base: [usize; 3]| {
+            let Some([x, y, z, w]) = self.cross_section_orientation else {
+                return base;
+            };
+            let turn = Quat::from_xyzw(x, y, z, w).normalize();
+            let strongest = |axis: Vec3| {
+                let v = (turn * axis).abs();
+                if v.x >= v.y && v.x >= v.z {
+                    0
+                } else if v.y >= v.z {
+                    1
+                } else {
+                    2
+                }
+            };
+            let (across, down) = (strongest(Vec3::X), strongest(Vec3::Y));
+            if across == down {
+                return base;
+            }
+            [base[across], base[down], base[3 - across - down]]
+        };
+        Some(match layout {
+            "xz" => [d0, d2, d1],
+            "yz" => [d2, d1, d0],
+            _ => turned([d0, d1, d2]),
+        })
+    }
+
+    /// Meters along dimension `at` at the state's position.
+    fn meters(&self, at: usize) -> Option<f64> {
+        Some(self.position.get(at)? * self.dimensions.0.get(at)?.1)
+    }
+
+    /// Where a store opened in `plane` should first look, in its own
+    /// coordinates.
+    fn home(&self, dataset: &Dataset, [across, down, through]: [usize; 3]) -> Option<Home> {
+        let unit = crate::source::meters_per(&dataset.unit)?;
+        let center = Vec2::new(
+            (self.meters(across)? / unit) as f32,
+            -(self.meters(down)? / unit) as f32,
+        );
+        let finest = dataset.levels.first()?;
+        let slice = self.meters(through).and_then(|meters| {
+            (finest.scale_z > 0.0).then(|| {
+                let at = (meters / unit - finest.origin_z) / finest.scale_z;
+                (at.max(0.0) as u64).min(dataset.depth().saturating_sub(1))
+            })
+        });
+        // In units of the finest displayed dimension per screen pixel.
+        let units_per_px = self.cross_section_scale.and_then(|scale| {
+            let voxel = self
+                .displayed()
+                .iter()
+                .map(|at| self.dimensions.0[*at].1)
+                .fold(f64::INFINITY, f64::min);
+            voxel.is_finite().then(|| (scale * voxel / unit) as f32)
+        });
+        Some(Home {
+            center,
+            units_per_px,
+            slice,
+        })
+    }
+
+    /// The plane as a store's axes, when its dimensions are named for them.
+    fn plane_of(&self, [across, down, _]: [usize; 3]) -> Option<Plane> {
+        let name = |at: usize| self.dimensions.0.get(at).map(|(name, ..)| name.clone());
+        Plane::parse(&format!("{}{}", name(across)?, name(down)?))
+    }
+
+    /// The dimensions a store's plane names, across, down and through.
+    fn dimensions_of(&self, plane: Plane) -> Option<[usize; 3]> {
+        let shown = self.displayed();
+        let find = |letter: char| {
+            shown.iter().copied().find(|at| {
+                self.dimensions.0[*at]
+                    .0
+                    .eq_ignore_ascii_case(&letter.to_string())
+            })
+        };
+        let (across, down) = (find(plane.across)?, find(plane.down)?);
+        let through = shown.into_iter().find(|at| *at != across && *at != down)?;
+        Some([across, down, through])
+    }
 }
 
 /// How a state shows one channel of a store. Anything it does not say is
@@ -283,11 +438,12 @@ fn gain_for((start, end): (f32, f32), high: f32) -> f32 {
     }
 }
 
-/// Read a state and open every store it names.
+/// Read a state and open every store it names, cut in the plane its view is
+/// — or in `plane`, when the address asks for another.
 ///
 /// Every store is opened together; one that cannot be fails the state, since
 /// a frame for it would only fail again.
-pub async fn read(source: &str, text: &str) -> Result<Discovered, String> {
+pub async fn read(source: &str, text: &str, plane: Option<Plane>) -> Result<Discovered, String> {
     let state: Value =
         serde_json::from_str(text).map_err(|e| format!("parsing {source} as a state: {e}"))?;
     if !is_state(&state) {
@@ -304,11 +460,21 @@ pub async fn read(source: &str, text: &str) -> Result<Discovered, String> {
         bevy::log::warn!("{source}: {skipped} layer(s) are not Zarr images and are left out");
     }
 
-    let opened = futures::future::join_all(
-        layers
-            .iter()
-            .map(|layer| crate::formats::image::store::open(&layer.url)),
-    )
+    let looking: Looking = serde_json::from_str(text).unwrap_or_default();
+    let cut = match plane {
+        Some(plane) => looking.dimensions_of(plane).map(|dims| (plane, dims)),
+        None => looking
+            .plane()
+            .and_then(|dims| Some((looking.plane_of(dims)?, dims))),
+    };
+    let address = |url: &str| match cut {
+        Some((plane, _)) => format!("{url}#plane={}", plane.name()),
+        None => url.to_string(),
+    };
+    let opened = futures::future::join_all(layers.iter().map(|layer| {
+        let address = address(&layer.url);
+        async move { crate::formats::image::store::open(&address).await }
+    }))
     .await
     .into_iter()
     .collect::<Result<Vec<_>, String>>()?;
@@ -333,7 +499,11 @@ pub async fn read(source: &str, text: &str) -> Result<Discovered, String> {
         .ok_or_else(|| format!("{source} lists no layers"))?;
     match Dataset::overlay(first, stores.collect()) {
         Ok(mut dataset) => {
-            dataset.name = name;
+            dataset.name = match (plane, cut) {
+                (Some(plane), _) => format!("{name} ({})", plane.name()),
+                _ => name,
+            };
+            dataset.home = cut.and_then(|(_, dims)| looking.home(&dataset, dims));
             Ok(Discovered::Image(Box::new(dataset)))
         }
         Err(why) => {
@@ -421,6 +591,46 @@ mod tests {
         assert_eq!(looks[2].color, Some([0.0, 0.0, 1.0]));
         assert_eq!(looks[2].range, Some((0.0, 4095.0)));
         assert_eq!(looks[2].shown, Some(true));
+    }
+
+    fn looking(state: &Value) -> Looking {
+        serde_json::from_value(state.clone()).unwrap()
+    }
+
+    #[test]
+    fn a_state_keeps_its_dimensions_in_the_order_it_lists_them() {
+        let names: Vec<String> = looking(&raw())
+            .dimensions
+            .0
+            .into_iter()
+            .map(|(name, ..)| name)
+            .collect();
+        assert_eq!(names, ["z", "y", "x", "t"]);
+    }
+
+    #[test]
+    fn a_state_is_cut_as_neuroglancer_cuts_its_main_view() {
+        // Listed z, y, x: Neuroglancer's first view is z across and y down.
+        let raw = looking(&raw());
+        let dims = raw.plane().unwrap();
+        assert_eq!(dims, [0, 1, 2]);
+        assert_eq!(raw.plane_of(dims).map(Plane::name).as_deref(), Some("zy"));
+
+        // The projection turns its view a quarter, onto y across and z down.
+        let mip = looking(&mip());
+        let dims = mip.plane().unwrap();
+        assert_eq!(dims, [1, 0, 2]);
+        assert_eq!(mip.plane_of(dims).map(Plane::name).as_deref(), Some("yz"));
+    }
+
+    #[test]
+    fn a_plane_asked_for_is_found_among_the_dimensions() {
+        let raw = looking(&raw());
+        assert_eq!(
+            raw.dimensions_of(Plane::parse("xy").unwrap()),
+            Some([2, 1, 0])
+        );
+        assert_eq!(raw.dimensions_of(Plane::parse("xt").unwrap()), None);
     }
 
     #[test]
@@ -512,6 +722,37 @@ mod tests {
             lit(0) && lit(1) && lit(2),
             "every store's channel has tissue"
         );
+    }
+
+    #[test]
+    #[ignore = "reads a live projection from the BKP Registry's light-sheet stacks"]
+    fn a_projection_opens_in_its_plane_where_its_state_looks() {
+        const STATE: &str = "s3://allen-genetic-tools/lightsheet/SmartSPIM_742681_2024-08-01_16-54-12_stitched_2024-09-21_02-51-37/sagittal_mip_link.json";
+        let found = crate::app::net::block_on(crate::formats::discover::discover(STATE)).unwrap();
+        let Discovered::Image(dataset) = found else {
+            panic!("one store is one image");
+        };
+        assert_eq!(dataset.depth(), 100, "paged through its 100 slabs");
+        let finest = &dataset.levels[0];
+        assert_eq!(
+            (finest.width, finest.height),
+            (8802, 3820),
+            "y across, z down"
+        );
+        assert_eq!(dataset.channels[1].end, 721.0);
+        let home = dataset.home.expect("the state says where it looks");
+        assert_eq!(home.slice, Some(50));
+        assert!(
+            (home.center.x - 4401.0 * 1.8).abs() < 1.0,
+            "{:?}",
+            home.center
+        );
+        assert!(
+            (home.center.y + 1910.0 * 1.8).abs() < 1.0,
+            "{:?}",
+            home.center
+        );
+        assert!((home.units_per_px.unwrap() - 12.6).abs() < 0.01);
     }
 
     #[test]

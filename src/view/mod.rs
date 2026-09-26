@@ -27,6 +27,7 @@ pub mod link;
 pub mod loading;
 pub mod orbit;
 pub mod overlay;
+pub mod plane;
 pub mod requests;
 pub mod scale_bar;
 pub mod select;
@@ -273,6 +274,7 @@ impl Plugin for ViewPlugin {
         .add_observer(orbit::on_view_toggled)
         .add_observer(select::on_select_toggled)
         .add_observer(link::on_link_toggled)
+        .add_observer(plane::on_plane_chosen)
         .add_systems(Update, track_text_focus.in_set(Stage::Focus))
         .add_systems(Update, reset_frame_area.in_set(Stage::FrameArea))
         .add_systems(
@@ -315,6 +317,7 @@ impl Plugin for ViewPlugin {
                 orbit::sync_view_buttons,
                 select::sync_select_buttons,
                 link::sync_link_buttons,
+                plane::sync_plane_menus,
                 select::place_region_outlines,
             )
                 .in_set(Stage::Chrome),
@@ -354,6 +357,7 @@ fn open_frames(
     windows: Query<&Window>,
     palette: Res<crate::app::theme::Palette>,
     sources: Query<(Entity, &DataSource, &SourceExtent, Has<OpensAsLayer>)>,
+    homes: Query<&crate::source::HomeView>,
 ) {
     let window = windows.iter().next().map_or(Vec2::new(1280.0, 720.0), |w| {
         Vec2::new(w.width(), w.height())
@@ -381,7 +385,7 @@ fn open_frames(
             entity,
             source.layer,
             index,
-            extent.limits(viewport),
+            extent.limits_from(homes.get(entity).ok(), viewport),
             None,
             palette.frame_bg,
         );

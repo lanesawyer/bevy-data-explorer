@@ -21,6 +21,7 @@ const SIZE: f32 = 15.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Icon {
+    Axis3d,
     BookmarkPlus,
     BoxSelect,
     Bug,
@@ -62,7 +63,8 @@ pub enum Icon {
 
 impl Icon {
     #[cfg(test)]
-    const ALL: [Icon; 37] = [
+    const ALL: [Icon; 38] = [
+        Icon::Axis3d,
         Icon::BookmarkPlus,
         Icon::BoxSelect,
         Icon::Bug,
@@ -106,6 +108,7 @@ impl Icon {
     /// compared against and written into a `Text` directly.
     pub fn glyph(self) -> &'static str {
         match self {
+            Icon::Axis3d => "\u{e2fe}",
             Icon::BookmarkPlus => "\u{e23d}",
             Icon::BoxSelect => "\u{e1cb}",
             Icon::Bug => "\u{e20c}",

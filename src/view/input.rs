@@ -80,8 +80,9 @@ pub fn reset_selected_view(
 ///
 /// Acts on the selected frame rather than on every source that has a stack: two
 /// specimens open side by side are paged one at a time, and the outline says
-/// which one the keys are talking to — unless the selected frame is linked,
-/// when every linked frame's stack is paged by the same step.
+/// which one the keys are talking to. A linked frame's page moves the others
+/// through the link; a linked stack with no depth to place it is paged by the
+/// same step.
 ///
 /// Volumetric images and sectioned datasets both carry a stack, so arrows,
 /// brackets and page keys page either: paging a volume and stepping a
@@ -93,6 +94,7 @@ pub fn page_slice_stack(
     selected: SelectedSource,
     selected_panel: Res<SelectedPanel>,
     linked: Query<&ShowsSource, With<super::link::Linked>>,
+    axes: Query<&crate::source::stack::SourceAxes>,
     mut stacks: Query<&mut crate::source::stack::SliceStack>,
 ) {
     if typing.0 {
@@ -118,10 +120,14 @@ pub fn page_slice_stack(
     let Some(source) = selected.entity() else {
         return;
     };
+    // A linked stack with a place along its depth follows through the link,
+    // which moves every frame to the point this one pages to. One with no
+    // place — sections with no z — can only be paged step for step.
     let mut paged = vec![source];
     if selected_panel.0.is_some_and(|panel| linked.contains(panel)) {
         for shows in &linked {
-            if !paged.contains(&shows.0) {
+            let placed = axes.get(shows.0).is_ok_and(|axes| axes.through.is_some());
+            if !placed && !paged.contains(&shows.0) {
                 paged.push(shows.0);
             }
         }

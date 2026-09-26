@@ -37,7 +37,11 @@ as you zoom. Five formats are supported so far:
   are, and its address is the state's. Stores that do not line up open a
   frame each, linked, replacing what is on screen as a bookmark does. The
   BKP Registry lists the states written beside its light-sheet stacks; the
-  reference one is a SmartSPIM brain in three channels, three stores.
+  reference one is a SmartSPIM brain in three channels, three stores. A
+  state is also opened where it looks: cut in the plane of its main view
+  (its dimension order, layout and orientation), centered on its position
+  at its zoom, on the slice there. So the sagittal projections open as the
+  z-by-y plane they are.
 - **Brain Knowledge Platform specimens**: one project's specimen records,
   asked of the platform's GraphQL API and shown as the same table. Every
   project whose specimens can be tabulated is offered in the dataset
@@ -374,6 +378,7 @@ whatever the original happened to load.
 | `x` button | close that panel |
 | info button | open the inspector on that frame |
 | chain button | link that frame: every linked frame pans, zooms and pages slices with the others |
+| axes button | cut that frame's stack another way: looking along z, x or y, or as the dataset opens |
 | cube / square button | look at a stack in depth, or go back to the flat view; offered only where the data has depth |
 | drag, in 3D | turn the volume; right-, middle- or shift-drag slides it, scroll zooms toward the pointer, `R` turns it back |
 | dataset name | show a different dataset in that frame |
@@ -401,11 +406,21 @@ whose name, kind or address contain every word typed, Enter takes the first
 match, the arrow keys move through the rest, and Escape closes it. The
 frame's layers stay where they are, over the new dataset.
 
+A stack can be cut three ways. The axes button in a frame's header opens it
+looking along z (x across, y down), along x (z across, y down) or along y
+(x across, z down). Each is the same address with the plane named after it,
+`…zarr#plane=zy`, so a cut is a dataset of its own: typed, saved in a
+bookmark and linked like any other. Reading a plane other than the store's
+own costs more, since a tile then spans whole chunks along the axis it
+used to page through.
+
 Linking frames compares the same place across datasets. Press the chain in
 each frame's header and every linked frame follows whichever one moves — a
 drag, the wheel or `R` — to the same point at the same zoom, and paging a
 linked frame's slices pages the others' by the same step. A frame that joins
-takes the group's view rather than pulling the group to its own. Datasets
+takes the group's view rather than pulling the group to its own. Frames cut
+different ways through one volume share a point in space, as Neuroglancer's
+panels do: paging one moves the line the others are centered on. Datasets
 measured in different lengths are converted, so a stack in microns lines up
 with a cloud in millimeters; one in its own pixels shares no space with those
 and stays where it is, as do frames in 3D and tables. Links are saved in

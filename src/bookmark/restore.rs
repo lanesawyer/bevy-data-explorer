@@ -129,6 +129,7 @@ pub fn drive_restore(
     opened: Query<(Entity, &SourceUrl)>,
     panels: Query<Entity, With<Panel>>,
     sources: Query<(&DataSource, &SourceExtent, Option<&SourceVolume>)>,
+    homes: Query<&crate::source::HomeView>,
     area: Res<FrameArea>,
     palette: Res<Palette>,
     mut selected: ResMut<SelectedPanel>,
@@ -276,7 +277,7 @@ pub fn drive_restore(
             break;
         };
         let cell = area.cell(count, position).size();
-        let limits = extent.limits(cell);
+        let limits = extent.limits_from(homes.get(base).ok(), cell);
         // A frame saved with no view, as one opened from another viewer's
         // state is, is fitted to its data as a frame opened by hand is.
         let flat = frame.view.map(|view| View {

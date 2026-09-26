@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 use zarrs_object_store::AsyncObjectStore;
 
-use crate::formats::image::dataset::{Dataset, ReadStore};
+use crate::formats::image::dataset::{Dataset, Plane, ReadStore};
 
 /// A multiscale image normalized across OME-Zarr versions. The 0.4 and 0.5
 /// types are separate wrappers around identical axis and dataset types.
@@ -30,8 +30,32 @@ struct Manifest {
     attrs: Option<serde_json::Value>,
 }
 
-/// Open whatever `source` points at.
+/// Open whatever `source` points at, in the plane its address names.
+///
+/// A plane is named after the store's address, as `#plane=zy`, which is what
+/// makes a store cut another way a source of its own: it is opened, framed,
+/// saved and recognized by that address like any other.
 pub async fn open(source: &str) -> Result<Dataset, String> {
+    let (source, plane) = split_plane(source);
+    let mut dataset = open_in(source, plane).await?;
+    if let Some(plane) = plane {
+        dataset.name = format!("{} ({})", dataset.name, plane.name());
+    }
+    Ok(dataset)
+}
+
+/// An address and the plane named after it, if one is.
+pub fn split_plane(source: &str) -> (&str, Option<Plane>) {
+    match source.rsplit_once("#plane=") {
+        Some((store, plane)) => match Plane::parse(plane) {
+            Some(plane) => (store, Some(plane)),
+            None => (source, None),
+        },
+        None => (source, None),
+    }
+}
+
+async fn open_in(source: &str, plane: Option<Plane>) -> Result<Dataset, String> {
     // Addresses arrive as they were copied. The command line reaches here
     // without going through `discover`, so this is where every path that opens
     // a store meets the same translation.
@@ -68,7 +92,7 @@ pub async fn open(source: &str) -> Result<Dataset, String> {
         .first()
         .ok_or("the OME metadata lists no multiscale images")?;
 
-    let mut dataset = Dataset::open(store, multiscale, omero.as_ref()).await?;
+    let mut dataset = Dataset::open(store, multiscale, omero.as_ref(), plane).await?;
     if !names_something(multiscale.name.as_deref()) {
         dataset.name = crate::formats::discover::label_for(&store_url);
     }

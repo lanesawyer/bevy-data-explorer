@@ -23,6 +23,12 @@ for it. Whoever asked — the command line, the URL field —
 hands it to `bookmark::scene`, which makes it a bookmark and restores it;
 `formats` never names a bookmark, which is above it.
 
+An image can be read cut another way, named after its address as
+`#plane=zy` (across, then down). `image::store::open` takes it apart, and the
+reader remaps its axes as it opens, so nothing past the reader knows what a
+plane is; `SourceAxes` on the source is what lets linked frames cut
+different ways meet at the same point.
+
 What the dataset dropdown offers comes from *catalogs* (`src/catalog/`), each
 an implementation of `Catalog` registered in `main` with `add_catalog`. A
 catalog only lists names and URLs, listed asynchronously; opening an entry goes
