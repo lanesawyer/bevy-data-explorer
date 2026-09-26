@@ -15,6 +15,12 @@ field and the examples alike. Adding a format touches `formats` and nothing in
 `view`, `ui` or `main`; frames are opened by querying the world for sources.
 See `.agents/skills/add-source-plugin`.
 
+One thing `discover` recognizes is not a dataset: a Neuroglancer state is
+several, so it comes back as `Discovered::Scene` and `spawn_discovered`
+registers nothing for it. Whoever asked — the command line, the URL field —
+hands it to `bookmark::scene`, which makes it a bookmark and restores it;
+`formats` never names a bookmark, which is above it.
+
 What the dataset dropdown offers comes from *catalogs* (`src/catalog/`), each
 an implementation of `Catalog` registered in `main` with `add_catalog`. A
 catalog only lists names and URLs, listed asynchronously; opening an entry goes

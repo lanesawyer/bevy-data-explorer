@@ -1,0 +1,88 @@
+{
+  "ng_link": "https://neuroglancer-demo.appspot.com/#!s3://aind-open-data/SmartSPIM_719692_2024-03-13_16-03-36_stitched_2024-04-02_12-50-17/neuroglancer_config.json",
+  "dimensions": {
+    "z": [
+      2e-06,
+      "m"
+    ],
+    "y": [
+      1.8e-06,
+      "m"
+    ],
+    "x": [
+      1.8e-06,
+      "m"
+    ],
+    "t": [
+      0.001,
+      "s"
+    ]
+  },
+  "layers": [
+    {
+      "source": "zarr://s3://aind-open-data/SmartSPIM_719692_2024-03-13_16-03-36_stitched_2024-04-02_12-50-17/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr",
+      "type": "image",
+      "localDimensions": {
+        "c'": [
+          1,
+          ""
+        ]
+      },
+      "name": "Ex_639_Em_680.zarr",
+      "shader": "#uicontrol vec3 color color(default=\"#f00050\")\n#uicontrol invlerp normalized\nvoid main() {\nemitRGB(color * normalized());\n}",
+      "shaderControls": {
+        "normalized": {
+          "range": [
+            0,
+            200
+          ]
+        }
+      },
+      "visible": true
+    },
+    {
+      "source": "zarr://s3://aind-open-data/SmartSPIM_719692_2024-03-13_16-03-36_stitched_2024-04-02_12-50-17/image_tile_fusing/OMEZarr/Ex_561_Em_600.zarr",
+      "type": "image",
+      "localDimensions": {
+        "c'": [
+          1,
+          ""
+        ]
+      },
+      "name": "Ex_561_Em_600.zarr",
+      "shader": "#uicontrol vec3 color color(default=\"#f0121e\")\n#uicontrol invlerp normalized\nvoid main() {\nemitRGB(color * normalized());\n}",
+      "shaderControls": {
+        "normalized": {
+          "range": [
+            0,
+            200
+          ]
+        }
+      },
+      "visible": true
+    },
+    {
+      "source": "zarr://s3://aind-open-data/SmartSPIM_719692_2024-03-13_16-03-36_stitched_2024-04-02_12-50-17/image_tile_fusing/OMEZarr/Ex_488_Em_525.zarr",
+      "type": "image",
+      "localDimensions": {
+        "c'": [
+          1,
+          ""
+        ]
+      },
+      "name": "Ex_488_Em_525.zarr",
+      "shader": "#uicontrol vec3 color color(default=\"#58fea1\")\n#uicontrol invlerp normalized\nvoid main() {\nemitRGB(color * normalized());\n}",
+      "shaderControls": {
+        "normalized": {
+          "range": [
+            0,
+            200
+          ]
+        }
+      },
+      "visible": true
+    }
+  ],
+  "showAxisLines": true,
+  "showScaleBar": true
+}

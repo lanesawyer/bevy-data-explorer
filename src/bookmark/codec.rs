@@ -96,10 +96,10 @@ mod tests {
             }],
             frames: vec![FrameState {
                 source: 0,
-                view: ViewState {
+                view: Some(ViewState {
                     center: [1.0, 2.0],
                     extent: [300.0, 200.0],
-                },
+                }),
                 orbit: None,
                 layers: Vec::new(),
                 linked: true,

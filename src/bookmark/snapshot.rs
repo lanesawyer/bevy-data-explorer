@@ -186,7 +186,10 @@ pub struct TreeTick {
 pub struct FrameState {
     /// Index into [`Bookmark::sources`] of the dataset the frame opened onto.
     pub source: usize,
-    pub view: ViewState,
+    /// Where it was looking. Absent for a frame to be fitted to its data,
+    /// which is how a scene from another viewer opens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<ViewState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub orbit: Option<OrbitState>,
     /// Drawn over it, bottom first.

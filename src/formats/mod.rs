@@ -10,6 +10,7 @@ pub mod csv;
 pub mod discover;
 pub mod dzi;
 pub mod image;
+pub mod neuroglancer;
 pub mod parquet;
 pub mod pointcloud;
 pub mod scatterbrain;
@@ -106,8 +107,8 @@ pub fn spawn_discovered(
     world: &mut World,
     discovered: Discovered,
     settings: LoadSettings,
-) -> Entity {
-    match discovered {
+) -> Option<Entity> {
+    Some(match discovered {
         Discovered::Image(dataset) => image::spawn_source(
             world,
             std::sync::Arc::new(*dataset),
@@ -129,7 +130,10 @@ pub fn spawn_discovered(
         Discovered::Annotations(svg) => svg::spawn_source(world, std::sync::Arc::new(svg)),
         Discovered::Table(table) => table::spawn_source(world, *table),
         Discovered::Specimens(specimens) => specimens::spawn_source(world, *specimens),
-    }
+        // Several datasets rather than one, which whoever asked opens as a
+        // bookmark; there is no one source to register.
+        Discovered::Scene(_) => return None,
+    })
 }
 
 #[cfg(test)]

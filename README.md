@@ -28,6 +28,14 @@ as you zoom. Five formats are supported so far:
   different words is a column of names or identifiers, and is not offered.
 - **Parquet tables**: shown the same way. The reference one is the Allen adult
   mouse terminology: 1,332 brain structures across 10 columns.
+- **Neuroglancer states**: the JSON a Neuroglancer link saves, or the link
+  itself (`…/#!s3://…/state.json`, or a state carried whole after the `#!`).
+  Not a format so much as a scene: each image layer read from a Zarr store
+  opens in a frame of its own, at the brightness the state showed it, with
+  the frames linked. It replaces what is on screen, as a bookmark does. The
+  BKP Registry lists the ones written beside its light-sheet stacks; the
+  reference one shows a SmartSPIM brain in three channels. Layers drawn over
+  one another, and the sagittal projections' z-by-y plane, are still to come.
 - **Brain Knowledge Platform specimens**: one project's specimen records,
   asked of the platform's GraphQL API and shown as the same table. Every
   project whose specimens can be tabulated is offered in the dataset

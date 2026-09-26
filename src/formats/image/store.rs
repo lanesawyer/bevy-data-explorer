@@ -75,6 +75,41 @@ pub async fn open(source: &str) -> Result<Dataset, String> {
     Ok(dataset)
 }
 
+/// Each channel's label and published display window, read from the root
+/// attributes alone: for something that has to name a store's channels, or
+/// measure against their windows, before the store is opened.
+///
+/// Labeled as [`Dataset::open`] labels them, so a setting written against
+/// these finds its channel once the store is open.
+pub async fn published_channels(source: &str) -> Result<Vec<(String, f32, f32)>, String> {
+    let store = open_store(&crate::formats::plain_url(source))?;
+    let attrs = read_root_attributes(&store)
+        .await?
+        .ok_or_else(|| format!("no OME-Zarr metadata found at {source}"))?;
+    let (_, omero) = parse_ome(&attrs)?;
+    Ok(omero
+        .map(|omero| {
+            omero
+                .channels
+                .iter()
+                .enumerate()
+                .map(|(i, channel)| {
+                    let label = channel
+                        .other
+                        .get("label")
+                        .and_then(|value| value.as_str())
+                        .map_or_else(|| format!("channel {i}"), str::to_string);
+                    (
+                        label,
+                        channel.window.start as f32,
+                        channel.window.end as f32,
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
 /// Whether a multiscale's own name is worth showing. Some writers put the
 /// group path there, which for an image at the root of its store is `/` — a
 /// name that tells nobody anything, where the store's own is its identifier.

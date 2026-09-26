@@ -151,7 +151,11 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
         }
         frames.push(FrameState {
             source,
-            view: ViewState::new(flat.center.to_array(), flat.scale, cell.to_array()),
+            view: Some(ViewState::new(
+                flat.center.to_array(),
+                flat.scale,
+                cell.to_array(),
+            )),
             orbit: orbit.map(|orbit| OrbitState {
                 target: orbit.target.to_array(),
                 yaw: orbit.yaw,

@@ -14,6 +14,7 @@
 pub mod capture;
 pub mod codec;
 pub mod restore;
+pub mod scene;
 pub mod snapshot;
 pub mod store;
 

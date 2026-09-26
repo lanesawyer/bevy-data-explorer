@@ -50,11 +50,28 @@ const PAGE_MAX: usize = 50;
 /// 30 s. `NGFF` sounds like OME-Zarr, and `TSV`, `Parquet` and `SVG` like
 /// things the viewer reads, and all four hold nothing. Nothing held is
 /// Scatterbrain, so the registry has no cells to offer.
-const KINDS: [(&str, &str, Category); 4] = [
-    ("zarr fileset", "OME-Zarr", Category::Image),
-    ("MIP zarr fileset", "OME-Zarr projection", Category::Image),
-    ("CSV", "CSV", Category::Table),
-    ("parquet", "Parquet", Category::Table),
+///
+/// A Neuroglancer state is a `JSON` asset like 65,000 others, and is told
+/// apart by its name, which is why a kind may require a word in it: the
+/// light-sheet stacks' states are all `…_neuroglancer_config`. Their `MIP
+/// JSON` siblings are left out until a frame can show a plane other than
+/// y by x, which is the plane they are not.
+const KINDS: [(&str, &str, Category, Option<&str>); 5] = [
+    ("zarr fileset", "OME-Zarr", Category::Image, None),
+    (
+        "MIP zarr fileset",
+        "OME-Zarr projection",
+        Category::Image,
+        None,
+    ),
+    (
+        "JSON",
+        "Neuroglancer",
+        Category::Image,
+        Some("neuroglancer"),
+    ),
+    ("CSV", "CSV", Category::Table, None),
+    ("parquet", "Parquet", Category::Table, None),
 ];
 
 /// The token in the preferences, copied here so a search running off the
@@ -190,7 +207,7 @@ fn categories(only: Option<Category>) -> Vec<Category> {
     Category::ALL
         .into_iter()
         .filter(|category| only.is_none_or(|only| only == *category))
-        .filter(|category| KINDS.iter().any(|(_, _, of)| of == category))
+        .filter(|category| KINDS.iter().any(|(_, _, of, _)| of == category))
         .collect()
 }
 
@@ -232,13 +249,28 @@ async fn search(
 }
 
 /// Assets of one category, and whose names hold `text` unless it is empty.
+///
+/// The kinds known by type alone are asked for in one `in`, and each kind
+/// that also wants a word in its name beside them.
 fn filter(category: Category, text: &str) -> serde_json::Value {
-    let types: Vec<&str> = KINDS
-        .iter()
-        .filter(|(_, _, of)| *of == category)
-        .map(|(name, _, _)| *name)
+    let kinds = KINDS.iter().filter(|(_, _, of, _)| *of == category);
+    let types: Vec<&str> = kinds
+        .clone()
+        .filter(|(_, _, _, named)| named.is_none())
+        .map(|(name, ..)| *name)
         .collect();
-    let of_type = serde_json::json!({ "type": { "name": { "in": types } } });
+    let mut any = vec![serde_json::json!({ "type": { "name": { "in": types } } })];
+    any.extend(kinds.filter_map(|(name, _, _, named)| {
+        Some(serde_json::json!({ "and": [
+            { "type": { "name": { "eq": name } } },
+            { "name": { "containsInsensitive": (*named)? } },
+        ] }))
+    }));
+    let of_type = if any.len() == 1 {
+        any.remove(0)
+    } else {
+        serde_json::json!({ "or": any })
+    };
     if text.is_empty() {
         of_type
     } else {
@@ -266,9 +298,10 @@ const ASSETS: &str = "
 /// (`//host/share/...`) or a mounted path is nothing to fetch. The others are
 /// kept as keywords, so it can be found by any of its buckets.
 fn entry(asset: Asset) -> Option<Entry> {
-    let &(_, kind, category) = KINDS
-        .iter()
-        .find(|(name, _, _)| asset.kind.as_deref() == Some(*name))?;
+    let &(_, kind, category, _) = KINDS.iter().find(|(name, _, _, named)| {
+        asset.kind.as_deref() == Some(*name)
+            && named.is_none_or(|word| asset.name.to_lowercase().contains(word))
+    })?;
     let mut urls: Vec<String> = asset
         .instances
         .into_iter()

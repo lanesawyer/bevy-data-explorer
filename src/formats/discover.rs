@@ -13,6 +13,7 @@
 
 use crate::formats::dzi::pyramid::DeepZoom;
 use crate::formats::image::dataset::Dataset;
+use crate::formats::neuroglancer::{self, Scene};
 use crate::formats::scatterbrain::Scatterbrain;
 use crate::formats::svg::parse::Svg;
 use crate::formats::table::Table;
@@ -35,6 +36,9 @@ pub enum Discovered {
     Table(Box<Table>),
     /// A project's specimens, shown as a table a page at a time.
     Specimens(Box<crate::formats::specimens::Specimens>),
+    /// Several datasets another viewer asked to be shown together. Not a
+    /// source: it is opened as a bookmark is, a frame for each.
+    Scene(Scene),
 }
 
 impl Discovered {
@@ -48,6 +52,7 @@ impl Discovered {
             Discovered::Annotations(svg) => &svg.name,
             Discovered::Table(table) => &table.name,
             Discovered::Specimens(specimens) => &specimens.table.name,
+            Discovered::Scene(scene) => &scene.name,
         }
     }
 }
@@ -69,6 +74,21 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
         return crate::formats::specimens::read(&endpoint, &project)
             .await
             .map(|specimens| Discovered::Specimens(Box::new(specimens)));
+    }
+
+    // A Neuroglancer link carries its state after `#!`: the address of one,
+    // or the whole of it.
+    if let Some(state) = neuroglancer::in_link(source) {
+        if state.trim_start().starts_with('{') {
+            return neuroglancer::read(source, &state)
+                .await
+                .map(Discovered::Scene);
+        }
+        let address = crate::formats::plain_url(&state);
+        let text = fetch_text(&address).await?;
+        return neuroglancer::read(&address, &text)
+            .await
+            .map(Discovered::Scene);
     }
 
     // A Deep Zoom image is named by its descriptor, and nothing else ends in
@@ -107,6 +127,11 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
     // metadata. Trying it first costs one fetch and settles the common case.
     if is_json(source) {
         let text = fetch_text(source).await?;
+        if serde_json::from_str(&text).is_ok_and(|value| neuroglancer::is_state(&value)) {
+            return neuroglancer::read(source, &text)
+                .await
+                .map(Discovered::Scene);
+        }
         let points = match Scatterbrain::parse(&text) {
             Ok(cloud) => return Ok(classify(source, cloud)),
             Err(e) => e,
@@ -200,7 +225,14 @@ fn has_extension(source: &str, extension: &str) -> bool {
 }
 
 /// Metadata file names that name the format rather than the dataset.
-const GENERIC_NAMES: [&str; 2] = ["scatterbrain.json", "metadata.json"];
+///
+/// `neuroglancer_config.json` is what every state written beside the BKP
+/// Registry's light-sheet stacks is called; the folder names the specimen.
+const GENERIC_NAMES: [&str; 3] = [
+    "scatterbrain.json",
+    "metadata.json",
+    "neuroglancer_config.json",
+];
 
 /// Name a point cloud after the place it came from.
 ///

@@ -182,10 +182,24 @@ pub fn drive_restore(
         };
         let state = restoring.bookmark.sources[index].clone();
         restoring.slots[index] = match outcome {
+            // A state from another viewer is a bookmark itself, and one
+            // bookmark is not opened from inside another.
+            Ok(Discovered::Scene(scene)) => {
+                warn!(
+                    "bookmark: {} is a scene of its own, not a dataset",
+                    state.url
+                );
+                Slot::Failed(format!(
+                    "{}: {} is several datasets, not one",
+                    state.url, scene.name
+                ))
+            }
             Ok(discovered) => {
                 commands.queue(move |world: &mut World| {
                     let settings = *world.resource::<LoadSettings>();
-                    let source = spawn_discovered(world, discovered, settings);
+                    let Some(source) = spawn_discovered(world, discovered, settings) else {
+                        return;
+                    };
                     world.entity_mut(source).insert((
                         SourceUrl(state.url.clone()),
                         PendingSettings {
@@ -263,20 +277,21 @@ pub fn drive_restore(
         };
         let cell = area.cell(count, position).size();
         let limits = extent.limits(cell);
-        let flat = View {
-            center: Vec2::from_array(frame.view.center),
-            scale: frame
-                .view
+        // A frame saved with no view, as one opened from another viewer's
+        // state is, is fitted to its data as a frame opened by hand is.
+        let flat = frame.view.map(|view| View {
+            center: Vec2::from_array(view.center),
+            scale: view
                 .scale_in(cell.to_array())
                 .clamp(limits.min_scale, limits.max_scale),
-        };
+        });
         let panel = spawn_panel(
             &mut commands,
             base,
             data.layer,
             position,
             limits,
-            Some(flat),
+            flat,
             palette.frame_bg,
         );
         // A rectangle implies the tool was on when it was saved: turning the
@@ -305,6 +320,10 @@ pub fn drive_restore(
         }
         match (frame.orbit, volume) {
             (Some(saved), Some(volume)) => {
+                let flat = flat.unwrap_or(View {
+                    center: limits.center,
+                    scale: limits.fit_scale,
+                });
                 let mut orbit = Orbit::fit(volume, flat);
                 orbit.target = Vec3::from_array(saved.target);
                 orbit.yaw = saved.yaw;

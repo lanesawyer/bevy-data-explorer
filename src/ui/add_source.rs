@@ -188,13 +188,23 @@ pub fn poll_custom_load(
     load.task = None;
 
     match outcome {
+        // Several datasets at once, which open as a bookmark does: in place of
+        // every frame, so the one that asked is replaced along with the rest.
+        Ok(Discovered::Scene(scene)) => {
+            load.status = LoadStatus::Loaded(scene.name.clone());
+            load.loading.clear();
+            load.target = DatasetTarget::default();
+            crate::bookmark::restore(&mut commands, crate::bookmark::scene::bookmark_of(&scene));
+        }
         Ok(discovered) => {
             load.status = LoadStatus::Loaded(discovered.name().to_string());
             let url = std::mem::take(&mut load.loading);
             let target = std::mem::take(&mut load.target);
             let settings = *settings;
             commands.queue(move |world: &mut World| {
-                let source = spawn_discovered(world, discovered, settings);
+                let Some(source) = spawn_discovered(world, discovered, settings) else {
+                    return;
+                };
                 // Recorded where the source entity first exists: what a URL
                 // opened as is the difference between offering it again and
                 // fetching it again.
