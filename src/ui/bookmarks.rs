@@ -20,7 +20,6 @@ use bevy_feathers::controls::{
 use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
-use crate::app::theme::Palette;
 use crate::bookmark::codec::{from_text, to_line};
 use crate::bookmark::store::{FileDialog, SavedBookmarks};
 use crate::bookmark::{BookmarkNotice, local_addresses, open_shared, restore, save_current};
@@ -29,9 +28,10 @@ use crate::ui::sidebar::{SectionOrder, SidebarContent};
 use crate::view::Panel;
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, caption, field_well,
-    patch_node, set_text, size, spawn_accordion, text, text_dim,
+    BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, caption, field_well, size,
+    spawn_accordion, text, text_dim,
 };
+use crate::widgets::{Notice, Tone, notice};
 
 /// After the sections that act on a frame: this acts on all of them.
 const SECTION_ORDER: u32 = 30;
@@ -163,10 +163,8 @@ pub fn spawn_bookmarks_section(
 
     let status = commands
         .spawn_scene(bsn! {
+            notice()
             BookmarkStatus
-            Text({ String::new() })
-            TextFont { font_size: { FontSize::Px(size::SMALL) } }
-            Node { display: { Display::None } }
         })
         .id();
 
@@ -659,28 +657,19 @@ pub fn on_bookmark_button(
 /// Show how the last thing done went, colored by whether it went well.
 pub fn sync_status(
     notice: Res<BookmarkNotice>,
-    palette: Res<Palette>,
-    mut labels: Query<(&mut Text, &mut TextColor, &mut Node), With<BookmarkStatus>>,
+    mut notices: Query<&mut Notice, With<BookmarkStatus>>,
 ) {
-    if !notice.is_changed() && !palette.is_changed() {
+    if !notice.is_changed() {
         return;
     }
-    let (message, color) = match &*notice {
-        BookmarkNotice::Idle => (String::new(), palette.progress),
-        BookmarkNotice::Working(message) | BookmarkNotice::Done(message) => {
-            (message.clone(), palette.progress)
-        }
-        BookmarkNotice::Failed(message) => (message.clone(), palette.problem),
+    let wanted = match &*notice {
+        BookmarkNotice::Idle => Notice::default(),
+        BookmarkNotice::Working(message) => Notice::new(Tone::Info, message.clone()),
+        BookmarkNotice::Done(message) => Notice::new(Tone::Success, message.clone()),
+        BookmarkNotice::Failed(message) => Notice::new(Tone::Error, message.clone()),
     };
-    for (text, mut text_color, node) in &mut labels {
-        let display = if message.is_empty() {
-            Display::None
-        } else {
-            Display::Flex
-        };
-        patch_node(node, |node| node.display = display);
-        set_text(text, &message);
-        text_color.set_if_neq(TextColor(color));
+    for mut shown in &mut notices {
+        shown.set_if_neq(wanted.clone());
     }
 }
 

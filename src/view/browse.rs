@@ -23,13 +23,14 @@ use super::dataset_menu::{PickerTarget, spawn_dataset_browser};
 use super::overlay::PanelHeader;
 use super::{Browsing, FrameArea, MAX_PANELS, Panel, PanelRequest, PendingShow, ShowFailed};
 use crate::app::schedule::Stage;
-use crate::app::theme::{Palette, token};
+use crate::app::theme::token;
 use crate::catalog::Catalogs;
 use crate::source::{DataSource, ShowsSource};
 use crate::widgets::space;
 use crate::widgets::{
     BlocksFrameInput, Icon, button_icon, button_text, patch_node, set_text, size, text,
 };
+use crate::widgets::{Notice, Tone, notice};
 
 /// Over a frame's own chrome, which it stands in for, and a table's rows, but
 /// under the menus that open over everything.
@@ -196,10 +197,8 @@ fn spawn_pane(commands: &mut Commands, catalogs: &Catalogs, panel: Entity) -> En
 
     let status = commands
         .spawn_scene(bsn! {
+            notice()
             BrowseStatus
-            Text({ String::new() })
-            TextFont { font_size: { FontSize::Px(size::SMALL) } }
-            Node { display: { Display::None } }
         })
         .id();
 
@@ -256,11 +255,10 @@ pub fn sync_browse_text(
         Option<&ShowFailed>,
     )>,
     sources: Query<&DataSource>,
-    palette: Res<Palette>,
     panes: Query<(&BrowsePane, &Children)>,
     columns: Query<&Children>,
-    mut titles: Query<&mut Text, (With<BrowseTitle>, Without<BrowseStatus>)>,
-    mut statuses: Query<(&mut Text, &mut TextColor, &mut Node), With<BrowseStatus>>,
+    mut titles: Query<&mut Text, With<BrowseTitle>>,
+    mut statuses: Query<&mut Notice, With<BrowseStatus>>,
 ) {
     for (pane, children) in &panes {
         let Ok((shows, pending, failed)) = panels.get(pane.panel) else {
@@ -270,13 +268,12 @@ pub fn sync_browse_text(
             Some(source) => format!("Replace {}", source.name),
             None => "Open a dataset".to_string(),
         };
-        let (status, color) = match (pending, failed) {
-            (Some(pending), _) => (
-                format!("Reading {}\u{2026}", pending.name),
-                palette.progress,
-            ),
-            (None, Some(failed)) => (failed.0.clone(), palette.problem),
-            (None, None) => (String::new(), palette.progress),
+        let status = match (pending, failed) {
+            (Some(pending), _) => {
+                Notice::new(Tone::Info, format!("Reading {}\u{2026}", pending.name))
+            }
+            (None, Some(failed)) => Notice::new(Tone::Error, failed.0.clone()),
+            (None, None) => Notice::default(),
         };
         let descendants = children
             .iter()
@@ -288,15 +285,8 @@ pub fn sync_browse_text(
             if let Ok(text) = titles.get_mut(entity) {
                 set_text(text, &title);
             }
-            if let Ok((text, mut text_color, node)) = statuses.get_mut(entity) {
-                let display = if status.is_empty() {
-                    Display::None
-                } else {
-                    Display::Flex
-                };
-                patch_node(node, |node| node.display = display);
-                set_text(text, &status);
-                text_color.set_if_neq(TextColor(color));
+            if let Ok(mut shown) = statuses.get_mut(entity) {
+                shown.set_if_neq(status.clone());
             }
         }
     }

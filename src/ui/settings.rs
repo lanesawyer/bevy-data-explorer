@@ -18,7 +18,7 @@ use bevy_ui_widgets::{Activate, ValueChange};
 use crate::app::net::{Fetching, fetching};
 use crate::app::prefs::{Preferences, PreferencesFile, RegistryLogin};
 use crate::app::schedule::{Boot, Stage};
-use crate::app::theme::{Palette, ThemeMode};
+use crate::app::theme::ThemeMode;
 use crate::catalog::Catalogs;
 use crate::catalog::registry::login::{self, SignIn};
 use crate::catalog::registry::{self, AssetSample};
@@ -28,8 +28,9 @@ use crate::ui::log_panel::LogPanel;
 use crate::widgets::space;
 use crate::widgets::{
     AddModal, Icon, Modal, ResetDockSizes, button_icon, button_text, field_well, set_modal_open,
-    set_text, size, spawn_modal, text,
+    size, spawn_modal, text,
 };
+use crate::widgets::{Notice, Tone, notice};
 
 const PANEL_PX: f32 = 620.0;
 /// The list of pages down the left.
@@ -512,9 +513,8 @@ fn spawn_registry_section(commands: &mut Commands) -> Entity {
                             SignInButton
                         ),
                         (
+                            notice()
                             RegistryStatus
-                            Text({ String::new() })
-                            TextFont { font_size: { FontSize::Px(size::SMALL) } }
                         ),
                     ]
                 ),
@@ -563,8 +563,8 @@ pub struct RegistryProbe {
 }
 
 impl RegistryProbe {
-    /// What the status line says, and whether it is a problem.
-    fn message(&self, token: Option<&str>, login: Option<&RegistryLogin>) -> (String, bool) {
+    /// What the status line says.
+    fn notice(&self, token: Option<&str>, login: Option<&RegistryLogin>) -> Notice {
         let saved = match (token, login) {
             (
                 Some(_),
@@ -579,13 +579,14 @@ impl RegistryProbe {
             (None, _) => "Not signed in.".to_string(),
         };
         match &self.outcome {
-            _ if self.signing_in.is_some() => {
-                (format!("{saved} Waiting for the browser\u{2026}"), false)
-            }
-            _ if self.task.is_some() => (format!("{saved} Asking\u{2026}"), false),
-            Some(Ok(answer)) => (format!("{saved} {answer}"), false),
-            Some(Err(problem)) => (format!("{saved} {problem}"), true),
-            None => (saved, false),
+            _ if self.signing_in.is_some() => Notice::new(
+                Tone::Info,
+                format!("{saved} Waiting for the browser\u{2026}"),
+            ),
+            _ if self.task.is_some() => Notice::new(Tone::Info, format!("{saved} Asking\u{2026}")),
+            Some(Ok(answer)) => Notice::new(Tone::Success, format!("{saved} {answer}")),
+            Some(Err(problem)) => Notice::new(Tone::Error, format!("{saved} {problem}")),
+            None => Notice::new(Tone::Info, saved),
         }
     }
 }
@@ -752,8 +753,7 @@ pub fn sync_registry(
     mut commands: Commands,
     prefs: Res<Preferences>,
     probe: Res<RegistryProbe>,
-    palette: Res<Palette>,
-    mut labels: Query<(&mut Text, &mut TextColor), With<RegistryStatus>>,
+    mut notices: Query<&mut Notice, With<RegistryStatus>>,
     buttons: Query<
         (Entity, Has<InteractionDisabled>, Has<TestRegistryButton>),
         Or<(With<TestRegistryButton>, With<ForgetTokenButton>)>,
@@ -770,15 +770,9 @@ pub fn sync_registry(
             commands.entity(entity).insert(InteractionDisabled);
         }
     }
-    let (message, problem) = probe.message(token, prefs.registry_login.as_ref());
-    let color = if problem {
-        palette.problem
-    } else {
-        palette.progress
-    };
-    for (text, mut text_color) in &mut labels {
-        set_text(text, &message);
-        text_color.set_if_neq(TextColor(color));
+    let wanted = probe.notice(token, prefs.registry_login.as_ref());
+    for mut shown in &mut notices {
+        shown.set_if_neq(wanted.clone());
     }
 }
 

@@ -13,6 +13,7 @@ mod icons;
 mod link;
 mod menu;
 mod modal;
+mod notice;
 mod patch;
 mod scroll;
 mod scrollbar;
@@ -39,6 +40,7 @@ pub use menu::{
     MENU_WIDTH, Menu, MenuAnchor, MenuButton, spawn_icon_menu, spawn_menu, spawn_popup,
 };
 pub use modal::{AddModal, Modal, ModalScreen, set_modal_open, spawn_modal};
+pub use notice::{Notice, Tone, notice};
 pub use patch::{display, patch_node, set_display, set_text};
 pub use scroll::{ScrollBoth, scroll_list};
 pub use search::{matches_search, spawn_search_field};
@@ -85,6 +87,7 @@ impl Plugin for WidgetsPlugin {
                     scrollbar::show_scrollbars,
                     search::sync_search_hints,
                     skeleton::pulse_skeletons,
+                    notice::sync_notices,
                 )
                     .chain()
                     .in_set(Stage::ControlsPlace),

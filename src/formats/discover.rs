@@ -62,6 +62,12 @@ impl Discovered {
 /// The same reading the command line does, which blocks on it before the
 /// window is up; callers with a window open run it on a task instead.
 pub async fn discover(source: &str) -> Result<Discovered, String> {
+    if let Some(format) = unsupported_format(source.trim()) {
+        return Err(format!(
+            "{} is {format}, which can't be opened yet.",
+            source.trim()
+        ));
+    }
     let source = crate::formats::plain_url(source.trim());
     let source = source.as_str();
     if source.is_empty() {
@@ -169,6 +175,19 @@ fn classify(source: &str, cloud: Scatterbrain) -> Discovered {
             cloud,
         }
     }
+}
+
+/// A format Neuroglancer names in front of an address that nothing here
+/// reads. Caught before the prefix is dropped, or the store is tried as
+/// OME-Zarr and the error blames the wrong thing.
+fn unsupported_format(source: &str) -> Option<&'static str> {
+    [
+        ("n5://", "an N5 store"),
+        ("precomputed://", "a Neuroglancer precomputed volume"),
+    ]
+    .into_iter()
+    .find(|(prefix, _)| source.starts_with(prefix))
+    .map(|(_, format)| format)
 }
 
 fn unrecognized(source: &str, image: &str, points: &str) -> String {
@@ -366,6 +385,18 @@ mod tests {
         // Run to completion here: it refuses before it reaches the network, so
         // there is nothing to wait for.
         assert!(crate::app::net::block_on(discover("   ")).is_err());
+    }
+
+    #[test]
+    fn a_format_nothing_reads_is_named_before_anything_is_fetched() {
+        for (source, format) in [
+            ("n5://s3://bucket/em.n5", "N5"),
+            ("precomputed://gs://bucket/em", "Neuroglancer precomputed"),
+        ] {
+            let message = crate::app::net::block_on(discover(source)).err().unwrap();
+            assert!(message.contains(format), "{message}");
+            assert!(!message.contains("OME-Zarr"), "{message}");
+        }
     }
 
     #[test]

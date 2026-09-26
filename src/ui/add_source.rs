@@ -17,13 +17,11 @@ use crate::app::net::{Fetching, fetching};
 use bevy::prelude::*;
 
 use crate::app::schedule::Stage;
-use crate::app::theme::Palette;
 use crate::formats::discover::{self, Discovered};
 use crate::formats::{LoadSettings, spawn_discovered};
 use crate::source::SourceUrl;
 use crate::view::{DatasetRequest, DatasetTarget, PendingShow, ShowFailed};
-use crate::widgets::size;
-use crate::widgets::{patch_node, set_text};
+use crate::widgets::{Notice, Tone, notice};
 
 /// A line reporting how the last read went, for a place with no frame of its
 /// own to say so: the empty window's examples.
@@ -42,18 +40,16 @@ pub enum LoadStatus {
 }
 
 impl LoadStatus {
-    /// What the status line shows, and in what color. An empty message hides
-    /// the line rather than leaving a gap under the field.
-    ///
-    /// The colors are handed in rather than named here: which red stands out
-    /// depends on what it is standing out against, and that is the theme's
-    /// business.
-    pub fn message(&self, palette: &Palette) -> (String, Color) {
+    /// What the status line shows. An empty message hides the line rather
+    /// than leaving a gap under the field.
+    pub fn notice(&self) -> Notice {
         match self {
-            LoadStatus::Idle => (String::new(), palette.progress),
-            LoadStatus::Loading(source) => (format!("reading {source}\u{2026}"), palette.progress),
-            LoadStatus::Loaded(name) => (format!("loaded {name}"), palette.progress),
-            LoadStatus::Failed(message) => (message.clone(), palette.problem),
+            LoadStatus::Idle => Notice::default(),
+            LoadStatus::Loading(source) => {
+                Notice::new(Tone::Info, format!("Reading {source}\u{2026}"))
+            }
+            LoadStatus::Loaded(name) => Notice::new(Tone::Success, format!("Loaded {name}")),
+            LoadStatus::Failed(message) => Notice::new(Tone::Error, message.clone()),
         }
     }
 }
@@ -137,10 +133,8 @@ impl CustomLoad {
 /// The status line, for the empty window to place.
 pub fn status_line() -> impl Scene {
     bsn! {
+        notice()
         CustomStatus
-        Text({ String::new() })
-        TextFont { font_size: { FontSize::Px(size::SMALL) } }
-        Node { display: { Display::None } }
     }
 }
 
@@ -231,25 +225,14 @@ pub fn poll_custom_load(
 /// Show how the last attempt went.
 pub fn sync_custom_status(
     load: Res<CustomLoad>,
-    palette: Res<Palette>,
-    mut labels: Query<(&mut Text, &mut TextColor, &mut Node), With<CustomStatus>>,
+    mut notices: Query<&mut Notice, With<CustomStatus>>,
 ) {
-    // The theme repaints what it knows about; this line is colored by what it
-    // has to say, so it is repainted here instead.
-    if !load.is_changed() && !palette.is_changed() {
+    if !load.is_changed() {
         return;
     }
-
-    let (message, color) = load.status.message(&palette);
-    for (text, mut text_color, node) in &mut labels {
-        let wanted = if message.is_empty() {
-            Display::None
-        } else {
-            Display::Flex
-        };
-        patch_node(node, |node| node.display = wanted);
-        set_text(text, &message);
-        text_color.set_if_neq(TextColor(color));
+    let wanted = load.status.notice();
+    for mut shown in &mut notices {
+        shown.set_if_neq(wanted.clone());
     }
 }
 
@@ -282,30 +265,28 @@ mod tests {
 
     #[test]
     fn nothing_typed_yet_shows_no_status_line() {
-        let (message, _) = LoadStatus::Idle.message(&Palette::dark());
-        assert!(message.is_empty(), "an empty line would leave a gap");
+        assert!(
+            LoadStatus::Idle.notice().message.is_empty(),
+            "an empty line would leave a gap"
+        );
     }
 
     #[test]
-    fn a_failure_is_shown_in_its_own_color() {
-        let palette = Palette::dark();
-        let (message, color) =
-            LoadStatus::Failed("could not recognize it".into()).message(&palette);
-        assert_eq!(message, "could not recognize it");
-        assert_eq!(color, palette.problem);
-        assert_ne!(palette.problem, palette.progress);
+    fn a_failure_is_shown_as_an_error() {
+        let notice = LoadStatus::Failed("could not recognize it".into()).notice();
+        assert_eq!(notice.message, "could not recognize it");
+        assert_eq!(notice.tone, Tone::Error);
     }
 
     #[test]
     fn progress_and_success_name_what_they_are_about() {
-        let palette = Palette::dark();
-        let (loading, color) = LoadStatus::Loading("https://store/x.json".into()).message(&palette);
-        assert!(loading.contains("https://store/x.json"));
-        assert_eq!(color, palette.progress);
+        let loading = LoadStatus::Loading("https://store/x.json".into()).notice();
+        assert!(loading.message.contains("https://store/x.json"));
+        assert_eq!(loading.tone, Tone::Info);
 
-        let (loaded, color) = LoadStatus::Loaded("Sections".into()).message(&palette);
-        assert!(loaded.contains("Sections"));
-        assert_eq!(color, palette.progress);
+        let loaded = LoadStatus::Loaded("Sections".into()).notice();
+        assert!(loaded.message.contains("Sections"));
+        assert_eq!(loaded.tone, Tone::Success);
     }
 
     #[test]

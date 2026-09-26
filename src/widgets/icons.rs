@@ -33,6 +33,8 @@ pub enum Icon {
     ChevronLeft,
     ChevronRight,
     ChevronUp,
+    CircleAlert,
+    CircleCheck,
     CircleHelp,
     ClipboardPaste,
     Copy,
@@ -58,12 +60,13 @@ pub enum Icon {
     Square,
     Sun,
     Trash,
+    TriangleAlert,
     X,
 }
 
 impl Icon {
     #[cfg(test)]
-    const ALL: [Icon; 38] = [
+    const ALL: [Icon; 41] = [
         Icon::Axis3d,
         Icon::BookmarkPlus,
         Icon::BoxSelect,
@@ -76,6 +79,8 @@ impl Icon {
         Icon::ChevronLeft,
         Icon::ChevronRight,
         Icon::ChevronUp,
+        Icon::CircleAlert,
+        Icon::CircleCheck,
         Icon::CircleHelp,
         Icon::ClipboardPaste,
         Icon::Copy,
@@ -101,6 +106,7 @@ impl Icon {
         Icon::Square,
         Icon::Sun,
         Icon::Trash,
+        Icon::TriangleAlert,
         Icon::X,
     ];
 
@@ -120,6 +126,8 @@ impl Icon {
             Icon::ChevronLeft => "\u{e06e}",
             Icon::ChevronRight => "\u{e06f}",
             Icon::ChevronUp => "\u{e070}",
+            Icon::CircleAlert => "\u{e077}",
+            Icon::CircleCheck => "\u{e226}",
             Icon::CircleHelp => "\u{e082}",
             Icon::ClipboardPaste => "\u{e3e8}",
             Icon::Copy => "\u{e09e}",
@@ -145,6 +153,7 @@ impl Icon {
             Icon::Square => "\u{e167}",
             Icon::Sun => "\u{e178}",
             Icon::Trash => "\u{e18e}",
+            Icon::TriangleAlert => "\u{e193}",
             Icon::X => "\u{e1b2}",
         }
     }
