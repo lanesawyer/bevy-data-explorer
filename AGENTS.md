@@ -103,7 +103,7 @@ ticks the values, and whatever produced the rows serves them —
 `formats/table.rs` slices, sorts and narrows a table it read whole
 (`formats/table_filters.rs` indexes its columns as it is read, so narrowing
 never touches a string),
-`formats/specimens.rs` fetches one sorted and narrowed at the platform.
+`formats/specimens/` fetches one sorted and narrowed at the platform.
 `HiddenColumns` is the frame's alone: no format reads it. Neither
 knows about the controls, and `ui/table_filters.rs` names no format: a second
 source of rows is filtered by it without a line changing there.
