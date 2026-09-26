@@ -18,6 +18,7 @@ use crate::source::table::{ColumnWidths, HiddenColumns, TableFilters, TablePagin
 use crate::source::{ShowsSource, SourceUrl};
 use crate::view::FrameRegion;
 use crate::view::link::Linked;
+use crate::view::sections::CrossSections;
 use crate::view::{FrameArea, FrameLayers, LayerOpacity, Orbit, SelectedPanel};
 use crate::view::{Panel, View};
 
@@ -74,11 +75,23 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
         Option<&FrameLayers>,
         Option<&FrameRegion>,
         Has<Linked>,
+        Has<CrossSections>,
     ), With<Panel>>();
     let mut found: Vec<_> = panels
         .iter(world)
         .map(
-            |(entity, panel, shows, transform, projection, orbit, layers, region, linked)| {
+            |(
+                entity,
+                panel,
+                shows,
+                transform,
+                projection,
+                orbit,
+                layers,
+                region,
+                linked,
+                sections,
+            )| {
                 let flat = match (orbit, projection) {
                     (Some(orbit), _) => Some(orbit.flat),
                     (None, Projection::Orthographic(ortho)) => Some(View {
@@ -92,10 +105,14 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
                     panel.index,
                     shows.0,
                     flat,
-                    orbit.copied(),
+                    // A frame drawing cross-sections is turned by its own
+                    // orbit, rebuilt on restore; saving it as a volume's
+                    // would ask a stack too large for one to be drawn whole.
+                    orbit.copied().filter(|_| !sections),
                     layers.map(|layers| layers.cameras().to_vec()),
                     region.copied(),
                     linked,
+                    sections,
                 )
             },
         )
@@ -120,7 +137,7 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
     let (count, empty_frames) = empty_positions(world);
     let mut frames = Vec::new();
     let mut selected_frame = None;
-    for (position, (entity, _, source, flat, orbit, layers, region, linked)) in
+    for (position, (entity, _, source, flat, orbit, layers, region, linked, sections)) in
         found.into_iter().enumerate()
     {
         let Some(flat) = flat else { continue };
@@ -169,6 +186,7 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
                 focus,
             }),
             linked,
+            cross_sections: sections,
         });
     }
     if frames.is_empty() {

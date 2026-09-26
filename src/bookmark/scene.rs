@@ -55,6 +55,7 @@ pub fn bookmark_of(scene: &Scene) -> Bookmark {
                 layers: Vec::new(),
                 selection: None,
                 linked,
+                cross_sections: false,
             })
             .collect(),
         selected: (!layers.is_empty()).then_some(0),

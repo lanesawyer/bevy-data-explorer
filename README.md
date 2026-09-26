@@ -378,7 +378,7 @@ whatever the original happened to load.
 | `x` button | close that panel |
 | info button | open the inspector on that frame |
 | chain button | link that frame: every linked frame pans, zooms and pages slices with the others |
-| axes button | **All views**: the stack cut three ways and in 3D, a frame each, linked; or one plane: looking along z, x or y, and back to the default once one is chosen |
+| axes button | **All views**: the stack cut three ways, linked, and its slices crossing in 3D; or one plane: looking along z, x or y, and back to the default once one is chosen |
 | double-click, linked | move the point linked frames share to what was clicked |
 | cube / square button | look at a stack in depth, or go back to the flat view; offered only where the data has depth |
 | drag, in 3D | turn the volume; right-, middle- or shift-drag slides it, scroll zooms toward the pointer, `R` turns it back |
@@ -409,8 +409,11 @@ frame's layers stay where they are, over the new dataset.
 
 A stack can be cut three ways. **All views**, under the axes button in a
 frame's header, is Neuroglancer's four panels: the frame is joined by the
-stack cut the other two ways and by the stack in 3D, each in a frame of its
-own and all linked on one point. Each linked frame draws a crosshair through
+stack cut the other two ways, all linked on one point, and by a fourth frame
+showing the three slices in 3D where they cross — not the volume, which a
+light-sheet brain is far too large to draw whole, but the slices themselves,
+each drawn at a modest resolution and laid in space, turning as a 3D frame
+does and moving as the others page. Each linked frame draws a crosshair through
 that point, its lines in the color of the axes they run along, so where one
 frame's line crosses is where another frame is paging; double-click
 anywhere in one to move the point there. The same menu cuts a single frame

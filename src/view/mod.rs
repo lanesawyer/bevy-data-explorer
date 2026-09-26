@@ -31,6 +31,7 @@ pub mod overlay;
 pub mod plane;
 pub mod requests;
 pub mod scale_bar;
+pub mod sections;
 pub mod select;
 pub mod table;
 
@@ -270,6 +271,9 @@ impl Plugin for ViewPlugin {
         .add_message::<PanelRequest>()
         .add_message::<DatasetRequest>()
         .init_resource::<FrameArea>()
+        // Created on the first registration otherwise; a frame drawing
+        // cross-sections can ask for a layer before any source is open.
+        .init_resource::<crate::source::SourceRegistry>()
         .init_resource::<SelectedPanel>()
         .init_resource::<TextEntryFocused>()
         .add_observer(panel_buttons)
@@ -323,6 +327,9 @@ impl Plugin for ViewPlugin {
                 link::sync_link_buttons,
                 plane::sync_plane_menus,
                 plane::arrange_views,
+                sections::sync_cross_sections,
+                sections::leave_cross_sections,
+                sections::clear_cross_sections,
                 select::place_region_outlines,
             )
                 .in_set(Stage::Chrome),

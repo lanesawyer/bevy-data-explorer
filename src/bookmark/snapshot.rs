@@ -205,6 +205,9 @@ pub struct FrameState {
     /// Whether it pans, zooms and pages with the other linked frames.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub linked: bool,
+    /// Whether it draws its stack's three slices in 3D, where they cross.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cross_sections: bool,
 }
 
 /// A rectangle selecting cells, and the column its summary is broken down by.

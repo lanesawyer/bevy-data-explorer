@@ -319,6 +319,11 @@ pub fn drive_restore(
         if frame.linked {
             commands.entity(panel).insert(Linked::default());
         }
+        if frame.cross_sections {
+            commands
+                .entity(panel)
+                .insert(crate::view::sections::CrossSections::default());
+        }
         match (frame.orbit, volume) {
             (Some(saved), Some(volume)) => {
                 let flat = flat.unwrap_or(View {

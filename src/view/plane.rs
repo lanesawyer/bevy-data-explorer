@@ -1,9 +1,10 @@
 //! Which way a frame looks through a stack: one plane, or all of them.
 //!
 //! A menu in the frame's header offers every view at once, as Neuroglancer
-//! opens: the stack cut the other two ways and seen in 3D, each in a frame of
-//! its own, all linked, so one point is shared between them and the
-//! crosshairs meet on it. Beneath that it offers the three planes one at a
+//! opens: the stack cut the other two ways, each in a frame of its own, all
+//! linked so one point is shared between them and the crosshairs meet on it,
+//! and a fourth showing the three slices in 3D where they cross (see
+//! [`super::sections`]). Beneath that it offers the three planes one at a
 //! time, and the way the dataset opens by default.
 //!
 //! A plane is the same address with the plane named after it (`#plane=zy`),
@@ -17,7 +18,6 @@ use bevy_ui_widgets::Activate;
 
 use crate::formats::image::store::split_plane;
 use crate::source::stack::{SliceStack, SourceAxes};
-use crate::source::volume::SourceVolume;
 use crate::source::{ShowsSource, SourceUrl};
 use crate::widgets::space;
 use crate::widgets::{
@@ -25,7 +25,8 @@ use crate::widgets::{
 };
 
 use super::link::Linked;
-use super::{DatasetRequest, DatasetTarget, Orbit, Panel, PanelRequest, View};
+use super::sections::CrossSections;
+use super::{DatasetRequest, DatasetTarget, Panel, PanelRequest};
 
 /// How long frames asked for by "All views" are waited on before being given
 /// up on: the other cuts are read from the store like anything else, and a
@@ -54,13 +55,12 @@ impl Default for AllViews {
     }
 }
 
-/// Frames "All views" asked for and has not yet linked: the other cuts by
-/// address, and the source to see in 3D in a frame other than the one asked
-/// from.
+/// Frames "All views" asked for and has not yet arranged: the other cuts by
+/// address, to link, and the frame onto this stack to draw the slices in 3D.
 #[derive(Resource)]
 pub struct Arranging {
     addresses: Vec<String>,
-    volume: Option<Entity>,
+    sections: Option<Entity>,
     origin: Entity,
     since: f32,
 }
@@ -233,15 +233,15 @@ fn other_planes(along: Option<char>) -> impl Iterator<Item = &'static str> {
         .map(|(plane, ..)| *plane)
 }
 
-/// Open every view of the frame's stack: the two planes it is not cut in, and
-/// the volume in 3D, beside it and linked with it.
+/// Open every view of the frame's stack: the two planes it is not cut in,
+/// linked with it, and the three slices in 3D.
 pub fn on_all_views(
     activate: On<Activate>,
     mut commands: Commands,
     time: Res<Time>,
     buttons: Query<&AllViews>,
     frames: Query<&ShowsSource>,
-    sources: Query<(&SourceUrl, Option<&SourceAxes>, Has<SourceVolume>)>,
+    sources: Query<(&SourceUrl, Option<&SourceAxes>)>,
     mut menus: Query<(&PanelPlaneMenu, &mut Menu)>,
     mut datasets: MessageWriter<DatasetRequest>,
     mut panels: MessageWriter<PanelRequest>,
@@ -254,7 +254,7 @@ pub fn on_all_views(
             open.open = false;
         }
     }
-    let Some((source, (url, axes, volume))) = frames
+    let Some((source, (url, axes))) = frames
         .get(button.panel)
         .ok()
         .and_then(|shows| Some((shows.0, sources.get(shows.0).ok()?)))
@@ -275,33 +275,29 @@ pub fn on_all_views(
             target: DatasetTarget::NewFrame,
         });
     }
-    if volume {
-        panels.write(PanelRequest::Open(source));
-    }
+    panels.write(PanelRequest::Open(source));
     commands.entity(button.panel).insert(Linked::default());
     commands.insert_resource(Arranging {
         addresses,
-        volume: volume.then_some(source),
+        sections: Some(source),
         origin: button.panel,
         since: time.elapsed_secs(),
     });
 }
 
-/// Link each frame "All views" asked for as it opens, and turn the one onto
-/// the same stack into 3D.
+/// Link each frame "All views" asked for as it opens, and have the new one
+/// onto the same stack draw the slices in 3D.
 pub fn arrange_views(
     mut commands: Commands,
     time: Res<Time>,
     arranging: Option<ResMut<Arranging>>,
-    frames: Query<(Entity, &ShowsSource, &Transform, &Projection, Has<Linked>), With<Panel>>,
+    frames: Query<(Entity, &ShowsSource, Has<Linked>, Has<CrossSections>), With<Panel>>,
     urls: Query<&SourceUrl>,
-    volumes: Query<&SourceVolume>,
-    orbits: Query<(), With<Orbit>>,
 ) {
     let Some(mut arranging) = arranging else {
         return;
     };
-    for (panel, shows, transform, projection, linked) in &frames {
+    for (panel, shows, linked, sections) in &frames {
         if let Ok(url) = urls.get(shows.0)
             && let Some(at) = arranging.addresses.iter().position(|it| *it == url.0)
         {
@@ -311,22 +307,14 @@ pub fn arrange_views(
             }
             continue;
         }
-        if arranging.volume == Some(shows.0)
-            && panel != arranging.origin
-            && !orbits.contains(panel)
-            && let (Ok(volume), Projection::Orthographic(ortho)) =
-                (volumes.get(shows.0), projection)
+        if arranging.sections == Some(shows.0) && panel != arranging.origin && !linked && !sections
         {
-            let flat = View {
-                center: transform.translation.truncate(),
-                scale: ortho.scale,
-            };
-            commands.entity(panel).insert(Orbit::fit(volume, flat));
-            arranging.volume = None;
+            commands.entity(panel).insert(CrossSections::default());
+            arranging.sections = None;
         }
     }
     let waited = time.elapsed_secs() - arranging.since > ARRANGE_PATIENCE_SECS;
-    if (arranging.addresses.is_empty() && arranging.volume.is_none()) || waited {
+    if (arranging.addresses.is_empty() && arranging.sections.is_none()) || waited {
         commands.remove_resource::<Arranging>();
     }
 }
