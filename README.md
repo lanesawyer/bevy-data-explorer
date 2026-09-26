@@ -54,6 +54,7 @@ cargo run --release -- --z 3 <source>        # pick a z slice
 cargo run --release -- --cache-mb 1024       # a larger tile cache
 cargo run --release -- --point-budget 8000000
 cargo run --release -- slide.dzi --layer annotation.svg   # draw one over the other
+cargo run --release -- stack.zarr cells.json genes.csv    # several, a frame each
 cargo run --release -- --bookmark saved.json # a bookmark, as a file or a bde1: line
 ```
 

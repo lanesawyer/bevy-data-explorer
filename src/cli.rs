@@ -11,6 +11,7 @@
 use clap::Parser;
 
 use crate::formats::discover;
+use crate::view::grid::MAX_PANELS;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -18,12 +19,12 @@ use crate::formats::discover;
     about = "Stream and explore large scientific datasets"
 )]
 pub struct Args {
-    /// Any dataset, opened in a frame: an OME-Zarr store (http(s) URL or local
-    /// directory) or a manifest .json describing one, a Deep Zoom .dzi,
-    /// Scatterbrain metadata, an .svg, a .csv, .tsv or .parquet table, or a Brain
-    /// Knowledge Platform endpoint with `?specimens=<project>` on it. Left
-    /// out, the window starts empty.
-    pub source: Option<String>,
+    /// Datasets to open, each in a frame of its own, in the order given: an
+    /// OME-Zarr store (http(s) URL or local directory) or a manifest .json
+    /// describing one, a Deep Zoom .dzi, Scatterbrain metadata, an .svg, a
+    /// .csv, .tsv or .parquet table, or a Brain Knowledge Platform endpoint
+    /// with `?specimens=<project>` on it. Left out, the window starts empty.
+    pub sources: Vec<String>,
 
     /// Another dataset in a frame of its own, usually Scatterbrain metadata
     /// JSON (http(s) URL or local file). Recognized by reading it, like any
@@ -120,17 +121,33 @@ impl Args {
     /// is. Frames first, then layers, so a layer is never mistaken for the
     /// frame it is meant to be drawn over.
     pub fn open(&self) -> Result<Vec<Opened>, String> {
-        let frames = [
-            ("source", &self.source),
-            ("points", &self.points),
-            ("cells", &self.cells),
-            ("slices", &self.slices),
-        ]
-        .into_iter()
-        .filter_map(|(label, url)| Some((label, url.as_deref()?, false)));
+        let frames: Vec<(&str, &str, bool)> = self
+            .sources
+            .iter()
+            .map(|url| ("source", url.as_str(), false))
+            .chain(
+                [
+                    ("points", &self.points),
+                    ("cells", &self.cells),
+                    ("slices", &self.slices),
+                ]
+                .into_iter()
+                .filter_map(|(label, url)| Some((label, url.as_deref()?, false))),
+            )
+            .collect();
+        // Said before anything is read, rather than after a minute of fetching
+        // datasets there is no room to show.
+        if frames.len() > MAX_PANELS {
+            return Err(format!(
+                "{} datasets named, but the grid holds {MAX_PANELS} frames; \
+                 draw some over another with --layer",
+                frames.len()
+            ));
+        }
         let layers = self.layer.iter().map(|url| ("layer", url.as_str(), true));
 
         frames
+            .into_iter()
             .chain(layers)
             .map(|(label, url, as_layer)| {
                 println!("opening {label:<6} {url}");
@@ -145,5 +162,26 @@ impl Args {
                 })
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn several_datasets_open_in_the_order_named() {
+        let args =
+            Args::try_parse_from(["bde", "a.zarr", "b.csv", "--layer", "c.svg", "d.dzi"]).unwrap();
+        assert_eq!(args.sources, ["a.zarr", "b.csv", "d.dzi"]);
+        assert_eq!(args.layer, ["c.svg"]);
+    }
+
+    #[test]
+    fn more_datasets_than_frames_is_refused_before_anything_is_read() {
+        let mut named = vec!["bde".to_string()];
+        named.extend((0..=MAX_PANELS).map(|n| format!("https://example.invalid/{n}.zarr")));
+        let error = Args::try_parse_from(named).unwrap().open().err().unwrap();
+        assert!(error.contains("--layer"), "{error}");
     }
 }
