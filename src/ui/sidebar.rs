@@ -12,7 +12,7 @@
 use bevy::prelude::*;
 use bevy::window::{Monitor, OnMonitor, PrimaryMonitor};
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
+use bevy_feathers::theme::{ThemeBackgroundColor, ThemeBorderColor, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
@@ -231,6 +231,27 @@ fn order_sections(
     commands.entity(parent).replace_children(&sections);
 }
 
+/// The inset of everything in the dock. The drag handle straddles the right
+/// edge, so half of it lies over this padding; the edge is where the handle
+/// begins and the padding is measured from there, or the scrollbar kept clear
+/// of the edge would end up against the handle.
+fn inset() -> UiRect {
+    UiRect {
+        right: Val::Px(space::PANEL_INSET + HANDLE_PX * 0.5),
+        ..UiRect::all(Val::Px(space::PANEL_INSET))
+    }
+}
+
+/// The shading of the title's band and the footer's, a step off the dock's
+/// own, with a rule where each meets the sections. Without them the sections
+/// scrolled out of sight against a hard edge nothing marked.
+fn band() -> impl Scene {
+    bsn! {
+        ThemeBackgroundColor({ tokens::PANE_BODY_BG })
+        ThemeBorderColor({ tokens::PANE_HEADER_BORDER })
+    }
+}
+
 fn spawn_sidebar(mut commands: Commands) {
     commands.spawn_scene(bsn! {
         SidebarRoot
@@ -240,17 +261,6 @@ fn spawn_sidebar(mut commands: Commands) {
             top: { Val::Px(0.0) },
             height: { Val::Percent(100.0) },
             flex_direction: { FlexDirection::Column },
-            row_gap: { Val::Px(space::ROWS) },
-            // The drag handle straddles the right edge, so half of it lies
-            // over this padding. The edge is where the handle begins, and the
-            // padding is measured from there, or the scrollbar kept clear of
-            // the edge would end up against the handle.
-            padding: {
-                UiRect {
-                    right: Val::Px(space::PANEL_INSET + HANDLE_PX * 0.5),
-                    ..UiRect::all(Val::Px(space::PANEL_INSET))
-                }
-            },
         }
         // Through a token rather than a literal: the theme repaints everything
         // that names one, and a dock painted by hand would stay dark while the
@@ -265,7 +275,10 @@ fn spawn_sidebar(mut commands: Commands) {
                     align_items: { AlignItems::Center },
                     justify_content: { JustifyContent::SpaceBetween },
                     column_gap: { Val::Px(space::CONTROLS) },
+                    padding: { inset() },
+                    border: { UiRect::bottom(Val::Px(1.0)) },
                 }
+                band()
                 Children [
                     (
                         SidebarTitle
@@ -300,17 +313,29 @@ fn spawn_sidebar(mut commands: Commands) {
                     min_height: { Val::ZERO },
                     row_gap: { Val::Px(space::ROWS) },
                     overflow: { Overflow::scroll_y() },
+                    padding: { inset() },
                 }
             ),
             (
-                // Stacked above the footer and pushed down with it: these act on
-                // the app rather than on any section, so they sit with the
-                // control that owns the dock itself. One per row, because the
-                // ribbon is too narrow to hold two side by side.
+                // What acts on the app rather than on any section, on a band
+                // of its own at the foot. Pushed down by its margin, so it
+                // stays on the bottom edge whether the sections are showing or
+                // the dock is collapsed to its ribbon. One control per row,
+                // because the ribbon is too narrow to hold two side by side.
+                Node {
+                    width: { Val::Percent(100.0) },
+                    flex_direction: { FlexDirection::Column },
+                    row_gap: { Val::Px(space::ROWS) },
+                    margin: { UiRect::top(Val::Auto) },
+                    padding: { inset() },
+                    border: { UiRect::top(Val::Px(1.0)) },
+                }
+                band()
+                Children [
+            (
                 Node {
                     width: { Val::Percent(100.0) },
                     align_items: { AlignItems::Center },
-                    margin: { UiRect::top(Val::Auto) },
                 }
                 Children [(
                     @FeathersToolButton {
@@ -342,9 +367,6 @@ fn spawn_sidebar(mut commands: Commands) {
                 )]
             ),
             (
-                // The footer sits on the bottom edge: the margin above belongs
-                // to the settings row now, so both stay down there whether the
-                // sections are showing or the dock is collapsed to its ribbon.
                 Node {
                     width: { Val::Percent(100.0) },
                     align_items: { AlignItems::Center },
@@ -368,6 +390,8 @@ fn spawn_sidebar(mut commands: Commands) {
                         TextFont { font_size: { FontSize::Px(size::BODY) } }
                         ThemeTextColor({ tokens::TEXT_DIM })
                     ),
+                ]
+            ),
                 ]
             ),
         ]
