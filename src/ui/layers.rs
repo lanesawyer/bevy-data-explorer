@@ -107,15 +107,7 @@ pub fn rebuild_layers(
     load: Res<CustomLoad>,
     body: Query<Entity, With<LayersBody>>,
     existing: Query<Entity, With<LayersContent>>,
-    mut shown: Local<
-        Option<(
-            Option<Entity>,
-            Vec<Entity>,
-            Vec<Entity>,
-            usize,
-            Option<Entity>,
-        )>,
-    >,
+    mut shown: Local<Option<(Option<Entity>, Vec<Entity>, Vec<Entity>, usize, bool)>>,
 ) {
     let Ok(body) = body.single() else { return };
 
@@ -138,7 +130,7 @@ pub fn rebuild_layers(
         stack.clone(),
         cameras.clone(),
         sources.iter().count(),
-        load.loading_onto(),
+        frame.is_some_and(|(panel, _)| load.is_layering_onto(panel)),
     );
     if shown.as_ref() == Some(&fingerprint) {
         return;
@@ -200,7 +192,7 @@ pub fn rebuild_layers(
         })
         .id();
     rows.push(heading);
-    if load.loading_onto() == Some(panel) {
+    if load.is_layering_onto(panel) {
         rows.push(content_caption(
             &mut commands,
             "Reading a dataset to draw over this one\u{2026}",

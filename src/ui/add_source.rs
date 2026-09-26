@@ -54,79 +54,59 @@ impl LoadStatus {
     }
 }
 
-/// The load in flight, if any, and what to say about it.
+/// One dataset being read, and where it goes once it is open.
+struct Reading {
+    /// The address, recorded on the source it becomes.
+    url: String,
+    target: DatasetTarget,
+    task: Fetching<Result<Discovered, String>>,
+}
+
+/// The reads in flight, and what to say about the last.
+///
+/// Several at once, so the planes "All views" asks for are read together
+/// rather than each waiting on the one before. Two for the same frame cannot
+/// both land: asking a frame for another dataset gives up the read it was
+/// waiting on.
 #[derive(Resource, Default)]
 pub struct CustomLoad {
-    task: Option<Fetching<Result<Discovered, String>>>,
-    /// Where the dataset being read goes once it is open.
-    target: DatasetTarget,
-    /// Known datasets asked for while another was being read, in order.
-    ///
-    /// Queued rather than refused: a layer is chosen from a frame's menu, far
-    /// from the status line that would say a second choice had been dropped.
-    queued: std::collections::VecDeque<(String, DatasetTarget)>,
-    /// The URL being read, recorded on the source it becomes.
-    loading: String,
+    reading: Vec<Reading>,
     pub status: LoadStatus,
 }
 
 impl CustomLoad {
-    pub fn is_loading(&self) -> bool {
-        self.task.is_some()
-    }
-
-    /// Read `url`, now or once what is being read has landed, and open it
-    /// where `target` says.
-    ///
-    /// One read at a time, so two datasets never race for the same cell.
+    /// Read `url`, and open it where `target` says.
     pub fn request(&mut self, url: String, target: DatasetTarget) {
-        let url = url.trim().to_string();
-        if self.already_asked(&url, target) {
-            return;
-        }
-        self.queued.push_back((url, target));
-        self.start_queued();
-    }
-
-    /// The frame the dataset being read will be layered onto, if any.
-    pub fn loading_onto(&self) -> Option<Entity> {
-        match self.target {
-            DatasetTarget::Layer(panel) if self.is_loading() => Some(panel),
-            _ => None,
-        }
-    }
-
-    /// Whether `url` is already being read, or waiting to be, for `target`.
-    fn already_asked(&self, url: &str, target: DatasetTarget) -> bool {
-        (self.is_loading() && self.loading == url && self.target == target)
-            || self
-                .queued
-                .iter()
-                .any(|(queued, queued_for)| queued == url && *queued_for == target)
-    }
-
-    fn start_queued(&mut self) {
-        if self.is_loading() {
-            return;
-        }
-        if let Some((url, target)) = self.queued.pop_front() {
-            self.target = target;
-            self.begin(url);
-        }
-    }
-
-    fn begin(&mut self, url: String) {
-        if self.is_loading() {
-            return;
-        }
         let url = url.trim().to_string();
         if url.is_empty() {
             self.status = LoadStatus::Failed("type the URL of a dataset to load".into());
             return;
         }
+        if self
+            .reading
+            .iter()
+            .any(|reading| reading.url == url && reading.target == target)
+        {
+            return;
+        }
+        if let DatasetTarget::Show(panel) = target {
+            self.reading
+                .retain(|reading| reading.target != DatasetTarget::Show(panel));
+        }
         self.status = LoadStatus::Loading(url.clone());
-        self.loading = url.clone();
-        self.task = Some(fetching(async move { discover::discover(&url).await }));
+        let read = url.clone();
+        self.reading.push(Reading {
+            url,
+            target,
+            task: fetching(async move { discover::discover(&read).await }),
+        });
+    }
+
+    /// Whether a dataset being read is to be drawn over `panel`.
+    pub fn is_layering_onto(&self, panel: Entity) -> bool {
+        self.reading
+            .iter()
+            .any(|reading| reading.target == DatasetTarget::Layer(panel))
     }
 }
 
@@ -158,7 +138,6 @@ pub fn answer_dataset_requests(
             None => load.request(url.to_string(), request.target),
         }
     }
-    load.start_queued();
 }
 
 /// Register whatever the task came back with, and put it where it was asked
@@ -173,28 +152,44 @@ pub fn poll_custom_load(
     mut load: ResMut<CustomLoad>,
     settings: Res<LoadSettings>,
 ) {
-    let Some(task) = load.task.as_mut() else {
+    // Polled without marking the load changed, which would repaint its
+    // status line every frame whether or not anything landed.
+    let mut finished = Vec::new();
+    let reading = &mut load.bypass_change_detection().reading;
+    reading.retain_mut(|reading| match reading.task.take() {
+        Some(outcome) => {
+            finished.push((std::mem::take(&mut reading.url), reading.target, outcome));
+            false
+        }
+        None => true,
+    });
+    if finished.is_empty() {
         return;
-    };
-    let Some(outcome) = task.take() else {
-        return;
-    };
-    load.task = None;
+    }
+    for (url, target, outcome) in finished {
+        land(&mut commands, &mut load, *settings, url, target, outcome);
+    }
+}
 
+/// Open a dataset that has been read where it was asked for, or say why it
+/// could not be.
+fn land(
+    commands: &mut Commands,
+    load: &mut CustomLoad,
+    settings: LoadSettings,
+    url: String,
+    target: DatasetTarget,
+    outcome: Result<Discovered, String>,
+) {
     match outcome {
         // Several datasets at once, which open as a bookmark does: in place of
         // every frame, so the one that asked is replaced along with the rest.
         Ok(Discovered::Scene(scene)) => {
             load.status = LoadStatus::Loaded(scene.name.clone());
-            load.loading.clear();
-            load.target = DatasetTarget::default();
-            crate::bookmark::restore(&mut commands, crate::bookmark::scene::bookmark_of(&scene));
+            crate::bookmark::restore(commands, crate::bookmark::scene::bookmark_of(&scene));
         }
         Ok(discovered) => {
             load.status = LoadStatus::Loaded(discovered.name().to_string());
-            let url = std::mem::take(&mut load.loading);
-            let target = std::mem::take(&mut load.target);
-            let settings = *settings;
             commands.queue(move |world: &mut World| {
                 let Some(source) = spawn_discovered(world, discovered, settings) else {
                     return;
@@ -211,7 +206,7 @@ pub fn poll_custom_load(
             load.status = LoadStatus::Failed(message.clone());
             // A frame left waiting would say it is reading something forever,
             // and one browsing for it says why it did not open.
-            if let DatasetTarget::Show(panel) = std::mem::take(&mut load.target) {
+            if let DatasetTarget::Show(panel) = target {
                 commands
                     .entity(panel)
                     .try_remove::<PendingShow>()
@@ -219,7 +214,6 @@ pub fn poll_custom_load(
             }
         }
     }
-    load.start_queued();
 }
 
 /// Show how the last attempt went.
@@ -293,20 +287,34 @@ mod tests {
     fn an_empty_address_is_refused_rather_than_fetched() {
         let mut load = CustomLoad::default();
         load.request("   ".into(), DatasetTarget::NewFrame);
-        assert!(!load.is_loading());
+        assert!(load.reading.is_empty());
         assert!(matches!(load.status, LoadStatus::Failed(_)));
     }
 
+    // Paths that do not exist, so the reads fail off disk rather than reaching
+    // for the network.
+    const A: &str = "/nonexistent/a.svg";
+    const B: &str = "/nonexistent/b.svg";
+
     #[test]
-    fn asking_again_for_what_is_already_queued_is_recognized() {
+    fn datasets_are_read_together_and_each_only_once() {
         let panel = Entity::from_raw_u32(7).unwrap();
         let mut load = CustomLoad::default();
-        load.queued
-            .push_back(("https://store/a.svg".into(), DatasetTarget::Layer(panel)));
-        assert!(load.already_asked("https://store/a.svg", DatasetTarget::Layer(panel)));
+        load.request(A.into(), DatasetTarget::NewFrame);
+        load.request(B.into(), DatasetTarget::NewFrame);
+        load.request(A.into(), DatasetTarget::NewFrame);
         // The same dataset for somewhere else is a different request.
-        assert!(!load.already_asked("https://store/a.svg", DatasetTarget::NewFrame));
-        assert!(!load.already_asked("https://store/a.svg", DatasetTarget::Show(panel)));
-        assert!(!load.already_asked("https://store/b.svg", DatasetTarget::Layer(panel)));
+        load.request(A.into(), DatasetTarget::Layer(panel));
+        assert_eq!(load.reading.len(), 3);
+    }
+
+    #[test]
+    fn a_frame_asked_for_another_dataset_gives_up_the_first() {
+        let panel = Entity::from_raw_u32(7).unwrap();
+        let mut load = CustomLoad::default();
+        load.request(A.into(), DatasetTarget::Show(panel));
+        load.request(B.into(), DatasetTarget::Show(panel));
+        let urls: Vec<&str> = load.reading.iter().map(|r| r.url.as_str()).collect();
+        assert_eq!(urls, [B]);
     }
 }
