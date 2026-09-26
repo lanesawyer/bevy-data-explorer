@@ -72,6 +72,21 @@ pub struct PanelPlaneMenu {
     button: Entity,
 }
 
+/// The way back to the dataset's own plane, offered only once another has
+/// been chosen: before that there is nothing to go back to.
+#[derive(Component, Clone)]
+pub struct BackToDefault {
+    panel: Entity,
+}
+
+impl Default for BackToDefault {
+    fn default() -> Self {
+        BackToDefault {
+            panel: Entity::PLACEHOLDER,
+        }
+    }
+}
+
 /// One choice in the menu: a plane, or none for the dataset's own.
 #[derive(Component, Clone)]
 pub struct PlaneChoice {
@@ -126,10 +141,23 @@ pub(super) fn spawn_plane_menu(commands: &mut Commands, header: Entity, panel: E
                     size::SMALL
                 ),
                 text("One plane", size::BODY),
-                {choice(None, "As the dataset opens")},
                 {choice(Some(PLANES[0].0), PLANES[0].1)},
                 {choice(Some(PLANES[1].0), PLANES[1].1)},
                 {choice(Some(PLANES[2].0), PLANES[2].1)},
+                (
+                    Node {
+                        flex_direction: { FlexDirection::Column },
+                        row_gap: { Val::Px(space::STACKED) },
+                    }
+                    BackToDefault { panel: { panel } }
+                    Children [
+                        {choice(None, "Back to the default view")},
+                        text_dim(
+                            "Undo the plane chosen, and cut the stack the way it opens on its own.",
+                            size::SMALL
+                        ),
+                    ]
+                ),
             ]
         })
         .id();
@@ -137,11 +165,13 @@ pub(super) fn spawn_plane_menu(commands: &mut Commands, header: Entity, panel: E
 }
 
 /// Offer the menu only over a stack read from an address, which is what can
-/// be cut another way.
+/// be cut another way, and the way back only over one cut in a chosen plane.
 pub fn sync_plane_menus(
     menus: Query<&PanelPlaneMenu>,
+    backs: Query<(Entity, &BackToDefault)>,
     frames: Query<&ShowsSource>,
     stacks: Query<(), (With<SliceStack>, With<SourceUrl>)>,
+    urls: Query<&SourceUrl>,
     mut nodes: Query<&mut Node>,
 ) {
     for menu in &menus {
@@ -149,6 +179,14 @@ pub fn sync_plane_menus(
             .get(menu.panel)
             .is_ok_and(|shows| stacks.contains(shows.0));
         set_display(&mut nodes, menu.button, shown);
+    }
+    for (entity, back) in &backs {
+        let chosen = frames
+            .get(back.panel)
+            .ok()
+            .and_then(|shows| urls.get(shows.0).ok())
+            .is_some_and(|url| split_plane(&url.0).1.is_some());
+        set_display(&mut nodes, entity, chosen);
     }
 }
 

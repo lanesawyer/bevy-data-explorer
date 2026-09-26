@@ -378,7 +378,7 @@ whatever the original happened to load.
 | `x` button | close that panel |
 | info button | open the inspector on that frame |
 | chain button | link that frame: every linked frame pans, zooms and pages slices with the others |
-| axes button | **All views**: the stack cut three ways and in 3D, a frame each, linked; or one plane: looking along z, x or y, or as the dataset opens |
+| axes button | **All views**: the stack cut three ways and in 3D, a frame each, linked; or one plane: looking along z, x or y, and back to the default once one is chosen |
 | double-click, linked | move the point linked frames share to what was clicked |
 | cube / square button | look at a stack in depth, or go back to the flat view; offered only where the data has depth |
 | drag, in 3D | turn the volume; right-, middle- or shift-drag slides it, scroll zooms toward the pointer, `R` turns it back |
