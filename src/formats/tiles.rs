@@ -234,7 +234,15 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
     ///
     /// Everything worth keeping is touched, prefetch included, so eviction can
     /// tell live tiles from stale ones whether or not they are being asked for.
-    pub fn want(&mut self, (visible, prefetch): (Tiers<K>, Tiers<K>)) -> &[K] {
+    ///
+    /// Nothing is read ahead unless `may_read_ahead`: a pyramid whose own view
+    /// is covered still shares the connection with every other frame, and one
+    /// still loading what it shows should not wait on another's guesses.
+    pub fn want(
+        &mut self,
+        (visible, prefetch): (Tiers<K>, Tiers<K>),
+        may_read_ahead: bool,
+    ) -> &[K] {
         self.frame = self.frame.wrapping_add(1);
         for key in &prefetch.seen {
             if let Some(slot) = self.slots.get_mut(key) {
@@ -247,7 +255,8 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
                 .is_some_and(|slot| !matches!(slot.state, SlotState::Loading(_)))
         };
         self.covered = visible.order.iter().all(resolved);
-        self.wanted = request_order(&visible.order, &prefetch.order, resolved);
+        let ahead: &[K] = if may_read_ahead { &prefetch.order } else { &[] };
+        self.wanted = request_order(&visible.order, ahead, resolved);
         self.retained = prefetch.seen;
         &self.wanted
     }
@@ -441,6 +450,11 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
         !self.covered
     }
 
+    /// Whether every tile on screen has landed, as of the last [`Self::want`].
+    pub fn covered(&self) -> bool {
+        self.covered
+    }
+
     pub fn loaded(&self) -> usize {
         self.ready().count()
     }
@@ -551,13 +565,13 @@ mod tests {
         };
 
         // The new slice's tile has not landed: the old one stays drawn.
-        cache.want(tiers(&[(0, 0)]));
+        cache.want(tiers(&[(0, 0)]), true);
         evict(&mut world, &mut cache);
         assert!(world.get_entity(old).is_ok());
 
         // Once it has, the old one goes.
         cache.settle((0, 0), SlotState::Blank);
-        cache.want(tiers(&[(0, 0)]));
+        cache.want(tiers(&[(0, 0)]), true);
         evict(&mut world, &mut cache);
         assert!(world.get_entity(old).is_err());
     }
@@ -610,6 +624,23 @@ mod tests {
             );
         };
         assert_eq!(MAX_IN_FLIGHT, TILE_FETCH_THREADS);
+    }
+
+    #[test]
+    fn a_covered_view_reads_ahead_only_when_every_frame_is_covered() {
+        let tiers = || {
+            let mut visible = Tiers::default();
+            visible.extend([(0, 0)]);
+            let mut prefetch = visible.followed_by();
+            prefetch.extend([(0, 1)]);
+            (visible, prefetch)
+        };
+        let mut cache: TileCache<Key, ()> = TileCache::new(usize::MAX);
+        cache.settle((0, 0), SlotState::Blank);
+        // This view is covered, but another frame is still loading its own.
+        assert_eq!(cache.want(tiers(), false), [(0, 0)]);
+        assert!(cache.covered());
+        assert_eq!(cache.want(tiers(), true), [(0, 0), (0, 1)]);
     }
 
     #[test]

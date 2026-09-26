@@ -47,6 +47,9 @@ fn select_tiles(
     mut streamers: Query<&mut DziStreamer>,
     panels: Query<(&Camera, &GlobalTransform, &Projection, &ShowsSource)>,
 ) {
+    // As the images do: nothing read ahead while a frame still loads what it
+    // shows.
+    let may_read_ahead = streamers.iter().all(|streamer| streamer.tiles.covered());
     for mut streamer in &mut streamers {
         let dzi = streamer.dzi.clone();
         let (coarsest, finest) = (dzi.min_level(), dzi.max_level());
@@ -67,7 +70,7 @@ fn select_tiles(
         let tiers = tiles::tiers(&views, coarsest, beside, |level, view, half| {
             tiles_over(&dzi, level, view, half)
         });
-        streamer.tiles.want(tiers);
+        streamer.tiles.want(tiers, may_read_ahead);
     }
 }
 

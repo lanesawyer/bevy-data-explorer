@@ -174,6 +174,11 @@ pub fn select_tiles(
     mut streamers: Query<&mut TileStreamer>,
     panels: Query<(&Camera, &GlobalTransform, &Projection, &ShowsSource)>,
 ) {
+    // Reading ahead waits until no frame is still loading what it shows. The
+    // images share a connection, and a tile cut across a stack is tens of
+    // megabytes: one frame guessing at its margin held up the tiles another
+    // needed on screen. As of the last frame, which is what has landed.
+    let may_read_ahead = streamers.iter().all(|streamer| streamer.tiles.covered());
     for mut streamer in &mut streamers {
         let dataset = streamer.dataset.clone();
         let coarsest = dataset.levels.len().saturating_sub(1);
@@ -191,7 +196,7 @@ pub fn select_tiles(
         let tiers = tiles::tiers(&views, coarsest, beside, |level, view, half| {
             tiles_over(&dataset, level, view, half)
         });
-        let wanted = streamer.tiles.want(tiers).to_vec();
+        let wanted = streamer.tiles.want(tiers, may_read_ahead).to_vec();
 
         // Publish for the workers, so queued tasks can check whether they still
         // matter before doing any network work.
