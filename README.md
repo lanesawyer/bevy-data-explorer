@@ -158,8 +158,12 @@ Numeric properties are offered only when a service gives their extent and
 histogram. A categorical placeholder invents only the labels, over codes that
 are the dataset's own; a numeric one would have to invent the bounds and the
 whole histogram, and a span chosen against that filters by numbers that came
-from nowhere. Points are colored by code, so a numeric property filters but
-does not color.
+from nowhere. Coloring by a numeric property draws each point along a
+gradient from the property's low values to its high ones — Viridis unless
+another is chosen, among the matplotlib scales and two diverging ones. It can
+be reversed, and spread over the data's whole extent rather than the span a
+filter admits, so narrowing a range leaves the colors where they were. All of
+it is saved in bookmarks with the rest of the coloring.
 
 The sidebar holds accordions. They are generic containers — a title, an open
 flag, and whatever children a caller hangs off the body — because which
