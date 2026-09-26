@@ -104,6 +104,11 @@ pub struct BrowseTitle;
 #[derive(Component, Clone, Default)]
 pub struct BrowseStatus;
 
+/// The browser's search and what it lists, hidden while an empty frame waits
+/// on a dataset already chosen for it: there is nothing left to choose.
+#[derive(Component, Clone, Default)]
+pub struct BrowseChoices;
+
 /// Closes the browser: the frame with it, if it showed nothing.
 #[derive(Component, Clone)]
 pub struct BrowseClose {
@@ -123,7 +128,7 @@ impl Default for BrowseClose {
 pub fn sync_browse_panes(
     mut commands: Commands,
     catalogs: Res<Catalogs>,
-    panels: Query<Entity, (With<Panel>, With<Browsing>)>,
+    panels: Query<(Entity, Has<PendingShow>), (With<Panel>, With<Browsing>)>,
     panes: Query<(Entity, &BrowsePane)>,
     mut focus: ResMut<InputFocus>,
 ) {
@@ -132,12 +137,16 @@ pub fn sync_browse_panes(
             commands.entity(entity).despawn();
         }
     }
-    for panel in &panels {
+    for (panel, pending) in &panels {
         if panes.iter().any(|(_, pane)| pane.panel == panel) {
             continue;
         }
         let field = spawn_pane(&mut commands, &catalogs, panel);
-        focus.set(field, FocusCause::Navigated);
+        // One waiting on a dataset hides its search, and typing into it
+        // would search for nothing anyone can see.
+        if !pending {
+            focus.set(field, FocusCause::Navigated);
+        }
     }
 }
 
@@ -203,6 +212,7 @@ fn spawn_pane(commands: &mut Commands, catalogs: &Catalogs, panel: Entity) -> En
         .id();
 
     let (browser, field) = spawn_dataset_browser(commands, catalogs, PickerTarget::Frame(panel));
+    commands.entity(browser).insert(BrowseChoices);
     commands
         .entity(column)
         .add_children(&[header, status, browser]);
@@ -259,6 +269,7 @@ pub fn sync_browse_text(
     columns: Query<&Children>,
     mut titles: Query<&mut Text, With<BrowseTitle>>,
     mut statuses: Query<&mut Notice, With<BrowseStatus>>,
+    mut choices: Query<&mut Node, With<BrowseChoices>>,
 ) {
     for (pane, children) in &panes {
         let Ok((shows, pending, failed)) = panels.get(pane.panel) else {
@@ -287,6 +298,12 @@ pub fn sync_browse_text(
             }
             if let Ok(mut shown) = statuses.get_mut(entity) {
                 shown.set_if_neq(status.clone());
+            }
+            if let Ok(node) = choices.get_mut(entity) {
+                let waiting = shows.is_none() && pending.is_some();
+                patch_node(node, |node| {
+                    node.display = crate::widgets::display(!waiting);
+                });
             }
         }
     }

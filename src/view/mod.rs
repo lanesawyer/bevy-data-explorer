@@ -61,7 +61,9 @@ pub use grid::{MAX_PANELS, grid_for};
 pub use input::TextEntryFocused;
 pub use layers::{FrameLayers, LayerOf, LayerOpacity, OpensAsLayer};
 pub use orbit::Orbit;
-pub use requests::{DatasetRequest, DatasetTarget, PanelRequest, PendingShow, ShowFailed};
+pub use requests::{
+    AwaitDataset, DatasetRequest, DatasetTarget, PanelRequest, PendingShow, ShowFailed,
+};
 pub use select::{FrameRegion, SelectMode};
 
 /// The frame the sidebar's controls act on.
@@ -270,6 +272,7 @@ impl Plugin for ViewPlugin {
         ))
         .add_message::<PanelRequest>()
         .add_message::<DatasetRequest>()
+        .add_message::<AwaitDataset>()
         .init_resource::<FrameArea>()
         // Created on the first registration otherwise; a frame drawing
         // cross-sections can ask for a layer before any source is open.

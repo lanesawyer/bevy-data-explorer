@@ -18,7 +18,7 @@ use bevy_ui_widgets::Activate;
 
 use crate::formats::image::store::split_plane;
 use crate::source::stack::{SliceStack, SourceAxes};
-use crate::source::{ShowsSource, SourceUrl};
+use crate::source::{DataSource, ShowsSource, SourceUrl};
 use crate::widgets::space;
 use crate::widgets::{
     BlocksFrameInput, Icon, Menu, button_text, set_display, set_text, size, spawn_icon_menu, text,
@@ -27,7 +27,7 @@ use crate::widgets::{
 
 use super::link::Linked;
 use super::sections::CrossSections;
-use super::{DatasetRequest, DatasetTarget, Panel, PanelRequest};
+use super::{AwaitDataset, DatasetRequest, DatasetTarget, Panel, PanelRequest};
 
 /// How long frames asked for by "All views" are waited on before being given
 /// up on: the other cuts are read from the store like anything else, and a
@@ -307,9 +307,9 @@ pub fn on_all_views(
     time: Res<Time>,
     buttons: Query<&AllViews>,
     frames: Query<&ShowsSource>,
-    sources: Query<(&SourceUrl, Option<&SourceAxes>)>,
+    sources: Query<(&SourceUrl, &DataSource, Option<&SourceAxes>)>,
     mut menus: Query<(&PanelPlaneMenu, &mut Menu)>,
-    mut datasets: MessageWriter<DatasetRequest>,
+    mut awaiting: MessageWriter<AwaitDataset>,
     mut panels: MessageWriter<PanelRequest>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
@@ -320,7 +320,7 @@ pub fn on_all_views(
             open.open = false;
         }
     }
-    let Some((source, (url, axes))) = frames
+    let Some((source, (url, data, axes))) = frames
         .get(button.panel)
         .ok()
         .and_then(|shows| Some((shows.0, sources.get(shows.0).ok()?)))
@@ -332,16 +332,23 @@ pub fn on_all_views(
         .and_then(|axes| axes.through)
         .map(|through| through.axis);
     let (address, _) = split_plane(&url.0);
-    let addresses: Vec<String> = other_planes(along)
-        .map(|plane| format!("{address}#plane={plane}"))
-        .collect();
-    for url in &addresses {
-        datasets.write(DatasetRequest {
-            url: url.clone(),
-            target: DatasetTarget::NewFrame,
-        });
-    }
+    let mut addresses = Vec::new();
+    // Every frame asked for at once, so the grid takes its final shape
+    // straight away: the 3D one, onto what is already open, and one waiting
+    // on each plane still to be read, filled as it lands.
     panels.write(PanelRequest::Open(source));
+    for plane in other_planes(along) {
+        let url = format!("{address}#plane={plane}");
+        let described = PLANES
+            .iter()
+            .find(|(name, ..)| *name == plane)
+            .map_or(plane, |(_, described, _)| described);
+        awaiting.write(AwaitDataset {
+            url: url.clone(),
+            name: format!("{}, {}", data.name, described.to_lowercase()),
+        });
+        addresses.push(url);
+    }
     commands.entity(button.panel).insert(Linked::default());
     commands.insert_resource(Arranging {
         addresses,

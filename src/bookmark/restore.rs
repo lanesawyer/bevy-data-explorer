@@ -670,6 +670,8 @@ mod tests {
             bevy::scene::ScenePlugin,
         ))
         .add_message::<PanelRequest>()
+        .add_message::<crate::view::AwaitDataset>()
+        .add_message::<crate::view::DatasetRequest>()
         .init_resource::<FrameArea>()
         .init_resource::<SelectedPanel>()
         .init_resource::<BookmarkNotice>()

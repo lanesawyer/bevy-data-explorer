@@ -90,6 +90,19 @@ impl DatasetTarget {
     }
 }
 
+/// Open an empty frame waiting on the dataset at `url`, which fills it once
+/// read.
+///
+/// For frames asked for together, as "All views" asks for the planes it
+/// adds: each takes its cell at once, rather than appearing only when its
+/// read lands and shuffling the grid as each one does.
+#[derive(Message, Clone, Debug)]
+pub struct AwaitDataset {
+    pub url: String,
+    /// What to call it while it is being read.
+    pub name: String,
+}
+
 /// A frame waiting on a dataset still being read, to show in place of its own.
 ///
 /// Carries the address and a name to report, so the frame can say what it is
@@ -109,6 +122,8 @@ pub struct ShowFailed(pub String);
 pub fn apply_panel_requests(
     mut commands: Commands,
     mut requests: MessageReader<PanelRequest>,
+    mut awaiting: MessageReader<AwaitDataset>,
+    mut datasets: MessageWriter<DatasetRequest>,
     mut selected: ResMut<SelectedPanel>,
     area: Res<FrameArea>,
     panels: Query<(
@@ -133,7 +148,8 @@ pub fn apply_panel_requests(
     frames: Query<(Entity, &Panel)>,
 ) {
     let requests: Vec<PanelRequest> = requests.read().copied().collect();
-    if requests.is_empty() {
+    let awaiting: Vec<AwaitDataset> = awaiting.read().cloned().collect();
+    if requests.is_empty() && awaiting.is_empty() {
         return;
     }
 
@@ -394,6 +410,22 @@ pub fn apply_panel_requests(
         }
     }
 
+    for AwaitDataset { url, name } in awaiting {
+        if open.len() + spawned >= MAX_PANELS {
+            continue;
+        }
+        let panel = spawn_browse_panel(&mut commands, open.len() + spawned, palette.frame_bg);
+        commands.entity(panel).insert(PendingShow {
+            url: url.clone(),
+            name,
+        });
+        datasets.write(DatasetRequest {
+            url,
+            target: DatasetTarget::Show(panel),
+        });
+        spawned += 1;
+    }
+
     // Closing them all is allowed: the window falls back to the empty state it
     // starts in, which is a way back rather than a dead end.
     for entity in closing {
@@ -431,6 +463,8 @@ mod tests {
             bevy::scene::ScenePlugin,
         ))
         .add_message::<PanelRequest>()
+        .add_message::<AwaitDataset>()
+        .add_message::<DatasetRequest>()
         .init_resource::<FrameArea>()
         .init_resource::<SelectedPanel>()
         .insert_resource(crate::app::theme::Palette::dark())
@@ -479,6 +513,28 @@ mod tests {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_frame_awaiting_a_dataset_opens_at_once_and_asks_for_it() {
+        let mut app = app();
+        app.world_mut().write_message(AwaitDataset {
+            url: "https://h/a.zarr#plane=zy".into(),
+            name: "A, looking along x".into(),
+        });
+        app.update();
+        let panel = only_panel(&mut app);
+        assert!(app.world().get::<ShowsSource>(panel).is_none());
+        let pending = app.world().get::<PendingShow>(panel).unwrap();
+        assert_eq!(pending.url, "https://h/a.zarr#plane=zy");
+
+        let asked: Vec<DatasetRequest> = app
+            .world_mut()
+            .resource_mut::<Messages<DatasetRequest>>()
+            .drain()
+            .collect();
+        assert_eq!(asked.len(), 1);
+        assert_eq!(asked[0].target, DatasetTarget::Show(panel));
     }
 
     #[test]
