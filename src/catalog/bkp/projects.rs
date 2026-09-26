@@ -98,16 +98,16 @@ struct Data {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Project {
-    reference_id: String,
+pub(super) struct Project {
+    pub(super) reference_id: String,
     title: Option<String>,
     short_title: Option<String>,
     #[serde(default)]
-    capabilities: Vec<String>,
+    pub(super) capabilities: Vec<String>,
 }
 
 /// Whether the platform says this project's specimens are worth asking for.
-fn tabulated(capabilities: &[String]) -> bool {
+pub(super) fn tabulated(capabilities: &[String]) -> bool {
     capabilities
         .iter()
         .any(|capability| TABULATED.contains(&capability.as_str()))
@@ -123,6 +123,27 @@ fn address(endpoint: &str, project: &str) -> String {
     format!("{endpoint}?specimens={project}")
 }
 
+/// A project's specimens as a table to open.
+pub(super) fn entry(endpoint: &str, project: Project) -> Entry {
+    // The long title is what a project is known by; the short one is worth
+    // searching on when they differ.
+    let title = project
+        .title
+        .filter(|title| !title.trim().is_empty())
+        .or_else(|| project.short_title.clone());
+    let short = project.short_title.unwrap_or_default();
+    Entry {
+        name: title.unwrap_or_else(|| project.reference_id.clone()),
+        kind: "Specimen table".into(),
+        category: Category::Table,
+        url: address(endpoint, &project.reference_id),
+        keywords: short,
+        // Specimens are records, not cells: nothing here describes the cells
+        // of anything.
+        cells: None,
+    }
+}
+
 /// The qualifying entries on a page, and how many projects the page held.
 fn parse_page(endpoint: &str, text: &str) -> Result<(Vec<Entry>, usize), String> {
     let projects = Response::<Data>::parse(text)
@@ -136,25 +157,7 @@ fn parse_page(endpoint: &str, text: &str) -> Result<(Vec<Entry>, usize), String>
     let entries = projects
         .into_iter()
         .filter(|project| tabulated(&project.capabilities))
-        .map(|project| {
-            // The long title is what a project is known by; the short one is
-            // worth searching on when they differ.
-            let title = project
-                .title
-                .filter(|title| !title.trim().is_empty())
-                .or_else(|| project.short_title.clone());
-            let short = project.short_title.unwrap_or_default();
-            Entry {
-                name: title.unwrap_or_else(|| project.reference_id.clone()),
-                kind: "Specimen table".into(),
-                category: Category::Table,
-                url: address(endpoint, &project.reference_id),
-                keywords: short,
-                // Specimens are records, not cells: nothing here describes
-                // the cells of anything.
-                cells: None,
-            }
-        })
+        .map(|project| entry(endpoint, project))
         .collect();
     Ok((entries, read))
 }

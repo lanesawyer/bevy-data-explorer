@@ -141,7 +141,9 @@ fn spawn_blocks(commands: &mut Commands, dashboard: &Dashboard) -> Vec<Entity> {
     for block in &dashboard.blocks {
         match block {
             Block::Figures(figures) => parts.push(spawn_figures(commands, figures)),
-            Block::Breakdown { title, bars } => rest.push(spawn_breakdown(commands, title, bars)),
+            Block::Breakdown { title, note, bars } => {
+                rest.push(spawn_breakdown(commands, title, note.as_deref(), bars));
+            }
             Block::Datasets {
                 title,
                 note,
@@ -238,8 +240,13 @@ fn spawn_block(commands: &mut Commands, title: &str, note: Option<&str>) -> Enti
 
 /// A row for each bar: what it is, the bar against the largest, and the
 /// count.
-fn spawn_breakdown(commands: &mut Commands, title: &str, bars: &[Bar]) -> Entity {
-    let block = spawn_block(commands, title, None);
+fn spawn_breakdown(
+    commands: &mut Commands,
+    title: &str,
+    note: Option<&str>,
+    bars: &[Bar],
+) -> Entity {
+    let block = spawn_block(commands, title, note);
     let largest = bars.iter().map(|bar| bar.value).max().unwrap_or(1).max(1);
     let mut cells = Vec::new();
     for bar in bars {

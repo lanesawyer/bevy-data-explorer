@@ -10,8 +10,12 @@
 //! Every entry also carries the platform's own description of the dataset's
 //! cells, from [`cells`], so a BKP dataset shows the labels, colors and counts
 //! the portal does rather than the codes its files hold.
+//!
+//! Its [`dashboard`] counts the platform's projects, cells and specimens, and
+//! offers its newest datasets and every specimen table.
 
 pub mod cells;
+pub mod dashboard;
 pub mod projects;
 
 use std::sync::Arc;
@@ -19,6 +23,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 
+use super::dashboard::Dashboard;
 use super::examples::Example;
 use super::{Catalog, CellService, Entry, Provider};
 use crate::app::graphql::{self, Response};
@@ -150,6 +155,15 @@ impl Catalog for Bkp {
     fn list(&self) -> BoxFuture<'static, Result<Vec<Entry>, String>> {
         Box::pin(list(self.endpoint.clone()))
     }
+
+    fn has_dashboard(&self) -> bool {
+        true
+    }
+
+    fn dashboard(&self) -> BoxFuture<'static, Result<Dashboard, String>> {
+        let endpoint = self.endpoint.clone();
+        Box::pin(async move { dashboard::dashboard(&endpoint).await })
+    }
 }
 
 async fn list(endpoint: String) -> Result<Vec<Entry>, String> {
@@ -200,6 +214,9 @@ struct Dataset {
     title: String,
     short_title: String,
     visualizations: Vec<Visualization>,
+    /// When it was added. Only the dashboard asks for it.
+    #[serde(default)]
+    created_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -219,8 +236,25 @@ fn parse_page(endpoint: &str, text: &str) -> Result<(Vec<Entry>, Option<String>)
         .and_then(|data| data.bkp_datasets)
         .ok_or("BKP datasets: the response held no datasets")?;
 
+    let entries = connection
+        .nodes
+        .into_iter()
+        .flat_map(|dataset| entries_of(endpoint, dataset))
+        .collect();
+
+    let next = connection
+        .page_info
+        .has_next_page
+        .then_some(connection.page_info.end_cursor)
+        .flatten();
+    Ok((entries, next))
+}
+
+/// An entry for each of a dataset's visualizations, each carrying the
+/// platform's description of its cells.
+fn entries_of(endpoint: &str, dataset: Dataset) -> Vec<Entry> {
     let mut entries = Vec::new();
-    for dataset in connection.nodes {
+    {
         let several = dataset.visualizations.len() > 1;
         let cells = CellService(Arc::new(cells::BkpCells {
             endpoint: endpoint.to_string(),
@@ -249,13 +283,7 @@ fn parse_page(endpoint: &str, text: &str) -> Result<(Vec<Entry>, Option<String>)
             });
         }
     }
-
-    let next = connection
-        .page_info
-        .has_next_page
-        .then_some(connection.page_info.end_cursor)
-        .flatten();
-    Ok((entries, next))
+    entries
 }
 
 fn describe(typename: &str) -> &str {

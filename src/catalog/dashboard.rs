@@ -28,7 +28,12 @@ pub enum Block {
     Figures(Vec<Figure>),
     /// How one count divides, largest first. Every bar is of the same thing,
     /// so they can be drawn against one scale.
-    Breakdown { title: String, bars: Vec<Bar> },
+    Breakdown {
+        title: String,
+        /// A line under the title, such as how many bars were left off.
+        note: Option<String>,
+        bars: Vec<Bar>,
+    },
     /// Datasets to open, each a button.
     Datasets {
         title: String,
@@ -77,8 +82,27 @@ impl Block {
         bars.sort_by(|a, b| b.value.cmp(&a.value).then_with(|| a.label.cmp(&b.label)));
         Block::Breakdown {
             title: title.into(),
+            note: None,
             bars,
         }
+    }
+
+    /// A breakdown of only the `most` largest of `bars`, noting how many
+    /// there were: a list of every species studied is too long to read, and
+    /// its tail too short to see.
+    pub fn largest(
+        title: impl Into<String>,
+        bars: impl IntoIterator<Item = Bar>,
+        most: usize,
+    ) -> Self {
+        let mut block = Block::breakdown(title, bars);
+        if let Block::Breakdown { note, bars, .. } = &mut block
+            && bars.len() > most
+        {
+            *note = Some(format!("The {most} largest of {}.", bars.len()));
+            bars.truncate(most);
+        }
+        block
     }
 
     /// Whether there is nothing in it to show.
@@ -99,6 +123,15 @@ impl Dashboard {
             _ => &[],
         })
     }
+}
+
+/// `brain specimen block` as `Brain specimen block`, for labels a source
+/// writes in lowercase.
+pub fn sentence_case(label: &str) -> String {
+    let mut chars = label.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(chars).collect()
+    })
 }
 
 /// How a source's dashboard is coming along.
@@ -138,5 +171,23 @@ mod tests {
         };
         let labels: Vec<&str> = bars.iter().map(|bar| bar.label.as_str()).collect();
         assert_eq!(labels, ["mouse", "human", "marmoset"]);
+    }
+
+    #[test]
+    fn a_long_breakdown_keeps_its_largest_and_says_so() {
+        let Block::Breakdown { bars, note, .. } = Block::largest(
+            "By species",
+            [bar("marmoset", 5), bar("mouse", 101), bar("human", 69)],
+            2,
+        ) else {
+            unreachable!()
+        };
+        assert_eq!(bars.len(), 2);
+        assert_eq!(bars[1].label, "human");
+        assert_eq!(note.as_deref(), Some("The 2 largest of 3."));
+        let Block::Breakdown { note, .. } = Block::largest("Short", [bar("a", 1)], 2) else {
+            unreachable!()
+        };
+        assert_eq!(note, None, "nothing left off, nothing to say");
     }
 }

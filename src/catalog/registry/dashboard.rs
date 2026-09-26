@@ -20,7 +20,7 @@ use serde::Deserialize;
 use super::{Asset, entry};
 use crate::app::graphql::{self, Response};
 use crate::catalog::Entry;
-use crate::catalog::dashboard::{Bar, Block, Dashboard, Figure};
+use crate::catalog::dashboard::{Bar, Block, Dashboard, Figure, sentence_case};
 
 /// How many of the newest images are offered.
 const NEWEST: usize = 6;
@@ -364,14 +364,6 @@ fn common_name(species: &Species) -> String {
     }
 }
 
-/// `brain specimen block` as `Brain specimen block`.
-fn sentence_case(label: &str) -> String {
-    let mut chars = label.chars();
-    chars.next().map_or_else(String::new, |first| {
-        first.to_uppercase().chain(chars).collect()
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -448,7 +440,9 @@ mod tests {
             .blocks
             .iter()
             .find_map(|block| match block {
-                Block::Breakdown { title: of, bars } if of == title => Some(bars.as_slice()),
+                Block::Breakdown {
+                    title: of, bars, ..
+                } if of == title => Some(bars.as_slice()),
                 _ => None,
             })
             .unwrap_or_else(|| panic!("no {title}"))
