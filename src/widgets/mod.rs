@@ -87,6 +87,7 @@ impl Plugin for WidgetsPlugin {
                     scrollbar::show_scrollbars,
                     search::sync_search_hints,
                     skeleton::pulse_skeletons,
+                    slider::repaint_sliders,
                     notice::sync_notices,
                 )
                     .chain()
