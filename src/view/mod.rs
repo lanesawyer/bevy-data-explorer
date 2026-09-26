@@ -19,6 +19,7 @@ pub mod browse;
 pub mod camera;
 pub mod capture;
 pub mod chrome;
+pub mod crosshair;
 pub mod dataset_menu;
 pub mod grid;
 pub mod input;
@@ -263,6 +264,7 @@ impl Plugin for ViewPlugin {
             browse::BrowsePlugin,
             capture::CapturePlugin,
             scale_bar::ScaleBarPlugin,
+            crosshair::CrosshairPlugin,
             table::TablePlugin,
         ))
         .add_message::<PanelRequest>()
@@ -275,6 +277,7 @@ impl Plugin for ViewPlugin {
         .add_observer(select::on_select_toggled)
         .add_observer(link::on_link_toggled)
         .add_observer(plane::on_plane_chosen)
+        .add_observer(plane::on_all_views)
         .add_systems(Update, track_text_focus.in_set(Stage::Focus))
         .add_systems(Update, reset_frame_area.in_set(Stage::FrameArea))
         .add_systems(
@@ -295,6 +298,7 @@ impl Plugin for ViewPlugin {
                 select::drag_region,
                 panel_controls,
                 reset_selected_view,
+                link::recenter_on_double_click,
                 // After every gesture and shortcut that moves a frame, so the
                 // frames linked with it move in the same frame.
                 link::follow_links,
@@ -318,6 +322,7 @@ impl Plugin for ViewPlugin {
                 select::sync_select_buttons,
                 link::sync_link_buttons,
                 plane::sync_plane_menus,
+                plane::arrange_views,
                 select::place_region_outlines,
             )
                 .in_set(Stage::Chrome),

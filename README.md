@@ -378,7 +378,8 @@ whatever the original happened to load.
 | `x` button | close that panel |
 | info button | open the inspector on that frame |
 | chain button | link that frame: every linked frame pans, zooms and pages slices with the others |
-| axes button | cut that frame's stack another way: looking along z, x or y, or as the dataset opens |
+| axes button | **All views**: the stack cut three ways and in 3D, a frame each, linked; or one plane: looking along z, x or y, or as the dataset opens |
+| double-click, linked | move the point linked frames share to what was clicked |
 | cube / square button | look at a stack in depth, or go back to the flat view; offered only where the data has depth |
 | drag, in 3D | turn the volume; right-, middle- or shift-drag slides it, scroll zooms toward the pointer, `R` turns it back |
 | dataset name | show a different dataset in that frame |
@@ -406,7 +407,13 @@ whose name, kind or address contain every word typed, Enter takes the first
 match, the arrow keys move through the rest, and Escape closes it. The
 frame's layers stay where they are, over the new dataset.
 
-A stack can be cut three ways. The axes button in a frame's header opens it
+A stack can be cut three ways. **All views**, under the axes button in a
+frame's header, is Neuroglancer's four panels: the frame is joined by the
+stack cut the other two ways and by the stack in 3D, each in a frame of its
+own and all linked on one point. Each linked frame draws a crosshair through
+that point, its lines in the color of the axes they run along, so where one
+frame's line crosses is where another frame is paging; double-click
+anywhere in one to move the point there. The same menu cuts a single frame
 looking along z (x across, y down), along x (z across, y down) or along y
 (x across, z down). Each is the same address with the plane named after it,
 `…zarr#plane=zy`, so a cut is a dataset of its own: typed, saved in a

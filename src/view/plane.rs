@@ -1,33 +1,69 @@
-//! Which plane a frame cuts a stack in.
+//! Which way a frame looks through a stack: one plane, or all of them.
 //!
-//! A menu in the frame's header offers the three ways through a volume, and
-//! the way the dataset opens by default. Choosing one asks for the same
-//! address with the plane named after it (`#plane=zy`), in this frame — so
-//! the stack cut another way is a source of its own, read, framed, saved and
-//! linked like any other, and the reader is the only thing that knows what a
-//! plane is.
+//! A menu in the frame's header offers every view at once, as Neuroglancer
+//! opens: the stack cut the other two ways and seen in 3D, each in a frame of
+//! its own, all linked, so one point is shared between them and the
+//! crosshairs meet on it. Beneath that it offers the three planes one at a
+//! time, and the way the dataset opens by default.
+//!
+//! A plane is the same address with the plane named after it (`#plane=zy`),
+//! so the stack cut another way is a source of its own, read, framed, saved
+//! and linked like any other, and the reader is the only thing that knows
+//! what a plane is.
 
 use bevy::prelude::*;
 use bevy_feathers::controls::FeathersButton;
 use bevy_ui_widgets::Activate;
 
 use crate::formats::image::store::split_plane;
-use crate::source::stack::SliceStack;
+use crate::source::stack::{SliceStack, SourceAxes};
+use crate::source::volume::SourceVolume;
 use crate::source::{ShowsSource, SourceUrl};
 use crate::widgets::space;
 use crate::widgets::{
     BlocksFrameInput, Icon, Menu, button_text, set_display, size, spawn_icon_menu, text, text_dim,
 };
 
-use super::{DatasetRequest, DatasetTarget};
+use super::link::Linked;
+use super::{DatasetRequest, DatasetTarget, Orbit, Panel, PanelRequest, View};
 
-/// The three planes through a volume, across then down, and how each is
-/// described: by the axis it looks along, which is what it pages through.
-const PLANES: [(&str, &str); 3] = [
-    ("xy", "Looking along z"),
-    ("zy", "Looking along x"),
-    ("xz", "Looking along y"),
+/// How long frames asked for by "All views" are waited on before being given
+/// up on: the other cuts are read from the store like anything else, and a
+/// store that has not answered by then is not going to.
+const ARRANGE_PATIENCE_SECS: f32 = 60.0;
+
+/// The three planes through a volume, across then down, how each is
+/// described, and the axis it looks along, which is what it pages through.
+const PLANES: [(&str, &str, char); 3] = [
+    ("xy", "Looking along z", 'z'),
+    ("zy", "Looking along x", 'x'),
+    ("xz", "Looking along y", 'y'),
 ];
+
+/// The choice that opens every view of the stack at once.
+#[derive(Component, Clone)]
+pub struct AllViews {
+    panel: Entity,
+}
+
+impl Default for AllViews {
+    fn default() -> Self {
+        AllViews {
+            panel: Entity::PLACEHOLDER,
+        }
+    }
+}
+
+/// Frames "All views" asked for and has not yet linked: the other cuts by
+/// address, and the source to see in 3D in a frame other than the one asked
+/// from.
+#[derive(Resource)]
+pub struct Arranging {
+    addresses: Vec<String>,
+    volume: Option<Entity>,
+    origin: Entity,
+    since: f32,
+}
 
 /// A frame's plane menu, shown only over a stack.
 #[derive(Component, Clone)]
@@ -77,8 +113,19 @@ pub(super) fn spawn_plane_menu(commands: &mut Commands, header: Entity, panel: E
                 row_gap: { Val::Px(space::ROWS) },
             }
             Children [
-                text("Plane", size::BODY),
-                text_dim("Which way the stack is cut. Each opens as a dataset of its own.", size::SMALL),
+                (
+                    @FeathersButton {
+                        @caption: { bsn_list![button_text("All views")] }
+                    }
+                    BlocksFrameInput
+                    AllViews { panel: { panel } }
+                ),
+                text_dim(
+                    "The stack cut three ways and in 3D, a frame each, linked on one point. \
+                     Double-click in any of them to move it.",
+                    size::SMALL
+                ),
+                text("One plane", size::BODY),
                 {choice(None, "As the dataset opens")},
                 {choice(Some(PLANES[0].0), PLANES[0].1)},
                 {choice(Some(PLANES[1].0), PLANES[1].1)},
@@ -138,4 +185,125 @@ pub fn on_plane_chosen(
         url,
         target: DatasetTarget::Show(choice.panel),
     });
+}
+
+/// The planes a frame looking along `along` does not show.
+fn other_planes(along: Option<char>) -> impl Iterator<Item = &'static str> {
+    PLANES
+        .iter()
+        .filter(move |(.., looking)| Some(*looking) != along)
+        .map(|(plane, ..)| *plane)
+}
+
+/// Open every view of the frame's stack: the two planes it is not cut in, and
+/// the volume in 3D, beside it and linked with it.
+pub fn on_all_views(
+    activate: On<Activate>,
+    mut commands: Commands,
+    time: Res<Time>,
+    buttons: Query<&AllViews>,
+    frames: Query<&ShowsSource>,
+    sources: Query<(&SourceUrl, Option<&SourceAxes>, Has<SourceVolume>)>,
+    mut menus: Query<(&PanelPlaneMenu, &mut Menu)>,
+    mut datasets: MessageWriter<DatasetRequest>,
+    mut panels: MessageWriter<PanelRequest>,
+) {
+    let Ok(button) = buttons.get(activate.entity) else {
+        return;
+    };
+    for (menu, mut open) in &mut menus {
+        if menu.panel == button.panel {
+            open.open = false;
+        }
+    }
+    let Some((source, (url, axes, volume))) = frames
+        .get(button.panel)
+        .ok()
+        .and_then(|shows| Some((shows.0, sources.get(shows.0).ok()?)))
+    else {
+        return;
+    };
+    // The plane this frame already shows is the one it looks along.
+    let along = axes
+        .and_then(|axes| axes.through)
+        .map(|through| through.axis);
+    let (address, _) = split_plane(&url.0);
+    let addresses: Vec<String> = other_planes(along)
+        .map(|plane| format!("{address}#plane={plane}"))
+        .collect();
+    for url in &addresses {
+        datasets.write(DatasetRequest {
+            url: url.clone(),
+            target: DatasetTarget::NewFrame,
+        });
+    }
+    if volume {
+        panels.write(PanelRequest::Open(source));
+    }
+    commands.entity(button.panel).insert(Linked::default());
+    commands.insert_resource(Arranging {
+        addresses,
+        volume: volume.then_some(source),
+        origin: button.panel,
+        since: time.elapsed_secs(),
+    });
+}
+
+/// Link each frame "All views" asked for as it opens, and turn the one onto
+/// the same stack into 3D.
+pub fn arrange_views(
+    mut commands: Commands,
+    time: Res<Time>,
+    arranging: Option<ResMut<Arranging>>,
+    frames: Query<(Entity, &ShowsSource, &Transform, &Projection, Has<Linked>), With<Panel>>,
+    urls: Query<&SourceUrl>,
+    volumes: Query<&SourceVolume>,
+    orbits: Query<(), With<Orbit>>,
+) {
+    let Some(mut arranging) = arranging else {
+        return;
+    };
+    for (panel, shows, transform, projection, linked) in &frames {
+        if let Ok(url) = urls.get(shows.0)
+            && let Some(at) = arranging.addresses.iter().position(|it| *it == url.0)
+        {
+            arranging.addresses.remove(at);
+            if !linked {
+                commands.entity(panel).insert(Linked::default());
+            }
+            continue;
+        }
+        if arranging.volume == Some(shows.0)
+            && panel != arranging.origin
+            && !orbits.contains(panel)
+            && let (Ok(volume), Projection::Orthographic(ortho)) =
+                (volumes.get(shows.0), projection)
+        {
+            let flat = View {
+                center: transform.translation.truncate(),
+                scale: ortho.scale,
+            };
+            commands.entity(panel).insert(Orbit::fit(volume, flat));
+            arranging.volume = None;
+        }
+    }
+    let waited = time.elapsed_secs() - arranging.since > ARRANGE_PATIENCE_SECS;
+    if (arranging.addresses.is_empty() && arranging.volume.is_none()) || waited {
+        commands.remove_resource::<Arranging>();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_views_opens_the_planes_a_frame_is_not_cut_in() {
+        // A stack looking down z is joined by the cuts along x and along y.
+        assert_eq!(other_planes(Some('z')).collect::<Vec<_>>(), ["zy", "xz"]);
+        // The sagittal projection looks along x.
+        assert_eq!(other_planes(Some('x')).collect::<Vec<_>>(), ["xy", "xz"]);
+        // Without knowing, every plane is asked for.
+        assert_eq!(other_planes(None).count(), 3);
+    }
 }

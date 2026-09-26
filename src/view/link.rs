@@ -286,6 +286,65 @@ pub fn follow_links(
     }
 }
 
+/// Two presses of the left button closer than this, in seconds and logical
+/// pixels, are a double-click.
+const DOUBLE_CLICK_SECS: f32 = 0.4;
+const DOUBLE_CLICK_PX: f32 = 6.0;
+
+/// Double-click in a linked frame to move the point the link shares there:
+/// the frame is centered on what was clicked, and the others follow it, as a
+/// click moves the position in Neuroglancer.
+pub fn recenter_on_double_click(
+    buttons: Res<ButtonInput<MouseButton>>,
+    time: Res<Time>,
+    windows: Query<&Window>,
+    hover: Res<bevy::picking::hover::HoverMap>,
+    chrome: Query<(), With<BlocksFrameInput>>,
+    parents: Query<&ChildOf>,
+    mut frames: Query<
+        (&Camera, &GlobalTransform, &mut Transform, &Projection),
+        (
+            With<Linked>,
+            With<Panel>,
+            Without<Orbit>,
+            Without<super::SelectMode>,
+        ),
+    >,
+    mut last: Local<Option<(f32, Vec2)>>,
+) {
+    if !buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let Some(cursor) = windows.single().ok().and_then(Window::cursor_position) else {
+        return;
+    };
+    if super::input::pointer_over_chrome(&hover, &chrome, &parents) {
+        *last = None;
+        return;
+    }
+    let now = time.elapsed_secs();
+    let double = last.is_some_and(|(at, from)| {
+        now - at <= DOUBLE_CLICK_SECS && from.distance(cursor) <= DOUBLE_CLICK_PX
+    });
+    if !double {
+        *last = Some((now, cursor));
+        return;
+    }
+    *last = None;
+    for (camera, global, mut transform, projection) in &mut frames {
+        let inside = camera
+            .logical_viewport_rect()
+            .is_some_and(|rect| rect.contains(cursor));
+        if !inside || !matches!(projection, Projection::Orthographic(_)) {
+            continue;
+        }
+        if let Ok(world) = camera.viewport_to_world_2d(global, cursor) {
+            transform.translation = world.extend(transform.translation.z);
+        }
+        break;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

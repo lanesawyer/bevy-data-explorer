@@ -207,6 +207,7 @@ pub fn drive_capture(
     sources: Query<&DataSource>,
     headers: Query<(Entity, &PanelHeader)>,
     tooltips: Query<(Entity, &PanelTooltip)>,
+    crosshairs: Query<(Entity, &super::crosshair::CrosshairLine)>,
     bars: Query<(Entity, &LoadingBar)>,
     outline: Query<Entity, With<SelectionBorder>>,
     hidden: Query<Entity, With<HiddenForCapture>>,
@@ -231,6 +232,11 @@ pub fn drive_capture(
             }
             for (entity, tooltip) in &tooltips {
                 if tooltip.panel == panel {
+                    hide(entity);
+                }
+            }
+            for (entity, line) in &crosshairs {
+                if line.panel() == panel {
                     hide(entity);
                 }
             }
