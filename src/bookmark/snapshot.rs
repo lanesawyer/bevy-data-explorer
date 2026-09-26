@@ -118,6 +118,10 @@ pub struct ChannelState {
     pub label: String,
     pub shown: bool,
     pub gain: f32,
+    /// A color picked over the dataset's own; absent leaves the channel in
+    /// whatever it is painted in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<[f32; 3]>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -276,10 +280,15 @@ pub fn channels_of(channels: &SourceChannels) -> Vec<ChannelState> {
     channels
         .channels
         .iter()
-        .map(|channel| ChannelState {
+        .enumerate()
+        .map(|(index, channel)| ChannelState {
             label: channel.label.clone(),
             shown: channel.shown,
             gain: channel.gain,
+            color: channels
+                .published(index)
+                .is_none_or(|own| own.color != channel.color)
+                .then_some(channel.color),
         })
         .collect()
 }
@@ -297,6 +306,9 @@ pub fn apply_channels(channels: &mut SourceChannels, saved: &[ChannelState]) -> 
             Some(channel) => {
                 channel.shown = state.shown;
                 channel.gain = state.gain.clamp(0.0, MAX_GAIN);
+                if let Some(color) = state.color {
+                    channel.color = color.map(|it| it.clamp(0.0, 1.0));
+                }
             }
             None => missing.push(state.label.clone()),
         }
@@ -748,17 +760,32 @@ mod tests {
                 label: "GFP".into(),
                 shown: false,
                 gain: 2.0,
+                color: Some([1.0, 0.5, 0.0]),
             },
             ChannelState {
                 label: "RFP".into(),
                 shown: true,
                 gain: 1.0,
+                color: None,
             },
         ];
         assert_eq!(apply_channels(&mut channels, &saved), ["RFP"]);
         assert!(channels.channels[0].shown);
         assert!(!channels.channels[1].shown);
         assert_eq!(channels.channels[1].gain, 2.0);
+        assert_eq!(channels.channels[1].color, [1.0, 0.5, 0.0]);
+    }
+
+    #[test]
+    fn only_a_color_picked_over_the_datasets_is_saved() {
+        let mut channels = SourceChannels::new(vec![
+            ChannelSetting::new("DAPI", [0.0, 0.0, 1.0], true),
+            ChannelSetting::new("GFP", [0.0, 1.0, 0.0], true),
+        ]);
+        channels.channels[1].color = [1.0, 0.0, 1.0];
+        let saved = channels_of(&channels);
+        assert_eq!(saved[0].color, None);
+        assert_eq!(saved[1].color, Some([1.0, 0.0, 1.0]));
     }
 
     #[test]

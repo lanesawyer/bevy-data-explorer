@@ -41,6 +41,7 @@ pub fn bookmark_of(scene: &Scene) -> Bookmark {
                         label: channel.label.clone(),
                         shown: channel.shown,
                         gain: channel.gain,
+                        color: None,
                     })
                     .collect(),
                 ..Default::default()

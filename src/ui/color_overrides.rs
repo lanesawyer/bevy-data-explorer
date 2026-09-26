@@ -20,7 +20,13 @@
 //! The section lists every override on the selected source, each with its
 //! square to pick again and a button to drop it, and only appears once there
 //! is one.
+//!
+//! A channel's square opens the same picker, as a [`PickChannelColor`]. What
+//! is picked for a channel is written onto the channel itself in
+//! [`SourceChannels`], which already keeps what the dataset published to go
+//! back to, so it is not listed here: the channel's row is where it is seen.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::window::SystemCursorIcon;
 use bevy_feathers::controls::{
@@ -34,6 +40,7 @@ use bevy_ui_widgets::{Activate, Button, SliderValue, ValueChange};
 
 use crate::app::prefs::Preferences;
 use crate::app::schedule::{Boot, Stage};
+use crate::source::channels::SourceChannels;
 use crate::source::properties::{CellProperties, ColorOverrides, Provenance, default_color};
 use crate::ui::cell_panel::SWATCH_PX;
 use crate::ui::color_export::spawn_export_menu;
@@ -68,6 +75,18 @@ pub struct PickColor {
     pub code: u16,
 }
 
+/// A channel's square, which opens the picker on the color it is painted in.
+#[derive(Component, Clone, Default)]
+#[require(
+    Button,
+    BlocksFrameInput,
+    BackgroundColor,
+    EntityCursor = EntityCursor::System(SystemCursorIcon::Pointer)
+)]
+pub struct PickChannelColor {
+    pub channel: usize,
+}
+
 /// A dot in the middle of a value's square, saying its color was picked
 /// rather than its own. Only the cell panel's squares carry one: everything in
 /// the list here is picked.
@@ -89,15 +108,119 @@ const MARK_PX: f32 = 4.0;
 /// on whatever was picked.
 const LIGHT: f32 = 0.6;
 
-/// The value the picker is open on, on which source.
+/// What the picker is choosing a color for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Target {
+    /// A value of a property, by column and code.
+    Value { column: String, code: u16 },
+    /// A channel of an image, by its place in the source's channels.
+    Channel(usize),
+}
+
+/// What the picker is open on, on which source.
 #[derive(Resource, Default)]
 pub struct Picking {
     source: Option<Entity>,
-    column: String,
-    code: u16,
+    target: Option<Target>,
     /// Whether a color has been picked since the picker was last done with
     /// one, and so is worth remembering once it is.
     picked: bool,
+}
+
+/// Everything a color can be picked for, read and written the same way
+/// whichever it is.
+#[derive(SystemParam)]
+struct Colors<'w, 's> {
+    values: Query<'w, 's, (&'static CellProperties, &'static mut ColorOverrides)>,
+    channels: Query<'w, 's, &'static mut SourceChannels>,
+}
+
+impl Colors<'_, '_> {
+    /// The color `target` is drawn in now.
+    fn current(&self, source: Entity, target: &Target) -> Option<Color> {
+        match target {
+            Target::Value { column, code } => {
+                let (properties, overrides) = self.values.get(source).ok()?;
+                Some(current(properties, overrides, column, *code))
+            }
+            Target::Channel(index) => {
+                let [r, g, b] = self.channels.get(source).ok()?.channels.get(*index)?.color;
+                Some(Color::srgb(r, g, b))
+            }
+        }
+    }
+
+    /// Whether `target` is drawn in a color picked for it rather than its own.
+    fn picked(&self, source: Entity, target: &Target) -> bool {
+        match target {
+            Target::Value { column, code } => self
+                .values
+                .get(source)
+                .is_ok_and(|(_, overrides)| overrides.get(column, *code).is_some()),
+            Target::Channel(index) => self.channels.get(source).is_ok_and(|channels| {
+                channels.channels.get(*index).map(|it| it.color)
+                    != channels.published(*index).map(|it| it.color)
+            }),
+        }
+    }
+
+    fn set(&mut self, source: Entity, target: &Target, color: Color) {
+        match target {
+            Target::Value { column, code } => {
+                if let Ok((_, mut overrides)) = self.values.get_mut(source)
+                    && overrides.get(column, *code) != Some(color)
+                {
+                    overrides.set(column, *code, color);
+                }
+            }
+            Target::Channel(index) => {
+                let srgba = color.to_srgba();
+                let wanted = [srgba.red, srgba.green, srgba.blue];
+                if let Ok(mut channels) = self.channels.get_mut(source)
+                    && channels
+                        .channels
+                        .get(*index)
+                        .is_some_and(|it| it.color != wanted)
+                {
+                    channels.channels[*index].color = wanted;
+                }
+            }
+        }
+    }
+
+    /// Put `target` back in its own color.
+    fn reset(&mut self, source: Entity, target: &Target) {
+        match target {
+            Target::Value { column, code } => {
+                if let Ok((_, mut overrides)) = self.values.get_mut(source) {
+                    overrides.remove(column, *code);
+                }
+            }
+            Target::Channel(index) => {
+                if let Ok(mut channels) = self.channels.get_mut(source)
+                    && let Some(own) = channels.published(*index).map(|it| it.color)
+                {
+                    channels.channels[*index].color = own;
+                }
+            }
+        }
+    }
+
+    /// How the picker's title names `target`.
+    fn describe(&self, source: Entity, target: &Target) -> String {
+        match target {
+            Target::Value { column, code } => self.values.get(source).map_or_else(
+                |_| format!("{column}: code {code}"),
+                |(properties, _)| describe(properties, column, *code),
+            ),
+            Target::Channel(index) => self
+                .channels
+                .get(source)
+                .ok()
+                .and_then(|channels| channels.channels.get(*index))
+                .map_or_else(|| format!("channel {}", index + 1), |it| it.label.clone()),
+        }
+    }
 }
 
 #[derive(Component, Clone, Default)]
@@ -255,8 +378,30 @@ fn spawn_color_overrides(mut commands: Commands, content: Query<Entity, With<Sid
     commands.entity(picker).add_child(parts);
 }
 
-/// Open the picker under the square pressed, on the value it stands for; or
-/// close it, if it was already open there.
+/// Open the picker under the square pressed, on what it stands for; or close
+/// it, if it was already open there.
+fn open_picker(
+    square: Entity,
+    target: Target,
+    source: Option<Entity>,
+    picking: &mut Picking,
+    pickers: &mut Query<(&mut Menu, &mut MenuAnchor), With<ColorPicker>>,
+) {
+    let Ok((mut menu, mut anchor)) = pickers.single_mut() else {
+        return;
+    };
+    if menu.open && anchor.button == square {
+        menu.open = false;
+        return;
+    }
+    // What was picked before stays marked, so moving on from it remembers it
+    // as closing the picker would.
+    picking.source = source;
+    picking.target = Some(target);
+    anchor.button = square;
+    menu.open = true;
+}
+
 fn on_pick_color(
     activate: On<Activate>,
     squares: Query<&PickColor>,
@@ -267,46 +412,51 @@ fn on_pick_color(
     let Ok(square) = squares.get(activate.entity) else {
         return;
     };
-    let Ok((mut menu, mut anchor)) = pickers.single_mut() else {
-        return;
+    let target = Target::Value {
+        column: square.column.clone(),
+        code: square.code,
     };
-    if menu.open && anchor.button == activate.entity {
-        menu.open = false;
-        return;
-    }
-    // What was picked for the value before stays marked, so moving on from it
-    // remembers it as closing the picker would.
-    picking.source = selected.entity();
-    picking.column = square.column.clone();
-    picking.code = square.code;
-    anchor.button = activate.entity;
-    menu.open = true;
+    open_picker(
+        activate.entity,
+        target,
+        selected.entity(),
+        &mut picking,
+        &mut pickers,
+    );
 }
 
-/// Change the color of the value being picked for, starting from the one it
-/// is drawn in. Held as HSL so a gray keeps the hue it was dragged to.
-fn recolor(
-    picking: &mut Picking,
-    sources: &mut Query<(&CellProperties, &mut ColorOverrides)>,
-    change: impl FnOnce(&mut Hsla),
+fn on_pick_channel_color(
+    activate: On<Activate>,
+    squares: Query<&PickChannelColor>,
+    selected: SelectedSource,
+    mut picking: ResMut<Picking>,
+    mut pickers: Query<(&mut Menu, &mut MenuAnchor), With<ColorPicker>>,
 ) {
-    let Some((properties, mut overrides)) = picking
-        .source
-        .and_then(|source| sources.get_mut(source).ok())
-    else {
+    let Ok(square) = squares.get(activate.entity) else {
         return;
     };
-    let mut color = Hsla::from(current(
-        properties,
-        &overrides,
-        &picking.column,
-        picking.code,
-    ));
+    let target = Target::Channel(square.channel);
+    open_picker(
+        activate.entity,
+        target,
+        selected.entity(),
+        &mut picking,
+        &mut pickers,
+    );
+}
+
+/// Change the color being picked, starting from the one it is drawn in. Held
+/// as HSL so a gray keeps the hue it was dragged to.
+fn recolor(picking: &mut Picking, colors: &mut Colors, change: impl FnOnce(&mut Hsla)) {
+    let (Some(source), Some(target)) = (picking.source, picking.target.clone()) else {
+        return;
+    };
+    let Some(color) = colors.current(source, &target) else {
+        return;
+    };
+    let mut color = Hsla::from(color);
     change(&mut color);
-    let color = Color::Hsla(color);
-    if overrides.get(&picking.column, picking.code) != Some(color) {
-        overrides.set(&picking.column, picking.code, color);
-    }
+    colors.set(source, &target, Color::Hsla(color));
     picking.picked = true;
 }
 
@@ -314,13 +464,13 @@ fn on_plane(
     change: On<ValueChange<Vec2>>,
     planes: Query<(), With<PickerPlane>>,
     mut picking: ResMut<Picking>,
-    mut sources: Query<(&CellProperties, &mut ColorOverrides)>,
+    mut colors: Colors,
 ) {
     if planes.get(change.source).is_err() {
         return;
     }
     let value = change.value;
-    recolor(&mut picking, &mut sources, |color| {
+    recolor(&mut picking, &mut colors, |color| {
         color.hue = value.x * 360.0;
         color.saturation = 1.0 - value.y;
     });
@@ -330,25 +480,25 @@ fn on_lightness(
     change: On<ValueChange<f32>>,
     sliders: Query<(), With<PickerLightness>>,
     mut picking: ResMut<Picking>,
-    mut sources: Query<(&CellProperties, &mut ColorOverrides)>,
+    mut colors: Colors,
 ) {
     if sliders.get(change.source).is_err() {
         return;
     }
     let value = change.value;
-    recolor(&mut picking, &mut sources, |color| color.lightness = value);
+    recolor(&mut picking, &mut colors, |color| color.lightness = value);
 }
 
 fn on_used_color(
     activate: On<Activate>,
     chips: Query<&UsedColor>,
     mut picking: ResMut<Picking>,
-    mut sources: Query<(&CellProperties, &mut ColorOverrides)>,
+    mut colors: Colors,
 ) {
     let Ok(UsedColor(used)) = chips.get(activate.entity) else {
         return;
     };
-    recolor(&mut picking, &mut sources, |color| {
+    recolor(&mut picking, &mut colors, |color| {
         *color = Hsla::from(*used);
     });
 }
@@ -357,16 +507,13 @@ fn on_picker_reset(
     activate: On<Activate>,
     buttons: Query<(), With<PickerReset>>,
     picking: Res<Picking>,
-    mut sources: Query<&mut ColorOverrides>,
+    mut colors: Colors,
 ) {
     if buttons.get(activate.entity).is_err() {
         return;
     }
-    if let Some(mut overrides) = picking
-        .source
-        .and_then(|source| sources.get_mut(source).ok())
-    {
-        overrides.remove(&picking.column, picking.code);
+    if let (Some(source), Some(target)) = (picking.source, &picking.target) {
+        colors.reset(source, target);
     }
 }
 
@@ -483,29 +630,24 @@ fn rebuild_override_list(
     commands.entity(body).add_children(&rows);
 }
 
-/// Remember the color a value was left in once the picker is done with it:
-/// closed, or moved on to another value.
+/// Remember the color something was left in once the picker is done with it:
+/// closed, or moved on to something else.
 fn remember_picked(
     mut picking: ResMut<Picking>,
     pickers: Query<&Menu, With<ColorPicker>>,
-    sources: Query<&ColorOverrides>,
+    colors: Colors,
     mut prefs: ResMut<Preferences>,
-    mut last: Local<Option<(Entity, String, u16)>>,
+    mut last: Local<Option<(Entity, Target)>>,
 ) {
     let open = pickers.single().is_ok_and(|menu| menu.open);
-    let now = picking
-        .source
-        .filter(|_| open)
-        .map(|source| (source, picking.column.clone(), picking.code));
+    let now = picking.source.filter(|_| open).zip(picking.target.clone());
     if *last == now {
         return;
     }
-    if let Some((source, column, code)) = last.take()
+    if let Some((source, target)) = last.take()
         && picking.picked
-        && let Some(color) = sources
-            .get(source)
-            .ok()
-            .and_then(|overrides| overrides.get(&column, code))
+        && colors.picked(source, &target)
+        && let Some(color) = colors.current(source, &target)
     {
         prefs.remember_color(color);
     }
@@ -552,6 +694,23 @@ fn rebuild_used_colors(
     *shown = Some(prefs.recent_colors.clone());
 }
 
+/// Paint every channel's square in the color the channel is painted in.
+fn paint_channel_swatches(
+    selected: SelectedSource,
+    sources: Query<&SourceChannels>,
+    mut squares: Query<(&PickChannelColor, &mut BackgroundColor)>,
+) {
+    let Some(channels) = selected.get(&sources) else {
+        return;
+    };
+    for (square, mut background) in &mut squares {
+        if let Some(channel) = channels.channels.get(square.channel) {
+            let [r, g, b] = channel.color;
+            background.set_if_neq(BackgroundColor(Color::srgb(r, g, b)));
+        }
+    }
+}
+
 /// Paint every square in the color its value is drawn in, and mark the ones
 /// whose color was picked.
 fn paint_swatches(
@@ -584,8 +743,8 @@ fn paint_swatches(
     }
 }
 
-/// Show the picker as the value it is open on stands, and close it when that
-/// value's source is no longer the one selected.
+/// Show the picker as what it is open on stands, and close it when that
+/// belongs to a source no longer selected.
 #[expect(
     clippy::too_many_arguments,
     reason = "each part of the picker is its own query"
@@ -594,7 +753,7 @@ fn sync_picker(
     mut commands: Commands,
     selected: SelectedSource,
     picking: Res<Picking>,
-    sources: Query<(&CellProperties, &ColorOverrides)>,
+    colors: Colors,
     mut pickers: Query<&mut Menu, With<ColorPicker>>,
     mut titles: Query<&mut Text, With<PickerTitle>>,
     mut swatches: Query<&mut ColorSwatchValue, With<PickerSwatch>>,
@@ -611,16 +770,16 @@ fn sync_picker(
     let found = picking
         .source
         .filter(|source| selected.entity() == Some(*source))
-        .and_then(|source| sources.get(source).ok());
-    let Some((properties, overrides)) = found else {
+        .zip(picking.target.as_ref())
+        .and_then(|(source, target)| Some((source, target, colors.current(source, target)?)));
+    let Some((source, target, color)) = found else {
         menu.open = false;
         return;
     };
-    let color = current(properties, overrides, &picking.column, picking.code);
     let hsla = Hsla::from(color);
 
     for text in &mut titles {
-        set_text(text, &describe(properties, &picking.column, picking.code));
+        set_text(text, &colors.describe(source, target));
     }
     for mut swatch in &mut swatches {
         if swatch.0 != color {
@@ -646,7 +805,7 @@ fn sync_picker(
             commands.entity(entity).insert(SliderValue(hsla.lightness));
         }
     }
-    let overridden = overrides.get(&picking.column, picking.code).is_some();
+    let overridden = colors.picked(source, target);
     for node in &mut resets {
         patch_node(node, |node| node.display = display(overridden));
     }
@@ -658,6 +817,7 @@ impl Plugin for ColorOverridesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Picking>()
             .add_observer(on_pick_color)
+            .add_observer(on_pick_channel_color)
             .add_observer(on_plane)
             .add_observer(on_lightness)
             .add_observer(on_used_color)
@@ -672,7 +832,7 @@ impl Plugin for ColorOverridesPlugin {
             )
             .add_systems(
                 Update,
-                (paint_swatches, sync_picker)
+                (paint_swatches, paint_channel_swatches, sync_picker)
                     .chain()
                     .in_set(Stage::ControlsPlace),
             )

@@ -583,6 +583,7 @@ fn composite_channels(published: &[Channel], settings: &[ChannelSetting]) -> Vec
             let mut channel = channel.clone();
             if let Some(setting) = settings.get(index) {
                 channel.active = setting.contributes();
+                channel.color = setting.color;
                 (channel.start, channel.end) = setting.window(channel.start, channel.end);
             }
             channel

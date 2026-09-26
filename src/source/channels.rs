@@ -15,6 +15,8 @@ use bevy::prelude::*;
 pub const MAX_GAIN: f32 = 4.0;
 
 /// One channel of a source, and how it is shown.
+///
+/// Its color starts as the dataset's and can be picked over, like a value's.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChannelSetting {
     pub label: String,
@@ -83,6 +85,11 @@ impl SourceChannels {
 
     pub fn reset(&mut self) {
         self.channels.clone_from(&self.published);
+    }
+
+    /// Channel `index` as the dataset published it.
+    pub fn published(&self, index: usize) -> Option<&ChannelSetting> {
+        self.published.get(index)
     }
 }
 
