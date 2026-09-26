@@ -434,8 +434,11 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
         }
     }
 
+    /// Whether a tile on screen is still loading. What is read ahead of the
+    /// view once it is covered is not: a spinner over a frame that has
+    /// finished drawing says something is missing when nothing is.
     pub fn busy(&self) -> bool {
-        self.in_flight > 0
+        !self.covered
     }
 
     pub fn loaded(&self) -> usize {
@@ -451,8 +454,13 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
 
     /// The cache's line of a source's status.
     pub fn status(&self) -> String {
+        let reading = if self.covered {
+            "reading ahead"
+        } else {
+            "loading"
+        };
         let mut line = format!(
-            "tiles {} cached ({} MB / {} MB), {} loading",
+            "tiles {} cached ({} MB / {} MB), {} {reading}",
             self.loaded(),
             self.resident_bytes / (1024 * 1024),
             self.budget_bytes / (1024 * 1024),
