@@ -194,6 +194,8 @@ pub struct FrameState {
     /// which is how a scene from another viewer opens.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view: Option<ViewState>,
+    /// How it was turned in 3D: about its volume, or about its
+    /// cross-sections.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub orbit: Option<OrbitState>,
     /// Drawn over it, bottom first.

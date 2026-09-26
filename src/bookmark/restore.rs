@@ -319,12 +319,21 @@ pub fn drive_restore(
         if frame.linked {
             commands.entity(panel).insert(Linked::default());
         }
+        // A frame drawing cross-sections is turned by an orbit of its own,
+        // built once its slices arrive; restoring the saved one as a volume's
+        // would ask a stack too large for one to be drawn whole.
         if frame.cross_sections {
-            commands
-                .entity(panel)
-                .insert(crate::view::sections::CrossSections::default());
+            let sections = frame.orbit.map_or_else(Default::default, |saved| {
+                crate::view::sections::CrossSections::turned(
+                    Vec3::from_array(saved.target),
+                    saved.yaw,
+                    saved.pitch,
+                    saved.distance,
+                )
+            });
+            commands.entity(panel).insert(sections);
         }
-        match (frame.orbit, volume) {
+        match (frame.orbit.filter(|_| !frame.cross_sections), volume) {
             (Some(saved), Some(volume)) => {
                 let flat = flat.unwrap_or(View {
                     center: limits.center,

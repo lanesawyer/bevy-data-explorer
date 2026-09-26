@@ -47,6 +47,33 @@ pub struct CrossSections {
     layer: Option<usize>,
     /// Each slice drawn, by the source that cuts it.
     slices: Vec<Slice>,
+    /// How to turn the orbit once it is built, rather than facing the default
+    /// way. The orbit waits for the slices to arrive, so an angle to restore
+    /// waits here with it.
+    turn: Option<Turn>,
+}
+
+#[derive(Clone, Copy)]
+struct Turn {
+    target: Vec3,
+    yaw: f32,
+    pitch: f32,
+    distance: f32,
+}
+
+impl CrossSections {
+    /// Cross-sections that open turned this way: how a bookmark restores one.
+    pub fn turned(target: Vec3, yaw: f32, pitch: f32, distance: f32) -> Self {
+        CrossSections {
+            turn: Some(Turn {
+                target,
+                yaw,
+                pitch,
+                distance,
+            }),
+            ..default()
+        }
+    }
 }
 
 struct Slice {
@@ -371,7 +398,14 @@ pub fn sync_cross_sections(
                 center: transform.translation.truncate(),
                 scale: ortho.scale,
             };
-            commands.entity(panel).insert(Orbit::fit(&volume, flat));
+            let mut orbit = Orbit::fit(&volume, flat);
+            if let Some(turn) = sections.turn.take() {
+                orbit.target = turn.target;
+                orbit.yaw = turn.yaw;
+                orbit.pitch = turn.pitch;
+                orbit.distance = turn.distance;
+            }
+            commands.entity(panel).insert(orbit);
         }
     }
 }

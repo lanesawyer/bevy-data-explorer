@@ -100,10 +100,7 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
                     panel.index,
                     shows.0,
                     flat,
-                    // A frame drawing cross-sections is turned by its own
-                    // orbit, rebuilt on restore; saving it as a volume's
-                    // would ask a stack too large for one to be drawn whole.
-                    orbit.copied().filter(|_| !sections),
+                    orbit.copied(),
                     layers.map(|layers| layers.cameras().to_vec()),
                     region.copied(),
                     linked,
