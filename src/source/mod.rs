@@ -108,6 +108,32 @@ impl DataSource {
     pub fn shares_space_with(&self, other: &DataSource) -> bool {
         !self.unit.is_empty() && self.unit == other.unit
     }
+
+    /// How many of `other`'s units one of this source's makes, where the two
+    /// measure the same kind of space: 1 for the same unit, a ratio for two
+    /// lengths (a micron is a thousandth of a millimeter), and nothing for a
+    /// pixel against a micron, or for a source measured in nothing at all.
+    pub fn units_in(&self, other: &DataSource) -> Option<f32> {
+        if self.shares_space_with(other) {
+            return Some(1.0);
+        }
+        Some((meters_per(&self.unit)? / meters_per(&other.unit)?) as f32)
+    }
+}
+
+/// Meters in one of `unit`, if it is a length.
+///
+/// Takes both the symbols the image reader writes and the names Scatterbrain
+/// metadata spells out.
+pub fn meters_per(unit: &str) -> Option<f64> {
+    Some(match unit.trim().to_lowercase().as_str() {
+        "nm" | "nanometer" | "nanometers" => 1e-9,
+        "um" | "µm" | "μm" | "micrometer" | "micrometers" | "micron" | "microns" => 1e-6,
+        "mm" | "millimeter" | "millimeters" => 1e-3,
+        "cm" | "centimeter" | "centimeters" => 1e-2,
+        "m" | "meter" | "meters" => 1.0,
+        _ => return None,
+    })
 }
 
 /// What a plugin declares about its dataset when registering.
@@ -253,6 +279,24 @@ impl Default for ShowsSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn units_convert_between_lengths_and_not_across_kinds() {
+        let source = |unit: &str| DataSource {
+            name: String::new(),
+            unit: unit.into(),
+            detail: String::new(),
+            stat: String::new(),
+            category: Category::Image,
+            layer: 1,
+        };
+        let (um, mm, px) = (source("um"), source("millimeter"), source("px"));
+        assert_eq!(um.units_in(&mm), Some(1e-3));
+        assert_eq!(mm.units_in(&um), Some(1e3));
+        assert_eq!(px.units_in(&px), Some(1.0));
+        assert_eq!(px.units_in(&um), None);
+        assert_eq!(source("").units_in(&source("")), None);
+    }
 
     #[test]
     fn fit_limits_frame_the_data_and_allow_zooming_in() {

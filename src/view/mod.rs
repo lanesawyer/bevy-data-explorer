@@ -23,6 +23,7 @@ pub mod dataset_menu;
 pub mod grid;
 pub mod input;
 pub mod layers;
+pub mod link;
 pub mod loading;
 pub mod orbit;
 pub mod overlay;
@@ -271,6 +272,7 @@ impl Plugin for ViewPlugin {
         .add_observer(panel_buttons)
         .add_observer(orbit::on_view_toggled)
         .add_observer(select::on_select_toggled)
+        .add_observer(link::on_link_toggled)
         .add_systems(Update, track_text_focus.in_set(Stage::Focus))
         .add_systems(Update, reset_frame_area.in_set(Stage::FrameArea))
         .add_systems(
@@ -291,6 +293,9 @@ impl Plugin for ViewPlugin {
                 select::drag_region,
                 panel_controls,
                 reset_selected_view,
+                // After every gesture and shortcut that moves a frame, so the
+                // frames linked with it move in the same frame.
+                link::follow_links,
                 // After the pointer has turned it, so the camera never lags
                 // a gesture, and before the layers copy the frame's view.
                 orbit::apply_orbits,
@@ -309,6 +314,7 @@ impl Plugin for ViewPlugin {
             (
                 orbit::sync_view_buttons,
                 select::sync_select_buttons,
+                link::sync_link_buttons,
                 select::place_region_outlines,
             )
                 .in_set(Stage::Chrome),

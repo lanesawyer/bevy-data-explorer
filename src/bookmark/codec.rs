@@ -102,6 +102,7 @@ mod tests {
                 },
                 orbit: None,
                 layers: Vec::new(),
+                linked: true,
                 selection: Some(crate::bookmark::snapshot::RegionState {
                     min: [-4.5, -20.0],
                     max: [12.0, -3.25],

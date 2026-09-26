@@ -195,6 +195,9 @@ pub struct FrameState {
     /// The rectangle selecting cells in it, if one is drawn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selection: Option<RegionState>,
+    /// Whether it pans, zooms and pages with the other linked frames.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub linked: bool,
 }
 
 /// A rectangle selecting cells, and the column its summary is broken down by.

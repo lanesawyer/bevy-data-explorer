@@ -43,6 +43,7 @@ pub enum Icon {
     FilterX,
     FolderOpen,
     Info,
+    Link,
     Monitor,
     Moon,
     Palette,
@@ -61,7 +62,7 @@ pub enum Icon {
 
 impl Icon {
     #[cfg(test)]
-    const ALL: [Icon; 36] = [
+    const ALL: [Icon; 37] = [
         Icon::BookmarkPlus,
         Icon::BoxSelect,
         Icon::Bug,
@@ -84,6 +85,7 @@ impl Icon {
         Icon::FilterX,
         Icon::FolderOpen,
         Icon::Info,
+        Icon::Link,
         Icon::Monitor,
         Icon::Moon,
         Icon::Palette,
@@ -126,6 +128,7 @@ impl Icon {
             Icon::FilterX => "\u{e3b5}",
             Icon::FolderOpen => "\u{e247}",
             Icon::Info => "\u{e0f9}",
+            Icon::Link => "\u{e102}",
             Icon::Monitor => "\u{e11d}",
             Icon::Moon => "\u{e11e}",
             Icon::Palette => "\u{e1dd}",

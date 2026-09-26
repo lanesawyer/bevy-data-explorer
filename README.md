@@ -358,6 +358,7 @@ whatever the original happened to load.
 | copy button | duplicate that panel |
 | `x` button | close that panel |
 | info button | open the inspector on that frame |
+| chain button | link that frame: every linked frame pans, zooms and pages slices with the others |
 | cube / square button | look at a stack in depth, or go back to the flat view; offered only where the data has depth |
 | drag, in 3D | turn the volume; right-, middle- or shift-drag slides it, scroll zooms toward the pointer, `R` turns it back |
 | dataset name | show a different dataset in that frame |
@@ -384,6 +385,16 @@ opens with the keyboard in a search field: typing narrows the list to datasets
 whose name, kind or address contain every word typed, Enter takes the first
 match, the arrow keys move through the rest, and Escape closes it. The
 frame's layers stay where they are, over the new dataset.
+
+Linking frames compares the same place across datasets. Press the chain in
+each frame's header and every linked frame follows whichever one moves — a
+drag, the wheel or `R` — to the same point at the same zoom, and paging a
+linked frame's slices pages the others' by the same step. A frame that joins
+takes the group's view rather than pulling the group to its own. Datasets
+measured in different lengths are converted, so a stack in microns lines up
+with a cloud in millimeters; one in its own pixels shares no space with those
+and stays where it is, as do frames in 3D and tables. Links are saved in
+bookmarks.
 
 Each panel carries its own overlay: the image reports the pyramid level, scale
 and tile cache; the point cloud reports octree depth, nodes loaded and points

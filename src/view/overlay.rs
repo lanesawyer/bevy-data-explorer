@@ -306,6 +306,7 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
     super::capture::spawn_capture_button(commands, header, panel);
     super::orbit::spawn_view_button(commands, header, panel);
     super::select::spawn_select_button(commands, header, panel);
+    super::link::spawn_link_button(commands, header, panel);
     let menu = spawn_menu(commands, header);
     // Built once, under the rows `rebuild_source_menus` puts above it, so
     // whatever is typed into its search survives the stack changing.

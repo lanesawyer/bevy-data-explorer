@@ -17,6 +17,7 @@ use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::table::{ColumnWidths, HiddenColumns, TableFilters, TablePaging, TableSort};
 use crate::source::{ShowsSource, SourceUrl};
 use crate::view::FrameRegion;
+use crate::view::link::Linked;
 use crate::view::{FrameArea, FrameLayers, LayerOpacity, Orbit, SelectedPanel};
 use crate::view::{Panel, View};
 
@@ -72,11 +73,12 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
         Option<&Orbit>,
         Option<&FrameLayers>,
         Option<&FrameRegion>,
+        Has<Linked>,
     ), With<Panel>>();
     let mut found: Vec<_> = panels
         .iter(world)
         .map(
-            |(entity, panel, shows, transform, projection, orbit, layers, region)| {
+            |(entity, panel, shows, transform, projection, orbit, layers, region, linked)| {
                 let flat = match (orbit, projection) {
                     (Some(orbit), _) => Some(orbit.flat),
                     (None, Projection::Orthographic(ortho)) => Some(View {
@@ -93,6 +95,7 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
                     orbit.copied(),
                     layers.map(|layers| layers.cameras().to_vec()),
                     region.copied(),
+                    linked,
                 )
             },
         )
@@ -117,7 +120,7 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
     let (count, empty_frames) = empty_positions(world);
     let mut frames = Vec::new();
     let mut selected_frame = None;
-    for (position, (entity, _, source, flat, orbit, layers, region)) in
+    for (position, (entity, _, source, flat, orbit, layers, region, linked)) in
         found.into_iter().enumerate()
     {
         let Some(flat) = flat else { continue };
@@ -161,6 +164,7 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
                 max: region.max().to_array(),
                 focus,
             }),
+            linked,
         });
     }
     if frames.is_empty() {

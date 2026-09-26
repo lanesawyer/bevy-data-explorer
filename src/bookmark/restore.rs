@@ -41,6 +41,7 @@ use crate::source::volume::SourceVolume;
 use crate::source::{DataSource, SourceExtent, SourceUrl};
 use crate::view::grid::{MAX_LAYERS, MAX_PANELS};
 use crate::view::layers::spawn_layer;
+use crate::view::link::Linked;
 use crate::view::{
     FrameArea, FrameRegion, LayerOpacity, Orbit, Panel, SelectMode, SelectedPanel, View,
     spawn_browse_panel, spawn_panel,
@@ -298,6 +299,9 @@ pub fn drive_restore(
                     label: focus.label,
                 });
             }
+        }
+        if frame.linked {
+            commands.entity(panel).insert(Linked::default());
         }
         match (frame.orbit, volume) {
             (Some(saved), Some(volume)) => {

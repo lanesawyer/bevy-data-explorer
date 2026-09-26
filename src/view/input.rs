@@ -80,7 +80,8 @@ pub fn reset_selected_view(
 ///
 /// Acts on the selected frame rather than on every source that has a stack: two
 /// specimens open side by side are paged one at a time, and the outline says
-/// which one the keys are talking to.
+/// which one the keys are talking to — unless the selected frame is linked,
+/// when every linked frame's stack is paged by the same step.
 ///
 /// Volumetric images and sectioned datasets both carry a stack, so arrows,
 /// brackets and page keys page either: paging a volume and stepping a
@@ -90,6 +91,8 @@ pub fn page_slice_stack(
     keys: Res<ButtonInput<KeyCode>>,
     typing: Res<TextEntryFocused>,
     selected: SelectedSource,
+    selected_panel: Res<SelectedPanel>,
+    linked: Query<&ShowsSource, With<super::link::Linked>>,
     mut stacks: Query<&mut crate::source::stack::SliceStack>,
 ) {
     if typing.0 {
@@ -115,20 +118,31 @@ pub fn page_slice_stack(
     let Some(source) = selected.entity() else {
         return;
     };
-    let Ok(stack) = stacks.get(source) else {
-        return;
-    };
-
-    // Read before writing. Taking the stack mutably marks it changed whether or
-    // not it moved, and a change means every tile is loaded again — so paging
-    // into the end of a specimen would reload it on every keypress.
-    let mut wanted = *stack;
-    wanted.step(delta);
-    if wanted == *stack {
-        return;
+    let mut paged = vec![source];
+    if selected_panel.0.is_some_and(|panel| linked.contains(panel)) {
+        for shows in &linked {
+            if !paged.contains(&shows.0) {
+                paged.push(shows.0);
+            }
+        }
     }
-    if let Ok(mut stack) = stacks.get_mut(source) {
-        *stack = wanted;
+
+    for source in paged {
+        let Ok(stack) = stacks.get(source) else {
+            continue;
+        };
+        // Read before writing. Taking the stack mutably marks it changed
+        // whether or not it moved, and a change means every tile is loaded
+        // again — so paging into the end of a specimen would reload it on
+        // every keypress.
+        let mut wanted = *stack;
+        wanted.step(delta);
+        if wanted == *stack {
+            continue;
+        }
+        if let Ok(mut stack) = stacks.get_mut(source) {
+            *stack = wanted;
+        }
     }
 }
 

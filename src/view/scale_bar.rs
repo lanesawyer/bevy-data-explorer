@@ -18,7 +18,7 @@ use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use crate::app::schedule::Stage;
 use crate::app::theme::token;
 use crate::source::table::SourceTable;
-use crate::source::{DataSource, ShowsSource};
+use crate::source::{DataSource, ShowsSource, meters_per};
 use crate::widgets::{patch_node, set_text, size, space};
 
 use super::overlay::CHROME_INSET;
@@ -49,21 +49,6 @@ struct ScaleBarLabel;
 
 #[derive(Component, Clone, Default)]
 struct ScaleBarRule;
-
-/// Meters in one of `unit`, if it is a length.
-///
-/// Takes both the symbols the image reader writes and the names Scatterbrain
-/// metadata spells out.
-fn meters_per(unit: &str) -> Option<f64> {
-    Some(match unit.trim().to_lowercase().as_str() {
-        "nm" | "nanometer" | "nanometers" => 1e-9,
-        "um" | "µm" | "μm" | "micrometer" | "micrometers" | "micron" | "microns" => 1e-6,
-        "mm" | "millimeter" | "millimeters" => 1e-3,
-        "cm" | "centimeter" | "centimeters" => 1e-2,
-        "m" | "meter" | "meters" => 1.0,
-        _ => return None,
-    })
-}
 
 /// The bar for a frame zoomed to `units_per_px` of `unit`, at most `max_px`
 /// long: its length in logical pixels, and what it reads.
