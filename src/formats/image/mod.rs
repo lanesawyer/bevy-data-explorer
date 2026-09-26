@@ -6,6 +6,7 @@
 //! channels on the GPU, and paging through a stack of slices.
 
 pub mod blocks;
+pub mod chunk_cache;
 pub mod dataset;
 pub mod store;
 pub mod volume;

@@ -1681,6 +1681,43 @@ mod block_reads {
         });
     }
 
+    /// Paging a frame cut across the SmartSPIM stack to the slice beside the
+    /// last reads the same chunks, and the second page is served from the
+    /// chunk cache rather than downloaded again. Prints both times.
+    /// `cargo test --release paging_across -- --ignored --nocapture`
+    #[test]
+    #[ignore = "reads a live SmartSPIM store"]
+    fn paging_across_a_stack_reads_its_chunks_once() {
+        const STORE: &str = "https://aind-open-data.s3.us-west-2.amazonaws.com/SmartSPIM_719692_2024-03-13_16-03-36_stitched_2024-04-02_12-50-17/image_tile_fusing/OMEZarr/Ex_561_Em_600.zarr";
+        crate::app::net::block_on(async {
+            let cut = crate::formats::image::store::open(&format!("{STORE}#plane=zy"))
+                .await
+                .unwrap();
+            let level = &cut.levels[2];
+            let (ty, tx) = (level.tiles_y / 2, level.tiles_x / 2);
+            // Full-resolution x 2800 and 2804 are level x 700 and 701: one
+            // slice apart, in the same 128-deep run of chunks.
+            let mut times = Vec::new();
+            for x in [2800u64, 2804] {
+                let started = std::time::Instant::now();
+                let tile = read_tile(&cut, level, TileSource::Array, ty, tx, x)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                times.push(started.elapsed());
+                assert!(
+                    tile.data.iter().any(|b| *b != 0),
+                    "an empty tile proves nothing"
+                );
+            }
+            println!("slice x 2800: {:?}, beside it: {:?}", times[0], times[1]);
+            assert!(
+                times[1] * 3 < times[0],
+                "the second page should decode what the first downloaded"
+            );
+        });
+    }
+
     /// Reads the same tiles of the live Tissuecyte stack block by block and
     /// whole, checks they agree to the byte, and prints how long each took.
     /// `cargo test --release block_reads -- --ignored --nocapture`
@@ -1701,7 +1738,9 @@ mod block_reads {
                 let reader = level.blocks.as_ref().expect("deep v2 blosc chunks qualify");
                 let (ty, tx) = (level.tiles_y / 2, level.tiles_x / 2);
                 // Slice 71 sits mid-chunk, 40 at the start of one, and 139 in
-                // the last, short chunk.
+                // the last, short chunk. 40 shares 71's chunk, which the whole
+                // read of 71 left in the chunk cache, so both of its times are
+                // a decode from memory rather than a comparison of reads.
                 for z in [71u64, 40, 139] {
                     let extent = level.tile_extent(ty, tx).unwrap();
                     let started = std::time::Instant::now();

@@ -42,6 +42,12 @@ pub struct Args {
     #[arg(long, default_value_t = crate::formats::image::DEFAULT_CACHE_BUDGET_MB)]
     pub cache_mb: usize,
 
+    /// Memory for image chunks as downloaded, in MB, shared by every stack.
+    /// Paging through a stack reads the same chunks slice after slice, and
+    /// what is held here is decoded again rather than downloaded again.
+    #[arg(long, default_value_t = crate::formats::image::chunk_cache::DEFAULT_CHUNK_CACHE_MB)]
+    pub chunk_cache_mb: usize,
+
     /// Another dataset in a frame of its own, usually sectioned Scatterbrain
     /// metadata. A cloud listing more than one slide gets the sections panel
     /// wherever it is named.

@@ -26,6 +26,9 @@ use catalog::AppCatalogs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cli::Args::parse();
+    // Before anything is opened: the cache is shared by every store, and the
+    // command line reads its datasets here.
+    formats::image::chunk_cache::set_budget(args.chunk_cache_mb * 1024 * 1024);
     let opened = args.open()?;
     let bookmark = args.bookmark()?;
     let settings = args.load_settings();

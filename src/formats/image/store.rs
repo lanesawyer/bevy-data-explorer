@@ -194,7 +194,10 @@ fn open_store(url: &str) -> Result<ReadStore, String> {
         let prefix =
             StorePath::from_url_path(parsed.path()).map_err(|e| format!("reading {base}: {e}"))?;
         let store = PrefixStore::new(host_store(&parsed.origin().ascii_serialization())?, prefix);
-        Ok(Arc::new(AsyncObjectStore::new(store)))
+        Ok(super::chunk_cache::cached(
+            &base,
+            Arc::new(AsyncObjectStore::new(store)),
+        ))
     } else {
         let path = std::path::Path::new(url)
             .canonicalize()

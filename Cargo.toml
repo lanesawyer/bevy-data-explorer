@@ -27,6 +27,9 @@ half = "2"
 # blocks of a chunk, and futures to fetch those blocks together.
 blusc = "0.0.6"
 futures = "0.3"
+# Already in the tree through zarrs, whose storage traits are written with it:
+# the chunk cache implements one.
+async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # `zlib` is not one of zarrs' default codecs, and is what numcodecs names the
