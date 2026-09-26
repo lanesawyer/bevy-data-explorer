@@ -30,12 +30,14 @@ as you zoom. Five formats are supported so far:
   mouse terminology: 1,332 brain structures across 10 columns.
 - **Neuroglancer states**: the JSON a Neuroglancer link saves, or the link
   itself (`…/#!s3://…/state.json`, or a state carried whole after the `#!`).
-  Not a format so much as a scene: each image layer read from a Zarr store
-  opens in a frame of its own, at the brightness the state showed it, with
-  the frames linked. It replaces what is on screen, as a bookmark does. The
-  BKP Registry lists the ones written beside its light-sheet stacks; the
-  reference one shows a SmartSPIM brain in three channels. Layers drawn over
-  one another, and the sagittal projections' z-by-y plane, are still to come.
+  Not a format so much as a description of one: every image layer read from
+  a Zarr store is opened, each channel in the color and range the state's
+  shader gave it. Stores that line up pixel for pixel — a specimen written a
+  channel to a store — are one image, their channels mixed as one store's
+  are, and its address is the state's. Stores that do not line up open a
+  frame each, linked, replacing what is on screen as a bookmark does. The
+  BKP Registry lists the states written beside its light-sheet stacks; the
+  reference one is a SmartSPIM brain in three channels, three stores.
 - **Brain Knowledge Platform specimens**: one project's specimen records,
   asked of the platform's GraphQL API and shown as the same table. Every
   project whose specimens can be tabulated is offered in the dataset

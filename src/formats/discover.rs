@@ -80,15 +80,11 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
     // or the whole of it.
     if let Some(state) = neuroglancer::in_link(source) {
         if state.trim_start().starts_with('{') {
-            return neuroglancer::read(source, &state)
-                .await
-                .map(Discovered::Scene);
+            return neuroglancer::read(source, &state).await;
         }
         let address = crate::formats::plain_url(&state);
         let text = fetch_text(&address).await?;
-        return neuroglancer::read(&address, &text)
-            .await
-            .map(Discovered::Scene);
+        return neuroglancer::read(&address, &text).await;
     }
 
     // A Deep Zoom image is named by its descriptor, and nothing else ends in
@@ -128,9 +124,7 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
     if is_json(source) {
         let text = fetch_text(source).await?;
         if serde_json::from_str(&text).is_ok_and(|value| neuroglancer::is_state(&value)) {
-            return neuroglancer::read(source, &text)
-                .await
-                .map(Discovered::Scene);
+            return neuroglancer::read(source, &text).await;
         }
         let points = match Scatterbrain::parse(&text) {
             Ok(cloud) => return Ok(classify(source, cloud)),

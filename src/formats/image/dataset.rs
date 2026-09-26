@@ -197,6 +197,10 @@ pub struct Dataset {
     /// What intensities are divided by before they are stored for the GPU;
     /// see [`sample_scale`].
     pub sample_scale: f32,
+    /// Stores on the same grid whose channels follow this one's own in
+    /// `channels`, read at the same tile and added to the same mix: the
+    /// channels of one specimen written a store apiece. See [`Dataset::overlay`].
+    pub members: Vec<Arc<Dataset>>,
 }
 
 impl Dataset {
@@ -315,7 +319,74 @@ impl Dataset {
             world,
             spatial_stack,
             sample_scale,
+            members: Vec::new(),
         })
+    }
+
+    /// The channels held in this store itself, ahead of any member's.
+    fn own_channels(&self) -> usize {
+        let members: usize = self.members.iter().map(|it| it.channels.len()).sum();
+        self.channels.len() - members
+    }
+
+    /// One image of `first` and `others`, their channels one after another.
+    ///
+    /// Only stores that line up pixel for pixel: the same levels, each the
+    /// same size and scale, the same slices and the same kind of sample. A
+    /// tile is then the same tile of every one of them, which is what lets
+    /// their channels be read side by side and mixed as one store's are.
+    pub fn overlay(mut first: Dataset, others: Vec<Dataset>) -> Result<Dataset, String> {
+        for other in &others {
+            first.lines_up_with(other)?;
+        }
+        let channels =
+            first.channels.len() + others.iter().map(|it| it.channels.len()).sum::<usize>();
+        if channels > MAX_CHANNELS {
+            return Err(format!(
+                "{channels} channels between them, more than the {MAX_CHANNELS} one image mixes"
+            ));
+        }
+        for other in others {
+            first.channels.extend(other.channels.iter().cloned());
+            first.members.push(Arc::new(other));
+        }
+        Ok(first)
+    }
+
+    /// Why `other` cannot be read tile for tile beside this, if it cannot.
+    fn lines_up_with(&self, other: &Dataset) -> Result<(), String> {
+        let differs =
+            |what: &str| Err(format!("{} and {} differ in {what}", self.name, other.name));
+        if self.levels.len() != other.levels.len() {
+            return differs("how many levels they have");
+        }
+        if self.depth() != other.depth() {
+            return differs("how many slices they have");
+        }
+        if self.sample_scale != other.sample_scale {
+            return differs("the kind of sample they store");
+        }
+        let close = |a: f64, b: f64| (a - b).abs() <= 1e-6 * a.abs().max(b.abs()).max(1.0);
+        for (mine, theirs) in self.levels.iter().zip(&other.levels) {
+            if mine.width != theirs.width
+                || mine.height != theirs.height
+                || mine.tile_px != theirs.tile_px
+                || mine.array.shape().len() != theirs.array.shape().len()
+                || !close(mine.scale_x, theirs.scale_x)
+                || !close(mine.scale_y, theirs.scale_y)
+                || !close(mine.origin_x, theirs.origin_x)
+                || !close(mine.origin_y, theirs.origin_y)
+                || self.level_depth(mine) != other.level_depth(theirs)
+            {
+                return differs(&format!("level {}", mine.index));
+            }
+        }
+        Ok(())
+    }
+
+    /// How many slices `level` holds.
+    fn level_depth(&self, level: &Level) -> u64 {
+        self.layout.z.map_or(1, |axis| level.array.shape()[axis])
     }
 
     /// Where the stack lies in three dimensions, as its display center and
@@ -492,6 +563,54 @@ pub struct ChannelSamples {
 }
 
 impl ChannelSamples {
+    /// The channels of `parts` one after another, as if one store held them,
+    /// each part holding its own `count` channels.
+    ///
+    /// Every part covers the same texels. A tile keeps four channels to a
+    /// layer, as many layers as it needs; a volume's layers are its slices,
+    /// so it keeps the first four channels, one to a component.
+    fn stacked(parts: &[(ChannelSamples, usize)], volume: bool) -> Self {
+        let first = &parts[0].0;
+        let total: usize = parts.iter().map(|(_, count)| count).sum();
+        let (width, height) = (first.width as usize, first.height as usize);
+        let (layers, texels) = if volume {
+            let slices = first.layers as usize;
+            (slices, width * height * slices)
+        } else {
+            (total.div_ceil(4).max(1), width * height)
+        };
+        let place = |channel: usize| {
+            if volume {
+                (channel < VOLUME_CHANNELS).then_some((0, channel))
+            } else {
+                Some((channel / 4, channel % 4))
+            }
+        };
+        let mut out = ChannelSamples::zeroed(width, height, layers);
+        let mut next = 0;
+        for (samples, count) in parts {
+            for channel in 0..*count {
+                if let (Some((from_layer, from)), Some((to_layer, to))) =
+                    (place(channel), place(next))
+                {
+                    for texel in 0..texels {
+                        let value = samples.get(from_layer * texels + texel, from);
+                        out.put(to_layer * texels + texel, to, value);
+                    }
+                }
+                next += 1;
+            }
+        }
+        out
+    }
+
+    /// Channel `component` of texel `texel`.
+    #[inline]
+    fn get(&self, texel: usize, component: usize) -> f32 {
+        let at = (texel * 4 + component) * size_of::<half::f16>();
+        half::f16::from_ne_bytes([self.data[at], self.data[at + 1]]).to_f32()
+    }
+
     fn zeroed(width: usize, height: usize, layers: usize) -> Self {
         ChannelSamples {
             width: width as u32,
@@ -534,14 +653,41 @@ pub async fn read_tile(
     let Some(extent) = level.tile_extent(ty, tx) else {
         return Ok(None);
     };
+    let full_z = z;
     let z = dataset.level_z(level, z);
-    if let (TileSource::Array, Some(reader)) = (&source, &level.blocks) {
-        match read_tile_by_blocks(dataset, level, reader, extent, z).await {
-            Ok(samples) => return Ok(Some(samples)),
-            Err(e) => debug!("tile ({ty},{tx}) of {}: {e}; reading it whole", level.path),
+    let own = 'own: {
+        if let (TileSource::Array, Some(reader)) = (&source, &level.blocks) {
+            match read_tile_by_blocks(dataset, level, reader, extent, z).await {
+                Ok(samples) => break 'own Some(samples),
+                Err(e) => debug!("tile ({ty},{tx}) of {}: {e}; reading it whole", level.path),
+            }
         }
+        read_tile_whole(dataset, level, source, ty, tx, z).await?
+    };
+    let Some(own) = own else {
+        return Ok(None);
+    };
+    if dataset.members.is_empty() {
+        return Ok(Some(own));
     }
-    read_tile_whole(dataset, level, source, ty, tx, z).await
+
+    // Every member's tile at the same place, read together. A member is read
+    // from its array: the shard decoder above is positioned on this store's
+    // shard, not on theirs.
+    let reads = dataset.members.iter().map(|member| {
+        let level = &member.levels[level.index];
+        Box::pin(read_tile(member, level, TileSource::Array, ty, tx, full_z))
+    });
+    let mut parts = vec![(own, dataset.own_channels())];
+    for (member, read) in dataset
+        .members
+        .iter()
+        .zip(futures::future::join_all(reads).await)
+    {
+        let samples = read?.ok_or_else(|| format!("{} has no tile ({ty},{tx})", member.name))?;
+        parts.push((samples, member.channels.len()));
+    }
+    Ok(Some(ChannelSamples::stacked(&parts, false)))
 }
 
 /// Read one tile through zarrs, whole chunks at a time.
@@ -576,7 +722,7 @@ async fn read_tile_whole(
     let rel_x = x0 - origin_x;
     let (w, h) = ((x1 - x0) as usize, (y1 - y0) as usize);
 
-    let count = dataset.channels.len().min(MAX_CHANNELS);
+    let count = dataset.own_channels().min(MAX_CHANNELS);
     let mut samples = ChannelSamples::zeroed(w, h, count.div_ceil(4).max(1));
     let channel_chunk = layout
         .c
@@ -691,7 +837,7 @@ async fn read_tile_by_blocks(
         strides[axis] = strides[axis + 1] * chunk[axis + 1];
     }
     let plane = (chunk_y * chunk_x) as usize;
-    let count = dataset.channels.len().min(MAX_CHANNELS);
+    let count = dataset.own_channels().min(MAX_CHANNELS);
     let chunk_c = layout.c.map_or(1, |c| chunk[c]).max(1);
 
     // Every chunk under the tile, and for each the planes the tile needs from
@@ -917,6 +1063,27 @@ impl VolumeRegion {
 /// only a block's worth of raw bytes keeps the peak well under the finished
 /// volume. `progress` counts slices read, for the status line.
 pub async fn read_volume(
+    dataset: &Dataset,
+    region: VolumeRegion,
+    progress: &AtomicU64,
+) -> Result<ChannelSamples, String> {
+    let own = read_own_volume(dataset, region, progress).await?;
+    if dataset.members.is_empty() {
+        return Ok(own);
+    }
+    // A member's slices are counted into a progress of their own: the status
+    // line follows this store's, which the members keep pace with.
+    let ignored = AtomicU64::new(0);
+    let mut parts = vec![(own, dataset.own_channels())];
+    for member in &dataset.members {
+        let samples = Box::pin(read_volume(member, region, &ignored)).await?;
+        parts.push((samples, member.channels.len()));
+    }
+    Ok(ChannelSamples::stacked(&parts, true))
+}
+
+/// [`read_volume`] of this store's own channels.
+async fn read_own_volume(
     dataset: &Dataset,
     region: VolumeRegion,
     progress: &AtomicU64,
