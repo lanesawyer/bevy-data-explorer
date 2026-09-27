@@ -197,6 +197,51 @@ impl TableSort {
     }
 }
 
+/// One kind of record a table holds, read apart from the others.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TablePartition {
+    /// What whatever produced the table calls it. Never shown.
+    pub id: String,
+    pub name: String,
+    /// How many rows it holds, once counted.
+    pub count: Option<u64>,
+}
+
+/// The kinds of record a table holds that are shown one at a time, and which
+/// is being shown.
+///
+/// Another of the questions the grid asks and a format answers: the sidebar
+/// picks one, and whatever produced the rows serves that kind's columns,
+/// filters and rows. Some records share no columns — a donor has an age at
+/// death and a library aliquot a library technique — so rather than one
+/// table of mostly empty cells, each kind is a table of its own under the one
+/// source. A table whose records all share their columns has none of this.
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+pub struct TablePartitions {
+    /// What the kinds are kinds of, as a heading over them.
+    pub label: String,
+    pub partitions: Vec<TablePartition>,
+    /// The kind asked for, by id.
+    pub chosen: String,
+}
+
+impl TablePartitions {
+    pub fn chosen(&self) -> Option<&TablePartition> {
+        self.partitions.iter().find(|it| it.id == self.chosen)
+    }
+
+    /// Ask for another kind, and say whether that changed anything. An id
+    /// the table does not hold is ignored rather than leaving it showing
+    /// nothing.
+    pub fn choose(&mut self, id: &str) -> bool {
+        if self.chosen == id || !self.partitions.iter().any(|it| it.id == id) {
+            return false;
+        }
+        self.chosen = id.to_string();
+        true
+    }
+}
+
 /// The columns a table is drawn without, by heading.
 ///
 /// Nothing a format answers: the rows still hold them, and a filter or a sort
@@ -674,6 +719,25 @@ mod tests {
         sort.press("Age", true);
         sort.press("Age", false);
         assert_eq!(sorted(&sort), [("Age", false)]);
+    }
+
+    #[test]
+    fn only_a_kind_the_table_holds_can_be_chosen() {
+        let kind = |id: &str| TablePartition {
+            id: id.into(),
+            name: id.into(),
+            count: None,
+        };
+        let mut partitions = TablePartitions {
+            label: "Specimen type".into(),
+            partitions: vec![kind("aliquot"), kind("donor")],
+            chosen: "aliquot".into(),
+        };
+        assert!(!partitions.choose("aliquot"), "already chosen");
+        assert!(!partitions.choose("slice"), "not one of them");
+        assert_eq!(partitions.chosen().unwrap().id, "aliquot");
+        assert!(partitions.choose("donor"));
+        assert_eq!(partitions.chosen().unwrap().id, "donor");
     }
 
     #[test]

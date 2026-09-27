@@ -24,9 +24,8 @@ pub(super) const BUCKETS: usize = 20;
 /// The page on screen is the only sample of a column there is without asking,
 /// and a hundred rows of ten thousand will not hold either end. Asking wide
 /// and keeping the buckets that answered is cheaper than finding the ends
-/// first: the platform has no query that gives a column's extent —
-/// `measurementStats` sits on `aio_specimenFacetedSearchProperties`, which
-/// answers with an empty list for every project.
+/// first. A project's display properties do carry a measurement's
+/// `measurementStats`, which is not read yet.
 pub(super) const WIDEN: f64 = 0.5;
 
 /// Ask how a column's numbers are distributed, in one request.
@@ -40,14 +39,14 @@ pub(super) const WIDEN: f64 = 0.5;
 /// asked about is built from.
 pub(super) async fn ask_span(
     endpoint: &str,
-    project: &str,
+    scope: &Scope,
     field: &str,
     seen: &[f64],
     terms: &[TableFilterTerm],
 ) -> Result<NumericRange, String> {
     let edges = bucket_edges(seen);
     let cumulative =
-        ask_cumulative(endpoint, specimen_filters(project, terms), field, &edges).await?;
+        ask_cumulative(endpoint, specimen_filters(scope, terms), field, &edges).await?;
     histogram_of(&edges, &cumulative).ok_or_else(|| format!("{field} holds no numbers"))
 }
 
@@ -171,14 +170,14 @@ pub(super) fn serve_spans(
         // What is on screen is the only sample of the column there is without
         // asking, and it is what the span asked about is built around.
         let seen = column_values(rows, &filters.columns[column].name);
-        let (endpoint, project) = (pages.endpoint.clone(), pages.project.clone());
+        let (endpoint, scope) = (pages.endpoint.clone(), pages.scope.clone());
         // A column with no span yet has no term of its own among these.
         let terms = filters.chosen();
         let asked = terms.clone();
         pages.spanning = Some((
             column,
             asked,
-            fetching(async move { ask_span(&endpoint, &project, &field, &seen, &terms).await }),
+            fetching(async move { ask_span(&endpoint, &scope, &field, &seen, &terms).await }),
         ));
     }
 }

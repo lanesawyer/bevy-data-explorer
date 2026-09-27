@@ -18,7 +18,8 @@ use crate::source::properties::{
 };
 use crate::source::stack::SliceStack;
 use crate::source::table::{
-    ColumnWidths, HiddenColumns, SortKey, TableFilterKind, TableFilters, TablePaging, TableSort,
+    ColumnWidths, HiddenColumns, SortKey, TableFilterKind, TableFilters, TablePaging,
+    TablePartitions, TableSort,
 };
 
 /// The format a bookmark is written in. Raised whenever a field changes
@@ -81,6 +82,10 @@ pub struct SourceState {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub struct TableState {
+    /// The kind of record shown, by the id the table knows it by, when the
+    /// table shows its kinds one at a time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partition: Option<String>,
     /// Counted from zero.
     #[serde(default)]
     pub page: usize,
@@ -470,6 +475,7 @@ pub fn apply_cells(properties: &mut CellProperties, saved: &CellsState) -> Vec<S
 /// saved then is saved without them.
 pub fn table_of(
     paging: &TablePaging,
+    partitions: Option<&TablePartitions>,
     filters: Option<&TableFilters>,
     sort: Option<&TableSort>,
     hidden: Option<&HiddenColumns>,
@@ -508,6 +514,7 @@ pub fn table_of(
         .unwrap_or_default();
     let widths = widths.map(|widths| widths.0.clone()).unwrap_or_default();
     let state = TableState {
+        partition: partitions.map(|partitions| partitions.chosen.clone()),
         page: paging.page,
         filters,
         sort,
@@ -832,7 +839,7 @@ mod tests {
             size: 100,
             total: Some(1000),
         };
-        let saved = table_of(&paging, Some(&edited), None, None, None).unwrap();
+        let saved = table_of(&paging, None, Some(&edited), None, None, None).unwrap();
         assert_eq!(saved.page, 3);
 
         let mut restored = table_filters();
@@ -842,16 +849,41 @@ mod tests {
     }
 
     #[test]
+    fn a_table_shown_one_kind_at_a_time_saves_the_kind() {
+        let paging = TablePaging::new(100, Some(1000));
+        let partitions = TablePartitions {
+            label: "Specimen type".into(),
+            partitions: Vec::new(),
+            chosen: "donor".into(),
+        };
+        let saved = table_of(&paging, Some(&partitions), None, None, None, None).unwrap();
+        assert_eq!(saved.partition.as_deref(), Some("donor"));
+
+        let text = serde_json::to_string(&saved).unwrap();
+        assert_eq!(serde_json::from_str::<TableState>(&text).unwrap(), saved);
+        // And a table saved before there were kinds reads as having none.
+        let old: TableState = serde_json::from_str(r#"{"page":2}"#).unwrap();
+        assert_eq!(old.partition, None);
+    }
+
+    #[test]
     fn a_tables_column_widths_are_saved_on_their_own() {
         let paging = TablePaging::new(100, Some(1000));
         let widths = ColumnWidths([("Donor ID".to_string(), 180.0)].into());
-        let saved = table_of(&paging, None, None, None, Some(&widths)).unwrap();
+        let saved = table_of(&paging, None, None, None, None, Some(&widths)).unwrap();
         assert_eq!(saved.widths, widths.0);
 
         let text = serde_json::to_string(&saved).unwrap();
         assert_eq!(serde_json::from_str::<TableState>(&text).unwrap(), saved);
         assert_eq!(
-            table_of(&paging, None, None, None, Some(&ColumnWidths::default())),
+            table_of(
+                &paging,
+                None,
+                None,
+                None,
+                None,
+                Some(&ColumnWidths::default())
+            ),
             None
         );
     }
@@ -862,7 +894,7 @@ mod tests {
         let mut sort = TableSort::default();
         sort.press("Age", false);
         let hidden = HiddenColumns(["Donor ID".to_string()].into());
-        let saved = table_of(&paging, None, Some(&sort), Some(&hidden), None).unwrap();
+        let saved = table_of(&paging, None, None, Some(&sort), Some(&hidden), None).unwrap();
         assert_eq!(saved.sort, sort.0);
         assert_eq!(saved.hidden, ["Donor ID"]);
 
@@ -874,10 +906,10 @@ mod tests {
     fn a_table_on_its_first_page_narrowed_by_nothing_saves_nothing() {
         let paging = TablePaging::new(100, Some(1000));
         assert_eq!(
-            table_of(&paging, Some(&table_filters()), None, None, None),
+            table_of(&paging, None, Some(&table_filters()), None, None, None),
             None
         );
-        assert_eq!(table_of(&paging, None, None, None, None), None);
+        assert_eq!(table_of(&paging, None, None, None, None, None), None);
     }
 
     #[test]

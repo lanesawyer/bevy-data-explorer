@@ -136,14 +136,14 @@ pub(super) struct Taxon {
 /// writes it.
 pub(super) async fn ask(
     endpoint: &str,
-    project: &str,
+    scope: &Scope,
     offset: usize,
     terms: &[TableFilterTerm],
     sort: Value,
 ) -> Result<Data, String> {
     let variables = json!({
-        "project": [{ "field": "referenceId", "operator": "EQ", "value": project }],
-        "specimens": specimen_filters(project, terms),
+        "project": [{ "field": "referenceId", "operator": "EQ", "value": scope.project }],
+        "specimens": specimen_filters(scope, terms),
         "sort": sort,
         "groupBy": ["projectReferenceIds"],
         "limit": PAGE,
@@ -177,11 +177,32 @@ pub(super) fn labeled(groups: &[Grouped]) -> Vec<(String, u64)> {
         .collect()
 }
 
-/// The project, and whatever has been asked of it.
-pub(super) fn specimen_filters(project: &str, terms: &[TableFilterTerm]) -> Value {
+/// Which specimens a table is of: a project's, and of those only one kind
+/// when the project shows its kinds apart.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Scope {
+    pub(super) project: String,
+    /// The kind of specimen, by the platform's id for it.
+    pub(super) kind: Option<String>,
+}
+
+impl Scope {
+    pub(super) fn project(project: impl Into<String>) -> Self {
+        Scope {
+            project: project.into(),
+            kind: None,
+        }
+    }
+}
+
+/// The specimens in scope, and whatever has been asked of them.
+pub(super) fn specimen_filters(scope: &Scope, terms: &[TableFilterTerm]) -> Value {
     let mut filters = vec![json!({
-        "field": "projectReferenceIds", "operator": "EQ", "value": project
+        "field": "projectReferenceIds", "operator": "EQ", "value": scope.project
     })];
+    if let Some(kind) = &scope.kind {
+        filters.push(json!({ "field": KIND_ID_FIELD, "operator": "EQ", "value": kind }));
+    }
     filters.extend(terms.iter().map(|term| match term {
         TableFilterTerm::Is { field, value } => {
             json!({ "field": field, "operator": "EQ", "value": value })
@@ -192,6 +213,71 @@ pub(super) fn specimen_filters(project: &str, terms: &[TableFilterTerm]) -> Valu
         }
     }));
     Value::Array(filters)
+}
+
+/// How a project shows its kinds of specimen apart, and how many of each it
+/// holds.
+///
+/// `getSpecimenTypeDisplayPropertiesByProject` is what the platform's own
+/// specimens page lays a project out from: for a project that shows its kinds
+/// apart, a list of them, each with the features it is shown with. For every
+/// other project it answers with an empty list.
+pub(super) const KINDS: &str = "query($project: String!, $specimens: [Filter]) {
+  kinds: getSpecimenTypeDisplayPropertiesByProject(projectReferenceId: $project) {
+    priorityOrder
+    referenceId
+    title
+    displayFeatures {
+      type
+      priorityOrder
+      featureType { referenceId title }
+      ... on MeasurementDisplayProperty { unit }
+    }
+  }
+  counts: aio_specimenCounts(filter: $specimens, groupBy: [\"specimenType.referenceId\"]) {
+    count
+    properties { value }
+  }
+}";
+
+#[derive(Deserialize)]
+pub(super) struct KindsData {
+    #[serde(default, deserialize_with = "maybe_list")]
+    pub(super) kinds: Vec<KindLayout>,
+    #[serde(default, deserialize_with = "maybe_list")]
+    pub(super) counts: Vec<Grouped>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct KindLayout {
+    #[serde(default)]
+    pub(super) priority_order: Option<i64>,
+    pub(super) reference_id: String,
+    pub(super) title: Option<String>,
+    #[serde(default, deserialize_with = "maybe_list")]
+    pub(super) display_features: Vec<DisplayFeature>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct DisplayFeature {
+    #[serde(rename = "type")]
+    pub(super) kind: Option<String>,
+    #[serde(default)]
+    pub(super) priority_order: Option<i64>,
+    pub(super) feature_type: Titled,
+    #[serde(default)]
+    pub(super) unit: Option<String>,
+}
+
+/// Ask how a project shows its kinds of specimen apart.
+pub(super) async fn ask_kinds(endpoint: &str, project: &str) -> Result<KindsData, String> {
+    let variables = json!({
+        "project": project,
+        "specimens": specimen_filters(&Scope::project(project), &[]),
+    });
+    graphql::ask(endpoint, KINDS, variables).await
 }
 
 #[cfg(test)]

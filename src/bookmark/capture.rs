@@ -14,7 +14,9 @@ use crate::source::properties::{
     CellProperties, ColorOverrides, ColorScale, FilteredPoints, PropertyState, Provenance,
 };
 use crate::source::stack::{SliceGrid, SliceStack};
-use crate::source::table::{ColumnWidths, HiddenColumns, TableFilters, TablePaging, TableSort};
+use crate::source::table::{
+    ColumnWidths, HiddenColumns, TableFilters, TablePaging, TablePartitions, TableSort,
+};
 use crate::source::{ShowsSource, SourceUrl};
 use crate::view::FrameRegion;
 use crate::view::link::Linked;
@@ -233,6 +235,7 @@ fn source_state(source: EntityRef, url: String) -> SourceState {
         table: source.get::<TablePaging>().and_then(|paging| {
             table_of(
                 paging,
+                source.get::<TablePartitions>(),
                 source.get::<TableFilters>(),
                 source.get::<TableSort>(),
                 source.get::<HiddenColumns>(),

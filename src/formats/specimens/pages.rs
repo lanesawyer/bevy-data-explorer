@@ -11,10 +11,18 @@ use super::*;
 #[derive(Component)]
 pub struct SpecimenPages {
     pub(super) endpoint: String,
-    pub(super) project: String,
+    /// The project, and the kind of specimen on screen if it shows its kinds
+    /// apart.
+    pub(super) scope: Scope,
     /// The columns the first page settled. Every page after fills these, so
     /// the table does not relay itself out under the pointer.
     pub(super) plan: Plan,
+    /// Each kind of specimen the project shows apart, by id, with the columns
+    /// it is shown with.
+    layouts: Vec<(String, Plan)>,
+    /// The rows on screen are another kind's, or none, and the page has to
+    /// be read whatever else has changed.
+    pub(super) reread: bool,
     /// The page being fetched, and the fetch, while one is in flight.
     pub(super) fetching: Option<(usize, Fetching<Result<Data, String>>)>,
     /// What the columns hold, asked for once.
@@ -47,11 +55,18 @@ pub struct SpecimenPages {
 }
 
 impl SpecimenPages {
-    pub fn new(endpoint: String, project: String, plan: Plan) -> Self {
+    pub(super) fn new(
+        endpoint: String,
+        scope: Scope,
+        plan: Plan,
+        layouts: Vec<(String, Plan)>,
+    ) -> Self {
         SpecimenPages {
             endpoint,
-            project,
+            scope,
             plan,
+            layouts,
+            reread: false,
             fetching: None,
             offering: None,
             offered: false,
@@ -61,6 +76,31 @@ impl SpecimenPages {
             counted: HashMap::new(),
             counting: None,
         }
+    }
+
+    /// The columns `kind` is shown with, if the project shows it apart.
+    pub(super) fn layout(&self, kind: &str) -> Option<Plan> {
+        self.layouts
+            .iter()
+            .find(|(id, _)| id == kind)
+            .map(|(_, plan)| plan.clone())
+    }
+
+    /// Show another kind: its columns, and nothing asked of it yet. Whatever
+    /// was in flight for the last kind is dropped, since it would land on
+    /// the wrong table.
+    pub(super) fn show_kind(&mut self, kind: String, plan: Plan) {
+        self.scope.kind = Some(kind);
+        self.plan = plan;
+        self.reread = true;
+        self.fetching = None;
+        self.offering = None;
+        self.offered = false;
+        self.applied.clear();
+        self.sorted.clear();
+        self.spanning = None;
+        self.counted.clear();
+        self.counting = None;
     }
 }
 
@@ -121,19 +161,21 @@ pub(super) fn serve_pages(
 
         // Whatever narrows or sorts the table puts it back on its first page,
         // not this: a bookmark restores its filters and its page together.
-        let narrowed = pages.applied != wanted_values || pages.sorted != wanted_sort;
+        let narrowed =
+            pages.reread || pages.applied != wanted_values || pages.sorted != wanted_sort;
 
         let wanted = paging.first();
         let asking = pages.fetching.as_ref().map(|(page, _)| page * paging.size);
         if (narrowed || rows.first != wanted) && asking != Some(wanted) {
-            let (endpoint, project) = (pages.endpoint.clone(), pages.project.clone());
+            let (endpoint, scope) = (pages.endpoint.clone(), pages.scope.clone());
             let values = wanted_values.clone();
             let order = pages.plan.sort(&wanted_sort);
+            pages.reread = false;
             pages.applied = wanted_values;
             pages.sorted = wanted_sort;
             pages.fetching = Some((
                 paging.page,
-                fetching(async move { ask(&endpoint, &project, wanted, &values, order).await }),
+                fetching(async move { ask(&endpoint, &scope, wanted, &values, order).await }),
             ));
         }
         busy.set_if_neq(SourceBusy(pages.fetching.is_some()));
@@ -151,15 +193,7 @@ pub(super) fn take_page(
     // than dropping the value. They only ever gain, so the frame notices and
     // lays itself out again.
     if pages.plan.extend(&data.aio_specimen) {
-        let headers = pages.plan.headers();
-        rows.columns = headers
-            .iter()
-            .map(|name| TableColumn {
-                name: name.clone(),
-                chars: name.chars().count(),
-                numeric: false,
-            })
-            .collect();
+        rows.columns = columns_of(&pages.plan);
     }
 
     rows.rows = pages.plan.rows(&data.aio_specimen);

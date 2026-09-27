@@ -24,6 +24,7 @@ pub mod selection;
 pub mod settings;
 pub mod sidebar;
 pub mod table_filters;
+pub mod table_partitions;
 pub mod view_config;
 pub mod welcome;
 
@@ -54,6 +55,7 @@ impl Plugin for UiPlugin {
         // tuple caps at twenty.
         .add_plugins((
             table_filters::TableFilterPlugin,
+            table_partitions::TablePartitionPlugin,
             welcome::WelcomePlugin,
             dashboards::DashboardsPlugin,
             log_panel::LogPanelPlugin,

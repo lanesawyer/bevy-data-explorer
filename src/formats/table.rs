@@ -296,6 +296,22 @@ impl Plugin for TableSystems {
     }
 }
 
+/// What a table's frame says of its shape.
+///
+/// Written out rather than set with a multiplication sign: the overlay is
+/// read, not calculated, and one column of one row is still "1 row".
+pub fn status_of(rows: usize, columns: usize, note: Option<&str>) -> String {
+    let mut status = format!(
+        "{} {} in {columns} columns",
+        source::grouped(rows),
+        if rows == 1 { "row" } else { "rows" }
+    );
+    if let Some(note) = note {
+        status += &format!(", {note}");
+    }
+    status
+}
+
 /// Register a table as a source.
 ///
 /// A table read whole keeps the rest of itself in a [`WholeTable`] and draws a
@@ -326,16 +342,7 @@ pub fn spawn_source(world: &mut World, table: Table) -> Entity {
         },
     );
 
-    // Written out rather than set with a multiplication sign: the overlay is
-    // read, not calculated, and one column of one row is still "1 row".
-    let mut status = format!(
-        "{} {} in {columns} columns",
-        source::grouped(rows),
-        if rows == 1 { "row" } else { "rows" }
-    );
-    if let Some(note) = table.note {
-        status += &format!(", {note}");
-    }
+    let status = status_of(rows, columns, table.note.as_deref());
 
     let mut page = table.rows;
     let paging = TablePaging::new(PAGE_ROWS, Some(rows));

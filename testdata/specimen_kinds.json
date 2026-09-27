@@ -1,0 +1,287 @@
+{
+ "data": {
+  "kinds": [
+   {
+    "priorityOrder": 0,
+    "referenceId": "CC6HUCUDABMM9O1DSX9",
+    "title": "Library Aliquot",
+    "displayFeatures": [
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 0,
+      "featureType": {
+       "referenceId": "NSG3JKLR4SYNAD0L9KD",
+       "title": "Library Aliquot NHash ID"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 1,
+      "featureType": {
+       "referenceId": "0Q1P8KQ00174J6HA3LZ",
+       "title": "Subject NHash ID"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 2,
+      "featureType": {
+       "referenceId": "W762LUXTYXE7XVP6832",
+       "title": "Library Technique"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 4,
+      "featureType": {
+       "referenceId": "DCG56O8J7X7Q92SERPB",
+       "title": "Tissue Sample Region Name"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 5,
+      "featureType": {
+       "referenceId": "0DIRCAZL9U8HEYSH7G6",
+       "title": "Subject Species"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 6,
+      "featureType": {
+       "referenceId": "XVX3077LBGRY6GKYV9M",
+       "title": "Subject Sex"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 7,
+      "featureType": {
+       "referenceId": "F3WYZ0N4QYLOKPNYOGS",
+       "title": "Grant Information"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 8,
+      "featureType": {
+       "referenceId": "BJNJ8XP9M13ZB4EN3QB",
+       "title": "Subject Age(s) of Death"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 9,
+      "featureType": {
+       "referenceId": "37MCLNI1YEOMQOPTERJ",
+       "title": "Barcoded Cell Sample Tags"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 10,
+      "featureType": {
+       "referenceId": "PJWWCXZCNTCML0W47BU",
+       "title": "Local Library Aliquot Name"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 11,
+      "featureType": {
+       "referenceId": "URWDJD6Z39834608G8V",
+       "title": "Barcoded Cell Sample NHash ID"
+      }
+     },
+     {
+      "type": "MEASUREMENT",
+      "priorityOrder": 13,
+      "featureType": {
+       "referenceId": "X8H1WGYZ1NPLBO8RREF",
+       "title": "Number of Expected Cells"
+      },
+      "unit": null
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 14,
+      "featureType": {
+       "referenceId": "JALGVUSK3P6RO29HE2G",
+       "title": "Enrichment Population"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 15,
+      "featureType": {
+       "referenceId": "5NV0N4AWS3VQJEFS6MQ",
+       "title": "Cell Prep Type"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 16,
+      "featureType": {
+       "referenceId": "L11AP776MQKPZP41CTW",
+       "title": "Library Prep Pass/Fail"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 17,
+      "featureType": {
+       "referenceId": "HUBSTD1Q800NVCJIM79",
+       "title": "Library NHash ID"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 18,
+      "featureType": {
+       "referenceId": "84GOZ72XQHC9RWNBISA",
+       "title": "Tissue Sample NHash ID"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 19,
+      "featureType": {
+       "referenceId": "95RNAU23U6NN5P6W14O",
+       "title": "Tissue Sample Region ID"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 21,
+      "featureType": {
+       "referenceId": "MR548YKL13O9WKH0Q80",
+       "title": "Sample Generating Lab"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 22,
+      "featureType": {
+       "referenceId": "TQLE8R5T0KXOPDHNWWH",
+       "title": "BCDC Data Collection Name"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 24,
+      "featureType": {
+       "referenceId": "GT0TIR0K5BP8HK0Y2WV",
+       "title": "File Availability"
+      }
+     }
+    ]
+   },
+   {
+    "priorityOrder": 1,
+    "referenceId": "NIB9QZK1NIG47UMIO7F",
+    "title": "Donor",
+    "displayFeatures": [
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 0,
+      "featureType": {
+       "referenceId": "0Q1P8KQ00174J6HA3LZ",
+       "title": "Subject NHash ID"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 1,
+      "featureType": {
+       "referenceId": "BL0CCBUXOVTRYEWUTYU",
+       "title": "Species"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 2,
+      "featureType": {
+       "referenceId": "YYLVE7CFHZS58JLQ5UI",
+       "title": "Species NCBI Taxon"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 3,
+      "featureType": {
+       "referenceId": "Q91RVNDS26G6IV84LQX",
+       "title": "Sex"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 4,
+      "featureType": {
+       "referenceId": "P6DZGN8YWMEZGS7CB61",
+       "title": "Age of Death"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 5,
+      "featureType": {
+       "referenceId": "1G6JRA4GFDAOF1U9H03",
+       "title": "Age of Death Value"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 6,
+      "featureType": {
+       "referenceId": "KBWF6HTQ6EH53VR1YDT",
+       "title": "Age of Death Unit"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 7,
+      "featureType": {
+       "referenceId": "RZ5LEER7IIJQEQL3Z51",
+       "title": "Age of Death Reference Point"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 8,
+      "featureType": {
+       "referenceId": "26BDA1IVUPD8CW69VF6",
+       "title": "Race"
+      }
+     },
+     {
+      "type": "ANNOTATION",
+      "priorityOrder": 9,
+      "featureType": {
+       "referenceId": "EDR4HA9PAMI4OUAZA1P",
+       "title": "Ethnicity"
+      }
+     }
+    ]
+   }
+  ],
+  "counts": [
+   {
+    "count": 3204,
+    "properties": [
+     {
+      "value": "CC6HUCUDABMM9O1DSX9"
+     }
+    ]
+   },
+   {
+    "count": 457,
+    "properties": [
+     {
+      "value": "NIB9QZK1NIG47UMIO7F"
+     }
+    ]
+   }
+  ]
+ }
+}

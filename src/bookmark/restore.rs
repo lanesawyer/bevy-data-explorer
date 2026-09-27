@@ -36,7 +36,9 @@ use crate::source::channels::SourceChannels;
 use crate::source::genes::{GeneSearch, ReadsGenes};
 use crate::source::properties::{CellColumns, CellProperties, ColorOverrides, PropertyState};
 use crate::source::stack::{SliceGrid, SliceStack};
-use crate::source::table::{ColumnWidths, HiddenColumns, TableFilters, TablePaging, TableSort};
+use crate::source::table::{
+    ColumnWidths, HiddenColumns, TableFilters, TablePaging, TablePartitions, TableSort,
+};
 use crate::source::volume::SourceVolume;
 use crate::source::{DataSource, SourceExtent, SourceUrl};
 use crate::view::grid::{MAX_LAYERS, MAX_PANELS};
@@ -106,6 +108,7 @@ pub struct PendingSettings {
 #[query_data(mutable)]
 pub struct TableAccess {
     paging: Option<&'static mut TablePaging>,
+    partitions: Option<&'static mut TablePartitions>,
     filters: Option<&'static mut TableFilters>,
     sort: Option<&'static mut TableSort>,
     hidden: Option<&'static mut HiddenColumns>,
@@ -569,6 +572,19 @@ fn restore_table(
         warn!("bookmark: {} is no longer a table", data.name);
         return false;
     };
+    // The kind first, and nothing else until the next frame: another kind is
+    // another table, whose filters are asked for afresh, and anything put
+    // back before then would be put back on the table being replaced.
+    if let (Some(kind), Some(partitions)) = (saved.partition.as_deref(), table.partitions.as_mut())
+    {
+        if !partitions.partitions.iter().any(|it| it.id == kind) {
+            warn!("bookmark: {} no longer shows {kind} apart", data.name);
+        } else if partitions.chosen != kind {
+            partitions.choose(kind);
+            state.table = Some(saved);
+            return true;
+        }
+    }
     if !saved.filters.is_empty() {
         let Some(filters) = table.filters.as_mut().filter(|filters| !filters.pending) else {
             if patient {
@@ -905,6 +921,82 @@ mod tests {
     }
 
     #[test]
+    fn a_tables_kind_is_put_back_before_anything_asked_of_it() {
+        use crate::bookmark::snapshot::{ColumnFilter, TableFilterState, TableState};
+        use crate::source::table::{TableFilter, TableFilterValue, TablePartition};
+
+        let mut app = app();
+        let source = source(&mut app, "Specimens", "https://store/specimens");
+        let kind = |id: &str| TablePartition {
+            id: id.into(),
+            name: id.into(),
+            count: None,
+        };
+        let value = |label: &str| TableFilterValue {
+            label: label.into(),
+            count: 1,
+            chosen: false,
+        };
+        // The first kind's filters are already in, and are not the ones
+        // the bookmark means.
+        app.world_mut().entity_mut(source).insert((
+            TablePaging::new(100, Some(1000)),
+            TablePartitions {
+                label: "Specimen type".into(),
+                partitions: vec![kind("aliquot"), kind("donor")],
+                chosen: "aliquot".into(),
+            },
+            TableFilters::ready(vec![TableFilter::values("sex", "Sex", vec![value("F")])]),
+            TableSort::default(),
+            PendingSettings {
+                state: SourceState {
+                    table: Some(TableState {
+                        partition: Some("donor".into()),
+                        page: 1,
+                        filters: vec![ColumnFilter {
+                            id: "sex".into(),
+                            filter: TableFilterState::Values {
+                                values: vec!["F".into()],
+                            },
+                        }],
+                        ..default()
+                    }),
+                    ..default()
+                },
+                since: 0.0,
+                genes_asked: false,
+                spans_asked: false,
+            },
+        ));
+        app.update();
+        let world = app.world();
+        assert_eq!(
+            world.get::<TablePartitions>(source).unwrap().chosen,
+            "donor"
+        );
+        assert!(
+            !world.get::<TableFilters>(source).unwrap().columns[0].listed()[0].chosen,
+            "nothing is ticked on the kind being replaced"
+        );
+        assert_eq!(world.get::<TablePaging>(source).unwrap().page, 0);
+        assert!(world.get::<PendingSettings>(source).is_some());
+
+        // The donors' filters land.
+        app.world_mut()
+            .entity_mut(source)
+            .insert(TableFilters::ready(vec![TableFilter::values(
+                "sex",
+                "Sex",
+                vec![value("F"), value("M")],
+            )]));
+        app.update();
+        let world = app.world();
+        assert!(world.get::<PendingSettings>(source).is_none());
+        assert!(world.get::<TableFilters>(source).unwrap().columns[0].listed()[0].chosen);
+        assert_eq!(world.get::<TablePaging>(source).unwrap().page, 1);
+    }
+
+    #[test]
     fn a_tables_page_waits_for_the_filters_it_was_saved_with() {
         use crate::bookmark::snapshot::{ColumnFilter, TableFilterState, TableState};
         use crate::source::table::{SortKey, TableFilter, TableFilterValue};
@@ -920,6 +1012,7 @@ mod tests {
             PendingSettings {
                 state: SourceState {
                     table: Some(TableState {
+                        partition: None,
                         page: 2,
                         filters: vec![ColumnFilter {
                             id: "sex".into(),

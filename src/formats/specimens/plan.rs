@@ -3,30 +3,92 @@
 
 use super::*;
 
+/// One feature a specimen can carry, and so one column.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Feature {
+    /// What the platform calls it, which is what a filter narrows by. Empty
+    /// when the platform gave none, and then it cannot be asked for.
+    pub(super) id: String,
+    /// What the column is headed.
+    pub(super) title: String,
+    /// The unit it is recorded in, which names the column rather than every
+    /// cell in it.
+    pub(super) unit: Option<String>,
+    /// A measurement rather than an annotation: a number read off its value
+    /// rather than taxa listed, and worth a span when the platform cannot
+    /// list it.
+    pub(super) measured: bool,
+}
+
+impl Feature {
+    /// What a feature is told apart by: its id, or its title when it has
+    /// none. Not the title alone, since two features can share one — a
+    /// BICAN donor carries two called "Age of Death".
+    fn key(&self) -> &str {
+        if self.id.is_empty() {
+            &self.title
+        } else {
+            &self.id
+        }
+    }
+
+    /// Whether this is the feature `feature_type` names.
+    fn names(&self, feature_type: &Titled) -> bool {
+        match feature_type
+            .reference_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+        {
+            Some(id) => id == self.id,
+            None => self.id.is_empty() && feature_type.title.as_deref() == Some(&self.title),
+        }
+    }
+}
+
 /// Which columns a specimen table has, and in what order.
 ///
-/// Settled from the first page and kept, so turning the page does not relay
-/// out the table under the pointer. A later page carrying a feature no earlier
-/// one had grows the plan rather than losing the value — columns only ever
-/// gain, which the frame notices and rebuilds for.
+/// Settled before the rows are drawn and kept, so turning the page does not
+/// relay out the table under the pointer. A later page carrying a feature no
+/// earlier one had grows the plan rather than losing the value — columns only
+/// ever gain, which the frame notices and rebuilds for.
 ///
-/// Ordered so a table reads the same way twice: what identifies a specimen
-/// first, then annotations by name, then measurements by name. The platform's
-/// own order is not stable between requests.
-#[derive(Default, Debug, PartialEq, Eq)]
+/// When the platform says which features a kind of specimen is shown with,
+/// the plan is laid out from that, in its order. Otherwise it is settled from
+/// the first page and ordered so a table reads the same way twice: what
+/// identifies a specimen first, then annotations by name, then measurements
+/// by name. The platform's own order of a specimen's features is not stable
+/// between requests.
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct Plan {
-    /// Each annotation's feature — what the platform calls it, which is what
-    /// a filter narrows by, and what the column is headed.
-    pub(super) annotations: Vec<(String, String)>,
-    /// Each measurement's feature, its title, and the unit it is recorded in
-    /// — which names the column rather than every cell in it.
-    pub(super) measurements: Vec<(String, String, Option<String>)>,
+    pub(super) features: Vec<Feature>,
+    /// Laid out by the platform, so what a page adds goes on the end rather
+    /// than being sorted in among what it chose.
+    laid_out: bool,
 }
 
 impl Plan {
+    #[cfg(test)]
     pub(super) fn of(specimens: &[Specimen]) -> Plan {
         let mut plan = Plan::default();
         plan.extend(specimens);
+        plan
+    }
+
+    /// A plan in the order the platform gives it.
+    pub(super) fn laid_out(features: Vec<Feature>) -> Plan {
+        let mut plan = Plan {
+            features: Vec::new(),
+            laid_out: true,
+        };
+        for feature in features {
+            if !plan
+                .features
+                .iter()
+                .any(|known| known.key() == feature.key())
+            {
+                plan.features.push(feature);
+            }
+        }
         plan
     }
 
@@ -35,73 +97,60 @@ impl Plan {
     /// Returns whether anything was added, since that is what makes the
     /// columns on screen wrong until they are rebuilt.
     pub(super) fn extend(&mut self, specimens: &[Specimen]) -> bool {
-        let mut annotations: BTreeMap<&str, &str> = BTreeMap::new();
-        let mut measurements: BTreeMap<&str, (&str, Option<&str>)> = BTreeMap::new();
+        let mut found: Vec<Feature> = Vec::new();
         for specimen in specimens {
-            for annotation in &specimen.annotations {
-                if let Some(title) = annotation.feature_type.title.as_deref() {
-                    annotations.insert(
-                        title,
-                        annotation
-                            .feature_type
-                            .reference_id
-                            .as_deref()
-                            .unwrap_or(""),
-                    );
+            let annotations = specimen
+                .annotations
+                .iter()
+                .map(|it| (&it.feature_type, None, false));
+            // The unit belongs to the feature rather than to the reading, so
+            // the first one seen names the column.
+            let measurements = specimen.measurements.iter().map(|it| {
+                (
+                    &it.feature_type,
+                    it.unit.as_deref().filter(|unit| !unit.is_empty()),
+                    true,
+                )
+            });
+            for (feature_type, unit, measured) in annotations.chain(measurements) {
+                let Some(title) = feature_type.title.as_deref() else {
+                    continue;
+                };
+                let known = |feature: &Feature| feature.names(feature_type);
+                if self.features.iter().any(known) || found.iter().any(known) {
+                    continue;
                 }
-            }
-            for measurement in &specimen.measurements {
-                if let Some(title) = measurement.feature_type.title.as_deref() {
-                    // The unit belongs to the feature rather than to the
-                    // reading, so the first one seen names the column.
-                    measurements.entry(title).or_insert_with(|| {
-                        (
-                            measurement
-                                .feature_type
-                                .reference_id
-                                .as_deref()
-                                .unwrap_or(""),
-                            measurement.unit.as_deref().filter(|it| !it.is_empty()),
-                        )
-                    });
-                }
+                found.push(Feature {
+                    id: feature_type.reference_id.clone().unwrap_or_default(),
+                    title: title.to_string(),
+                    unit: unit.map(str::to_string),
+                    measured,
+                });
             }
         }
-
-        let before = (self.annotations.len(), self.measurements.len());
-        for (title, id) in &annotations {
-            if !self.annotations.iter().any(|(_, known)| known == title) {
-                self.annotations
-                    .push(((*id).to_string(), (*title).to_string()));
-            }
+        if found.is_empty() {
+            return false;
         }
-        for (title, (id, unit)) in &measurements {
-            if !self.measurements.iter().any(|(_, known, _)| known == title) {
-                self.measurements.push((
-                    (*id).to_string(),
-                    (*title).to_string(),
-                    unit.map(str::to_string),
-                ));
-            }
+        let by_name =
+            |a: &Feature, b: &Feature| (a.measured, &a.title).cmp(&(b.measured, &b.title));
+        if self.laid_out {
+            found.sort_by(by_name);
+            self.features.extend(found);
+        } else {
+            self.features.extend(found);
+            self.features.sort_by(by_name);
         }
-        self.annotations.sort_by(|a, b| a.1.cmp(&b.1));
-        self.measurements.sort_by(|a, b| a.1.cmp(&b.1));
-        before != (self.annotations.len(), self.measurements.len())
+        true
     }
 
     /// Every column that could be narrowed by, as the platform names it, as
     /// the table heads it, and whether it is a measurement — which is to say
     /// whether a span is worth offering when the platform cannot list it.
     pub(super) fn columns(&self) -> Vec<(String, String, bool)> {
-        self.annotations
+        self.features
             .iter()
-            .map(|(id, title)| (id.clone(), title.clone(), false))
-            .chain(
-                self.measurements
-                    .iter()
-                    .map(|(id, title, _)| (id.clone(), title.clone(), true)),
-            )
-            .filter(|(id, ..)| !id.is_empty())
+            .filter(|feature| !feature.id.is_empty())
+            .map(|feature| (feature.id.clone(), feature.title.clone(), feature.measured))
             .collect()
     }
 
@@ -133,17 +182,15 @@ impl Plan {
     /// What the platform calls each column, in the order of [`Plan::headers`].
     pub(super) fn fields(&self) -> Vec<String> {
         let mut fields = vec![SPECIMEN_FIELD.to_string(), KIND_FIELD.to_string()];
-        fields.extend(self.annotations.iter().map(|(id, _)| id.clone()));
-        fields.extend(self.measurements.iter().map(|(id, ..)| id.clone()));
+        fields.extend(self.features.iter().map(|feature| feature.id.clone()));
         fields
     }
 
     pub(super) fn headers(&self) -> Vec<String> {
         let mut headers = vec![SPECIMEN.to_string(), KIND.to_string()];
-        headers.extend(self.annotations.iter().map(|(_, title)| title.clone()));
-        headers.extend(self.measurements.iter().map(|(_, title, unit)| match unit {
-            Some(unit) => format!("{title} ({unit})"),
-            None => title.clone(),
+        headers.extend(self.features.iter().map(|feature| match &feature.unit {
+            Some(unit) => format!("{} ({unit})", feature.title),
+            None => feature.title.clone(),
         }));
         headers
     }
@@ -164,31 +211,28 @@ impl Plan {
                         .and_then(|kind| kind.name.clone())
                         .unwrap_or_default(),
                 ];
-                row.extend(
-                    self.annotations
-                        .iter()
-                        .map(|(_, title)| annotated(specimen, title)),
-                );
-                row.extend(
-                    self.measurements
-                        .iter()
-                        .map(|(_, title, _)| measured(specimen, title)),
-                );
+                row.extend(self.features.iter().map(|feature| {
+                    if feature.measured {
+                        measured(specimen, feature)
+                    } else {
+                        annotated(specimen, feature)
+                    }
+                }));
                 row
             })
             .collect()
     }
 }
 
-/// What a specimen is annotated with under `title`.
+/// What a specimen is annotated with under `feature`.
 ///
 /// An annotation can name more than one taxon — a donor with two clinical
 /// diagnoses has both — so they are listed rather than one being picked.
-pub(super) fn annotated(specimen: &Specimen, title: &str) -> String {
+pub(super) fn annotated(specimen: &Specimen, feature: &Feature) -> String {
     let mut values: Vec<&str> = specimen
         .annotations
         .iter()
-        .filter(|annotation| annotation.feature_type.title.as_deref() == Some(title))
+        .filter(|annotation| feature.names(&annotation.feature_type))
         .flat_map(|annotation| annotation.taxons.iter())
         .filter_map(|taxon| taxon.symbol.as_deref())
         .filter(|symbol| !symbol.is_empty())
@@ -197,16 +241,16 @@ pub(super) fn annotated(specimen: &Specimen, title: &str) -> String {
     values.join(", ")
 }
 
-/// What a specimen measured for `title`.
+/// What a specimen measured for `feature`.
 ///
 /// The first reading, because the platform repeats some of them: the SEA-AD
 /// donors each carry sex and age at death twice, with the same value both
 /// times. Listing a value beside itself would say something the data does not.
-pub(super) fn measured(specimen: &Specimen, title: &str) -> String {
+pub(super) fn measured(specimen: &Specimen, feature: &Feature) -> String {
     specimen
         .measurements
         .iter()
-        .find(|measurement| measurement.feature_type.title.as_deref() == Some(title))
+        .find(|measurement| feature.names(&measurement.feature_type))
         .and_then(|measurement| measurement.value.clone())
         .unwrap_or_default()
 }
@@ -318,18 +362,18 @@ mod tests {
 
     #[test]
     fn a_sort_on_headings_is_asked_for_by_the_platforms_fields() {
-        let plan = Plan {
-            annotations: vec![
-                ("MM1MMES48T9H7ZX6E3Y".into(), "Cognitive status".into()),
-                // A feature the platform gave no id cannot be asked for.
-                (String::new(), "Donor ID".into()),
-            ],
-            measurements: vec![(
-                "HPEYHZG6D7XY8CBK448".into(),
-                "Age at death".into(),
-                Some("years".into()),
-            )],
+        let feature = |id: &str, title: &str, unit: Option<&str>| Feature {
+            id: id.into(),
+            title: title.into(),
+            unit: unit.map(Into::into),
+            measured: unit.is_some(),
         };
+        let plan = Plan::laid_out(vec![
+            feature("MM1MMES48T9H7ZX6E3Y", "Cognitive status", None),
+            // A feature the platform gave no id cannot be asked for.
+            feature("", "Donor ID", None),
+            feature("HPEYHZG6D7XY8CBK448", "Age at death", Some("years")),
+        ]);
         let key = |column: &str, descending: bool| SortKey {
             column: column.into(),
             descending,

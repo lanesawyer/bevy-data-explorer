@@ -9,6 +9,14 @@ pub(super) fn visible_of(table: &SourceTable, hidden: Option<&HiddenColumns>) ->
         .collect()
 }
 
+/// The headings of the columns drawn, in order.
+pub(super) fn names_of(table: &SourceTable, visible: &[usize]) -> Vec<String> {
+    visible
+        .iter()
+        .map(|&at| table.columns[at].name.clone())
+        .collect()
+}
+
 /// Where each drawn column starts, the numbering gutter first, with the full
 /// width last.
 ///

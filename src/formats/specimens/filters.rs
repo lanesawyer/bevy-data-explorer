@@ -20,7 +20,7 @@ use super::*;
 /// [`ask_recount`] counts them again once something does.
 pub(super) async fn ask_values(
     endpoint: &str,
-    project: &str,
+    scope: &Scope,
     columns: &[(String, String, bool)],
 ) -> Result<Vec<TableFilter>, String> {
     let fields: String = columns
@@ -36,7 +36,7 @@ pub(super) async fn ask_values(
         .join(" ");
     let query = format!("query($specimens: [Filter]) {{ {fields} }}");
 
-    let variables = json!({ "specimens": specimen_filters(project, &[]) });
+    let variables = json!({ "specimens": specimen_filters(scope, &[]) });
     let response: Response<BTreeMap<String, Option<Vec<Grouped>>>> =
         graphql::answer(endpoint, &query, variables).await?;
     // A column the platform could not group by is reported beside the ones it
@@ -106,13 +106,13 @@ pub(super) fn offer_filters(
             continue;
         }
         pages.offered = true;
-        let (endpoint, project) = (pages.endpoint.clone(), pages.project.clone());
+        let (endpoint, scope) = (pages.endpoint.clone(), pages.scope.clone());
         // Every column, not only the annotations: the platform answers for
         // whichever of them it can group by.
         let columns = pages.plan.columns();
         commands.entity(source).insert(TableFilters::pending());
         pages.offering = Some(fetching(async move {
-            ask_values(&endpoint, &project, &columns).await
+            ask_values(&endpoint, &scope, &columns).await
         }));
     }
 }

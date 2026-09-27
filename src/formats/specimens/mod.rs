@@ -30,16 +30,17 @@ use serde_json::{Value, json};
 use crate::app::graphql::{self, Response};
 use crate::app::net::{Fetching, fetching};
 use crate::app::schedule::Stage;
-use crate::source::SourceBusy;
 use crate::source::properties::NumericRange;
 use crate::source::table::{
     SortKey, SourceTable, TableColumn, TableFilter, TableFilterKind, TableFilterTerm,
-    TableFilterValue, TableFilters, TablePaging, TableSort,
+    TableFilterValue, TableFilters, TablePaging, TablePartition, TablePartitions, TableSort,
 };
+use crate::source::{SourceBusy, SourceStatus};
 
 use super::table::{PAGE_ROWS, Table};
 
 mod filters;
+mod kinds;
 mod pages;
 mod plan;
 mod query;
@@ -47,6 +48,7 @@ mod recount;
 mod spans;
 
 use filters::*;
+use kinds::*;
 use pages::*;
 use plan::*;
 use query::*;
@@ -75,6 +77,12 @@ const KIND: &str = "Type";
 /// What the platform sorts the [`SPECIMEN`] and [`KIND`] columns by.
 const SPECIMEN_FIELD: &str = "cRID.symbol";
 const KIND_FIELD: &str = "specimenType.name";
+
+/// What the platform narrows specimens to one kind by.
+const KIND_ID_FIELD: &str = "specimenType.referenceId";
+
+/// What a project's kinds of specimen are headed, over the choice of them.
+const KINDS_LABEL: &str = "Specimen type";
 
 /// Whether `url` asks for a project's specimens, and if so the endpoint to ask
 /// and the project to ask about.
@@ -105,26 +113,47 @@ fn label_for(project: &str, title: Option<&str>) -> String {
 /// Read the first page of a project's specimens, and find out how many there
 /// are altogether.
 ///
-/// One request: the project's title, the count, and the page. A frame opens on
-/// what comes back, and [`SpecimenSystems`] fetches any other page the frame
-/// is turned to.
+/// One request for the project's title, the count and the page, and beside
+/// it one for how the project shows its kinds of specimen apart. A project
+/// that shows none apart opens on the first; one that does is read again for
+/// its first kind alone, which costs it a round trip and costs every other
+/// project nothing. A frame opens on what comes back, and [`SpecimenSystems`]
+/// fetches any other page, or kind, the frame is turned to.
 pub async fn read(endpoint: &str, project: &str) -> Result<Specimens, String> {
-    let answer = ask(endpoint, project, 0, &[], Value::Null).await?;
+    let mut scope = Scope::project(project);
+    let (answer, kinds) = futures::join!(
+        ask(endpoint, &scope, 0, &[], Value::Null),
+        ask_kinds(endpoint, project)
+    );
+    let mut answer = answer?;
+    // Without its layout a project is still a table, of every kind at once.
+    let kinds = kinds
+        .map(kinds_of)
+        .inspect_err(|e| warn!("asking how {project} shows its specimens: {e}"))
+        .unwrap_or_default();
+
+    let mut plan = match kinds.first() {
+        Some((kind, plan)) => {
+            scope.kind = Some(kind.id.clone());
+            let first = ask(endpoint, &scope, 0, &[], Value::Null).await?;
+            answer.aio_specimen = first.aio_specimen;
+            answer.total = first.total;
+            plan.clone()
+        }
+        None => Plan::default(),
+    };
     if answer.aio_specimen.is_empty() {
         return Err(format!(
             "{endpoint} knows no specimens in project {project}"
         ));
     }
+    plan.extend(&answer.aio_specimen);
 
     let title = answer.project.first().and_then(|it| it.title.clone());
     let total = answer.counted().unwrap_or(answer.aio_specimen.len());
-    let plan = Plan::of(&answer.aio_specimen);
     let table = Table::paged(
         label_for(project, title.as_deref()),
-        format!(
-            "Brain Knowledge Platform specimens, {} columns",
-            plan.headers().len()
-        ),
+        detail_of(&plan),
         plan.headers(),
         plan.rows(&answer.aio_specimen),
         None,
@@ -132,19 +161,30 @@ pub async fn read(endpoint: &str, project: &str) -> Result<Specimens, String> {
     );
     Ok(Specimens {
         endpoint: endpoint.to_string(),
-        project: project.to_string(),
+        scope,
         table,
         plan,
+        kinds,
     })
+}
+
+fn detail_of(plan: &Plan) -> String {
+    format!(
+        "Brain Knowledge Platform specimens, {} columns",
+        plan.headers().len()
+    )
 }
 
 /// A project's specimens: the page that was read, and what it takes to read
 /// another.
 pub struct Specimens {
     endpoint: String,
-    project: String,
+    scope: Scope,
     pub table: Table,
     plan: Plan,
+    /// The kinds of specimen the project shows apart, each with its layout;
+    /// empty for one that shows them together.
+    kinds: Vec<(TablePartition, Plan)>,
 }
 
 /// The systems every specimen table shares, registered once however many are
@@ -155,7 +195,13 @@ impl Plugin for SpecimenSystems {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (offer_filters, serve_spans, serve_counts, serve_pages)
+            (
+                serve_kinds,
+                offer_filters,
+                serve_spans,
+                serve_counts,
+                serve_pages,
+            )
                 .chain()
                 .in_set(Stage::Sources),
         );
@@ -166,14 +212,25 @@ impl Plugin for SpecimenSystems {
 pub fn spawn_source(world: &mut World, specimens: Specimens) -> Entity {
     let Specimens {
         endpoint,
-        project,
+        scope,
         table,
         plan,
+        kinds,
     } = specimens;
     let source = super::table::spawn_source(world, table);
-    world
-        .entity_mut(source)
-        .insert(SpecimenPages::new(endpoint, project, plan));
+    let mut entity = world.entity_mut(source);
+    if let Some(chosen) = scope.kind.clone() {
+        entity.insert(TablePartitions {
+            label: KINDS_LABEL.to_string(),
+            partitions: kinds.iter().map(|(kind, _)| kind.clone()).collect(),
+            chosen,
+        });
+    }
+    let layouts = kinds
+        .into_iter()
+        .map(|(kind, plan)| (kind.id, plan))
+        .collect();
+    entity.insert(SpecimenPages::new(endpoint, scope, plan, layouts));
     source
 }
 

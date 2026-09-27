@@ -118,6 +118,10 @@ pub struct TableView {
     readout: Entity,
     /// The columns drawn, as places in the source's own, in order.
     visible: Vec<usize>,
+    /// What they are headed. A source can put other columns in the same
+    /// places — a table showing another kind of record — and that is a
+    /// rebuild too.
+    names: Vec<String>,
     /// Where each drawn column starts, the numbering gutter first, with the
     /// whole width on the end.
     edges: Vec<f32>,
@@ -165,7 +169,11 @@ pub fn sync_tables(
             continue;
         };
         let (visible, edges) = layout_of(layout);
-        if visible != view.visible {
+        let renamed = !view
+            .names
+            .iter()
+            .eq(visible.iter().map(|&at| &layout.0.columns[at].name));
+        if visible != view.visible || renamed {
             commands.entity(entity).despawn();
         } else if edges != view.edges {
             // The same columns at other widths are moved rather than rebuilt:
@@ -199,6 +207,7 @@ pub fn sync_tables(
 fn spawn_table(commands: &mut Commands, panel: Entity, source: Entity, layout: Layout) {
     let (table, _, _, sorts, _) = layout;
     let (visible, edges) = layout_of(layout);
+    let names = names_of(table, &visible);
     let width = edges.last().copied().unwrap_or_default();
 
     let headings = commands
@@ -310,6 +319,7 @@ fn spawn_table(commands: &mut Commands, panel: Entity, source: Entity, layout: L
                 body,
                 content,
                 visible,
+                names,
                 edges,
                 live: HashMap::new(),
             },

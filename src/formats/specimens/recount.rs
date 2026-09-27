@@ -63,7 +63,7 @@ pub(super) fn recounting(filters: &TableFilters) -> Vec<Recounting> {
 /// request can carry.
 pub(super) async fn ask_recount(
     endpoint: &str,
-    project: &str,
+    scope: &Scope,
     columns: Vec<Recounting>,
 ) -> Result<Vec<Recounted>, String> {
     let (spans, values): (Vec<_>, Vec<_>) = columns.into_iter().partition(|it| it.edges.is_some());
@@ -90,12 +90,7 @@ pub(super) async fn ask_recount(
         let variables: serde_json::Map<String, Value> = values
             .iter()
             .enumerate()
-            .map(|(index, column)| {
-                (
-                    format!("f{index}"),
-                    specimen_filters(project, &column.terms),
-                )
-            })
+            .map(|(index, column)| (format!("f{index}"), specimen_filters(scope, &column.terms)))
             .collect();
 
         let response: Response<BTreeMap<String, Option<Vec<Grouped>>>> =
@@ -113,7 +108,7 @@ pub(super) async fn ask_recount(
         let edges = column.edges.unwrap_or_default();
         let cumulative = ask_cumulative(
             endpoint,
-            specimen_filters(project, &column.terms),
+            specimen_filters(scope, &column.terms),
             &column.id,
             &edges,
         )
@@ -203,10 +198,10 @@ pub(super) fn serve_counts(mut sources: Query<(&mut SpecimenPages, &mut TableFil
             .iter()
             .map(|column| (column.id.clone(), column.terms.clone()))
             .collect();
-        let (endpoint, project) = (pages.endpoint.clone(), pages.project.clone());
+        let (endpoint, scope) = (pages.endpoint.clone(), pages.scope.clone());
         pages.counting = Some((
             asked,
-            fetching(async move { ask_recount(&endpoint, &project, columns).await }),
+            fetching(async move { ask_recount(&endpoint, &scope, columns).await }),
         ));
     }
 }

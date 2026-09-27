@@ -978,9 +978,9 @@ anyone took, drawn with the same histogram and two-ended control the cell
 properties use.
 
 A span is asked for when its column is opened, not when the table is. The
-platform has no query that gives a column's extent — `measurementStats` sits on
-`aio_specimenFacetedSearchProperties`, which answers with an empty list for
-every project — so a distribution is a cumulative count at each of twenty-odd
+extent is not asked for first — `measurementStats` does come back on a
+project's display properties, but the viewer does not read it yet — so a
+distribution is a cumulative count at each of twenty-odd
 bucket edges, one index query apiece at about 0.14s. Asking for every numeric
 column of the SEA-AD donors up front would be a minute of waiting for
 histograms nobody looked at.
@@ -992,6 +992,32 @@ column asked about far wider than it runs is still drawn across what it has.
 Two things its range parser will not take: scientific notation — `-1e12` comes
 back *"Invalid range format"* — and, as ever, a page it has decided is too far
 in.
+
+Some projects hold more than one kind of specimen, and each kind has columns of
+its own: the BICAN Rapid Release Inventory holds 3,204 library aliquots, with a
+library technique and a region, and 457 donors, with a species and an age at
+death. Shown together they would be one table of mostly empty cells, so a
+project like that is shown a kind at a time, the way the platform's own
+specimens page shows it. `getSpecimenTypeDisplayPropertiesByProject` says
+which kinds a project shows apart and which features each is shown with, in
+what order; every other project answers it with an empty list and is read as
+before. It is asked beside the first page, so a project without kinds pays
+nothing for the question, and one with them is read again for its first kind.
+Everything asked of a kind — its page, its filters' counts, a span's
+histogram — carries `specimenType.referenceId` beside the project.
+
+The choice sits at the top of the table's filters, a button per kind with its
+count, because it decides what the filters are. Choosing another kind is
+choosing another table: its columns replace the last kind's, its filters are
+asked for afresh, the sort is dropped, and a bookmark saves which kind was on
+screen. The choice is `TablePartitions` in `source/table.rs` and names no
+platform, so any source whose records split into kinds with columns of their
+own can offer the same choice.
+
+A kind's columns are keyed by feature id, not by title. A BICAN donor carries
+two features both titled "Age of Death" on the record — a phrase and a number;
+the display properties call the second "Age of Death Value" — and keyed by
+title they fold into one column holding both.
 
 Two things the records do that only showed up on the last page, both now
 fixtured:
