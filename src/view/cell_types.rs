@@ -10,9 +10,12 @@
 //!
 //! Every frame takes part, linked or not: the highlight changes nothing but
 //! how large points are drawn, and lasts only while the pointer is there.
+//! Settings can turn the highlight off altogether, or only its reach into
+//! other datasets, which leaves each highlighting its own.
 
 use bevy::prelude::*;
 
+use crate::app::prefs::Preferences;
 use crate::app::schedule::Stage;
 use crate::render::points::SourceHighlight;
 use crate::source::hover::HoveredCategory;
@@ -21,6 +24,7 @@ use crate::source::properties::CellProperties;
 /// Highlight the hovered value in its own dataset, and the same type of cell
 /// in every other.
 fn link_cell_types(
+    prefs: Res<Preferences>,
     hovered: Query<(Entity, &HoveredCategory, &CellProperties)>,
     mut highlights: Query<(Entity, Option<&CellProperties>, &mut SourceHighlight)>,
 ) {
@@ -31,10 +35,12 @@ fn link_cell_types(
         .find_map(|(source, category, properties)| Some((source, category.0?, properties)));
     for (source, properties, mut highlight) in &mut highlights {
         let wanted = match over {
+            _ if !prefs.highlight_cell_types => None,
             Some((from, code, _)) if from == source => Some(code),
-            Some((_, code, other)) => {
+            Some((_, code, other)) if prefs.link_cell_types => {
                 properties.and_then(|properties| properties.same_type_as(other, code))
             }
+            Some(_) => None,
             None => None,
         };
         highlight.set_if_neq(SourceHighlight(wanted));
@@ -79,7 +85,8 @@ mod tests {
     #[test]
     fn hovering_a_cell_picks_out_its_type_here_and_in_every_dataset_that_names_it() {
         let mut app = App::new();
-        app.add_systems(Update, link_cell_types);
+        app.init_resource::<Preferences>()
+            .add_systems(Update, link_cell_types);
         let tissue = app
             .world_mut()
             .spawn((
@@ -125,5 +132,57 @@ mod tests {
         app.update();
         assert_eq!(highlight(&app, tissue), None);
         assert_eq!(highlight(&app, umap), None);
+    }
+
+    #[test]
+    fn turned_off_a_hovered_type_is_picked_out_in_its_own_dataset_alone() {
+        let mut app = App::new();
+        app.insert_resource(Preferences {
+            link_cell_types: false,
+            ..default()
+        })
+        .add_systems(Update, link_cell_types);
+        let tissue = app
+            .world_mut()
+            .spawn((
+                colored_by("SUBCLASS", &[(2, "oligo")]),
+                HoveredCategory(Some(2)),
+                SourceHighlight::default(),
+            ))
+            .id();
+        let umap = app
+            .world_mut()
+            .spawn((
+                colored_by("SUBCLASS", &[(7, "oligo")]),
+                HoveredCategory::default(),
+                SourceHighlight::default(),
+            ))
+            .id();
+        app.update();
+        assert_eq!(
+            app.world().get::<SourceHighlight>(tissue).unwrap().0,
+            Some(2)
+        );
+        assert_eq!(app.world().get::<SourceHighlight>(umap).unwrap().0, None);
+    }
+
+    #[test]
+    fn turned_off_altogether_nothing_is_picked_out_anywhere() {
+        let mut app = App::new();
+        app.insert_resource(Preferences {
+            highlight_cell_types: false,
+            ..default()
+        })
+        .add_systems(Update, link_cell_types);
+        let tissue = app
+            .world_mut()
+            .spawn((
+                colored_by("SUBCLASS", &[(2, "oligo")]),
+                HoveredCategory(Some(2)),
+                SourceHighlight(Some(2)),
+            ))
+            .id();
+        app.update();
+        assert_eq!(app.world().get::<SourceHighlight>(tissue).unwrap().0, None);
     }
 }

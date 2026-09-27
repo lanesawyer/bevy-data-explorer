@@ -84,6 +84,11 @@ pub struct Preferences {
     pub recent_colors: Vec<[f32; 3]>,
     /// How points colored by a numeric property are drawn, in every source.
     pub color_scale: ColorScale,
+    /// Whether hovering a cell draws every cell of its type larger.
+    pub highlight_cell_types: bool,
+    /// Whether that reaches the other datasets that share its taxonomy, as
+    /// well as its own. Nothing without `highlight_cell_types`.
+    pub link_cell_types: bool,
 }
 
 /// A sign-in to the BKP Registry: what renews its token, and whose it is.
@@ -107,6 +112,8 @@ impl Default for Preferences {
             system_accent: true,
             recent_colors: Vec::new(),
             color_scale: ColorScale::default(),
+            highlight_cell_types: true,
+            link_cell_types: true,
         }
     }
 }

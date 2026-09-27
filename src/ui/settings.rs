@@ -59,6 +59,12 @@ pub struct RememberLayoutBox;
 pub struct SystemAccentBox;
 
 #[derive(Component, Clone, Default)]
+pub struct HighlightCellTypesBox;
+
+#[derive(Component, Clone, Default)]
+pub struct LinkCellTypesBox;
+
+#[derive(Component, Clone, Default)]
 pub struct ReverseGradientBox;
 
 #[derive(Component, Clone, Default)]
@@ -335,6 +341,25 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>, catalo
                         Node { column_gap: { Val::Px(space::ICON_LABEL) } }
                         ResetPointCloudButton
                     )]
+                ),
+                (
+                    @FeathersCheckbox {
+                        @caption: { bsn_list![button_text("Highlight the hovered cell's type")] }
+                    }
+                    Node { margin: { UiRect::top(Val::Px(space::ROWS)) } }
+                    HighlightCellTypesBox
+                ),
+                (
+                    @FeathersCheckbox {
+                        @caption: { bsn_list![button_text("In other datasets too")] }
+                    }
+                    Node { margin: { UiRect::left(Val::Px(space::INDENT)) } }
+                    LinkCellTypesBox
+                ),
+                label_dim(
+                    "Pointing at a cell draws the cells of its type larger in every \
+                     frame showing its dataset, and in any other that names its cells \
+                     by the same taxonomy, such as a UMAP beside a section."
                 ),
             ]
         })
@@ -915,6 +940,26 @@ pub fn on_remember_layout(
     }
 }
 
+pub fn on_highlight_cell_types(
+    change: On<ValueChange<bool>>,
+    boxes: Query<(), With<HighlightCellTypesBox>>,
+    mut prefs: ResMut<Preferences>,
+) {
+    if boxes.contains(change.source) && prefs.highlight_cell_types != change.value {
+        prefs.highlight_cell_types = change.value;
+    }
+}
+
+pub fn on_link_cell_types(
+    change: On<ValueChange<bool>>,
+    boxes: Query<(), With<LinkCellTypesBox>>,
+    mut prefs: ResMut<Preferences>,
+) {
+    if boxes.contains(change.source) && prefs.link_cell_types != change.value {
+        prefs.link_cell_types = change.value;
+    }
+}
+
 pub fn on_system_accent(
     change: On<ValueChange<bool>>,
     boxes: Query<(), With<SystemAccentBox>>,
@@ -955,6 +1000,8 @@ pub fn sync_settings(
     mode: Res<ThemeMode>,
     remember: Query<(Entity, Has<Checked>), With<RememberLayoutBox>>,
     accent: Query<(Entity, Has<Checked>), With<SystemAccentBox>>,
+    highlighting: Query<(Entity, Has<Checked>), With<HighlightCellTypesBox>>,
+    linking: Query<(Entity, Has<Checked>, Has<InteractionDisabled>), With<LinkCellTypesBox>>,
     mut options: Query<(&ThemeOption, &mut ButtonVariant)>,
     resets: Query<(Entity, Has<InteractionDisabled>), With<ResetPointCloudButton>>,
 ) {
@@ -979,6 +1026,27 @@ pub fn sync_settings(
             commands.entity(entity).insert(Checked);
         } else if !prefs.system_accent && checked {
             commands.entity(entity).remove::<Checked>();
+        }
+    }
+    for (entity, checked) in &highlighting {
+        if prefs.highlight_cell_types && !checked {
+            commands.entity(entity).insert(Checked);
+        } else if !prefs.highlight_cell_types && checked {
+            commands.entity(entity).remove::<Checked>();
+        }
+    }
+    // Reaching other datasets means nothing with no highlight to carry, so it
+    // is shown as it stands but cannot be changed until there is one.
+    for (entity, checked, disabled) in &linking {
+        if prefs.link_cell_types && !checked {
+            commands.entity(entity).insert(Checked);
+        } else if !prefs.link_cell_types && checked {
+            commands.entity(entity).remove::<Checked>();
+        }
+        if prefs.highlight_cell_types && disabled {
+            commands.entity(entity).remove::<InteractionDisabled>();
+        } else if !prefs.highlight_cell_types && !disabled {
+            commands.entity(entity).insert(InteractionDisabled);
         }
     }
     let current = ThemeOption::of(&mode);
@@ -1111,6 +1179,8 @@ impl Plugin for SettingsPlugin {
             .add_observer(on_remember_layout)
             .add_observer(on_theme_option)
             .add_observer(on_system_accent)
+            .add_observer(on_highlight_cell_types)
+            .add_observer(on_link_cell_types)
             .add_observer(on_gradient_option)
             .add_observer(on_reverse_gradient)
             .add_observer(on_whole_extent)
