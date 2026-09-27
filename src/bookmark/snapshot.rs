@@ -492,7 +492,7 @@ pub fn table_of(
                         TableFilterKind::Values(_) => TableFilterState::Values {
                             values: column.chosen().map(|value| value.label.clone()).collect(),
                         },
-                        TableFilterKind::Range { span, .. } => {
+                        TableFilterKind::Range(span) => {
                             let span = span.as_ref()?;
                             TableFilterState::Span {
                                 from: span.from,
@@ -524,21 +524,18 @@ pub fn table_of(
     (state != TableState::default()).then_some(state)
 }
 
-/// Ask for the spans a bookmark narrows by, which a table works out only when
+/// Ask for the columns a bookmark narrows by, which a table reads only when
 /// asked. Returns whether any is still to come.
-pub fn ask_saved_spans(filters: &mut TableFilters, saved: &[ColumnFilter], ask: bool) -> bool {
+pub fn ask_saved_columns(filters: &mut TableFilters, saved: &[ColumnFilter], ask: bool) -> bool {
     let mut coming = false;
     for setting in saved {
-        if !matches!(setting.filter, TableFilterState::Span { .. }) {
-            continue;
-        }
         let Some(column) = filters.columns.iter_mut().find(|it| it.id == setting.id) else {
             continue;
         };
-        if ask && column.span().is_none() && !column.awaiting_span() {
+        if ask && !column.read() && !column.awaiting() {
             column.want(true);
         }
-        coming |= column.awaiting_span();
+        coming |= column.awaiting();
     }
     coming
 }
@@ -557,7 +554,10 @@ pub fn apply_table(filters: &mut TableFilters, saved: &[ColumnFilter]) -> Vec<St
             continue;
         };
         match (&mut column.kind, &setting.filter) {
-            (TableFilterKind::Values(values), TableFilterState::Values { values: wanted }) => {
+            (
+                TableFilterKind::Values(Some(values)),
+                TableFilterState::Values { values: wanted },
+            ) => {
                 let wanted: HashSet<&str> = wanted.iter().map(String::as_str).collect();
                 let mut found = 0;
                 for value in values {
@@ -568,12 +568,7 @@ pub fn apply_table(filters: &mut TableFilters, saved: &[ColumnFilter]) -> Vec<St
                     missing.push(setting.id.clone());
                 }
             }
-            (
-                TableFilterKind::Range {
-                    span: Some(span), ..
-                },
-                TableFilterState::Span { from, to },
-            ) => {
+            (TableFilterKind::Range(Some(span)), TableFilterState::Span { from, to }) => {
                 span.from = from.clamp(span.low, span.high);
                 span.to = to.clamp(span.from, span.high);
             }
@@ -818,10 +813,8 @@ mod tests {
             chosen: false,
         };
         let mut age = TableFilter::range("age", "Age");
-        age.kind = TableFilterKind::Range {
-            span: Some(NumericRange::full(60.0, 100.0, vec![1, 2, 3])),
-            wanted: true,
-        };
+        age.kind = TableFilterKind::Range(Some(NumericRange::full(60.0, 100.0, vec![1, 2, 3])));
+        age.want(true);
         TableFilters::ready(vec![
             TableFilter::values("sex", "Sex", vec![value("F"), value("M")]),
             age,
@@ -934,11 +927,36 @@ mod tests {
             id: "pmi".into(),
             filter: TableFilterState::Span { from: 1.0, to: 2.0 },
         }];
-        assert!(ask_saved_spans(&mut filters, &saved, true));
+        assert!(ask_saved_columns(&mut filters, &saved, true));
         // The ask failed: the table stops waiting, and asking is not repeated.
         filters.columns[2].want(false);
-        assert!(!ask_saved_spans(&mut filters, &saved, false));
+        assert!(!ask_saved_columns(&mut filters, &saved, false));
         assert_eq!(apply_table(&mut filters, &saved), ["pmi"]);
+    }
+
+    #[test]
+    fn values_not_yet_read_are_asked_for_before_they_are_ticked() {
+        use crate::source::table::{TableFilter, TableFilterValue};
+        let mut filters = TableFilters::ready(vec![TableFilter::unread_values("sex", "Sex")]);
+        let saved = [ColumnFilter {
+            id: "sex".into(),
+            filter: TableFilterState::Values {
+                values: vec!["F".into()],
+            },
+        }];
+        assert!(ask_saved_columns(&mut filters, &saved, true));
+        assert!(filters.columns[0].awaiting());
+
+        // They land, and the saved tick goes on.
+        let value = |label: &str| TableFilterValue {
+            label: label.into(),
+            count: 1,
+            chosen: false,
+        };
+        filters.columns[0].kind = TableFilterKind::Values(Some(vec![value("F"), value("M")]));
+        assert!(!ask_saved_columns(&mut filters, &saved, false));
+        assert!(apply_table(&mut filters, &saved).is_empty());
+        assert!(filters.columns[0].listed()[0].chosen);
     }
 
     #[test]

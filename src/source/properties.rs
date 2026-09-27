@@ -11,7 +11,7 @@
 //! points down to a chosen set of its values. Categorical values are colored
 //! one color each; numeric ones along a [`Gradient`].
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -1002,6 +1002,21 @@ pub struct SavedColor {
 /// The light gray filtered-out points are drawn in unless the user picks
 /// another.
 pub const FILTERED_GRAY: Color = Color::srgb(0.88, 0.88, 0.88);
+
+/// The properties whose sections are open in the panel, by id.
+///
+/// What is worth counting: a property's counts and histogram are drawn only
+/// inside its section, and counting every one of them whenever a filter moved
+/// cost a request a property for sections nobody had opened. Written by the
+/// panel and read by whatever counts, so neither names the other. A filter on
+/// a property that is shut still narrows everything; only its own counts wait
+/// until it is opened.
+///
+/// On the source rather than in [`CellProperties`], which a service replaces
+/// wholesale when it describes the cells, and whose every change is a reason
+/// to redraw the points.
+#[derive(Component, Debug, Clone, Default, PartialEq, Eq)]
+pub struct OpenProperties(pub BTreeSet<String>);
 
 /// What becomes of the points a source's filters leave out: drawn beneath the
 /// rest in `color`, or not drawn at all.

@@ -17,19 +17,22 @@ pub struct SpecimenPages {
     /// The columns the first page settled. Every page after fills these, so
     /// the table does not relay itself out under the pointer.
     pub(super) plan: Plan,
-    /// Each kind of specimen the project shows apart, by id, with the columns
-    /// it is shown with.
-    layouts: Vec<(String, Plan)>,
+    /// Each kind of specimen the project shows apart, by id, as the platform
+    /// lays it out.
+    layouts: Vec<(String, Layout)>,
     /// The rows on screen are another kind's, or none, and the page has to
     /// be read whatever else has changed.
     pub(super) reread: bool,
     /// The page being fetched, and the fetch, while one is in flight.
     pub(super) fetching: Option<(usize, Fetching<Result<Data, String>>)>,
-    /// What the columns hold, asked for once.
-    pub(super) offering: Option<Fetching<Result<Vec<TableFilter>, String>>>,
-    /// Whether the columns have been asked about, so they are asked once
-    /// whether or not anything came back.
+    /// Whether the table's filters have been offered.
     pub(super) offered: bool,
+    /// The open columns being read, what they are read under, and the read.
+    pub(super) reading: Option<(
+        Vec<String>,
+        Vec<TableFilterTerm>,
+        Fetching<Result<Groups, String>>,
+    )>,
     /// The values in force on the rows now on screen, so a tick that changes
     /// nothing does not refetch and one that does is noticed.
     pub(super) applied: Vec<TableFilterTerm>,
@@ -59,7 +62,8 @@ impl SpecimenPages {
         endpoint: String,
         scope: Scope,
         plan: Plan,
-        layouts: Vec<(String, Plan)>,
+        sorted: Vec<SortKey>,
+        layouts: Vec<(String, Layout)>,
     ) -> Self {
         SpecimenPages {
             endpoint,
@@ -68,22 +72,22 @@ impl SpecimenPages {
             layouts,
             reread: false,
             fetching: None,
-            offering: None,
             offered: false,
+            reading: None,
             applied: Vec::new(),
-            sorted: Vec::new(),
+            sorted,
             spanning: None,
             counted: HashMap::new(),
             counting: None,
         }
     }
 
-    /// The columns `kind` is shown with, if the project shows it apart.
-    pub(super) fn layout(&self, kind: &str) -> Option<Plan> {
+    /// How `kind` is laid out, if the project shows it apart.
+    pub(super) fn layout(&self, kind: &str) -> Option<Layout> {
         self.layouts
             .iter()
             .find(|(id, _)| id == kind)
-            .map(|(_, plan)| plan.clone())
+            .map(|(_, layout)| layout.clone())
     }
 
     /// Show another kind: its columns, and nothing asked of it yet. Whatever
@@ -94,8 +98,8 @@ impl SpecimenPages {
         self.plan = plan;
         self.reread = true;
         self.fetching = None;
-        self.offering = None;
         self.offered = false;
+        self.reading = None;
         self.applied.clear();
         self.sorted.clear();
         self.spanning = None;

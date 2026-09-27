@@ -56,6 +56,9 @@ const SKELETON_ROW_PX: f32 = 26.0;
 /// stands in for, so the column does not jump when its numbers land.
 const SPAN_SKELETON_PX: f32 = 72.0;
 
+/// Rows standing in for a column's values until they land.
+const VALUES_SKELETON_ROWS: usize = 3;
+
 /// The body the columns are built into.
 #[derive(Component, Clone, Default)]
 pub struct FilterBody;
@@ -65,7 +68,7 @@ pub struct FilterBody;
 pub struct FilterContent;
 
 /// A column's own accordion, so opening it can say the column is being looked
-/// at — which is what asks for a span's numbers.
+/// at — which is what asks for what it holds.
 #[derive(Component, Clone, Default)]
 pub struct FilterColumn {
     pub column: usize,
@@ -123,24 +126,24 @@ pub struct FilterValueList {
     rows: SearchedRows,
 }
 
-/// What a span's column is showing in place of its control until the numbers
-/// land.
+/// What a column is showing in place of its control until what it holds
+/// lands.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum SpanShows {
+enum ColumnShows {
     Waiting,
     Control,
     Failed,
 }
 
-/// The holder of a span's column body, refilled when its numbers land rather
+/// The holder of a column's body, refilled when what it holds lands rather
 /// than rebuilding the section — which would respawn every column shut, the
 /// one just opened among them.
 #[derive(Component)]
-pub struct SpanBody {
+pub struct ColumnBody {
     column: usize,
     /// The column's accordion, for whether it is open.
     section: Entity,
-    shows: Option<SpanShows>,
+    shows: Option<ColumnShows>,
 }
 
 pub fn spawn_filter_section(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
@@ -229,28 +232,23 @@ pub fn rebuild_filters(
             .entity(clear)
             .insert(ClearColumnButton { column: index });
 
-        let parts = match &column.kind {
-            TableFilterKind::Values(values) => spawn_values(&mut commands, index, values.len()),
-            // Filled by `sync_span_bodies` as the column is opened and its
-            // numbers come back.
-            TableFilterKind::Range { .. } => vec![
-                commands
-                    .spawn((
-                        Node {
-                            flex_direction: FlexDirection::Column,
-                            width: Val::Percent(100.0),
-                            ..default()
-                        },
-                        SpanBody {
-                            column: index,
-                            section: section.section,
-                            shows: None,
-                        },
-                    ))
-                    .id(),
-            ],
-        };
-        commands.entity(section.body).add_children(&parts);
+        // Filled by `sync_column_bodies` as the column is opened and what it
+        // holds comes back.
+        let body = commands
+            .spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    width: Val::Percent(100.0),
+                    ..default()
+                },
+                ColumnBody {
+                    column: index,
+                    section: section.section,
+                    shows: None,
+                },
+            ))
+            .id();
+        commands.entity(section.body).add_child(body);
         rows.push(section.section);
     }
     commands.entity(body).add_children(&rows);
@@ -497,15 +495,15 @@ pub fn sync_value_lists(
     }
 }
 
-/// Put a span's control in its column once the numbers land, and a placeholder
-/// until they do.
-pub fn sync_span_bodies(
+/// Put a column's control in it once what it holds lands — its values, or its
+/// span — and a placeholder until it does.
+pub fn sync_column_bodies(
     mut commands: Commands,
     palette: Res<Palette>,
     selection: SelectedSource,
     filters: Query<&TableFilters>,
     accordions: Query<&Accordion>,
-    mut bodies: Query<(Entity, &mut SpanBody)>,
+    mut bodies: Query<(Entity, &mut ColumnBody)>,
 ) {
     let Some(table) = selection
         .entity()
@@ -518,14 +516,14 @@ pub fn sync_span_bodies(
             continue;
         };
         let open = accordions.get(body.section).is_ok_and(|it| it.open);
-        // Opening a column asks for its numbers before this runs, so one open,
-        // not waiting and without a span is one whose ask failed.
-        let wanted = if column.span().is_some() {
-            SpanShows::Control
-        } else if column.awaiting_span() || !open {
-            SpanShows::Waiting
+        // Opening a column asks for what it holds before this runs, so one
+        // open, not waiting and not read is one whose ask failed.
+        let wanted = if column.read() {
+            ColumnShows::Control
+        } else if column.awaiting() || !open {
+            ColumnShows::Waiting
         } else {
-            SpanShows::Failed
+            ColumnShows::Failed
         };
         if body.shows == Some(wanted) {
             continue;
@@ -533,24 +531,36 @@ pub fn sync_span_bodies(
         body.shows = Some(wanted);
         commands.entity(entity).despawn_related::<Children>();
 
-        let child = match (wanted, column.span()) {
-            (SpanShows::Control, Some(span)) => spawn_range_control(
+        let children = match (wanted, &column.kind) {
+            (ColumnShows::Control, TableFilterKind::Values(_)) => {
+                spawn_values(&mut commands, body.column, column.listed().len())
+            }
+            (ColumnShows::Control, TableFilterKind::Range(Some(span))) => {
+                vec![spawn_range_control(
+                    &mut commands,
+                    RangeOwner::TableColumn,
+                    body.column,
+                    span,
+                    None,
+                    &palette,
+                )]
+            }
+            (ColumnShows::Failed, _) => vec![
+                commands
+                    .spawn_scene(text_dim(
+                        "Could not read this column. Close and reopen it to try again.",
+                        size::SMALL,
+                    ))
+                    .id(),
+            ],
+            (_, TableFilterKind::Values(_)) => vec![spawn_skeleton(
                 &mut commands,
-                RangeOwner::TableColumn,
-                body.column,
-                span,
-                None,
-                &palette,
-            ),
-            (SpanShows::Failed, _) => commands
-                .spawn_scene(text_dim(
-                    "Could not read this column's numbers. Close and reopen it to try again.",
-                    size::SMALL,
-                ))
-                .id(),
-            _ => spawn_skeleton(&mut commands, 1, SPAN_SKELETON_PX),
+                VALUES_SKELETON_ROWS,
+                SKELETON_ROW_PX,
+            )],
+            _ => vec![spawn_skeleton(&mut commands, 1, SPAN_SKELETON_PX)],
         };
-        commands.entity(entity).add_child(child);
+        commands.entity(entity).add_children(&children);
     }
 }
 
@@ -584,11 +594,11 @@ pub fn on_value_toggled(
     }
 }
 
-/// Ask for a span's numbers as its column is opened.
+/// Ask for what a column holds as it is opened.
 ///
-/// A span costs a round trip or two to work out, so it is asked for when
-/// someone opens the column rather than when the table opens: most columns of
-/// most tables are never looked at. Only on the opening itself, so an ask that
+/// A column's values or span cost a round trip or two to work out, so they
+/// are asked for when someone opens the column rather than when the table
+/// opens: most columns of most tables are never looked at. Only on the opening itself, so an ask that
 /// failed is not repeated every frame the column stays open.
 pub fn note_open_columns(
     selection: SelectedSource,
@@ -610,7 +620,7 @@ pub fn note_open_columns(
         };
         // Written only when it changes: a mutable look marks the whole table
         // changed, and the format takes that as a reason to refetch.
-        if column.span().is_none() && !column.awaiting_span() {
+        if !column.read() && !column.awaiting() {
             filters.columns[section.column].want(true);
         }
     }
@@ -746,7 +756,7 @@ impl Plugin for TableFilterPlugin {
                     rebuild_filters,
                     rebuild_column_menu,
                     sync_value_lists,
-                    sync_span_bodies,
+                    sync_column_bodies,
                 )
                     .chain()
                     .in_set(Stage::ControlsBuild),

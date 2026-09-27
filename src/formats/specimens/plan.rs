@@ -21,6 +21,9 @@ pub(super) struct Feature {
     /// Left out when the table opens, because the platform's own page leaves
     /// it out. Still a column, offered in the frame's menu.
     pub(super) hidden: bool,
+    /// Whether the platform narrows by it as a span of numbers rather than by
+    /// values, if it says.
+    pub(super) spanned: Option<bool>,
 }
 
 impl Feature {
@@ -67,6 +70,9 @@ pub struct Plan {
     /// Laid out by the platform, so what a page adds goes on the end rather
     /// than being sorted in among what it chose.
     laid_out: bool,
+    /// Of one kind of specimen, so the column saying which kind holds the
+    /// same word all the way down.
+    one_kind: bool,
 }
 
 impl Plan {
@@ -82,6 +88,7 @@ impl Plan {
         let mut plan = Plan {
             features: Vec::new(),
             laid_out: true,
+            one_kind: false,
         };
         for feature in features {
             if !plan
@@ -93,6 +100,33 @@ impl Plan {
             }
         }
         plan
+    }
+
+    /// The same plan, for a table of one kind of specimen.
+    pub(super) fn of_one_kind(self) -> Plan {
+        Plan {
+            one_kind: true,
+            ..self
+        }
+    }
+
+    /// A sort the platform wrote as fields, as the table's headings. A field
+    /// the plan has no column for is left out.
+    pub(super) fn keys_of(&self, fields: &[(String, bool)]) -> Vec<SortKey> {
+        let columns: Vec<(String, String)> =
+            self.fields().into_iter().zip(self.headers()).collect();
+        fields
+            .iter()
+            .filter_map(|(field, descending)| {
+                let (_, heading) = columns
+                    .iter()
+                    .find(|(known, _)| !known.is_empty() && known == field)?;
+                Some(SortKey {
+                    column: heading.clone(),
+                    descending: *descending,
+                })
+            })
+            .collect()
     }
 
     /// Add any feature these specimens carry that the plan has not got.
@@ -129,6 +163,7 @@ impl Plan {
                     unit: unit.map(str::to_string),
                     measured,
                     hidden: false,
+                    spanned: None,
                 });
             }
         }
@@ -147,14 +182,12 @@ impl Plan {
         true
     }
 
-    /// Every column that could be narrowed by, as the platform names it, as
-    /// the table heads it, and whether it is a measurement — which is to say
-    /// whether a span is worth offering when the platform cannot list it.
-    pub(super) fn columns(&self) -> Vec<(String, String, bool)> {
+    /// Every feature that could be narrowed by: those the platform named.
+    pub(super) fn columns(&self) -> Vec<Feature> {
         self.features
             .iter()
             .filter(|feature| !feature.id.is_empty())
-            .map(|feature| (feature.id.clone(), feature.title.clone(), feature.measured))
+            .cloned()
             .collect()
     }
 
@@ -193,10 +226,8 @@ impl Plan {
     /// Whether each column, in the order of [`Plan::headers`], is left out
     /// when the table opens.
     ///
-    /// A plan the platform laid out is of one kind of specimen, so the column
-    /// saying which kind holds the same word all the way down.
     pub(super) fn hidden(&self) -> Vec<bool> {
-        let mut hidden = vec![false, self.laid_out];
+        let mut hidden = vec![false, self.one_kind];
         hidden.extend(self.features.iter().map(|feature| feature.hidden));
         hidden
     }
@@ -383,6 +414,7 @@ mod tests {
             unit: unit.map(Into::into),
             measured: unit.is_some(),
             hidden: false,
+            spanned: None,
         };
         let plan = Plan::laid_out(vec![
             feature("MM1MMES48T9H7ZX6E3Y", "Cognitive status", None),

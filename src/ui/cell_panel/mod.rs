@@ -27,7 +27,7 @@
 //! Genes are properties too, but are listed in their own section
 //! (`ui::genes`), which builds its controls from the same parts.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
 
 use bevy::prelude::*;
@@ -43,10 +43,10 @@ pub mod values;
 pub mod visibility;
 
 use crate::app::schedule::{Boot, Stage};
-use crate::catalog::cells::{self, Described};
+use crate::catalog::cells::{self, Counting, Described};
 use crate::source::properties::{
-    CellColumns, CellProperties, CellProperty, ColorOverrides, ColorScale, PropertyKind,
-    PropertyState, PropertyValue, Provenance,
+    CellColumns, CellProperties, CellProperty, ColorOverrides, ColorScale, OpenProperties,
+    PropertyKind, PropertyState, PropertyValue, Provenance,
 };
 use crate::source::{DataSource, compact_count};
 use crate::ui::color_export::spawn_export_menu;
@@ -172,6 +172,10 @@ pub const MAX_VALUE_ROWS: usize = 300;
 const SKELETON_ROWS: usize = 4;
 const SKELETON_ROW_PX: f32 = 26.0;
 
+/// About as tall as the histogram, track and readout a range's placeholder
+/// stands in for, so the section does not jump when its histogram lands.
+const RANGE_SKELETON_PX: f32 = 72.0;
+
 pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
     let Ok(parent) = content.single() else { return };
 
@@ -200,12 +204,10 @@ pub struct CellPanelBody;
 /// Rebuild the sub-sections when the selected source's properties change.
 pub fn rebuild_cell_panel(
     mut commands: Commands,
-    palette: Res<crate::app::theme::Palette>,
     selected: SelectedSource,
     sources: Query<(
         &DataSource,
         &CellProperties,
-        Option<&ColorScale>,
         Has<CellColumns>,
         Has<Described>,
     )>,
@@ -220,7 +222,7 @@ pub fn rebuild_cell_panel(
         .entity()
         .and_then(|source| sources.get(source).ok().map(|found| (source, found)));
 
-    let Some((entity, (_, properties, scale, has_columns, described))) = source else {
+    let Some((entity, (_, properties, has_columns, described))) = source else {
         *shown = None;
         return;
     };
@@ -296,9 +298,13 @@ pub fn rebuild_cell_panel(
             // them, and a second pane header would not say so.
             SectionLevel::Group,
         );
-        commands
-            .entity(sub.section)
-            .insert((CellPanelContent, PropertySection { property: index }));
+        commands.entity(sub.section).insert((
+            CellPanelContent,
+            PropertySection {
+                property: index,
+                source: entity,
+            },
+        ));
 
         // Clearing sits to the left of the color control, as it does on the
         // section's own header. It hides itself when there is nothing to clear.
@@ -330,16 +336,23 @@ pub fn rebuild_cell_panel(
             PropertyKind::Categorical(_) | PropertyKind::Tree(_) => {
                 values::spawn_values(&mut commands, index, property)
             }
-            PropertyKind::Numeric(range) => {
-                vec![range::spawn_range_control(
-                    &mut commands,
-                    range::RangeOwner::CellProperty,
-                    index,
-                    range,
-                    properties.ramp(scale).as_ref().filter(|_| coloring),
-                    &palette,
-                )]
-            }
+            // Filled by `sync_range_bodies`, since a histogram counted when
+            // the section is opened lands after it is built.
+            PropertyKind::Numeric(_) => vec![
+                commands
+                    .spawn((
+                        Node {
+                            flex_direction: FlexDirection::Column,
+                            width: Val::Percent(100.0),
+                            ..default()
+                        },
+                        RangeBody {
+                            property: index,
+                            buckets: None,
+                        },
+                    ))
+                    .id(),
+            ],
         };
         commands.entity(sub.body).add_children(&rows);
         sections.push(sub.section);
@@ -584,18 +597,104 @@ pub fn on_value_toggled(
 #[derive(Resource, Default)]
 pub struct OpenSections(pub HashMap<usize, bool>);
 
-/// Marks a sub-section with the property it stands for.
-#[derive(Component, Clone, Default)]
-pub struct PropertySection {
-    pub property: usize,
+/// The holder of a numeric property's range, refilled when its histogram
+/// lands or changes shape rather than rebuilding the panel — which would
+/// respawn every section, and every checkbox in them.
+#[derive(Component)]
+pub struct RangeBody {
+    property: usize,
+    /// How many buckets the control inside was drawn with.
+    buckets: Option<usize>,
 }
 
+/// Put each range's control in its section, drawn over its histogram once
+/// that is counted, and a placeholder until it is.
+///
+/// A source no service counts has no histogram coming, so its range is drawn
+/// at once without one.
+pub fn sync_range_bodies(
+    mut commands: Commands,
+    palette: Res<crate::app::theme::Palette>,
+    selected: SelectedSource,
+    sources: Query<(&CellProperties, Option<&ColorScale>, Has<Counting>)>,
+    mut bodies: Query<(Entity, &mut RangeBody)>,
+) {
+    let Some((properties, scale, counted)) = selected.get(&sources) else {
+        return;
+    };
+    for (entity, mut body) in &mut bodies {
+        let Some(range) = properties
+            .properties
+            .get(body.property)
+            .and_then(CellProperty::range)
+        else {
+            continue;
+        };
+        let buckets = range.histogram.len();
+        if body.buckets == Some(buckets) {
+            continue;
+        }
+        body.buckets = Some(buckets);
+        commands.entity(entity).despawn_related::<Children>();
+        let child = if buckets == 0 && counted {
+            spawn_skeleton(&mut commands, 1, RANGE_SKELETON_PX)
+        } else {
+            let coloring = properties.color_by == Some(body.property);
+            range::spawn_range_control(
+                &mut commands,
+                range::RangeOwner::CellProperty,
+                body.property,
+                range,
+                properties.ramp(scale).as_ref().filter(|_| coloring),
+                &palette,
+            )
+        };
+        commands.entity(entity).add_child(child);
+    }
+}
+
+/// Marks a sub-section with the property it stands for, and the source it
+/// was built for.
+#[derive(Component, Clone)]
+pub struct PropertySection {
+    pub property: usize,
+    /// So the frame the selection moves, before the sections are rebuilt,
+    /// does not say one source's sections are open on another.
+    pub source: Entity,
+}
+
+/// Remember which sub-sections are open, and tell the source, so only the
+/// open ones are counted.
 pub fn record_open_sections(
+    mut commands: Commands,
     mut open: ResMut<OpenSections>,
+    selected: SelectedSource,
+    sources: Query<(&CellProperties, Option<&OpenProperties>)>,
     sections: Query<(&PropertySection, &Accordion)>,
 ) {
     for (section, accordion) in &sections {
         open.0.insert(section.property, accordion.open);
+    }
+    let Some(source) = selected.entity() else {
+        return;
+    };
+    let Ok((properties, known)) = sources.get(source) else {
+        return;
+    };
+    // Nothing said until its sections are built: the frame the selection
+    // moves, the sections on screen are still the last source's.
+    if !sections.iter().any(|(section, _)| section.source == source) {
+        return;
+    }
+    let ids: BTreeSet<String> = sections
+        .iter()
+        .filter(|(section, accordion)| section.source == source && accordion.open)
+        .filter_map(|(section, _)| properties.properties.get(section.property))
+        .map(|property| property.id.clone())
+        .collect();
+    // Only when it changes: the counts are asked for again when it does.
+    if known.is_none_or(|known| known.0 != ids) {
+        commands.entity(source).insert(OpenProperties(ids));
     }
 }
 
@@ -905,6 +1004,7 @@ impl Plugin for CellPanelPlugin {
                 Update,
                 (
                     rebuild_cell_panel,
+                    sync_range_bodies,
                     values::sync_value_lists,
                     visibility::rebuild_visibility_menu,
                     tree::sync_branches,

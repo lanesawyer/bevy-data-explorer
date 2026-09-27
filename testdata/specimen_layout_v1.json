@@ -1,0 +1,1071 @@
+{
+ "data": {
+  "kinds": [],
+  "whole": {
+   "defaultSort": "[{\"field\": \"4D4RGMXTPBL0YAY5UGJ\", \"order\": \"DESC\"}, {\"field\": \"DW0F0S320VR4NX0DBPT\", \"order\": \"DESC\"}]",
+   "displayFeatures": [
+    {
+     "type": "ANNOTATION",
+     "priorityOrder": 0,
+     "isDefault": true,
+     "filterOperator": "CONTAINS",
+     "featureType": {
+      "referenceId": "Z8BZR1LDP9G4I97O394",
+      "title": "T type class"
+     }
+    },
+    {
+     "type": "ANNOTATION",
+     "priorityOrder": 1,
+     "isDefault": true,
+     "filterOperator": "CONTAINS",
+     "featureType": {
+      "referenceId": "O267WEUPC2MMK3MI7ZY",
+      "title": "T type sub-class"
+     }
+    },
+    {
+     "type": "ANNOTATION",
+     "priorityOrder": 2,
+     "isDefault": true,
+     "filterOperator": "CONTAINS",
+     "featureType": {
+      "referenceId": "DW0F0S320VR4NX0DBPT",
+      "title": "T type"
+     }
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 3,
+     "isDefault": true,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "75VJLLCLB2ADNQCABJD",
+      "title": "T type assignment probability"
+     },
+     "unit": ""
+    },
+    {
+     "type": "ANNOTATION",
+     "priorityOrder": 4,
+     "isDefault": true,
+     "filterOperator": "CONTAINS",
+     "featureType": {
+      "referenceId": "4OAW8IKKDOSUF84RZCT",
+      "title": "MET type"
+     }
+    },
+    {
+     "type": "ANNOTATION",
+     "priorityOrder": 5,
+     "isDefault": true,
+     "filterOperator": "CONTAINS",
+     "featureType": {
+      "referenceId": "17Q8WESJFABC8QV7O69",
+      "title": "Cortical layer"
+     }
+    },
+    {
+     "type": "ANNOTATION",
+     "priorityOrder": 6,
+     "isDefault": true,
+     "filterOperator": "CONTAINS",
+     "featureType": {
+      "referenceId": "Q0LG0S1W23HUAKA2SW3",
+      "title": "Genotype"
+     }
+    },
+    {
+     "type": "IMAGE",
+     "priorityOrder": 7,
+     "isDefault": true,
+     "filterOperator": null,
+     "featureType": {
+      "referenceId": "EPMT6VK9G59620WK8G3",
+      "title": "T-Type Assignment"
+     }
+    },
+    {
+     "type": "IMAGE",
+     "priorityOrder": 8,
+     "isDefault": true,
+     "filterOperator": null,
+     "featureType": {
+      "referenceId": "KNR4W15BCX77H0DNVS7",
+      "title": "Response At Rheobase + 40pA"
+     }
+    },
+    {
+     "type": "IMAGE",
+     "priorityOrder": 9,
+     "isDefault": true,
+     "filterOperator": null,
+     "featureType": {
+      "referenceId": "9HMC0FENZPDPJURHZI2",
+      "title": "Rheobase / Hyperpolarizing sweeps"
+     }
+    },
+    {
+     "type": "IMAGE",
+     "priorityOrder": 10,
+     "isDefault": true,
+     "filterOperator": null,
+     "featureType": {
+      "referenceId": "YAHK4SNZMIJ7MO6C39X",
+      "title": "Action Potential"
+     }
+    },
+    {
+     "type": "IMAGE",
+     "priorityOrder": 11,
+     "isDefault": true,
+     "filterOperator": null,
+     "featureType": {
+      "referenceId": "3JH1B8UL3YEO4UAFC6Y",
+      "title": "Reconstruction"
+     }
+    },
+    {
+     "type": "IMAGE",
+     "priorityOrder": 12,
+     "isDefault": true,
+     "filterOperator": null,
+     "featureType": {
+      "referenceId": "P36029Z8P3KT4E7X55G",
+      "title": "Branch Distribution"
+     }
+    },
+    {
+     "type": "IMAGE",
+     "priorityOrder": 13,
+     "isDefault": true,
+     "filterOperator": null,
+     "featureType": {
+      "referenceId": "602PNBMM1CW6CCJYNCI",
+      "title": "MET-type Assignment"
+     }
+    },
+    {
+     "type": "ANNOTATION",
+     "priorityOrder": 14,
+     "isDefault": false,
+     "filterOperator": "CONTAINS",
+     "featureType": {
+      "referenceId": "AFGRNOB12HAMFFSTZI9",
+      "title": "Cell set accession ID"
+     }
+    },
+    {
+     "type": "ANNOTATION",
+     "priorityOrder": 15,
+     "isDefault": false,
+     "filterOperator": "CONTAINS",
+     "featureType": {
+      "referenceId": "FUFO45B8QVMCDEPWVMY",
+      "title": "Dendrite type (aspiny or sparsely spiny)"
+     }
+    },
+    {
+     "type": "ANNOTATION",
+     "priorityOrder": 16,
+     "isDefault": false,
+     "filterOperator": "CONTAINS",
+     "featureType": {
+      "referenceId": "TH54DVTW0HYCI2JL33O",
+      "title": "Neuron Reconstruction Type"
+     }
+    },
+    {
+     "type": "ANNOTATION",
+     "priorityOrder": 17,
+     "isDefault": false,
+     "filterOperator": "CONTAINS",
+     "featureType": {
+      "referenceId": "IB0CH839O94VKWXF7TI",
+      "title": "Apical Dendrite Status"
+     }
+    },
+    {
+     "type": "ANNOTATION",
+     "priorityOrder": 18,
+     "isDefault": false,
+     "filterOperator": "CONTAINS",
+     "featureType": {
+      "referenceId": "CDV0S1J7SH5U5WGDKGE",
+      "title": "Anatomical Structure"
+     }
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 19,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "TRAY5GUMIQGWLLWNOFM",
+      "title": "Basal Dendrite Stem Exit Side Less"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 20,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "PKLGAMO650WTH8B5ZTY",
+      "title": "Basal Dendrite Max Euclidean Distance"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 21,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "QAQATC2MKCZDE3O4D92",
+      "title": "Basal Dendrite Soma Percentile X"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 22,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "BGGKTIGKEI8TZPD8YOQ",
+      "title": "Threshold I (ramp)"
+     },
+     "unit": "picoamps"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 23,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "S164NPG73EDCPQJOA0J",
+      "title": "Basal Dendrite Num Stems"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 24,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "USLXG2VSLFRA0EF88RZ",
+      "title": "Axon Total Length"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 25,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "9L48N24G6RGHGG293EK",
+      "title": "Trough V (ramp)"
+     },
+     "unit": "millivolts"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 26,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "LDWYESIQR9BRDVPM98B",
+      "title": "Axon Max Path Distance"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 27,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "1S18HVF0LW0QT6FVEFH",
+      "title": "Axon Extent Y"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 28,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "BXV02W5IUEKTCKHGRD9",
+      "title": "Basal Dendrite Extent Y"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 29,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "M31TXIW57MEBAQ2MNNE",
+      "title": "Basal Dendrite Extent X"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 30,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "OQ9X90HL9A2PI9LK2P9",
+      "title": "Axon Emd With Basal Dendrite"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 31,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "L2QTMWVZ3X3XVXJ14C1",
+      "title": "Normalized Soma Depth"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 32,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "A8P0YS10T486DLPHPY5",
+      "title": "Axon Bias X"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 33,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "7YV3BLJ043T38XJAOCP",
+      "title": "Upstroke/downstroke ratio (short square)"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 34,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "WJ1RAF9E4H59B1BS5IG",
+      "title": "Axon Max Euclidean Distance"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 35,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "FFRNPLYOVHCQYU8KMV6",
+      "title": "Axon Hist Pc 1"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 36,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "J1560ZGO3M7FHRAFL8M",
+      "title": "Fast trough V (short square)"
+     },
+     "unit": "millivolts"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 37,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "T2H3YBHD63OQ3J29UBW",
+      "title": "Axon Hist Pc 3"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 38,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "06F9LSRDCL0YTXCN4VV",
+      "title": "sag"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 39,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "GKKINVON58QW992W922",
+      "title": "F I curve slope"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 40,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "5EFQR8YZS0WEC3HQDSW",
+      "title": "Fast trough V (long square)"
+     },
+     "unit": "millivolts"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 41,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "HAPC6M23LKTG64FVNH5",
+      "title": "Threshold V (long square)"
+     },
+     "unit": "millivolts"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 42,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "3HKNC3S0YDHI7I8JB6K",
+      "title": "Axon Contraction"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 43,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "8VZD4CQ0REDXJLP9PYG",
+      "title": "Latency"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 44,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "HV0CR2QJQ6JURKYIEQD",
+      "title": "Basal Dendrite Pct Above Axon"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 45,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "38BWIC7VFL7UMW4U6AO",
+      "title": "Basal Dendrite Num Branches"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 46,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "VIQRZS881SUUW8S7M63",
+      "title": "Basal Dendrite Pct Intersect Axon"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 47,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "49MVTY71JAI81PNEQL1",
+      "title": "Axon Hist Pc 2"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 48,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "RB1A4Z2SN1ASSV6PWKF",
+      "title": "Axon Soma Percentile X"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 49,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "W8VLIJMNG4YET3570M6",
+      "title": "Basal Dendrite Total Length"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 50,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "QPEB8WE5FQ90TM4HM0U",
+      "title": "Vrest"
+     },
+     "unit": "millivolts"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 51,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "IL56AT3Z5JMEOFBIS5H",
+      "title": "Basal Dendrite Stem Exit Side More"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 52,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "JMG5LF4598XS28U2CHU",
+      "title": "Basal Dendrite Bias X"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 53,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "4YFQ13LAVXAEJRHTKPR",
+      "title": "Basal Dendrite Stem Exit Down"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 54,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "KR90JPU3JYAZDMNEZNP",
+      "title": "Trough V (long square)"
+     },
+     "unit": "millivolts"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 55,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "F4LIXPBY755WGX2ZGZW",
+      "title": "Basal Dendrite Soma Percentile Y"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 56,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "PZ9HP51QZD6GWRRH8LQ",
+      "title": "tau"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 57,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "RQPAJIFBIFKE7FN16C7",
+      "title": "Avg ISI"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 58,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "5ZQPCPLGYMLSXJ0E415",
+      "title": "Axon Soma Theta"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 59,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "WRQBFYSCRVYLARY4S2K",
+      "title": "Upstroke/downstroke ratio (ramp)"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 60,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "LSKZTBV9MNLDSE6ZIZ2",
+      "title": "T type class assignment probability"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 61,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "7Q6J6202HOZQ87WX1SL",
+      "title": "Axon Max Branch Order"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 62,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "0ABSXVPW1BEB2KS22FL",
+      "title": "Threshold I (short square)"
+     },
+     "unit": "picoamps"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 63,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "U7AYVL7CGT1XEXVKHIR",
+      "title": "Fast trough V (ramp)"
+     },
+     "unit": "millivolts"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 64,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "VXESECLRV55HBS8KVXU",
+      "title": "Threshold V (short square)"
+     },
+     "unit": "millivolts"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 65,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "X96LT5NTJT8T7WNRJXJ",
+      "title": "Basal Dendrite Contraction"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 66,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "EEGOEZXISS1CK2QZ2KT",
+      "title": "Basal Dendrite Max Path Distance"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 67,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "2XU2F56ZUMEW4L872MC",
+      "title": "Adaptation"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 68,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "6PVJVFZVDZOCUEDDIG8",
+      "title": "Basal Dendrite Pct Below Axon"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 69,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "Z0MENI1F2VMRIJJBHO0",
+      "title": "Axon Pct Above Basal Dendrite"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 70,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "OUGMRVARPNS9LDY5LEV",
+      "title": "Axon Pct Below Basal Dendrite"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 71,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "YEZFRFDSTJMZIAH374F",
+      "title": "Trough V (short square)"
+     },
+     "unit": "millivolts"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 72,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "MIPTC29P10PXO9JYWE6",
+      "title": "Peak V (ramp)"
+     },
+     "unit": "millivolts"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 73,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "0RQ869FUH7QBFEWAV34",
+      "title": "Basal Dendrite Max Branch Order"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 74,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "ZFAF22EYW8XDX20OQFS",
+      "title": "Age"
+     },
+     "unit": "postnatal days"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 75,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "8GBDPSDHW03B529XF7P",
+      "title": "Basal Dendrite Bias Y"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 76,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "OVEG6JKO3QJ6I9J6XEV",
+      "title": "Axon Bias Y"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 77,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "LLLJJB2PEO44DLDZVSE",
+      "title": "Upstroke/downstroke ratio (long square)"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 78,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "G5WH8CC4BUFAVPLJ0BA",
+      "title": "Axon Soma Percentile Y"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 79,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "IWBB2PQPTVT86DH3Y1R",
+      "title": "Axon Hist Pc 4"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 80,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "MMLCP578RP2BXVYDUYV",
+      "title": "Threshold I (long square)"
+     },
+     "unit": "picoamps"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 81,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "2I620MTF094AQ1SUSUK",
+      "title": "Axon Soma Distance"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 82,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "BCK1HFI1PSUFR3YS051",
+      "title": "Peak V (short square)"
+     },
+     "unit": "millivolts"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 83,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "ZWEP5N79MHW6GF6QYYE",
+      "title": "Axon Extent X"
+     },
+     "unit": "millimeters"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 84,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "A7R6J5S2F2H9GP4HDY5",
+      "title": "Axon Num Branches"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 85,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "64KKAZBF8DZY8YTPR70",
+      "title": "Threshold V (ramp)"
+     },
+     "unit": "millivolts"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 86,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "DOBUV8K3DGYRN7D0P4Q",
+      "title": "Axon Pct Intersect Basal Dendrite"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 87,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "WYPRPYLXYUFVPKR4F98",
+      "title": "T type sub-class assignment probability"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 88,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "XOUL8PZCE7JFMF44TOB",
+      "title": "Peak V (long square)"
+     },
+     "unit": "millivolts"
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 89,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "7F0EE6DBTBSWQ9QCWVB",
+      "title": "Basal Dendrite Stem Exit Up"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 90,
+     "isDefault": false,
+     "filterOperator": "BETWEEN",
+     "featureType": {
+      "referenceId": "QLWFL8PC8P68W0UPI5C",
+      "title": "Axon Hist Pc 0"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 91,
+     "isDefault": false,
+     "filterOperator": "EQ",
+     "featureType": {
+      "referenceId": "T6ZYKZ66D4RI05D0Y6E",
+      "title": "Electrophysiology available"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 92,
+     "isDefault": false,
+     "filterOperator": "EQ",
+     "featureType": {
+      "referenceId": "XSQ4LSXV3XWSU1KJQ81",
+      "title": "Fluorescent protein positive"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 93,
+     "isDefault": false,
+     "filterOperator": "EQ",
+     "featureType": {
+      "referenceId": "D30VASWM7U8E2RTCYVH",
+      "title": "Brain hemisphere"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 94,
+     "isDefault": false,
+     "filterOperator": "EQ",
+     "featureType": {
+      "referenceId": "I41W68AOGANL535GKMU",
+      "title": "M/E/T available"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 95,
+     "isDefault": false,
+     "filterOperator": "EQ",
+     "featureType": {
+      "referenceId": "FJ9JC9OH2JFIVGJBQQO",
+      "title": "Transcriptomics available"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 96,
+     "isDefault": false,
+     "filterOperator": "EQ",
+     "featureType": {
+      "referenceId": "O95N6FNAK13WZWEIU5N",
+      "title": "Sex"
+     },
+     "unit": ""
+    },
+    {
+     "type": "MEASUREMENT",
+     "priorityOrder": 97,
+     "isDefault": false,
+     "filterOperator": "EQ",
+     "featureType": {
+      "referenceId": "4D4RGMXTPBL0YAY5UGJ",
+      "title": "Morphology available"
+     },
+     "unit": ""
+    }
+   ]
+  },
+  "counts": []
+ }
+}

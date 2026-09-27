@@ -22,7 +22,8 @@ pub(super) enum Recounted {
     Span(String, Vec<u32>),
 }
 
-/// What to count again for the filters now in force.
+/// What to count again for the filters now in force. A column not yet read
+/// has nothing to count again: it is counted under these as it is read.
 pub(super) fn recounting(filters: &TableFilters) -> Vec<Recounting> {
     let terms = filters.chosen();
     filters
@@ -30,8 +31,11 @@ pub(super) fn recounting(filters: &TableFilters) -> Vec<Recounting> {
         .iter()
         .filter_map(|column| {
             let edges = match &column.kind {
-                TableFilterKind::Values(_) => None,
-                TableFilterKind::Range { span, .. } => {
+                TableFilterKind::Values(values) => {
+                    values.as_ref()?;
+                    None
+                }
+                TableFilterKind::Range(span) => {
                     let span = span.as_ref()?;
                     let buckets = span.histogram.len().max(1);
                     let step = f64::from(span.high - span.low) / buckets as f64;
@@ -217,10 +221,8 @@ mod tests {
             chosen: false,
         };
         let mut age = TableFilter::range("age", "Age");
-        age.kind = TableFilterKind::Range {
-            span: Some(NumericRange::full(60.0, 100.0, vec![5, 5, 5, 5])),
-            wanted: true,
-        };
+        age.kind = TableFilterKind::Range(Some(NumericRange::full(60.0, 100.0, vec![5, 5, 5, 5])));
+        age.want(true);
         let mut filters = TableFilters::ready(vec![
             TableFilter::values("donor", "Donor", vec![value("D1", 1), value("D2", 1)]),
             age,

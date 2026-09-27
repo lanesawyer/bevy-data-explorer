@@ -21,7 +21,7 @@ use super::BookmarkNotice;
 use super::capture::saved_address;
 use super::snapshot::{
     Bookmark, CellsState, SourceState, apply_cells, apply_channels, apply_slice, apply_table,
-    ask_saved_spans, clamp_point_size, genes_missing,
+    ask_saved_columns, clamp_point_size, genes_missing,
 };
 use crate::app::net::{Fetching, fetching};
 use crate::app::theme::Palette;
@@ -599,7 +599,7 @@ fn restore_table(
         };
         let ask = !*spans_asked;
         *spans_asked = true;
-        if ask_saved_spans(filters, &saved.filters, ask) && patient {
+        if ask_saved_columns(filters, &saved.filters, ask) && patient {
             state.table = Some(saved);
             return true;
         }

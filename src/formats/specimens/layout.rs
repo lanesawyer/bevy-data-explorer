@@ -1,42 +1,38 @@
-//! A project that shows its kinds of specimen apart: each kind a table of its
-//! own, with the columns the platform shows it with, and the one on screen
-//! swapped for another when the frame asks.
+//! How the platform lays a project's specimens out: which features are
+//! columns, in what order, which are shown when the table opens, and what the
+//! rows are sorted by — for the whole project, or for each kind of specimen a
+//! project shows apart, with the one on screen swapped for another when the
+//! frame asks.
 
 use super::*;
 
-/// Each kind a project shows apart, in the platform's order, with how many
-/// specimens it holds and the columns it is shown with.
-///
-/// A display feature that is neither an annotation nor a measurement is left
-/// out, since a row is read from those two alone.
-pub(super) fn kinds_of(data: KindsData) -> Vec<(TablePartition, Plan)> {
+/// One table as the platform lays it out: its columns, and the order its rows
+/// open in.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct Layout {
+    pub(super) plan: Plan,
+    pub(super) sort: Vec<SortKey>,
+}
+
+/// How a project is laid out, whichever way it is.
+#[derive(Default)]
+pub(super) struct Layouts {
+    /// Each kind the project shows apart, in the platform's order, with how
+    /// many specimens it holds. Empty for a project shown as one table.
+    pub(super) kinds: Vec<(TablePartition, Layout)>,
+    /// The one table of a project that shows no kinds apart, if the platform
+    /// lays it out at all.
+    pub(super) whole: Option<Layout>,
+}
+
+pub(super) fn layouts_of(data: LayoutData) -> Layouts {
     let counts: HashMap<String, u64> = labeled(&data.counts).into_iter().collect();
     let mut kinds = data.kinds;
     kinds.sort_by_key(|kind| kind.priority_order.unwrap_or(i64::MAX));
-    kinds
+    let kinds = kinds
         .into_iter()
         .map(|kind| {
-            let mut features = kind.display_features;
-            features.sort_by_key(|feature| feature.priority_order.unwrap_or(i64::MAX));
-            let plan = Plan::laid_out(
-                features
-                    .into_iter()
-                    .filter_map(|feature| {
-                        let measured = match feature.kind.as_deref()? {
-                            "ANNOTATION" => false,
-                            "MEASUREMENT" => true,
-                            _ => return None,
-                        };
-                        Some(Feature {
-                            id: feature.feature_type.reference_id.unwrap_or_default(),
-                            title: feature.feature_type.title?,
-                            unit: feature.unit.filter(|unit| !unit.is_empty()),
-                            measured,
-                            hidden: feature.is_default == Some(false),
-                        })
-                    })
-                    .collect(),
-            );
+            let layout = layout_of(kind.display_features, kind.default_sort.as_deref(), true);
             let partition = TablePartition {
                 name: kind
                     .title
@@ -45,9 +41,79 @@ pub(super) fn kinds_of(data: KindsData) -> Vec<(TablePartition, Plan)> {
                 count: counts.get(&kind.reference_id).copied(),
                 id: kind.reference_id,
             };
-            (partition, plan)
+            (partition, layout)
         })
-        .collect()
+        .collect();
+    let whole = data
+        .whole
+        .filter(|whole| !whole.display_features.is_empty())
+        .map(|whole| layout_of(whole.display_features, whole.default_sort.as_deref(), false));
+    Layouts { kinds, whole }
+}
+
+/// A table laid out from the platform's display features and default sort.
+///
+/// A display feature that is neither an annotation nor a measurement — an
+/// image, say — is left out, since a row is read from those two alone.
+fn layout_of(mut features: Vec<DisplayFeature>, sort: Option<&str>, one_kind: bool) -> Layout {
+    features.sort_by_key(|feature| feature.priority_order.unwrap_or(i64::MAX));
+    let plan = Plan::laid_out(
+        features
+            .into_iter()
+            .filter_map(|feature| {
+                let measured = match feature.kind.as_deref()? {
+                    "ANNOTATION" => false,
+                    "MEASUREMENT" => true,
+                    _ => return None,
+                };
+                Some(Feature {
+                    id: feature.feature_type.reference_id.unwrap_or_default(),
+                    title: feature.feature_type.title?,
+                    unit: feature.unit.filter(|unit| !unit.is_empty()),
+                    measured,
+                    hidden: feature.is_default == Some(false),
+                    spanned: feature
+                        .filter_operator
+                        .as_deref()
+                        .map(|operator| operator == "BETWEEN"),
+                })
+            })
+            .collect(),
+    );
+    let plan = if one_kind { plan.of_one_kind() } else { plan };
+    let sort = plan.keys_of(&sort_fields(sort));
+    Layout { plan, sort }
+}
+
+/// The fields a default sort names, and whether each is descending.
+///
+/// The platform writes it as a string holding a JSON list. One it cannot be
+/// read from sorts by nothing, which is how the table would open anyway.
+fn sort_fields(sort: Option<&str>) -> Vec<(String, bool)> {
+    #[derive(Deserialize)]
+    struct Field {
+        field: String,
+        #[serde(default)]
+        order: Option<String>,
+    }
+    let Some(sort) = sort.filter(|it| !it.trim().is_empty()) else {
+        return Vec::new();
+    };
+    match serde_json::from_str::<Vec<Field>>(sort) {
+        Ok(fields) => fields
+            .into_iter()
+            .map(|it| {
+                let descending = it
+                    .order
+                    .is_some_and(|order| order.eq_ignore_ascii_case("desc"));
+                (it.field, descending)
+            })
+            .collect(),
+        Err(e) => {
+            warn!("reading the platform's default sort {sort:?}: {e}");
+            Vec::new()
+        }
+    }
 }
 
 /// The columns a plan heads a table with, before any row has been measured.
@@ -67,7 +133,7 @@ pub(super) fn columns_of(plan: &Plan) -> Vec<TableColumn> {
 /// Put the kind a frame has asked for on screen.
 ///
 /// A kind is a different table, not a narrower one: other columns, so other
-/// filters and another sort, and its own count. Everything the last kind had
+/// filters and the kind's own default sort, and its own count. Everything the last kind had
 /// is dropped and asked for again, and the rows are emptied until the first
 /// page of the new kind lands, rather than drawing one kind's rows under
 /// another's headings.
@@ -86,7 +152,7 @@ pub(super) fn serve_kinds(
         if pages.scope.kind.as_deref() == Some(partitions.chosen.as_str()) {
             continue;
         }
-        let Some(plan) = pages.layout(&partitions.chosen) else {
+        let Some(layout) = pages.layout(&partitions.chosen) else {
             continue;
         };
         let kind = partitions.chosen();
@@ -94,7 +160,7 @@ pub(super) fn serve_kinds(
             "showing {} specimens",
             kind.map_or(partitions.chosen.as_str(), |kind| kind.name.as_str())
         );
-        pages.show_kind(partitions.chosen.clone(), plan);
+        pages.show_kind(partitions.chosen.clone(), layout.plan);
 
         *rows = SourceTable {
             columns: columns_of(&pages.plan),
@@ -109,7 +175,7 @@ pub(super) fn serve_kinds(
             *filters = TableFilters::pending();
         }
         if let Some(mut sort) = sort {
-            sort.set_if_neq(TableSort::default());
+            sort.set_if_neq(TableSort(layout.sort));
         }
     }
 }
@@ -119,15 +185,91 @@ mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
 
-    fn layout() -> KindsData {
-        let text = include_str!("../../../testdata/specimen_kinds.json");
+    fn parse(text: &str) -> Layouts {
         let value: Value = serde_json::from_str(text).unwrap();
-        serde_json::from_value(value["data"].clone()).unwrap()
+        layouts_of(serde_json::from_value(value["data"].clone()).unwrap())
+    }
+
+    /// The BICAN Rapid Release Inventory: library aliquots and donors apart.
+    fn layouts() -> Layouts {
+        parse(include_str!("../../../testdata/specimen_layout_bican.json"))
+    }
+
+    fn kinds() -> Vec<(TablePartition, Plan)> {
+        layouts()
+            .kinds
+            .into_iter()
+            .map(|(kind, layout)| (kind, layout.plan))
+            .collect()
+    }
+
+    /// Neurons in mouse primary visual cortex: one table, sorted, most of it
+    /// hidden.
+    fn whole() -> Layout {
+        parse(include_str!("../../../testdata/specimen_layout_v1.json"))
+            .whole
+            .expect("the project is laid out whole")
+    }
+
+    fn hidden(plan: &Plan) -> Vec<String> {
+        plan.headers()
+            .into_iter()
+            .zip(plan.hidden())
+            .filter(|(_, hidden)| *hidden)
+            .map(|(name, _)| name)
+            .collect()
+    }
+
+    #[test]
+    fn a_project_shown_whole_opens_as_the_platform_lays_it_out() {
+        let layout = whole();
+        assert!(
+            layouts().whole.is_none(),
+            "a project shown apart has no whole"
+        );
+        assert!(
+            parse(include_str!("../../../testdata/specimen_layout_v1.json"))
+                .kinds
+                .is_empty()
+        );
+        // Its images are not columns; its annotations and measurements are,
+        // in the platform's order.
+        let headers = layout.plan.headers();
+        assert_eq!(headers[..2], [SPECIMEN, KIND]);
+        // Of every kind, so the kind is worth a column.
+        let hidden = hidden(&layout.plan);
+        assert!(!hidden.iter().any(|name| name == KIND));
+        assert!(hidden.len() >= 70, "most of its 98 features start hidden");
+        // Sorted as it opens on the portal, both keys descending, by heading.
+        assert_eq!(layout.sort.len(), 2);
+        assert!(layout.sort.iter().all(|key| key.descending));
+        assert!(layout.sort.iter().all(|key| headers.contains(&key.column)));
+        // And asked of the platform by the fields it wrote.
+        assert_eq!(
+            layout.plan.sort(&layout.sort),
+            json!([
+                { "field": "4D4RGMXTPBL0YAY5UGJ", "order": "DESC" },
+                { "field": "DW0F0S320VR4NX0DBPT", "order": "DESC" },
+            ])
+        );
+    }
+
+    #[test]
+    fn a_default_sort_that_cannot_be_read_sorts_by_nothing() {
+        assert!(sort_fields(Some("not json")).is_empty());
+        assert!(sort_fields(Some("[]")).is_empty());
+        assert!(sort_fields(None).is_empty());
+        assert_eq!(
+            sort_fields(Some(
+                r#"[{"field": "A", "order": "ASC"}, {"field": "B", "order": "desc"}]"#
+            )),
+            [("A".to_string(), false), ("B".to_string(), true)]
+        );
     }
 
     #[test]
     fn each_kind_is_offered_in_the_platforms_order_with_its_count() {
-        let kinds = kinds_of(layout());
+        let kinds = kinds();
         let named: Vec<(&str, Option<u64>)> = kinds
             .iter()
             .map(|(kind, _)| (kind.name.as_str(), kind.count))
@@ -140,7 +282,7 @@ mod tests {
 
     #[test]
     fn a_kind_is_shown_with_its_own_columns_in_the_platforms_order() {
-        let kinds = kinds_of(layout());
+        let kinds = kinds();
         let donor = &kinds[1].1;
         assert_eq!(
             donor.headers()[..5],
@@ -160,18 +302,15 @@ mod tests {
             .position(|it| it == "Number of Expected Cells")
             .unwrap();
         assert!(cells < aliquot.len() - 1);
-        assert!(
-            kinds[0]
-                .1
-                .columns()
-                .iter()
-                .any(|(_, title, measured)| { title == "Number of Expected Cells" && *measured })
-        );
+        // And is narrowed by as a span, as the portal narrows by it.
+        assert!(kinds[0].1.columns().iter().any(|it| {
+            it.title == "Number of Expected Cells" && it.measured && it.spanned == Some(true)
+        }));
     }
 
     #[test]
     fn a_kind_opens_on_the_columns_the_platform_shows_it_with() {
-        let kinds = kinds_of(layout());
+        let kinds = kinds();
         let aliquot = &kinds[0].1;
         let hidden: Vec<String> = aliquot
             .headers()
@@ -197,7 +336,7 @@ mod tests {
     fn two_features_sharing_a_title_are_two_columns() {
         // A BICAN donor's age at death is recorded as a phrase and as a
         // number, and the platform calls both "Age of Death" on the record.
-        let donor = &kinds_of(layout())[1].1;
+        let donor = &kinds()[1].1;
         let page = r#"{"data":{"aio_specimen":[{
             "cRID":{"symbol":"DO-1"},"specimenType":{"name":"Donor"},
             "annotations":[
@@ -217,7 +356,7 @@ mod tests {
 
     #[test]
     fn a_feature_the_layout_left_out_goes_on_the_end() {
-        let mut plan = kinds_of(layout()).swap_remove(1).1;
+        let mut plan = kinds().swap_remove(1).1;
         let before = plan.headers();
         let page = r#"{"data":{"aio_specimen":[{
             "cRID":{"symbol":"DO-1"},"specimenType":{"name":"Donor"},
@@ -234,7 +373,7 @@ mod tests {
 
     #[test]
     fn choosing_another_kind_puts_its_table_in_place_of_the_last() {
-        let kinds = kinds_of(layout());
+        let kinds = kinds();
         let (aliquot, donor) = (kinds[0].0.clone(), kinds[1].0.clone());
         let scope = Scope {
             project: "P".into(),
@@ -242,9 +381,16 @@ mod tests {
         };
         let layouts = kinds
             .iter()
-            .map(|(kind, plan)| (kind.id.clone(), plan.clone()))
+            .map(|(kind, plan)| {
+                let layout = Layout {
+                    plan: plan.clone(),
+                    sort: Vec::new(),
+                };
+                (kind.id.clone(), layout)
+            })
             .collect();
-        let mut pages = SpecimenPages::new("E".into(), scope, kinds[0].1.clone(), layouts);
+        let mut pages =
+            SpecimenPages::new("E".into(), scope, kinds[0].1.clone(), Vec::new(), layouts);
         pages.offered = true;
 
         let mut world = World::new();
@@ -304,10 +450,11 @@ mod tests {
     }
 
     #[test]
-    fn a_project_that_shows_no_kinds_apart_has_none() {
-        let data: KindsData =
-            serde_json::from_value(json!({ "kinds": [], "counts": null })).unwrap();
-        assert!(kinds_of(data).is_empty());
+    fn a_project_the_platform_does_not_lay_out_has_no_layout() {
+        let data: LayoutData =
+            serde_json::from_value(json!({ "kinds": [], "whole": null, "counts": null })).unwrap();
+        let layouts = layouts_of(data);
+        assert!(layouts.kinds.is_empty() && layouts.whole.is_none());
     }
 
     #[test]
@@ -354,7 +501,8 @@ mod tests {
             );
 
             // The other kind, as a switch would ask for it.
-            let (donor, plan) = &specimens.kinds[1];
+            let (donor, layout) = &specimens.kinds[1];
+            let plan = &layout.plan;
             let scope = Scope {
                 project: PROJECT.into(),
                 kind: Some(donor.id.clone()),
@@ -370,12 +518,50 @@ mod tests {
             assert!(filled("Species") > 0);
             assert!(filled("Age of Death Value") > 0);
 
-            // Its filters are counted among donors alone.
-            let filters = ask_values(endpoint, &scope, &plan.columns()).await.unwrap();
-            let species = filters.iter().find(|it| it.name == "Species").unwrap();
-            let counted: u64 = species.listed().iter().map(|it| it.count).sum();
+            // A filter opened on it is counted among donors alone.
+            let species = plan
+                .columns()
+                .into_iter()
+                .find(|it| it.title == "Species")
+                .unwrap();
+            let read = ask_values(endpoint, &scope, &[species.id], &[])
+                .await
+                .unwrap();
+            let values = read[0].as_ref().expect("species can be grouped");
+            let counted: u64 = values.iter().map(|(_, count)| count).sum();
             assert!(counted <= donor.count.unwrap());
             assert!(counted > 0);
+        });
+    }
+
+    #[test]
+    #[ignore = "reads the live Genetic Tools Atlas specimens"]
+    fn a_project_shown_whole_opens_sorted_on_the_columns_the_platform_shows() {
+        const PROJECT: &str = "7CVKSF7QGAKIQ8LM5LC";
+        let endpoint = "https://idf-api-prod.aibs-idk-prod.net/";
+        crate::app::net::block_on(async {
+            let specimens = read(endpoint, PROJECT).await.unwrap();
+            assert!(specimens.kinds.is_empty());
+            assert_eq!(specimens.sort.len(), 1, "the portal opens it sorted");
+            let columns = &specimens.table.rows.columns;
+            let hidden = columns.iter().filter(|it| it.hidden_by_default).count();
+            assert!(hidden >= 10, "{hidden} of {} hidden", columns.len());
+            // The page came back in that order.
+            let at = columns
+                .iter()
+                .position(|it| it.name == specimens.sort[0].column)
+                .unwrap();
+            let values: Vec<&str> = specimens
+                .table
+                .rows
+                .rows
+                .iter()
+                .map(|row| row[at].as_str())
+                .filter(|it| !it.is_empty())
+                .collect();
+            let mut sorted = values.clone();
+            sorted.sort_by_key(|it| it.to_lowercase());
+            assert_eq!(values, sorted);
         });
     }
 }

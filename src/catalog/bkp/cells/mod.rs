@@ -18,7 +18,7 @@
 //! within the dataset's collection and version, and `cellRangeCounts` counts
 //! one's expression when it is taken on, grouped by the gene's index.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use bevy::prelude::*;
 use futures::future::{BoxFuture, join_all, try_join3};
@@ -86,7 +86,6 @@ impl DescribeCells for BkpCells {
         let endpoint = self.endpoint.clone();
         let dataset = self.dataset.clone();
         let project = self.project.clone();
-        let filter = self.dataset_filter();
         Box::pin(async move {
             let (display, values, extents) = try_join3(
                 display(&endpoint, &dataset, &project),
@@ -95,37 +94,10 @@ impl DescribeCells for BkpCells {
             )
             .await?;
 
-            // Only columns the files hold can be read, so only theirs are
-            // counted into histograms.
-            let numeric: Vec<(&str, (f32, f32))> = columns
-                .0
-                .iter()
-                .filter(|column| column.numeric)
-                .filter_map(|column| {
-                    extents
-                        .get(&column.id)
-                        .map(|extent| (column.id.as_str(), *extent))
-                })
-                .collect();
-            let histograms = join_all(
-                numeric
-                    .iter()
-                    .map(|(id, extent)| histogram(&endpoint, &filter, id, *extent, &Value::Null)),
-            )
-            .await;
-            let histograms: HashMap<String, Vec<u32>> = numeric
-                .iter()
-                .zip(histograms)
-                .filter_map(|((id, _), histogram)| match histogram {
-                    Ok(histogram) => Some((id.to_string(), histogram)),
-                    Err(e) => {
-                        warn!("BKP: no histogram for {id}: {e}");
-                        None
-                    }
-                })
-                .collect();
-
-            Ok(build(&columns, display, values, &extents, &histograms))
+            // No histograms yet: each is counted when its property is opened,
+            // as the counts are. Asking for every numeric column here held
+            // the labels back on histograms most of which are never drawn.
+            Ok(build(&columns, display, values, &extents, &HashMap::new()))
         })
     }
 
@@ -210,8 +182,12 @@ impl DescribeCells for BkpCells {
         })
     }
 
-    fn count(&self, properties: &CellProperties) -> BoxFuture<'static, Result<CellCounts, String>> {
-        self.count_within(properties, Vec::new())
+    fn count(
+        &self,
+        properties: &CellProperties,
+        open: &BTreeSet<String>,
+    ) -> BoxFuture<'static, Result<CellCounts, String>> {
+        self.count_within(properties, Vec::new(), Some(open))
     }
 
     fn counts_regions(&self) -> bool {
@@ -223,7 +199,7 @@ impl DescribeCells for BkpCells {
         properties: &CellProperties,
         region: &SelectedRegion,
     ) -> BoxFuture<'static, Result<CellCounts, String>> {
-        self.count_within(properties, vec![point_filter(region)])
+        self.count_within(properties, vec![point_filter(region)], None)
     }
 
     fn cells_in(
@@ -312,10 +288,15 @@ impl BkpCells {
     /// categorical values are counted for a region: the histograms are what
     /// the range controls are drawn from, and redrawing those under a
     /// rectangle would have a filter's shape change as it was dragged.
+    ///
+    /// `open` names the properties worth counting, or `None` for all of them:
+    /// a region's summary breaks the rectangle down by every property,
+    /// whether or not its section is open.
     fn count_within(
         &self,
         properties: &CellProperties,
         within: Vec<Value>,
+        open: Option<&BTreeSet<String>>,
     ) -> BoxFuture<'static, Result<CellCounts, String>> {
         let endpoint = self.endpoint.clone();
         let filter = self.dataset_filter();
@@ -380,6 +361,9 @@ impl BkpCells {
         let mut columns: Vec<(String, HashMap<String, u16>, Value)> = Vec::new();
         let mut ranges: Vec<(String, String, (f32, f32), Value)> = Vec::new();
         for (index, property) in properties.properties.iter().enumerate() {
+            if open.is_some_and(|open| !open.contains(&property.id)) {
+                continue;
+            }
             if let Some(range) = property.range().filter(|_| !region_only) {
                 // Genes are counted by their index, cell columns by their id.
                 let field = property
@@ -485,7 +469,12 @@ mod tests {
             .collect(),
         );
         let properties = crate::app::net::block_on(cells.describe(columns)).unwrap();
-        let everything = crate::app::net::block_on(cells.count(&properties)).unwrap();
+        let open = properties
+            .properties
+            .iter()
+            .map(|it| it.id.clone())
+            .collect();
+        let everything = crate::app::net::block_on(cells.count(&properties, &open)).unwrap();
         let region = SelectedRegion {
             key: "MGA5LUTH4ETM859L5IM".into(),
             min: Vec2::new(20.0, 30.0),
@@ -633,9 +622,22 @@ mod tests {
             .find_map(CellProperty::range)
             .unwrap();
         assert_eq!((age.low, age.high), (68.0, 99.0));
-        assert_eq!(age.histogram.iter().sum::<u32>(), 686_439);
+        // Counted when its section is opened, not described with it.
+        assert!(age.histogram.is_empty());
 
-        let counts = crate::app::net::block_on(cells.count(&properties)).unwrap();
+        let every = |properties: &CellProperties| -> BTreeSet<String> {
+            properties
+                .properties
+                .iter()
+                .map(|it| it.id.clone())
+                .collect()
+        };
+        // Nothing open, nothing counted.
+        let none = crate::app::net::block_on(cells.count(&properties, &BTreeSet::new())).unwrap();
+        assert!(none.values.is_empty() && none.histograms.is_empty());
+
+        let counts =
+            crate::app::net::block_on(cells.count(&properties, &every(&properties))).unwrap();
         let braak: u64 = counts
             .values
             .iter()
@@ -666,7 +668,8 @@ mod tests {
         };
         values[0].selected = true;
         let (label, code) = (values[0].label.clone(), values[0].code);
-        let counts = crate::app::net::block_on(cells.count(&properties)).unwrap();
+        let counts =
+            crate::app::net::block_on(cells.count(&properties, &every(&properties))).unwrap();
         let total = |column: &str| -> u64 {
             counts
                 .values

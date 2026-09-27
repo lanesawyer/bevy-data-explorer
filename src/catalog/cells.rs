@@ -13,7 +13,7 @@
 //! and whenever a gene is added, whose histogram has to be counted the same
 //! way.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use bevy::prelude::*;
 
@@ -23,8 +23,8 @@ use super::{
 use crate::app::net::{Fetching, fetching};
 use crate::source::SourceUrl;
 use crate::source::properties::{
-    CellColumns, CellProperties, CellProperty, Column, Mixes, PropertyState, Provenance,
-    Restriction,
+    CellColumns, CellProperties, CellProperty, Column, Mixes, OpenProperties, PropertyState,
+    Provenance, Restriction,
 };
 use crate::source::region::SelectedRegion;
 
@@ -56,9 +56,9 @@ pub struct Described;
 pub struct Counting {
     service: CellService,
     catalog: String,
-    /// The properties and filters last counted under, or nothing before the
-    /// first count.
-    asked: Option<Counted>,
+    /// The properties and filters last counted under, and which properties
+    /// were open, or nothing before the first count.
+    asked: Option<(Counted, BTreeSet<String>)>,
     /// How long the properties or filters have differed from `asked`.
     waited: f32,
     /// The latest count. Replacing it drops, and so cancels, the one before.
@@ -189,9 +189,17 @@ pub fn take_answers(
 
 /// Count each source's cells once described, and again once its filters
 /// change and settle; take in whatever counts have landed.
-pub fn recount(time: Res<Time>, mut sources: Query<(&mut Counting, &mut CellProperties)>) {
-    for (mut counting, mut properties) in &mut sources {
-        let wanted = (
+///
+/// Only the properties open in the panel are counted, since only theirs are
+/// drawn. Opening one is counted at once rather than after the filters
+/// settle: nothing is being dragged, and the section is waiting on it. With
+/// none open there is nothing to ask.
+pub fn recount(
+    time: Res<Time>,
+    mut sources: Query<(&mut Counting, &mut CellProperties, Option<&OpenProperties>)>,
+) {
+    for (mut counting, mut properties, open) in &mut sources {
+        let counted: Counted = (
             properties
                 .properties
                 .iter()
@@ -200,12 +208,19 @@ pub fn recount(time: Res<Time>, mut sources: Query<(&mut Counting, &mut CellProp
             properties.filters(),
             properties.mix_column().map(str::to_string),
         );
+        let open = open.map(|open| open.0.clone()).unwrap_or_default();
+        let only_opened = counting
+            .asked
+            .as_ref()
+            .is_some_and(|(asked, _)| *asked == counted);
+        let wanted = (counted, open);
         if counting.asked.as_ref() == Some(&wanted) {
             counting.waited = 0.0;
         } else {
             counting.waited += time.delta_secs();
-            if counting.asked.is_none() || counting.waited >= SETTLE_SECS {
-                counting.reading = Some(fetching(counting.service.0.count(&properties)));
+            if counting.asked.is_none() || only_opened || counting.waited >= SETTLE_SECS {
+                counting.reading = (!wanted.1.is_empty())
+                    .then(|| fetching(counting.service.0.count(&properties, &wanted.1)));
                 counting.asked = Some(wanted);
                 counting.waited = 0.0;
             }
@@ -445,7 +460,11 @@ mod tests {
             Box::pin(async { Err("503".into()) })
         }
 
-        fn count(&self, _: &CellProperties) -> BoxFuture<'static, Result<CellCounts, String>> {
+        fn count(
+            &self,
+            _: &CellProperties,
+            _: &BTreeSet<String>,
+        ) -> BoxFuture<'static, Result<CellCounts, String>> {
             Box::pin(async { Err("503".into()) })
         }
     }
@@ -478,6 +497,64 @@ mod tests {
         app.world_mut().flush();
         assert_eq!(properties.state, PropertyState::Ready);
         assert!(app.world().get::<Described>(source).is_none());
+    }
+
+    /// Answers every count with nothing, and remembers what it was asked to
+    /// count.
+    struct Asked(std::sync::Mutex<Vec<BTreeSet<String>>>);
+
+    impl super::super::DescribeCells for Asked {
+        fn describe(&self, _: CellColumns) -> BoxFuture<'static, Result<CellProperties, String>> {
+            Box::pin(async { Err("unused".into()) })
+        }
+
+        fn count(
+            &self,
+            _: &CellProperties,
+            open: &BTreeSet<String>,
+        ) -> BoxFuture<'static, Result<CellCounts, String>> {
+            self.0.lock().unwrap().push(open.clone());
+            Box::pin(async { Ok(CellCounts::default()) })
+        }
+    }
+
+    #[test]
+    fn only_open_properties_are_counted_and_opening_one_counts_at_once() {
+        let asked = Arc::new(Asked(Default::default()));
+        let mut app = App::new();
+        app.insert_resource(Time::<()>::default())
+            .add_systems(Update, recount);
+        let source = app
+            .world_mut()
+            .spawn((
+                CellProperties::ready(Vec::new()),
+                Counting {
+                    service: CellService(asked.clone()),
+                    catalog: "BKP".into(),
+                    asked: None,
+                    waited: 0.0,
+                    reading: None,
+                },
+            ))
+            .id();
+        let calls = || asked.0.lock().unwrap().clone();
+
+        // Nothing open: nothing worth asking.
+        app.update();
+        assert!(calls().is_empty());
+
+        // A section opened is counted in the same frame, with no wait for the
+        // filters to settle, since none moved.
+        let open: BTreeSet<String> = ["braak".to_string()].into();
+        app.world_mut()
+            .entity_mut(source)
+            .insert(OpenProperties(open.clone()));
+        app.update();
+        assert_eq!(calls(), std::slice::from_ref(&open));
+
+        // And not again while nothing changes.
+        app.update();
+        assert_eq!(calls().len(), 1);
     }
 
     #[test]

@@ -40,7 +40,7 @@ use crate::source::{SourceBusy, SourceStatus};
 use super::table::{PAGE_ROWS, Table};
 
 mod filters;
-mod kinds;
+mod layout;
 mod pages;
 mod plan;
 mod query;
@@ -48,7 +48,7 @@ mod recount;
 mod spans;
 
 use filters::*;
-use kinds::*;
+use layout::*;
 use pages::*;
 use plan::*;
 use query::*;
@@ -114,34 +114,39 @@ fn label_for(project: &str, title: Option<&str>) -> String {
 /// are altogether.
 ///
 /// One request for the project's title, the count and the page, and beside
-/// it one for how the project shows its kinds of specimen apart. A project
-/// that shows none apart opens on the first; one that does is read again for
-/// its first kind alone, which costs it a round trip and costs every other
+/// it one for how the platform lays the project out. A project it lays out no
+/// differently from the page opens on the first. One that shows its kinds
+/// apart is read again for its first kind alone, and one that opens sorted is
+/// read again in that order, which costs those a round trip and every other
 /// project nothing. A frame opens on what comes back, and [`SpecimenSystems`]
 /// fetches any other page, or kind, the frame is turned to.
 pub async fn read(endpoint: &str, project: &str) -> Result<Specimens, String> {
     let mut scope = Scope::project(project);
-    let (answer, kinds) = futures::join!(
+    let (answer, layouts) = futures::join!(
         ask(endpoint, &scope, 0, &[], Value::Null),
-        ask_kinds(endpoint, project)
+        ask_layout(endpoint, project)
     );
     let mut answer = answer?;
-    // Without its layout a project is still a table, of every kind at once.
-    let kinds = kinds
-        .map(kinds_of)
-        .inspect_err(|e| warn!("asking how {project} shows its specimens: {e}"))
+    // Without its layout a project is still a table, of every feature its
+    // first page carries, in an order of the viewer's own.
+    let layouts = layouts
+        .map(layouts_of)
+        .inspect_err(|e| warn!("asking how {project} lays out its specimens: {e}"))
         .unwrap_or_default();
 
-    let mut plan = match kinds.first() {
-        Some((kind, plan)) => {
+    let layout = match layouts.kinds.first() {
+        Some((kind, layout)) => {
             scope.kind = Some(kind.id.clone());
-            let first = ask(endpoint, &scope, 0, &[], Value::Null).await?;
-            answer.aio_specimen = first.aio_specimen;
-            answer.total = first.total;
-            plan.clone()
+            layout.clone()
         }
-        None => Plan::default(),
+        None => layouts.whole.clone().unwrap_or_default(),
     };
+    let Layout { mut plan, sort } = layout;
+    if scope.kind.is_some() || !sort.is_empty() {
+        let first = ask(endpoint, &scope, 0, &[], plan.sort(&sort)).await?;
+        answer.aio_specimen = first.aio_specimen;
+        answer.total = first.total;
+    }
     if answer.aio_specimen.is_empty() {
         return Err(format!(
             "{endpoint} knows no specimens in project {project}"
@@ -167,7 +172,8 @@ pub async fn read(endpoint: &str, project: &str) -> Result<Specimens, String> {
         scope,
         table,
         plan,
-        kinds,
+        sort,
+        kinds: layouts.kinds,
     })
 }
 
@@ -185,9 +191,11 @@ pub struct Specimens {
     scope: Scope,
     pub table: Table,
     plan: Plan,
+    /// The order the page was read in, which the table opens sorted by.
+    sort: Vec<SortKey>,
     /// The kinds of specimen the project shows apart, each with its layout;
     /// empty for one that shows them together.
-    kinds: Vec<(TablePartition, Plan)>,
+    kinds: Vec<(TablePartition, Layout)>,
 }
 
 /// The systems every specimen table shares, registered once however many are
@@ -201,6 +209,7 @@ impl Plugin for SpecimenSystems {
             (
                 serve_kinds,
                 offer_filters,
+                serve_values,
                 serve_spans,
                 serve_counts,
                 serve_pages,
@@ -218,6 +227,7 @@ pub fn spawn_source(world: &mut World, specimens: Specimens) -> Entity {
         scope,
         table,
         plan,
+        sort,
         kinds,
     } = specimens;
     let source = super::table::spawn_source(world, table);
@@ -231,9 +241,13 @@ pub fn spawn_source(world: &mut World, specimens: Specimens) -> Entity {
     }
     let layouts = kinds
         .into_iter()
-        .map(|(kind, plan)| (kind.id, plan))
+        .map(|(kind, layout)| (kind.id, layout))
         .collect();
-    entity.insert(SpecimenPages::new(endpoint, scope, plan, layouts));
+    // The page in hand was read in this order, so it is not read again.
+    entity.insert((
+        TableSort(sort.clone()),
+        SpecimenPages::new(endpoint, scope, plan, sort, layouts),
+    ));
     source
 }
 

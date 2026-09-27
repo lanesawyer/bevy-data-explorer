@@ -300,20 +300,17 @@ pub struct TableFilterValue {
 
 /// How a column is narrowed: by picking values out of a list, or by taking a
 /// span of a number.
+///
+/// Either can be absent until the column is opened and whatever produced the
+/// rows has been asked: reading what a column holds costs a round trip for a
+/// source that is not all in hand, and most columns are never opened. A
+/// source that has everything in hand fills both in from the start.
 #[derive(Debug, Clone)]
 pub enum TableFilterKind {
     /// Values to tick, with how many rows hold each.
-    Values(Vec<TableFilterValue>),
+    Values(Option<Vec<TableFilterValue>>),
     /// A span of a number, chosen against the distribution it is drawn over.
-    ///
-    /// Absent until the column is opened and whatever produced the rows has
-    /// been asked: a distribution costs a round trip or two, and most columns
-    /// are never opened.
-    Range {
-        span: Option<NumericRange>,
-        /// Whether the column is open, and so worth asking about.
-        wanted: bool,
-    },
+    Range(Option<NumericRange>),
 }
 
 /// A column a table can be narrowed by.
@@ -325,10 +322,12 @@ pub struct TableFilter {
     /// What the table's header calls it.
     pub name: String,
     pub kind: TableFilterKind,
+    /// Whether the column is open, and so worth reading.
+    pub wanted: bool,
 }
 
 impl TableFilter {
-    /// A column narrowed by ticking values.
+    /// A column narrowed by ticking values, already read.
     pub fn values(
         id: impl Into<String>,
         name: impl Into<String>,
@@ -337,69 +336,79 @@ impl TableFilter {
         TableFilter {
             id: id.into(),
             name: name.into(),
-            kind: TableFilterKind::Values(values),
+            kind: TableFilterKind::Values(Some(values)),
+            wanted: false,
         }
     }
 
-    /// A column narrowed by taking a span of a number, not yet asked about.
+    /// A column narrowed by ticking values, not yet read.
+    pub fn unread_values(id: impl Into<String>, name: impl Into<String>) -> Self {
+        TableFilter {
+            id: id.into(),
+            name: name.into(),
+            kind: TableFilterKind::Values(None),
+            wanted: false,
+        }
+    }
+
+    /// A column narrowed by taking a span of a number, not yet read.
     pub fn range(id: impl Into<String>, name: impl Into<String>) -> Self {
         TableFilter {
             id: id.into(),
             name: name.into(),
-            kind: TableFilterKind::Range {
-                span: None,
-                wanted: false,
-            },
+            kind: TableFilterKind::Range(None),
+            wanted: false,
         }
     }
 
-    /// The values this column offers, or nothing if it is a span.
+    /// The values this column offers, or nothing if it is a span or has not
+    /// been read.
     pub fn listed(&self) -> &[TableFilterValue] {
         match &self.kind {
-            TableFilterKind::Values(values) => values,
-            TableFilterKind::Range { .. } => &[],
+            TableFilterKind::Values(Some(values)) => values,
+            _ => &[],
         }
     }
 
     pub fn listed_mut(&mut self) -> &mut [TableFilterValue] {
         match &mut self.kind {
-            TableFilterKind::Values(values) => values,
-            TableFilterKind::Range { .. } => &mut [],
+            TableFilterKind::Values(Some(values)) => values,
+            _ => &mut [],
         }
     }
 
     pub fn span(&self) -> Option<&NumericRange> {
         match &self.kind {
-            TableFilterKind::Range { span, .. } => span.as_ref(),
+            TableFilterKind::Range(span) => span.as_ref(),
             TableFilterKind::Values(_) => None,
         }
     }
 
     pub fn span_mut(&mut self) -> Option<&mut NumericRange> {
         match &mut self.kind {
-            TableFilterKind::Range { span, .. } => span.as_mut(),
+            TableFilterKind::Range(span) => span.as_mut(),
             TableFilterKind::Values(_) => None,
         }
     }
 
-    /// Say whether this column is open, so a span is asked about only once
-    /// someone is looking at it.
-    pub fn want(&mut self, open: bool) {
-        if let TableFilterKind::Range { wanted, .. } = &mut self.kind {
-            *wanted = open;
+    /// Whether what the column holds is in hand.
+    pub fn read(&self) -> bool {
+        match &self.kind {
+            TableFilterKind::Values(values) => values.is_some(),
+            TableFilterKind::Range(span) => span.is_some(),
         }
     }
 
-    /// Whether a span should be asked for: the column is open and nothing has
-    /// come back yet.
-    pub fn awaiting_span(&self) -> bool {
-        matches!(
-            &self.kind,
-            TableFilterKind::Range {
-                span: None,
-                wanted: true
-            }
-        )
+    /// Say whether this column is open, so it is read only once someone is
+    /// looking at it.
+    pub fn want(&mut self, open: bool) {
+        self.wanted = open;
+    }
+
+    /// Whether the column should be read: it is open and nothing has come
+    /// back yet.
+    pub fn awaiting(&self) -> bool {
+        self.wanted && !self.read()
     }
 
     /// The values ticked in this column. Nothing ticked means the column is
@@ -411,20 +420,18 @@ impl TableFilter {
     pub fn restricts(&self) -> bool {
         match &self.kind {
             TableFilterKind::Values(_) => self.chosen().next().is_some(),
-            TableFilterKind::Range { span, .. } => {
-                span.as_ref().is_some_and(NumericRange::restricts)
-            }
+            TableFilterKind::Range(span) => span.as_ref().is_some_and(NumericRange::restricts),
         }
     }
 
     pub fn clear(&mut self) {
         match &mut self.kind {
             TableFilterKind::Values(values) => {
-                for value in values {
+                for value in values.iter_mut().flatten() {
                     value.chosen = false;
                 }
             }
-            TableFilterKind::Range { span, .. } => {
+            TableFilterKind::Range(span) => {
                 if let Some(span) = span {
                     span.from = span.low;
                     span.to = span.high;
@@ -512,7 +519,7 @@ impl TableFilters {
                         value: value.label.clone(),
                     })
                     .collect(),
-                TableFilterKind::Range { span, .. } => span
+                TableFilterKind::Range(span) => span
                     .as_ref()
                     .filter(|span| span.restricts())
                     .map(|span| TableFilterTerm::Between {
@@ -668,17 +675,15 @@ mod tests {
         // Nothing to narrow by until the numbers have been asked for.
         assert!(!filters.restricts());
         assert!(filters.chosen().is_empty());
-        assert!(!filters.columns[0].awaiting_span());
+        assert!(!filters.columns[0].awaiting());
         filters.columns[0].want(true);
-        assert!(filters.columns[0].awaiting_span());
+        assert!(filters.columns[0].awaiting());
 
-        filters.columns[0].kind = TableFilterKind::Range {
-            span: Some(NumericRange::full(60.0, 100.0, vec![1, 2, 3])),
-            wanted: true,
-        };
+        filters.columns[0].kind =
+            TableFilterKind::Range(Some(NumericRange::full(60.0, 100.0, vec![1, 2, 3])));
         // The whole extent is not a restriction: everything is admitted.
         assert!(!filters.restricts());
-        assert!(!filters.columns[0].awaiting_span());
+        assert!(!filters.columns[0].awaiting());
 
         filters.columns[0].span_mut().unwrap().from = 80.0;
         assert!(filters.restricts());

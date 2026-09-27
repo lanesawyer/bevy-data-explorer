@@ -66,10 +66,8 @@ pub fn offer<'a>(columns: &[TableColumn], rows: &'a [Vec<String>]) -> (TableFilt
             filters.push(TableFilter {
                 id: column.name.clone(),
                 name: column.name.clone(),
-                kind: TableFilterKind::Range {
-                    span: Some(span),
-                    wanted: false,
-                },
+                kind: TableFilterKind::Range(Some(span)),
+                wanted: false,
             });
             indexed.push(Indexed::Numbers(numbers));
         } else {
@@ -196,15 +194,14 @@ pub(super) fn narrow(filters: &TableFilters, index: &FilterIndex, rows: usize) -
         .iter()
         .zip(&index.columns)
         .map(|(column, indexed)| match (&column.kind, indexed) {
-            (TableFilterKind::Values(values), Indexed::Values(codes)) if column.restricts() => {
+            (TableFilterKind::Values(Some(values)), Indexed::Values(codes))
+                if column.restricts() =>
+            {
                 Test::Values(values.iter().map(|value| value.chosen).collect(), codes)
             }
-            (
-                TableFilterKind::Range {
-                    span: Some(span), ..
-                },
-                Indexed::Numbers(numbers),
-            ) if span.restricts() => Test::Span(span.from, span.to, numbers),
+            (TableFilterKind::Range(Some(span)), Indexed::Numbers(numbers)) if span.restricts() => {
+                Test::Span(span.from, span.to, numbers)
+            }
             _ => Test::None,
         })
         .collect();

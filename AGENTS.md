@@ -120,9 +120,26 @@ columns, filters and rows.
 `HiddenColumns` is the frame's alone: no format reads it. A format may
 propose columns to leave out at first with `TableColumn::hidden_by_default`,
 taken up once per heading (`SeenColumns`) in `Stage::SourceDefaults`; after
-that the choice is the user's and the bookmark's. Neither
+that the choice is the user's and the bookmark's.
+
+That is one of four places a source says what is shown at first, and they
+work alike: the format, or a catalog's cell service, sets the flag on what it
+produces, and from then on the user and bookmarks own it. Columns take
+`TableColumn::hidden_by_default`; cell properties `CellProperty::shown` (the
+BKP service sets it from the portal's `isDefault`); image channels
+`Channel::active` (from OME `omero.channels[].active`, or a Neuroglancer
+layer's `visible`). A new format with its own notion of a default wires it to
+whichever of these it produces, not to the controls. Neither
 knows about the controls, and `ui/table_filters.rs` names no format: a second
 source of rows is filtered by it without a line changing there.
+
+A filter's contents are read when its section is opened, never when the
+dataset opens: most sections are never opened, and reading all of them cost
+the V1 specimen table thirteen seconds. A table column's values or span wait
+for `TableFilter::wanted`, set as its accordion opens; a cell property's
+counts and histogram wait for its id in `OpenProperties`, which the cell panel
+writes and `DescribeCells::count` is handed. Each section shows a placeholder
+until what it holds lands. A new filter surface does the same.
 
 A numeric column is narrowed by a span, and that span is drawn by the same
 control the cell properties use. `ui/cell_panel/range.rs` takes a `RangeOwner`

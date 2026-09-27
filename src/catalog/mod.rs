@@ -208,7 +208,15 @@ pub trait DescribeCells: Send + Sync + 'static {
     /// properties' filters admit. Asked separately because it is far slower,
     /// and the labels are worth showing before it answers; and asked again
     /// whenever the filters change.
-    fn count(&self, properties: &CellProperties) -> BoxFuture<'static, Result<CellCounts, String>>;
+    ///
+    /// Only the properties in `open` are counted: the rest are drawn shut, so
+    /// their counts would be asked for and never seen. Every property's
+    /// filters still narrow what the open ones are counted among.
+    fn count(
+        &self,
+        properties: &CellProperties,
+        open: &BTreeSet<String>,
+    ) -> BoxFuture<'static, Result<CellCounts, String>>;
 
     /// How many cells inside `region` hold each value of each categorical
     /// property, among the cells the other properties' filters admit.

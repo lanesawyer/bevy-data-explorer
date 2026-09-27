@@ -215,36 +215,52 @@ pub(super) fn specimen_filters(scope: &Scope, terms: &[TableFilterTerm]) -> Valu
     Value::Array(filters)
 }
 
-/// How a project shows its kinds of specimen apart, and how many of each it
-/// holds.
+/// How the platform lays a project's specimens out, and how many of each kind
+/// it holds.
 ///
-/// `getSpecimenTypeDisplayPropertiesByProject` is what the platform's own
-/// specimens page lays a project out from: for a project that shows its kinds
-/// apart, a list of them, each with the features it is shown with. For every
-/// other project it answers with an empty list.
-pub(super) const KINDS: &str = "query($project: String!, $specimens: [Filter]) {
+/// Two answers, since a project is laid out one of two ways and the other
+/// comes back empty. `getSpecimenTypeDisplayPropertiesByProject` lists the
+/// kinds of specimen a project shows apart, each with the features it is
+/// shown with; every project that does not show kinds apart answers with an
+/// empty list. `getDisplayProperty` of the project lays out one table of
+/// every kind, and answers null for a project that shows its kinds apart.
+/// Either is what the platform's own specimens page lays the table out from:
+/// which features, in what order, which of them shown by default, and what
+/// the rows are sorted by.
+pub(super) const LAYOUT: &str = "query($project: String!, $specimens: [Filter]) {
   kinds: getSpecimenTypeDisplayPropertiesByProject(projectReferenceId: $project) {
     priorityOrder
     referenceId
     title
-    displayFeatures {
-      type
-      priorityOrder
-      isDefault
-      featureType { referenceId title }
-      ... on MeasurementDisplayProperty { unit }
+    defaultSort
+    displayFeatures { ...Shown }
+  }
+  whole: getDisplayProperty(displayPropertyFilter: { type: PROJECT, typeReferenceId: $project }) {
+    ... on ProjectDisplayProperty {
+      defaultSort
+      displayFeatures { ...Shown }
     }
   }
   counts: aio_specimenCounts(filter: $specimens, groupBy: [\"specimenType.referenceId\"]) {
     count
     properties { value }
   }
+}
+fragment Shown on FeatureDisplayProperty {
+  type
+  priorityOrder
+  isDefault
+  filterOperator
+  featureType { referenceId title }
+  ... on MeasurementDisplayProperty { unit }
 }";
 
 #[derive(Deserialize)]
-pub(super) struct KindsData {
+pub(super) struct LayoutData {
     #[serde(default, deserialize_with = "maybe_list")]
     pub(super) kinds: Vec<KindLayout>,
+    #[serde(default)]
+    pub(super) whole: Option<WholeLayout>,
     #[serde(default, deserialize_with = "maybe_list")]
     pub(super) counts: Vec<Grouped>,
 }
@@ -256,6 +272,18 @@ pub(super) struct KindLayout {
     pub(super) priority_order: Option<i64>,
     pub(super) reference_id: String,
     pub(super) title: Option<String>,
+    /// A JSON list of fields and orders, written as a string.
+    #[serde(default)]
+    pub(super) default_sort: Option<String>,
+    #[serde(default, deserialize_with = "maybe_list")]
+    pub(super) display_features: Vec<DisplayFeature>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct WholeLayout {
+    #[serde(default)]
+    pub(super) default_sort: Option<String>,
     #[serde(default, deserialize_with = "maybe_list")]
     pub(super) display_features: Vec<DisplayFeature>,
 }
@@ -270,18 +298,22 @@ pub(super) struct DisplayFeature {
     /// Shown when the table opens; the rest are offered but left out.
     #[serde(default)]
     pub(super) is_default: Option<bool>,
+    /// How the portal narrows by it: `BETWEEN` for a span of numbers, `EQ`
+    /// or `CONTAINS` for values.
+    #[serde(default)]
+    pub(super) filter_operator: Option<String>,
     pub(super) feature_type: Titled,
     #[serde(default)]
     pub(super) unit: Option<String>,
 }
 
-/// Ask how a project shows its kinds of specimen apart.
-pub(super) async fn ask_kinds(endpoint: &str, project: &str) -> Result<KindsData, String> {
+/// Ask how the platform lays a project's specimens out.
+pub(super) async fn ask_layout(endpoint: &str, project: &str) -> Result<LayoutData, String> {
     let variables = json!({
         "project": project,
         "specimens": specimen_filters(&Scope::project(project), &[]),
     });
-    graphql::ask(endpoint, KINDS, variables).await
+    graphql::ask(endpoint, LAYOUT, variables).await
 }
 
 #[cfg(test)]

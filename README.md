@@ -936,9 +936,10 @@ reading the live API before writing the reader:
   and age at death twice over, with the same value both times, so the first
   reading is taken; showing a value beside itself would say something the data
   does not.
-- **Its column order changes between requests.** The table fixes one: what
-  identifies a specimen, then its annotations by name, then its measurements
-  by name.
+- **Its column order changes between requests.** The table takes the
+  platform's own layout where there is one (below); where there is none it
+  fixes an order of its own: what identifies a specimen, then its annotations
+  by name, then its measurements by name.
 
 The title, the count and the first page come back in one request — three root
 fields — so opening a table costs one round trip however large the project is.
@@ -968,14 +969,19 @@ bring back and does not shift under the pointer while ticking. A column holding
 more values than the cell properties above it will list — a donor id, say, one
 per row — is cut to the same figure and says how many are left.
 
-Every column is asked about, annotations and measurements alike, and the
-platform decides which it can answer. A column it cannot comes back null beside
-the ones it could, so one column's failure costs only itself — and that null is
-also what marks a column out as numbers: grouping by one answers *"Unable to
-cast object of type 'System.Double' to type 'System.String'"*. A column of
-numbers is narrowed by taking a span of it rather than by ticking every reading
-anyone took, drawn with the same histogram and two-ended control the cell
-properties use.
+Every column is offered the moment the table opens, and none is read until it
+is opened: its values, or its span, are asked for then, and a placeholder
+stands in until they land. Asking for every column up front cost the V1
+neurons thirteen seconds for 91 columns, most of which nobody opens. The
+platform's layout says how each is narrowed — `BETWEEN` a span, `EQ` or
+`CONTAINS` values — so opening one is one question. Several opened while a
+read is out go together in the next. A project the platform does not lay out
+takes a measurement for values until it is read, and one it cannot group
+comes back null — grouping by numbers answers *"Unable to cast object of type
+'System.Double' to type 'System.String'"* — which makes it a span instead. A
+column of numbers is narrowed by taking a span of it rather than by ticking
+every reading anyone took, drawn with the same histogram and two-ended control
+the cell properties use.
 
 A span is asked for when its column is opened, not when the table is. The
 extent is not asked for first — `measurementStats` does come back on a
@@ -1000,16 +1006,21 @@ death. Shown together they would be one table of mostly empty cells, so a
 project like that is shown a kind at a time, the way the platform's own
 specimens page shows it. `getSpecimenTypeDisplayPropertiesByProject` says
 which kinds a project shows apart and which features each is shown with, in
-what order; every other project answers it with an empty list and is read as
-before. It is asked beside the first page, so a project without kinds pays
-nothing for the question, and one with them is read again for its first kind.
+what order. Every other project answers that with an empty list, and is laid
+out instead by `getDisplayProperty` of the project, the one table the portal
+shows: its features in the portal's order and under the portal's names, which
+of them it shows by default, and what it sorts by. The Genetic Tools Atlas
+opens sorted on one column and V1 neurons on two, as they do on the portal.
+Both questions go in one request beside the first page, so a project laid out
+no differently pays nothing for them; one shown by kind is read again for its
+first kind, and one that opens sorted is read again in that order.
 Everything asked of a kind — its page, its filters' counts, a span's
 histogram — carries `specimenType.referenceId` beside the project.
 
 The choice sits at the top of the table's filters, a button per kind with its
 count, because it decides what the filters are. Choosing another kind is
 choosing another table: its columns replace the last kind's, its filters are
-asked for afresh, the sort is dropped, and a bookmark saves which kind was on
+asked for afresh, the sort is the kind's own default, and a bookmark saves which kind was on
 screen. The choice is `TablePartitions` in `source/table.rs` and names no
 platform, so any source whose records split into kinds with columns of their
 own can offer the same choice.

@@ -141,10 +141,7 @@ pub(super) fn serve_spans(
             match answer {
                 Ok(span) => {
                     if let Some(filter) = filters.columns.get_mut(column) {
-                        filter.kind = TableFilterKind::Range {
-                            span: Some(span),
-                            wanted: true,
-                        };
+                        filter.kind = TableFilterKind::Range(Some(span));
                         pages.counted.insert(filter.id.clone(), asked);
                     }
                 }
@@ -163,7 +160,11 @@ pub(super) fn serve_spans(
             continue;
         }
 
-        let Some(column) = filters.columns.iter().position(TableFilter::awaiting_span) else {
+        let Some(column) = filters
+            .columns
+            .iter()
+            .position(|it| it.awaiting() && matches!(it.kind, TableFilterKind::Range(_)))
+        else {
             continue;
         };
         let field = filters.columns[column].id.clone();
