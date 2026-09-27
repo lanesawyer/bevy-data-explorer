@@ -6,6 +6,11 @@
 //! offers. Nothing here knows which source it is drawing, so a new one needs
 //! nothing but a catalog that has a dashboard.
 //!
+//! One is shown at a time, picked from a list down the left the way the
+//! settings screen's pages are, so the home page stays one dashboard tall
+//! however many sources have one. Only the sources turned on are listed, and
+//! the list itself only once there are two to choose between.
+//!
 //! The cards are spawned once, with the welcome screen; what is inside one is
 //! thrown away and built again whenever its dashboard changes, which is
 //! rarely — when it arrives, and when signing in or out has it counted again.
@@ -20,11 +25,10 @@ use crate::app::theme::token;
 use crate::catalog::dashboard::{Bar, Block, Dashboard, DashboardState, Figure};
 use crate::catalog::{Catalogs, DashboardId, Entry};
 use crate::source::compact_count;
-use crate::ui::settings::WhileSourceOn;
 use crate::view::{DatasetRequest, DatasetTarget};
 use crate::widgets::{
-    BlocksFrameInput, Notice, Tone, button_text, field_well, notice, size, space, spawn_skeleton,
-    text, text_dim, truncate_to_width, width_of,
+    BlocksFrameInput, Notice, Tone, button_text, display, field_well, notice, patch_node, size,
+    space, spawn_skeleton, text, text_dim, truncate_to_width, width_of,
 };
 
 /// Width a card is held to, which fits two blocks side by side.
@@ -36,6 +40,10 @@ const BLOCK_PX: f32 = 440.0;
 
 /// The narrowest a headline number is given, so four share a row of a card.
 const FIGURE_PX: f32 = 180.0;
+
+/// The list of dashboards down the left, wide enough for a source's name on
+/// one line: "Brain Knowledge Platform" wrapped at 180.
+const NAV_PX: f32 = 220.0;
 
 /// What a button takes around its caption, its padding and border together.
 const BUTTON_INSET_PX: f32 = (space::CONTROL_INSET + space::SEAM) * 2.0;
@@ -55,9 +63,71 @@ pub struct DashboardCard {
 #[derive(Component)]
 struct DashboardDataset(String);
 
+/// The button in the list that shows a dashboard.
+#[derive(Component)]
+struct DashboardTab(DashboardId);
+
+/// The list of dashboards, hidden while there is only one to show.
+#[derive(Component)]
+struct DashboardNav;
+
+/// The dashboard shown. Nothing until the first is picked for it, and moved
+/// on to another if its source is turned off.
+#[derive(Resource, Default)]
+struct ShownDashboard(Option<DashboardId>);
+
+/// The dashboards: a button for each down the left, and a card for each
+/// beside them, one card shown at a time.
+pub fn spawn_dashboards(commands: &mut Commands, catalogs: &Catalogs) -> Entity {
+    let tabs: Vec<Entity> = catalogs
+        .dashboards()
+        .map(|view| {
+            let name = view.name.to_string();
+            commands
+                .spawn_scene(bsn! {
+                    @FeathersButton {
+                        @variant: { ButtonVariant::Plain },
+                        @caption: { bsn_list![(
+                            button_text(name)
+                            TextLayout { linebreak: { LineBreak::NoWrap } }
+                        )] }
+                    }
+                    Node { justify_content: { JustifyContent::Start } }
+                    BlocksFrameInput
+                })
+                .insert(DashboardTab(view.id))
+                .id()
+        })
+        .collect();
+    let nav = commands
+        .spawn((
+            DashboardNav,
+            Node {
+                width: Val::Px(NAV_PX),
+                flex_shrink: 0.0,
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(space::LIST_ITEMS),
+                ..default()
+            },
+        ))
+        .add_children(&tabs)
+        .id();
+    let cards = spawn_cards(commands, catalogs);
+    commands
+        .spawn(Node {
+            max_width: Val::Percent(100.0),
+            align_items: AlignItems::FlexStart,
+            column_gap: Val::Px(space::SCREEN_INSET),
+            ..default()
+        })
+        .add_child(nav)
+        .add_children(&cards)
+        .id()
+}
+
 /// A card for each catalog with a dashboard, empty until [`fill_dashboards`]
-/// fills it.
-pub fn spawn_dashboards(commands: &mut Commands, catalogs: &Catalogs) -> Vec<Entity> {
+/// fills it and hidden until [`show_dashboard`] picks it.
+fn spawn_cards(commands: &mut Commands, catalogs: &Catalogs) -> Vec<Entity> {
     catalogs
         .dashboards()
         .map(|view| {
@@ -81,27 +151,87 @@ pub fn spawn_dashboards(commands: &mut Commands, catalogs: &Catalogs) -> Vec<Ent
                 })
                 .id();
             parts.push(body);
-            let card = commands
+            commands
                 .spawn_scene(bsn! {
                     field_well()
                     Node {
+                        display: { Display::None },
                         width: { Val::Px(CARD_PX) },
-                        max_width: { Val::Percent(100.0) },
+                        min_width: { Val::Px(0.0) },
+                        flex_shrink: { 1.0_f32 },
                         row_gap: { Val::Px(space::STACKED) },
                     }
                 })
                 .insert(DashboardCard { id: view.id, body })
                 .add_children(&parts)
-                .id();
-            if let Some(provider) = view.provider {
-                commands.entity(card).insert(WhileSourceOn {
-                    key: provider.key,
-                    shown: Display::Flex,
-                });
-            }
-            card
+                .id()
         })
         .collect()
+}
+
+/// Show the page picked, among those whose source is on, and mark its
+/// button; list only the dashboards that are on, and only when there is a
+/// choice.
+fn show_dashboard(
+    catalogs: Res<Catalogs>,
+    mut shown: ResMut<ShownDashboard>,
+    mut tabs: Query<(&DashboardTab, &mut ButtonVariant, &mut Node), Without<DashboardCard>>,
+    mut cards: Query<(&DashboardCard, &mut Node), Without<DashboardTab>>,
+    mut navs: Query<
+        &mut Node,
+        (
+            With<DashboardNav>,
+            Without<DashboardTab>,
+            Without<DashboardCard>,
+        ),
+    >,
+) {
+    let on: Vec<DashboardId> = catalogs
+        .dashboards()
+        .filter(|view| {
+            view.provider
+                .is_none_or(|provider| catalogs.source_on(provider.key))
+        })
+        .map(|view| view.id)
+        .collect();
+    let picked = shown_of(shown.0, &on);
+    if shown.0 != picked {
+        shown.0 = picked;
+    }
+    for (DashboardTab(id), mut variant, node) in &mut tabs {
+        variant.set_if_neq(if picked == Some(*id) {
+            ButtonVariant::Primary
+        } else {
+            ButtonVariant::Plain
+        });
+        patch_node(node, |node| node.display = display(on.contains(id)));
+    }
+    for (card, node) in &mut cards {
+        patch_node(node, |node| node.display = display(picked == Some(card.id)));
+    }
+    for node in &mut navs {
+        patch_node(node, |node| node.display = display(on.len() > 1));
+    }
+}
+
+/// The dashboard to show among those `on`: the one picked while it is still
+/// on, and otherwise the first that is.
+fn shown_of<T: Copy + PartialEq>(picked: Option<T>, on: &[T]) -> Option<T> {
+    picked
+        .filter(|picked| on.contains(picked))
+        .or_else(|| on.first().copied())
+}
+
+fn on_tab_pressed(
+    activate: On<Activate>,
+    tabs: Query<&DashboardTab>,
+    mut shown: ResMut<ShownDashboard>,
+) {
+    if let Ok(DashboardTab(id)) = tabs.get(activate.entity)
+        && shown.0 != Some(*id)
+    {
+        shown.0 = Some(*id);
+    }
 }
 
 /// Build each card's inside again whenever the dashboards change.
@@ -398,7 +528,27 @@ pub struct DashboardsPlugin;
 
 impl Plugin for DashboardsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_dataset_pressed)
-            .add_systems(Update, fill_dashboards.in_set(Stage::ControlsBuild));
+        app.init_resource::<ShownDashboard>()
+            .add_observer(on_dataset_pressed)
+            .add_observer(on_tab_pressed)
+            .add_systems(Update, fill_dashboards.in_set(Stage::ControlsBuild))
+            .add_systems(Update, show_dashboard.in_set(Stage::ControlsPlace));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_first_dashboard_is_shown_until_another_is_picked() {
+        assert_eq!(shown_of(None, &[2, 5]), Some(2));
+        assert_eq!(shown_of(Some(5), &[2, 5]), Some(5));
+    }
+
+    #[test]
+    fn turning_off_the_source_shown_moves_on_to_one_still_on() {
+        assert_eq!(shown_of(Some(5), &[2]), Some(2));
+        assert_eq!(shown_of(Some(5), &[]), None);
     }
 }

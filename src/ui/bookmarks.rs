@@ -78,12 +78,9 @@ pub struct BookmarkRenameInput {
     pub name: String,
 }
 
-/// A column the saved list is rebuilt into. A compact one, as on the welcome
-/// screen, holds only the buttons that open each bookmark.
+/// A column the saved list is rebuilt into.
 #[derive(Component, Clone, Default)]
-pub struct BookmarkList {
-    pub compact: bool,
-}
+pub struct BookmarkList;
 
 /// Anything in the list, despawned wholesale on a rebuild.
 #[derive(Component, Clone, Default)]
@@ -239,7 +236,7 @@ pub fn rebuild_list(
     mut commands: Commands,
     saved: Res<SavedBookmarks>,
     renaming: Res<Renaming>,
-    lists: Query<(Entity, &BookmarkList)>,
+    lists: Query<Entity, With<BookmarkList>>,
     existing: Query<Entity, With<BookmarkListContent>>,
     mut built: Local<bool>,
 ) {
@@ -250,30 +247,22 @@ pub fn rebuild_list(
     for entity in &existing {
         commands.entity(entity).despawn();
     }
-    for (list, kind) in &lists {
-        fill_list(&mut commands, list, kind.compact, &saved, &renaming);
+    for list in &lists {
+        fill_list(&mut commands, list, &saved, &renaming);
     }
 }
 
-fn fill_list(
-    commands: &mut Commands,
-    list: Entity,
-    compact: bool,
-    saved: &SavedBookmarks,
-    renaming: &Renaming,
-) {
+fn fill_list(commands: &mut Commands, list: Entity, saved: &SavedBookmarks, renaming: &Renaming) {
     if saved.list.is_empty() {
-        if !compact {
-            let empty = caption(commands, "Nothing saved yet.");
-            commands.entity(empty).insert(BookmarkListContent);
-            commands.entity(list).add_child(empty);
-        }
+        let empty = caption(commands, "Nothing saved yet.");
+        commands.entity(empty).insert(BookmarkListContent);
+        commands.entity(list).add_child(empty);
         return;
     }
 
     for entry in &saved.list {
         let bookmark = &entry.bookmark;
-        if !compact && renaming.0.as_ref() == Some(&entry.path) {
+        if renaming.0.as_ref() == Some(&entry.path) {
             let line = rename_row(commands, entry.path.clone(), bookmark.name.clone());
             commands.entity(list).add_child(line);
             continue;
@@ -321,19 +310,15 @@ fn fill_list(
             path: entry.path.clone(),
             action: BookmarkAction::Open,
         });
-        let buttons: Vec<Entity> = if compact {
-            Vec::new()
-        } else {
-            [
-                (Icon::Pencil, BookmarkAction::Rename),
-                (Icon::Copy, BookmarkAction::CopyLine),
-                (Icon::Download, BookmarkAction::Export),
-                (Icon::Trash, BookmarkAction::Delete),
-            ]
-            .into_iter()
-            .map(|(icon, action)| row_button(commands, icon, entry.path.clone(), action))
-            .collect()
-        };
+        let buttons: Vec<Entity> = [
+            (Icon::Pencil, BookmarkAction::Rename),
+            (Icon::Copy, BookmarkAction::CopyLine),
+            (Icon::Download, BookmarkAction::Export),
+            (Icon::Trash, BookmarkAction::Delete),
+        ]
+        .into_iter()
+        .map(|(icon, action)| row_button(commands, icon, entry.path.clone(), action))
+        .collect();
 
         let line = list_row(commands);
         commands.entity(line).add_child(open).add_children(&buttons);

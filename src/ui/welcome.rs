@@ -2,12 +2,12 @@
 //!
 //! Nothing is loaded at startup any more, so the frame area would otherwise be
 //! a cleared rectangle with no way into the app. This fills it: what the viewer
-//! is for, the bookmarks saved so far, the front page of each data source
-//! that has one ([`crate::ui::dashboards`]), every dataset it knows the
-//! address of — each data source's that is on beside the rest — a button
-//! opening the same
-//! empty frame the sidebar's New frame does, for anything else, and who made
-//! it.
+//! is for, a button opening the same empty frame the sidebar's New frame does
+//! to search for anything, the front page of each data source that has one
+//! ([`crate::ui::dashboards`]), every dataset it knows the address of — each
+//! data source's that is on beside the rest — and who made it.
+//!
+//! The saved bookmarks are not here: the sidebar lists them, and starts open.
 //!
 //! It is UI rather than frame chrome, but it is placed against
 //! [`FrameArea`] like the chrome is, so the docks take their space off it
@@ -22,11 +22,9 @@ use bevy_feathers::font_styles::InheritableFont;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::schedule::{Boot, Stage};
-use crate::bookmark::store::SavedBookmarks;
 use crate::catalog::Catalogs;
 use crate::catalog::examples::{EXAMPLES, Example};
 use crate::ui::add_source::status_line;
-use crate::ui::bookmarks::BookmarkList;
 use crate::ui::help::{AUTHOR, LICENSE, LICENSE_URL, REPOSITORY};
 use crate::ui::settings::WhileSourceOn;
 use crate::view::browse::new_frame_button;
@@ -40,10 +38,6 @@ use crate::widgets::{
 /// The empty-state panel itself.
 #[derive(Component, Clone, Default)]
 pub struct WelcomeScreen;
-
-/// The saved bookmarks, shown only when there are some.
-#[derive(Component, Clone, Default)]
-pub struct WelcomeBookmarks;
 
 /// A button that opens an example, by its address.
 #[derive(Component, Clone, Default)]
@@ -112,34 +106,8 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
         })
         .id();
 
-    // Above the examples: someone with bookmarks has been here before, and is
-    // more likely back for one of them than for an example.
-    let bookmarks = commands
-        .spawn_scene(bsn! {
-            WelcomeBookmarks
-            Node {
-                display: { Display::None },
-                flex_direction: { FlexDirection::Column },
-                width: { Val::Px(COLUMN_PX) },
-                max_width: { Val::Percent(100.0) },
-            }
-            Children [
-                (
-                    text("Bookmarks", size::BODY)
-                    Node { margin: { UiRect::bottom(Val::Px(space::HEADING)) } }
-                ),
-                (
-                    BookmarkList { compact: true }
-                    Node {
-                        flex_direction: { FlexDirection::Column },
-                        width: { Val::Percent(100.0) },
-                    }
-                ),
-            ]
-        })
-        .id();
-
-    // Each data source's front page: what it holds, and where to start in it.
+    // Each data source's front page — what it holds, and where to start in
+    // it — one at a time.
     let dashboards = crate::ui::dashboards::spawn_dashboards(&mut commands, &catalogs);
 
     // Each data source's own examples lead, since they are what most people
@@ -171,12 +139,9 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
         .id();
     commands.entity(columns).add_children(&examples);
 
-    let mut children = vec![title, blurb, bookmarks];
-    children.extend(dashboards);
-    children.push(columns);
-
-    // Everything else, and any address, is found in an empty frame: the same
-    // one the sidebar's New frame button opens.
+    // Any dataset, and any address, is found in an empty frame: the same one
+    // the sidebar's New frame button opens. First, since it reaches everything
+    // the rest of the screen only samples.
     let browse = commands
         .spawn_scene(bsn! {
             Node {
@@ -193,7 +158,8 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
             ]
         })
         .id();
-    children.push(browse);
+
+    let mut children = vec![title, blurb, browse, dashboards, columns];
 
     // Pushed to the foot of the screen by its auto margin, which with the
     // title's leaves the rest centered in what is between them.
@@ -331,16 +297,6 @@ pub fn place_welcome(
     }
 }
 
-/// Show the bookmarks only when something has been saved.
-pub fn show_welcome_bookmarks(
-    saved: Res<SavedBookmarks>,
-    mut columns: Query<&mut Node, With<WelcomeBookmarks>>,
-) {
-    for node in &mut columns {
-        patch_node(node, |node| node.display = display(!saved.list.is_empty()));
-    }
-}
-
 /// The empty window, and the examples it offers.
 pub struct WelcomePlugin;
 
@@ -350,7 +306,6 @@ impl Plugin for WelcomePlugin {
             // Placed with the rest of the chrome that measures against the
             // frame area, once the docks have taken their share of it.
             .add_systems(Update, place_welcome.in_set(Stage::Chrome))
-            .add_systems(Update, show_welcome_bookmarks.in_set(Stage::ControlsPlace))
             .add_systems(Startup, spawn_welcome.in_set(Boot::Shell));
     }
 }
