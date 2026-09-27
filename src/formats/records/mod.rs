@@ -26,8 +26,9 @@ use crate::app::net::{Fetching, fetching};
 use crate::app::schedule::Stage;
 use crate::source::SourceBusy;
 use crate::source::table::{
-    RelatedRecords, SearchedColumns, SelectedRecord, SortKey, SourceTable, TableFilter,
-    TableFilterKind, TableFilterValue, TableFilters, TablePaging, TableSearch, TableSort,
+    FollowedRecord, RecordTrail, RelatedRecords, SearchedColumns, SelectedRecord, SortKey,
+    SourceTable, TableFilter, TableFilterKind, TableFilterValue, TableFilters, TablePaging,
+    TableSearch, TableSort,
 };
 
 use super::table::{MAX_CHARS, PAGE_ROWS, Table};
@@ -132,7 +133,7 @@ pub struct RecordPages {
     /// What each filter's counts were counted under, by path.
     counted: HashMap<String, Asked>,
     /// The record whose links are shown or being fetched, and the fetch.
-    picked: Option<String>,
+    picked: Option<(Kind, String)>,
     linking: Option<Fetching<Result<Value, String>>>,
 }
 
@@ -184,6 +185,8 @@ pub fn spawn_source(world: &mut World, records: Records) -> Entity {
             "Anywhere in it, in any case.",
         ),
         RelatedRecords::default(),
+        RecordTrail::default(),
+        FollowedRecord::default(),
         RecordPages {
             endpoint,
             kind,

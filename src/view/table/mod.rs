@@ -43,8 +43,8 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::Stage;
 use crate::app::theme::{Palette, token};
 use crate::source::table::{
-    ColumnWidths, HiddenColumns, Record, SelectedRecord, SourceTable, TablePaging, TableSort,
-    to_first_page,
+    ColumnWidths, HiddenColumns, Record, RecordTrail, SelectedRecord, SourceTable, TablePaging,
+    TableSort, to_first_page,
 };
 use crate::source::{ShowsSource, grouped};
 use crate::widgets::space;

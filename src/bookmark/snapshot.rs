@@ -18,8 +18,8 @@ use crate::source::properties::{
 };
 use crate::source::stack::SliceStack;
 use crate::source::table::{
-    ColumnWidths, HiddenColumns, SortKey, TableFilterKind, TableFilters, TablePaging,
-    TablePartitions, TableSearch, TableSort,
+    ColumnWidths, HiddenColumns, RecordTrail, SortKey, TableFilterKind, TableFilters, TablePaging,
+    TablePartitions, TableSearch, TableSort, TrailStep,
 };
 
 /// The format a bookmark is written in. Raised whenever a field changes
@@ -105,6 +105,10 @@ pub struct TableState {
     /// zero, which the page, filters and sort above put back where it was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record: Option<usize>,
+    /// The records followed from that row in the inspector, the one shown
+    /// last. Saved only with the row.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trail: Vec<TrailStep>,
     /// The text the rows were searched for.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub search: String,
@@ -533,6 +537,7 @@ pub fn table_of(
         hidden,
         widths,
         record,
+        trail: Vec::new(),
         search: String::new(),
     };
     (state != TableState::default()).then_some(state)
@@ -556,6 +561,17 @@ pub fn ask_saved_columns(filters: &mut TableFilters, saved: &[ColumnFilter], ask
 
 /// A table's state with what it was searched for: saved even when nothing
 /// else about the table is, since a search alone narrows it.
+/// Add the records followed from the saved row, if a row is saved.
+pub fn with_trail(state: Option<TableState>, trail: Option<&RecordTrail>) -> Option<TableState> {
+    match (state, trail) {
+        (Some(state), Some(trail)) if state.record.is_some() => Some(TableState {
+            trail: trail.0.clone(),
+            ..state
+        }),
+        (state, _) => state,
+    }
+}
+
 pub fn with_search(state: Option<TableState>, search: Option<&TableSearch>) -> Option<TableState> {
     match search.and_then(TableSearch::wanted) {
         Some(text) => Some(TableState {
@@ -646,6 +662,24 @@ mod tests {
                 kind: PropertyKind::Tree(tree()),
             },
         ])
+    }
+
+    #[test]
+    fn a_trail_is_saved_only_with_its_row() {
+        let trail = RecordTrail(vec![TrailStep {
+            link: "processes:8c3f".into(),
+            name: "Scan archive".into(),
+        }]);
+        let with_row = TableState {
+            record: Some(3),
+            ..Default::default()
+        };
+        let saved = with_trail(Some(with_row), Some(&trail)).unwrap();
+        assert_eq!(saved.trail, trail.0);
+        let json = serde_json::to_string(&saved).unwrap();
+        assert_eq!(serde_json::from_str::<TableState>(&json).unwrap(), saved);
+        let without = with_trail(Some(TableState::default()), Some(&trail)).unwrap();
+        assert!(without.trail.is_empty());
     }
 
     #[test]

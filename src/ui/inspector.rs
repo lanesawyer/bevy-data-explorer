@@ -18,6 +18,11 @@
 //! the records it links to — the processes a BKP Registry specimen went
 //! into, the data assets a process wrote — under what links them. Fields,
 //! Files and Related each export from their header (`record_export`).
+//!
+//! A linked record whatever produced the rows can read is followed from
+//! there: the inspector shows it in the row's place, its own fields and
+//! links, and a trail above leads back to the row. Pictures and files are
+//! the row's, so they are left behind with it.
 
 use bevy::clipboard::Clipboard;
 use bevy::prelude::*;
@@ -30,8 +35,8 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::{Boot, Stage};
 use crate::formats::discover::datasets_in;
 use crate::source::table::{
-    Record, RecordFiles, RecordImage, RecordImages, RecordImagesState, RelatedRecords,
-    SelectedRecord,
+    FollowedRecord, Record, RecordFiles, RecordImage, RecordImages, RecordImagesState, RecordTrail,
+    RelatedRecords, SelectedRecord, TrailStep,
 };
 use crate::source::{DataSource, SourceStatus};
 use crate::ui::record_export::{RecordExportMenu, spawn_record_export_menu};
@@ -152,6 +157,19 @@ pub struct CopyField {
 pub struct OpenFieldDataset {
     url: String,
 }
+
+/// A button showing a linked record in the inspector, at the end of the
+/// trail.
+#[derive(Component, Clone, Default)]
+pub struct FollowRecord {
+    link: String,
+    name: String,
+}
+
+/// A step of the trail above a followed record, going back to it: how many
+/// steps are kept, none going back to the row.
+#[derive(Component, Clone, Default)]
+pub struct TrailCrumb(usize);
 
 fn spawn_inspector(mut commands: Commands) {
     commands.spawn_scene(bsn! {
@@ -293,10 +311,11 @@ pub fn rebuild_record(
     inspector: Res<Inspector>,
     selected: SelectedSource,
     records: Query<&SelectedRecord>,
+    trails: Query<&RecordTrail>,
     mut lists: Query<(Entity, &mut Node), With<InspectorRecord>>,
     sections: Query<(&Accordion, &RecordSection)>,
     export_menus: Query<Entity, With<RecordExportMenu>>,
-    mut shown: Local<Option<Record>>,
+    mut shown: Local<Option<(Record, Vec<TrailStep>)>>,
 ) {
     let Ok((list, mut node)) = lists.single_mut() else {
         return;
@@ -305,10 +324,15 @@ pub fn rebuild_record(
         .get(&records)
         .and_then(|selected| selected.0.as_ref())
         .filter(|record| record.fields.is_some() && inspector.open);
-    if record == shown.as_ref() {
+    let trail = selected
+        .get(&trails)
+        .map(|trail| trail.0.clone())
+        .unwrap_or_default();
+    let now = record.map(|record| (record.clone(), trail.clone()));
+    if now == *shown {
         return;
     }
-    *shown = record.cloned();
+    *shown = now;
     // A section closed on one row stays closed on the next.
     let open = |part: RecordPart| {
         sections
@@ -330,26 +354,34 @@ pub fn rebuild_record(
     }
     let Some(record) = record else { return };
 
-    let heading = commands
-        .spawn_scene(text(format!("Row {}", record.row + 1), size::BODY))
-        .id();
+    let row = format!("Row {}", record.row + 1);
+    let heading = if trail.is_empty() {
+        commands.spawn_scene(text(row, size::BODY)).id()
+    } else {
+        spawn_trail(&mut commands, row, &trail)
+    };
     commands.entity(list).add_child(heading);
 
     // Pictures first: a record with any is usually worth opening for them.
     // Images, Files and Related are shown by `fill_record_images`,
     // `fill_record_files` and `fill_record_related` once whatever produced
-    // the rows says it has some.
+    // the rows says it has some, and a followed record's fields by
+    // `fill_followed_fields`.
+    let following = !trail.is_empty();
     for (part, title) in [
         (RecordPart::Images, "Images"),
         (RecordPart::Files, "Files"),
         (RecordPart::Related, "Related"),
         (RecordPart::Fields, "Fields"),
     ] {
+        if following && matches!(part, RecordPart::Images | RecordPart::Files) {
+            continue;
+        }
         let section = spawn_accordion(&mut commands, title, open(part), SectionLevel::Pane);
         commands.entity(section.section).insert(RecordSection(part));
         commands.entity(section.body).insert(RecordBody(part));
         spawn_record_export_menu(&mut commands, section.header, part);
-        if part == RecordPart::Fields {
+        if part == RecordPart::Fields && !following {
             for (name, value) in record.fields.iter().flatten() {
                 let field = spawn_field(&mut commands, name, value);
                 commands.entity(section.body).add_child(field);
@@ -357,6 +389,83 @@ pub fn rebuild_record(
         }
         commands.entity(list).add_child(section.section);
     }
+}
+
+/// The way back from a followed record: the row, then each record followed
+/// from it, every one but the last going back to itself when clicked.
+fn spawn_trail(commands: &mut Commands, row: String, trail: &[TrailStep]) -> Entity {
+    let names = std::iter::once(row).chain(trail.iter().map(|step| step.name.clone()));
+    let last = trail.len();
+    let mut crumbs = Vec::new();
+    for (kept, name) in names.enumerate() {
+        if kept > 0 {
+            crumbs.push(
+                commands
+                    .spawn_scene(text_dim("\u{203a}".to_string(), size::SMALL))
+                    .id(),
+            );
+        }
+        let crumb = if kept == last {
+            commands.spawn_scene(text(name, size::BODY)).id()
+        } else {
+            commands
+                .spawn_scene(bsn! {
+                    @FeathersButton {
+                        @variant: { ButtonVariant::Normal },
+                        @caption: { bsn_list![button_text(name)] }
+                    }
+                    BlocksFrameInput
+                    TrailCrumb({ kept })
+                })
+                .id()
+        };
+        crumbs.push(crumb);
+    }
+    commands
+        .spawn_scene(bsn! {
+            Node {
+                width: { Val::Percent(100.0) },
+                flex_wrap: { FlexWrap::Wrap },
+                align_items: { AlignItems::Center },
+                column_gap: { Val::Px(space::CONTROLS) },
+                row_gap: { Val::Px(space::STACKED) },
+            }
+        })
+        .add_children(&crumbs)
+        .id()
+}
+
+/// Fill the Fields section of a followed record as they arrive. A picked
+/// row's are in hand already, and built with the section.
+pub fn fill_followed_fields(
+    mut commands: Commands,
+    selected: SelectedSource,
+    followed: Query<(Ref<FollowedRecord>, &RecordTrail)>,
+    bodies: Query<(Entity, &RecordBody, Ref<RecordBody>)>,
+) {
+    let Some((body, fresh)) = body_of(&bodies, RecordPart::Fields) else {
+        return;
+    };
+    let Some((followed, trail)) = selected.get(&followed) else {
+        return;
+    };
+    if trail.0.is_empty() || !(fresh || followed.is_changed()) {
+        return;
+    }
+    commands.entity(body).despawn_children();
+    let note = match &*followed {
+        FollowedRecord::None | FollowedRecord::Fetching => "Fetching\u{2026}".to_string(),
+        FollowedRecord::Failed(e) => e.clone(),
+        FollowedRecord::Ready(fields) => {
+            for (name, value) in fields {
+                let field = spawn_field(&mut commands, name, value);
+                commands.entity(body).add_child(field);
+            }
+            return;
+        }
+    };
+    let note = commands.spawn_scene(text_dim(note, size::SMALL)).id();
+    commands.entity(body).add_child(note);
 }
 
 /// The body of `part` of the record on screen, and whether it was just built.
@@ -476,6 +585,25 @@ pub fn fill_record_related(
                 ),
                 None => spawn_field(&mut commands, &record.detail, &record.name),
             };
+            if let Some(link) = record.link {
+                let name = record.name;
+                let follow = commands
+                    .spawn_scene(bsn! {
+                        @FeathersButton {
+                            @variant: { ButtonVariant::Normal },
+                            @caption: { bsn_list![button_icon(Icon::ChevronRight), button_text("Show its links")] }
+                        }
+                        Node {
+                            align_self: { AlignSelf::Start },
+                            column_gap: { Val::Px(space::ICON_LABEL) },
+                            margin: { UiRect::top(Val::Px(space::STACKED)) },
+                        }
+                        BlocksFrameInput
+                        FollowRecord { link: { link }, name: { name } }
+                    })
+                    .id();
+                commands.entity(field).add_child(follow);
+            }
             commands.entity(body).add_child(field);
         }
         if more > 0 {
@@ -694,6 +822,39 @@ pub fn on_open_field_dataset(
     }
 }
 
+/// Show a linked record at the end of the selected frame's trail.
+pub fn on_follow_record(
+    activate: On<Activate>,
+    buttons: Query<&FollowRecord>,
+    selected: SelectedSource,
+    mut trails: Query<&mut RecordTrail>,
+) {
+    let Ok(button) = buttons.get(activate.entity) else {
+        return;
+    };
+    if let Some(mut trail) = selected.get_mut(&mut trails) {
+        trail.0.push(TrailStep {
+            link: button.link.clone(),
+            name: button.name.clone(),
+        });
+    }
+}
+
+/// Go back along the selected frame's trail to the step clicked.
+pub fn on_trail_crumb(
+    activate: On<Activate>,
+    crumbs: Query<&TrailCrumb>,
+    selected: SelectedSource,
+    mut trails: Query<&mut RecordTrail>,
+) {
+    let Ok(crumb) = crumbs.get(activate.entity) else {
+        return;
+    };
+    if let Some(mut trail) = selected.get_mut(&mut trails) {
+        trail.0.truncate(crumb.0);
+    }
+}
+
 /// The dock on the right, and the space it claims from the grid.
 pub struct InspectorPlugin;
 
@@ -703,6 +864,8 @@ impl Plugin for InspectorPlugin {
             .add_observer(close_inspector)
             .add_observer(on_open_field_dataset)
             .add_observer(on_copy_field)
+            .add_observer(on_follow_record)
+            .add_observer(on_trail_crumb)
             .add_systems(Update, open_on_request.in_set(Stage::DockInput))
             .add_systems(
                 Update,
@@ -716,6 +879,7 @@ impl Plugin for InspectorPlugin {
                     fill_record_images,
                     fill_record_files,
                     fill_record_related,
+                    fill_followed_fields,
                 )
                     .chain()
                     .in_set(Stage::Chrome),

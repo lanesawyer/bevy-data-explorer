@@ -4,29 +4,46 @@
 //!
 //! Asked for one record at a time, when it is picked. Asked with the page it
 //! would come for every row: one specimen alone was input to over a hundred
-//! processes.
+//! processes. A record followed from another along a [`RecordTrail`] is
+//! asked the same way, its own fields with it.
 
 use super::query::ask_related;
 use super::*;
-use crate::source::table::{RelatedGroup, RelatedRecord};
+use crate::source::table::{FollowedRecord, RecordTrail, RelatedGroup, RelatedRecord, TrailStep};
 
 use super::kinds::{Shape, read, time_of};
 
-/// Fetch what the record picked out links to, and hand it over when it
-/// lands.
+/// Fetch what the record shown links to — the one at the end of the trail,
+/// or the one picked out if nothing has been followed — and hand it over
+/// when it lands.
 pub(super) fn serve_related(
-    mut sources: Query<(&mut RecordPages, &SelectedRecord, &mut RelatedRecords)>,
+    mut sources: Query<(
+        &mut RecordPages,
+        &SelectedRecord,
+        &RecordTrail,
+        &mut RelatedRecords,
+        &mut FollowedRecord,
+    )>,
 ) {
-    for (mut pages, record, mut related) in &mut sources {
-        let wanted = id_of(record);
+    for (mut pages, record, trail, mut related, mut followed) in &mut sources {
+        let wanted = match trail.0.last() {
+            Some(step) => followed_of(step),
+            None => id_of(record).map(|id| (pages.kind, id)),
+        };
+        let following = !trail.0.is_empty();
         if wanted != pages.picked {
             related.set_if_neq(if wanted.is_some() {
                 RelatedRecords::Fetching
             } else {
                 RelatedRecords::None
             });
-            pages.linking = wanted.clone().map(|id| {
-                let (endpoint, kind) = (pages.endpoint.clone(), pages.kind);
+            followed.set_if_neq(match (following, &wanted) {
+                (false, _) => FollowedRecord::None,
+                (true, Some(_)) => FollowedRecord::Fetching,
+                (true, None) => FollowedRecord::Failed("Not a record this table can read.".into()),
+            });
+            pages.linking = wanted.clone().map(|(kind, id)| {
+                let endpoint = pages.endpoint.clone();
                 fetching(async move { ask_related(&endpoint, kind, &id).await })
             });
             pages.picked = wanted;
@@ -35,14 +52,44 @@ pub(super) fn serve_related(
             continue;
         };
         pages.linking = None;
-        *related = match answer {
-            Ok(node) => RelatedRecords::Ready(groups_of(pages.kind, &node)),
+        let Some((kind, _)) = pages.picked else {
+            continue;
+        };
+        match answer {
+            Ok(node) => {
+                *related = RelatedRecords::Ready(groups_of(kind, &node));
+                if following {
+                    *followed = FollowedRecord::Ready(fields_of(kind, &node));
+                }
+            }
             Err(e) => {
                 warn!("reading what a BKP Registry record links to: {e}");
-                RelatedRecords::Failed(e)
+                *related = RelatedRecords::Failed(e.clone());
+                if following {
+                    *followed = FollowedRecord::Failed(e);
+                }
             }
-        };
+        }
     }
+}
+
+/// What a linked record is followed by: the kind of record it is and its id.
+fn link_to(kind: Kind, id: &str) -> String {
+    format!("{}:{id}", kind.root())
+}
+
+fn followed_of(step: &TrailStep) -> Option<(Kind, String)> {
+    let (root, id) = step.link.split_once(':')?;
+    Some((Kind::from_root(root)?, id.to_string()))
+}
+
+/// A followed record's fields, headed as its table's columns are.
+fn fields_of(kind: Kind, node: &Value) -> Vec<(String, String)> {
+    let values = kind
+        .rows(std::slice::from_ref(node))
+        .pop()
+        .unwrap_or_default();
+    kind.headers().into_iter().zip(values).collect()
 }
 
 /// What a record links to, under what links it. A link it has none of is
@@ -97,6 +144,10 @@ fn process_of(node: &Value) -> RelatedRecord {
                 .unwrap_or_default(),
         ]),
         address: None,
+        link: node
+            .get("id")
+            .and_then(Value::as_str)
+            .map(|id| link_to(Kind::Processes, id)),
     }
 }
 
@@ -124,6 +175,10 @@ fn asset_of(node: &Value) -> Option<RelatedRecord> {
                 text(asset, "status"),
             ]),
             address: address.map(str::to_string),
+            link: asset
+                .get("id")
+                .and_then(Value::as_str)
+                .map(|id| link_to(Kind::DataAssets, id)),
         });
     }
     if let Some(specimen) = node.get("specimen").filter(|it| !it.is_null()) {
@@ -131,6 +186,10 @@ fn asset_of(node: &Value) -> Option<RelatedRecord> {
             name: text(specimen, "name"),
             detail: line(&["Specimen".into(), text(specimen, "specimenType.label")]),
             address: None,
+            link: specimen
+                .get("id")
+                .and_then(Value::as_str)
+                .map(|id| link_to(Kind::Specimens, id)),
         });
     }
     let subject = node.get("subject").filter(|it| !it.is_null())?;
@@ -138,6 +197,7 @@ fn asset_of(node: &Value) -> Option<RelatedRecord> {
         name: text(subject, "name"),
         detail: line(&["Subject".into(), text(subject, "species.name")]),
         address: None,
+        link: None,
     })
 }
 
@@ -170,6 +230,48 @@ mod tests {
         assert_eq!(
             output.address.as_deref(),
             Some("s3://aibs-archive-gda-historical/0378/0500389528-0011/")
+        );
+        assert!(groups[0].records[0].link.is_none(), "no id was sent");
+    }
+
+    #[test]
+    fn a_linked_record_is_followed_by_its_kind_and_id() {
+        let node: Value = serde_json::from_str(
+            r#"{"inputs": [{"specimen": {"id": "5e1f", "name": "C57BL6J-729537",
+                "specimenType": {"label": "brain specimen"}}, "dataAsset": null, "subject": null},
+              {"specimen": null, "dataAsset": null, "subject": {"name": "729537"}}],
+              "outputs": []}"#,
+        )
+        .unwrap();
+        let groups = groups_of(Kind::Processes, &node);
+        let [specimen, subject] = &groups[0].records[..] else {
+            panic!("{groups:?}");
+        };
+        let link = specimen.link.clone().unwrap();
+        assert_eq!(link, "specimens:5e1f");
+        let step = TrailStep {
+            link,
+            name: specimen.name.clone(),
+        };
+        assert_eq!(
+            followed_of(&step),
+            Some((Kind::Specimens, "5e1f".to_string()))
+        );
+        assert!(subject.link.is_none(), "subjects are not a table");
+    }
+
+    #[test]
+    fn a_followed_record_has_its_tables_columns() {
+        let node: Value = serde_json::from_str(
+            r#"{"id": "8c3f", "name": "Scan 1370064309 archive", "state": {"name": "SUCCESS"}}"#,
+        )
+        .unwrap();
+        let fields = fields_of(Kind::Processes, &node);
+        assert_eq!(fields.len(), Kind::Processes.headers().len());
+        assert!(
+            fields
+                .iter()
+                .any(|(_, value)| value == "Scan 1370064309 archive")
         );
     }
 

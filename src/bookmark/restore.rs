@@ -37,8 +37,8 @@ use crate::source::genes::{GeneSearch, ReadsGenes};
 use crate::source::properties::{CellColumns, CellProperties, ColorOverrides, PropertyState};
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::table::{
-    ColumnWidths, HiddenColumns, Record, SelectedRecord, SourceTable, TableFilters, TablePaging,
-    TablePartitions, TableSearch, TableSort,
+    ColumnWidths, HiddenColumns, Record, RecordTrail, SelectedRecord, SourceTable, TableFilters,
+    TablePaging, TablePartitions, TableSearch, TableSort,
 };
 use crate::source::volume::SourceVolume;
 use crate::source::{DataSource, SourceExtent, SourceUrl};
@@ -127,6 +127,7 @@ pub struct TableAccess {
     hidden: Option<&'static mut HiddenColumns>,
     widths: Option<&'static mut ColumnWidths>,
     record: Option<&'static mut SelectedRecord>,
+    trail: Option<&'static mut RecordTrail>,
     rows: Option<&'static SourceTable>,
 }
 
@@ -651,6 +652,9 @@ fn restore_table(
         if let (false, Some(rows)) = (reread, table.rows) {
             record.read(rows);
         }
+        if let Some(trail) = table.trail.as_mut() {
+            trail.set_if_neq(RecordTrail(saved.trail));
+        }
     }
     false
 }
@@ -1021,7 +1025,7 @@ mod tests {
     #[test]
     fn a_tables_page_waits_for_the_filters_it_was_saved_with() {
         use crate::bookmark::snapshot::{ColumnFilter, TableFilterState, TableState};
-        use crate::source::table::{SortKey, TableFilter, TableFilterValue};
+        use crate::source::table::{SortKey, TableFilter, TableFilterValue, TrailStep};
 
         let mut app = app();
         let source = source(&mut app, "Specimens", "https://store/specimens");
@@ -1033,6 +1037,7 @@ mod tests {
             HiddenColumns::default(),
             ColumnWidths::default(),
             SelectedRecord::default(),
+            RecordTrail::default(),
             PendingSettings {
                 state: SourceState {
                     table: Some(TableState {
@@ -1051,6 +1056,10 @@ mod tests {
                         hidden: vec!["Donor ID".into()],
                         widths: [("Donor ID".to_string(), 180.0)].into(),
                         record: Some(201),
+                        trail: vec![TrailStep {
+                            link: "processes:8c3f".into(),
+                            name: "Scan archive".into(),
+                        }],
                         search: "dementia".into(),
                     }),
                     ..default()
@@ -1116,6 +1125,10 @@ mod tests {
                 row: 201,
                 fields: None
             })
+        );
+        assert_eq!(
+            world.get::<RecordTrail>(source).unwrap().0[0].link,
+            "processes:8c3f"
         );
     }
 

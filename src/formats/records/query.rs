@@ -268,10 +268,12 @@ pub(super) async fn ask_values(
 
 /// What a picked record links to, by kind: the processes a specimen or data
 /// asset went into and came out of, and what a process took in and put out.
+/// Its own fields come too, which a record followed rather than picked from
+/// a row has no other way of arriving with.
 fn related_query(kind: Kind) -> String {
     const PROCESS: &str = "id name state createdAt schemaType { name }";
-    const ASSET: &str = "specimen { name specimenType { label } } \
-         dataAsset { name type status instances { downloadUrl } } \
+    const ASSET: &str = "specimen { id name specimenType { label } } \
+         dataAsset { id name type status instances { downloadUrl } } \
          subject { name species { name } }";
     let links = match kind {
         Kind::Specimens | Kind::DataAssets => {
@@ -281,8 +283,9 @@ fn related_query(kind: Kind) -> String {
     };
     format!(
         "query($id: UUID!) {{ r: {}(first: 1, where: {{ id: {{ eq: $id }} }}) \
-         {{ nodes {{ {links} }} }} }}",
-        kind.root()
+         {{ nodes {{ {} {links} }} }} }}",
+        kind.root(),
+        kind.selection()
     )
 }
 

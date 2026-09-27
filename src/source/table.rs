@@ -460,6 +460,38 @@ pub struct RelatedRecord {
     pub detail: String,
     /// Where it is stored, if it is something stored.
     pub address: Option<String>,
+    /// What to put in a [`RecordTrail`] to follow it, if whatever produced
+    /// the rows can read it. Nothing else reads it.
+    pub link: Option<String>,
+}
+
+/// One record followed from another in a [`RecordTrail`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrailStep {
+    /// The [`RelatedRecord::link`] it was followed by.
+    pub link: String,
+    pub name: String,
+}
+
+/// The records followed from the one picked out in [`SelectedRecord`], each
+/// linked to the one before it, the one shown last.
+///
+/// The inspector writes it as its links are followed, and picking a row
+/// empties it. While it holds any, whatever produced the rows answers
+/// [`FollowedRecord`] and [`RelatedRecords`] for the last of them rather than
+/// for the row.
+#[derive(Component, Debug, Clone, Default, PartialEq, Eq)]
+pub struct RecordTrail(pub Vec<TrailStep>);
+
+/// Every field of the record at the end of the [`RecordTrail`], as heading
+/// and value, as a picked row's are.
+#[derive(Component, Debug, Clone, Default, PartialEq, Eq)]
+pub enum FollowedRecord {
+    #[default]
+    None,
+    Fetching,
+    Failed(String),
+    Ready(Vec<(String, String)>),
 }
 
 /// Records linked to a picked one the same way, under what links them.

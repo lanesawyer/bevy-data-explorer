@@ -13,7 +13,9 @@ use bevy_ui_widgets::Activate;
 use crate::app::export::{Exports, Format, Table};
 use crate::bookmark::store::file_stem;
 use crate::source::DataSource;
-use crate::source::table::{Record, RecordFile, RecordFiles, RelatedRecords, SelectedRecord};
+use crate::source::table::{
+    FollowedRecord, Record, RecordFile, RecordFiles, RecordTrail, RelatedRecords, SelectedRecord,
+};
 use crate::ui::inspector::RecordPart;
 use crate::view::SelectedSource;
 use crate::widgets::{Menu, close_menu_holding, spawn_export_menu};
@@ -114,6 +116,7 @@ fn on_export_record(
         &SelectedRecord,
         Option<&RecordFiles>,
         Option<&RelatedRecords>,
+        Option<(&RecordTrail, &FollowedRecord)>,
     )>,
     parents: Query<&ChildOf>,
     mut menus: Query<&mut Menu>,
@@ -123,9 +126,25 @@ fn on_export_record(
         return;
     };
     close_menu_holding(activate.entity, &parents, &mut menus);
-    let Some((source, SelectedRecord(Some(record)), files, related)) = selected.get(&sources)
+    let Some((source, SelectedRecord(Some(record)), files, related, followed)) =
+        selected.get(&sources)
     else {
         return;
+    };
+    // A record followed from the row is exported in the row's place.
+    let followed = followed.and_then(|(trail, followed)| Some((trail.0.last()?, followed)));
+    let shown = match followed {
+        Some((_, FollowedRecord::Ready(fields))) => Record {
+            row: record.row,
+            fields: Some(fields.clone()),
+        },
+        Some(_) => return,
+        None => record.clone(),
+    };
+    let record = &shown;
+    let named = match followed {
+        Some((step, _)) => step.name.clone(),
+        None => format!("row-{}", record.row + 1),
     };
     let (columns, rows, what) = match button.part {
         RecordPart::Fields => {
@@ -153,7 +172,7 @@ fn on_export_record(
     exports.save(
         Table {
             title: "Export row".into(),
-            stem: format!("{}-row-{}-{what}", file_stem(&source.name), record.row + 1),
+            stem: format!("{}-{}-{what}", file_stem(&source.name), file_stem(&named)),
             columns,
             rows,
         },
@@ -204,6 +223,7 @@ mod tests {
                     name: format!("P{n}"),
                     detail: "process".into(),
                     address: None,
+                    link: None,
                 })
                 .collect(),
         }]);

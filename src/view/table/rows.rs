@@ -208,12 +208,13 @@ pub(super) fn spawn_row(
 }
 
 /// Pick out the record of a clicked row, or let it go if it was already
-/// picked out, and open the inspector on it.
+/// picked out, and open the inspector on it. Either way the links followed
+/// from the last one are left behind.
 pub fn on_row_clicked(
     click: On<Pointer<Click>>,
     rows: Query<&TableRow>,
     panels: Query<&ShowsSource>,
-    mut tables: Query<(&SourceTable, &mut SelectedRecord)>,
+    mut tables: Query<(&SourceTable, &mut SelectedRecord, Option<&mut RecordTrail>)>,
     mut requests: MessageWriter<PanelRequest>,
 ) {
     if click.button != PointerButton::Primary {
@@ -222,7 +223,7 @@ pub fn on_row_clicked(
     let Ok(row) = rows.get(click.entity) else {
         return;
     };
-    let Ok((table, mut selected)) = panels
+    let Ok((table, mut selected, trail)) = panels
         .get(row.panel)
         .and_then(|shows| tables.get_mut(shows.0))
     else {
@@ -230,6 +231,9 @@ pub fn on_row_clicked(
     };
     if row.row >= table.rows.len() {
         return;
+    }
+    if let Some(mut trail) = trail {
+        trail.set_if_neq(RecordTrail::default());
     }
     if selected.on_page(table) == Some(row.row) {
         selected.0 = None;
