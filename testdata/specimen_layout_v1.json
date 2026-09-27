@@ -43,7 +43,11 @@
       "referenceId": "75VJLLCLB2ADNQCABJD",
       "title": "T type assignment probability"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0.11,
+      "max": 1
+     }
     },
     {
      "type": "ANNOTATION",
@@ -204,7 +208,11 @@
       "referenceId": "TRAY5GUMIQGWLLWNOFM",
       "title": "Basal Dendrite Stem Exit Side Less"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0,
+      "max": 0.5
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -215,7 +223,11 @@
       "referenceId": "PKLGAMO650WTH8B5ZTY",
       "title": "Basal Dendrite Max Euclidean Distance"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 0.09772028494,
+      "max": 0.4872788828
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -226,7 +238,11 @@
       "referenceId": "QAQATC2MKCZDE3O4D92",
       "title": "Basal Dendrite Soma Percentile X"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0.017415215,
+      "max": 0.5
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -237,7 +253,11 @@
       "referenceId": "BGGKTIGKEI8TZPD8YOQ",
       "title": "Threshold I (ramp)"
      },
-     "unit": "picoamps"
+     "unit": "picoamps",
+     "measurementStats": {
+      "min": 5.23369561848433,
+      "max": 800
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -248,7 +268,11 @@
       "referenceId": "S164NPG73EDCPQJOA0J",
       "title": "Basal Dendrite Num Stems"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 2,
+      "max": 11
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -259,7 +283,11 @@
       "referenceId": "USLXG2VSLFRA0EF88RZ",
       "title": "Axon Total Length"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 1.620894178,
+      "max": 43.68271618
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -270,7 +298,11 @@
       "referenceId": "9L48N24G6RGHGG293EK",
       "title": "Trough V (ramp)"
      },
-     "unit": "millivolts"
+     "unit": "millivolts",
+     "measurementStats": {
+      "min": -93.8750076293945,
+      "max": -1.8049999475479126
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -281,7 +313,11 @@
       "referenceId": "LDWYESIQR9BRDVPM98B",
       "title": "Axon Max Path Distance"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 0.3860356477,
+      "max": 2.740023588
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -292,7 +328,11 @@
       "referenceId": "1S18HVF0LW0QT6FVEFH",
       "title": "Axon Extent Y"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 0.05792230807,
+      "max": 1.020017153
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -303,7 +343,11 @@
       "referenceId": "BXV02W5IUEKTCKHGRD9",
       "title": "Basal Dendrite Extent Y"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 0.07943286714,
+      "max": 0.7365957571
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -314,7 +358,11 @@
       "referenceId": "M31TXIW57MEBAQ2MNNE",
       "title": "Basal Dendrite Extent X"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 0.09100817821,
+      "max": 0.6513978785
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -325,7 +373,11 @@
       "referenceId": "OQ9X90HL9A2PI9LK2P9",
       "title": "Axon Emd With Basal Dendrite"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0.309777471,
+      "max": 75.2865603
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -336,7 +388,11 @@
       "referenceId": "L2QTMWVZ3X3XVXJ14C1",
       "title": "Normalized Soma Depth"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0.030742171,
+      "max": 0.981326943
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -347,7 +403,11 @@
       "referenceId": "A8P0YS10T486DLPHPY5",
       "title": "Axon Bias X"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 0.00015571349,
+      "max": 0.3820508185
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -358,7 +418,11 @@
       "referenceId": "7YV3BLJ043T38XJAOCP",
       "title": "Upstroke/downstroke ratio (short square)"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": -39.430675731578,
+      "max": 11.3139597580317
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -369,7 +433,11 @@
       "referenceId": "WJ1RAF9E4H59B1BS5IG",
       "title": "Axon Max Euclidean Distance"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 0.1934415013,
+      "max": 0.8197590190999999
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -380,7 +448,11 @@
       "referenceId": "FFRNPLYOVHCQYU8KMV6",
       "title": "Axon Hist Pc 1"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": -1579.206094,
+      "max": 3502.386535
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -391,7 +463,11 @@
       "referenceId": "J1560ZGO3M7FHRAFL8M",
       "title": "Fast trough V (short square)"
      },
-     "unit": "millivolts"
+     "unit": "millivolts",
+     "measurementStats": {
+      "min": -81.46250457763672,
+      "max": -15.756250063578287
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -402,7 +478,11 @@
       "referenceId": "T2H3YBHD63OQ3J29UBW",
       "title": "Axon Hist Pc 3"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": -1258.955269,
+      "max": 1980.901964
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -413,7 +493,11 @@
       "referenceId": "06F9LSRDCL0YTXCN4VV",
       "title": "sag"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": -0.071273155510426,
+      "max": 1.8838198184967
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -424,7 +508,11 @@
       "referenceId": "GKKINVON58QW992W922",
       "title": "F I curve slope"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": -0.13170731707317107,
+      "max": 2.829787234042552
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -435,7 +523,11 @@
       "referenceId": "5EFQR8YZS0WEC3HQDSW",
       "title": "Fast trough V (long square)"
      },
-     "unit": "millivolts"
+     "unit": "millivolts",
+     "measurementStats": {
+      "min": -81.2500076293945,
+      "max": -7.475000381469727
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -446,7 +538,11 @@
       "referenceId": "HAPC6M23LKTG64FVNH5",
       "title": "Threshold V (long square)"
      },
-     "unit": "millivolts"
+     "unit": "millivolts",
+     "measurementStats": {
+      "min": -71.76250457763672,
+      "max": -3.63124990463257
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -457,7 +553,11 @@
       "referenceId": "3HKNC3S0YDHI7I8JB6K",
       "title": "Axon Contraction"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0.66832289,
+      "max": 0.915980016
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -468,7 +568,11 @@
       "referenceId": "8VZD4CQ0REDXJLP9PYG",
       "title": "Latency"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 7.999999999996898e-05,
+      "max": 0.93988
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -479,7 +583,11 @@
       "referenceId": "HV0CR2QJQ6JURKYIEQD",
       "title": "Basal Dendrite Pct Above Axon"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0,
+      "max": 0.644421803
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -490,7 +598,11 @@
       "referenceId": "38BWIC7VFL7UMW4U6AO",
       "title": "Basal Dendrite Num Branches"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 16,
+      "max": 148
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -501,7 +613,11 @@
       "referenceId": "VIQRZS881SUUW8S7M63",
       "title": "Basal Dendrite Pct Intersect Axon"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0.22621981300000002,
+      "max": 1
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -512,7 +628,11 @@
       "referenceId": "49MVTY71JAI81PNEQL1",
       "title": "Axon Hist Pc 2"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": -1462.795036,
+      "max": 2148.73092
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -523,7 +643,11 @@
       "referenceId": "RB1A4Z2SN1ASSV6PWKF",
       "title": "Axon Soma Percentile X"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0.017833727,
+      "max": 0.49890411
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -534,7 +658,11 @@
       "referenceId": "W8VLIJMNG4YET3570M6",
       "title": "Basal Dendrite Total Length"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 0.9397632307,
+      "max": 7.378411592000001
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -545,7 +673,11 @@
       "referenceId": "QPEB8WE5FQ90TM4HM0U",
       "title": "Vrest"
      },
-     "unit": "millivolts"
+     "unit": "millivolts",
+     "measurementStats": {
+      "min": -94.0647350110506,
+      "max": -34.38698697090149
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -556,7 +688,11 @@
       "referenceId": "IL56AT3Z5JMEOFBIS5H",
       "title": "Basal Dendrite Stem Exit Side More"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0,
+      "max": 0.75
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -567,7 +703,11 @@
       "referenceId": "JMG5LF4598XS28U2CHU",
       "title": "Basal Dendrite Bias X"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 4.095634e-05,
+      "max": 0.2160141052
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -578,7 +718,11 @@
       "referenceId": "4YFQ13LAVXAEJRHTKPR",
       "title": "Basal Dendrite Stem Exit Down"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0,
+      "max": 0.8
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -589,7 +733,11 @@
       "referenceId": "KR90JPU3JYAZDMNEZNP",
       "title": "Trough V (long square)"
      },
-     "unit": "millivolts"
+     "unit": "millivolts",
+     "measurementStats": {
+      "min": -81.4375076293945,
+      "max": -7.481249809265137
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -600,7 +748,11 @@
       "referenceId": "F4LIXPBY755WGX2ZGZW",
       "title": "Basal Dendrite Soma Percentile Y"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0,
+      "max": 0.985089463
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -611,7 +763,11 @@
       "referenceId": "PZ9HP51QZD6GWRRH8LQ",
       "title": "tau"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 3.62222034098878,
+      "max": 179.050113855581
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -622,7 +778,11 @@
       "referenceId": "RQPAJIFBIFKE7FN16C7",
       "title": "Avg ISI"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 3.9600000000000746,
+      "max": 968.9000000000001
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -633,7 +793,11 @@
       "referenceId": "5ZQPCPLGYMLSXJ0E415",
       "title": "Axon Soma Theta"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0.023110776,
+      "max": 0.972370315
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -644,7 +808,11 @@
       "referenceId": "WRQBFYSCRVYLARY4S2K",
       "title": "Upstroke/downstroke ratio (ramp)"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0.060167986714693,
+      "max": 15.118689183249
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -655,7 +823,11 @@
       "referenceId": "LSKZTBV9MNLDSE6ZIZ2",
       "title": "T type class assignment probability"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0.28,
+      "max": 1
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -666,7 +838,11 @@
       "referenceId": "7Q6J6202HOZQ87WX1SL",
       "title": "Axon Max Branch Order"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 9,
+      "max": 70
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -677,7 +853,11 @@
       "referenceId": "0ABSXVPW1BEB2KS22FL",
       "title": "Threshold I (short square)"
      },
-     "unit": "picoamps"
+     "unit": "picoamps",
+     "measurementStats": {
+      "min": 59.9999961853027,
+      "max": 1800
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -688,7 +868,11 @@
       "referenceId": "U7AYVL7CGT1XEXVKHIR",
       "title": "Fast trough V (ramp)"
      },
-     "unit": "millivolts"
+     "unit": "millivolts",
+     "measurementStats": {
+      "min": -79.40625,
+      "max": -1.7024999856948853
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -699,7 +883,11 @@
       "referenceId": "VXESECLRV55HBS8KVXU",
       "title": "Threshold V (short square)"
      },
-     "unit": "millivolts"
+     "unit": "millivolts",
+     "measurementStats": {
+      "min": -72.8705368041992,
+      "max": 0.399999952316284
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -710,7 +898,11 @@
       "referenceId": "X96LT5NTJT8T7WNRJXJ",
       "title": "Basal Dendrite Contraction"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0.707842004,
+      "max": 0.930310498
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -721,7 +913,11 @@
       "referenceId": "EEGOEZXISS1CK2QZ2KT",
       "title": "Basal Dendrite Max Path Distance"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 0.1134793925,
+      "max": 0.5902532157
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -732,7 +928,11 @@
       "referenceId": "2XU2F56ZUMEW4L872MC",
       "title": "Adaptation"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": -0.8577661431064556,
+      "max": 0.966486414313372
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -743,7 +943,11 @@
       "referenceId": "6PVJVFZVDZOCUEDDIG8",
       "title": "Basal Dendrite Pct Below Axon"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0,
+      "max": 0.7737801870000001
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -754,7 +958,11 @@
       "referenceId": "Z0MENI1F2VMRIJJBHO0",
       "title": "Axon Pct Above Basal Dendrite"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0,
+      "max": 0.900773579
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -765,7 +973,11 @@
       "referenceId": "OUGMRVARPNS9LDY5LEV",
       "title": "Axon Pct Below Basal Dendrite"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0,
+      "max": 0.896399706
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -776,7 +988,11 @@
       "referenceId": "YEZFRFDSTJMZIAH374F",
       "title": "Trough V (short square)"
      },
-     "unit": "millivolts"
+     "unit": "millivolts",
+     "measurementStats": {
+      "min": -94.7544664655413,
+      "max": -4.53125
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -787,7 +1003,11 @@
       "referenceId": "MIPTC29P10PXO9JYWE6",
       "title": "Peak V (ramp)"
      },
-     "unit": "millivolts"
+     "unit": "millivolts",
+     "measurementStats": {
+      "min": -62.0312538146973,
+      "max": 73.6770858764649
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -798,7 +1018,11 @@
       "referenceId": "0RQ869FUH7QBFEWAV34",
       "title": "Basal Dendrite Max Branch Order"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 3,
+      "max": 13
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -809,7 +1033,11 @@
       "referenceId": "ZFAF22EYW8XDX20OQFS",
       "title": "Age"
      },
-     "unit": "postnatal days"
+     "unit": "postnatal days",
+     "measurementStats": {
+      "min": 34,
+      "max": 159
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -820,7 +1048,11 @@
       "referenceId": "8GBDPSDHW03B529XF7P",
       "title": "Basal Dendrite Bias Y"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 0.000326176154,
+      "max": 0.3535867557
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -831,7 +1063,11 @@
       "referenceId": "OVEG6JKO3QJ6I9J6XEV",
       "title": "Axon Bias Y"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 0.001000104182,
+      "max": 0.6430700003
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -842,7 +1078,11 @@
       "referenceId": "LLLJJB2PEO44DLDZVSE",
       "title": "Upstroke/downstroke ratio (long square)"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0.850834509434775,
+      "max": 32.00550388450097
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -853,7 +1093,11 @@
       "referenceId": "G5WH8CC4BUFAVPLJ0BA",
       "title": "Axon Soma Percentile Y"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0,
+      "max": 1
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -864,7 +1108,11 @@
       "referenceId": "IWBB2PQPTVT86DH3Y1R",
       "title": "Axon Hist Pc 4"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": -729.1325737000001,
+      "max": 2749.410776
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -875,7 +1123,11 @@
       "referenceId": "MMLCP578RP2BXVYDUYV",
       "title": "Threshold I (long square)"
      },
-     "unit": "picoamps"
+     "unit": "picoamps",
+     "measurementStats": {
+      "min": 10,
+      "max": 640
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -886,7 +1138,11 @@
       "referenceId": "2I620MTF094AQ1SUSUK",
       "title": "Axon Soma Distance"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 0,
+      "max": 0.1419137458
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -897,7 +1153,11 @@
       "referenceId": "BCK1HFI1PSUFR3YS051",
       "title": "Peak V (short square)"
      },
-     "unit": "millivolts"
+     "unit": "millivolts",
+     "measurementStats": {
+      "min": -29.8312511444092,
+      "max": 71.9041748046875
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -908,7 +1168,11 @@
       "referenceId": "ZWEP5N79MHW6GF6QYYE",
       "title": "Axon Extent X"
      },
-     "unit": "millimeters"
+     "unit": "millimeters",
+     "measurementStats": {
+      "min": 0.12181219119999999,
+      "max": 1.13283525
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -919,7 +1183,11 @@
       "referenceId": "A7R6J5S2F2H9GP4HDY5",
       "title": "Axon Num Branches"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 35,
+      "max": 941
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -930,7 +1198,11 @@
       "referenceId": "64KKAZBF8DZY8YTPR70",
       "title": "Threshold V (ramp)"
      },
-     "unit": "millivolts"
+     "unit": "millivolts",
+     "measurementStats": {
+      "min": -77.6000061035156,
+      "max": 4.25000047683716
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -941,7 +1213,11 @@
       "referenceId": "DOBUV8K3DGYRN7D0P4Q",
       "title": "Axon Pct Intersect Basal Dendrite"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0.099226421,
+      "max": 1
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -952,7 +1228,11 @@
       "referenceId": "WYPRPYLXYUFVPKR4F98",
       "title": "T type sub-class assignment probability"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0.25,
+      "max": 1
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -963,7 +1243,11 @@
       "referenceId": "XOUL8PZCE7JFMF44TOB",
       "title": "Peak V (long square)"
      },
-     "unit": "millivolts"
+     "unit": "millivolts",
+     "measurementStats": {
+      "min": -29.687501907348633,
+      "max": 71.3499984741211
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -974,7 +1258,11 @@
       "referenceId": "7F0EE6DBTBSWQ9QCWVB",
       "title": "Basal Dendrite Stem Exit Up"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": 0,
+      "max": 1
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -985,7 +1273,11 @@
       "referenceId": "QLWFL8PC8P68W0UPI5C",
       "title": "Axon Hist Pc 0"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": {
+      "min": -2197.870067,
+      "max": 2572.170623
+     }
     },
     {
      "type": "MEASUREMENT",
@@ -996,7 +1288,8 @@
       "referenceId": "T6ZYKZ66D4RI05D0Y6E",
       "title": "Electrophysiology available"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": null
     },
     {
      "type": "MEASUREMENT",
@@ -1007,7 +1300,8 @@
       "referenceId": "XSQ4LSXV3XWSU1KJQ81",
       "title": "Fluorescent protein positive"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": null
     },
     {
      "type": "MEASUREMENT",
@@ -1018,7 +1312,8 @@
       "referenceId": "D30VASWM7U8E2RTCYVH",
       "title": "Brain hemisphere"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": null
     },
     {
      "type": "MEASUREMENT",
@@ -1029,7 +1324,8 @@
       "referenceId": "I41W68AOGANL535GKMU",
       "title": "M/E/T available"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": null
     },
     {
      "type": "MEASUREMENT",
@@ -1040,7 +1336,8 @@
       "referenceId": "FJ9JC9OH2JFIVGJBQQO",
       "title": "Transcriptomics available"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": null
     },
     {
      "type": "MEASUREMENT",
@@ -1051,7 +1348,8 @@
       "referenceId": "O95N6FNAK13WZWEIU5N",
       "title": "Sex"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": null
     },
     {
      "type": "MEASUREMENT",
@@ -1062,7 +1360,8 @@
       "referenceId": "4D4RGMXTPBL0YAY5UGJ",
       "title": "Morphology available"
      },
-     "unit": ""
+     "unit": "",
+     "measurementStats": null
     }
    ]
   },

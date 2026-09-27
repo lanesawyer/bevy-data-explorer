@@ -110,14 +110,14 @@ pub(super) async fn ask_recount(
 
     for column in spans {
         let edges = column.edges.unwrap_or_default();
-        let cumulative = ask_cumulative(
+        let histogram = ask_histogram(
             endpoint,
             specimen_filters(scope, &column.terms),
             &column.id,
             &edges,
         )
         .await?;
-        recounted.push(Recounted::Span(column.id, buckets_of(&cumulative)));
+        recounted.push(Recounted::Span(column.id, histogram));
     }
     Ok(recounted)
 }

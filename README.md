@@ -983,21 +983,30 @@ column of numbers is narrowed by taking a span of it rather than by ticking
 every reading anyone took, drawn with the same histogram and two-ended control
 the cell properties use.
 
-A span is asked for when its column is opened, not when the table is. The
-extent is not asked for first — `measurementStats` does come back on a
-project's display properties, but the viewer does not read it yet — so a
-distribution is a cumulative count at each of twenty-odd
-bucket edges, one index query apiece at about 0.14s. Asking for every numeric
-column of the SEA-AD donors up front would be a minute of waiting for
-histograms nobody looked at.
+A span is asked for when its column is opened, not when the table is, and its
+extent is never guessed. The platform's layout gives each measurement's
+`measurementStats`, its smallest and largest value, which matched the true ends
+(found by sorting the column) on every column checked; a column without them —
+a project the platform does not lay out — has its ends asked for by sorting it
+each way and taking the first value. The histogram is twenty buckets across
+that extent, a cumulative count at each edge, one index query apiece at about
+0.14s, and the span stays on the extent however other filters narrow the
+histogram inside it.
 
-The edges are built around the numbers already on the page and widened by half
-their span at each end, since a hundred rows of ten thousand will not hold
-either end; the outermost buckets that hold anything are then the extent, so a
-column asked about far wider than it runs is still drawn across what it has.
-Two things its range parser will not take: scientific notation — `-1e12` comes
-back *"Invalid range format"* — and, as ever, a page it has decided is too far
-in.
+Two things the platform does at the ends, measured on the SEA-AD donors:
+
+- **A range count leaves its high end out.** Counting age at death from 65 to
+  102 gives 83 of 84 donors, and years of education from 12 to 21 gives 74:
+  every row at the maximum is dropped. So nothing is asked below the first
+  edge, and the last bucket is counted up to a ceiling above everything.
+- **A `BETWEEN` filter keeps both ends.** `[65,102]` admits all 84. The ends
+  of a span are still not written as the data's own ends: an `f32` can fall
+  just short of the true maximum (0.4872788828 becomes 0.48727888), which
+  would drop the rows there. An end left at the data's end is written as no
+  end at all.
+
+Its range parser will not take scientific notation — `-1e12` comes back
+*"Invalid range format"* — so the floor and ceiling are written out in full.
 
 Some projects hold more than one kind of specimen, and each kind has columns of
 its own: the BICAN Rapid Release Inventory holds 3,204 library aliquots, with a

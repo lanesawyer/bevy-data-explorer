@@ -4,7 +4,7 @@
 use super::*;
 
 /// One feature a specimen can carry, and so one column.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct Feature {
     /// What the platform calls it, which is what a filter narrows by. Empty
     /// when the platform gave none, and then it cannot be asked for.
@@ -24,6 +24,8 @@ pub(super) struct Feature {
     /// Whether the platform narrows by it as a span of numbers rather than by
     /// values, if it says.
     pub(super) spanned: Option<bool>,
+    /// Its smallest and largest value, if the platform says.
+    pub(super) extent: Option<(f64, f64)>,
 }
 
 impl Feature {
@@ -64,7 +66,7 @@ impl Feature {
 /// identifies a specimen first, then annotations by name, then measurements
 /// by name. The platform's own order of a specimen's features is not stable
 /// between requests.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct Plan {
     pub(super) features: Vec<Feature>,
     /// Laid out by the platform, so what a page adds goes on the end rather
@@ -164,6 +166,7 @@ impl Plan {
                     measured,
                     hidden: false,
                     spanned: None,
+                    extent: None,
                 });
             }
         }
@@ -180,6 +183,15 @@ impl Plan {
             self.features.sort_by(by_name);
         }
         true
+    }
+
+    /// The smallest and largest value of the feature with this id, if the
+    /// platform said.
+    pub(super) fn extent(&self, id: &str) -> Option<(f64, f64)> {
+        self.features
+            .iter()
+            .find(|feature| feature.id == id)
+            .and_then(|feature| feature.extent)
     }
 
     /// Every feature that could be narrowed by: those the platform named.
@@ -415,6 +427,7 @@ mod tests {
             measured: unit.is_some(),
             hidden: false,
             spanned: None,
+            extent: None,
         };
         let plan = Plan::laid_out(vec![
             feature("MM1MMES48T9H7ZX6E3Y", "Cognitive status", None),

@@ -8,7 +8,7 @@ use super::*;
 
 /// One table as the platform lays it out: its columns, and the order its rows
 /// open in.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Layout {
     pub(super) plan: Plan,
     pub(super) sort: Vec<SortKey>,
@@ -76,6 +76,10 @@ fn layout_of(mut features: Vec<DisplayFeature>, sort: Option<&str>, one_kind: bo
                         .filter_operator
                         .as_deref()
                         .map(|operator| operator == "BETWEEN"),
+                    extent: feature
+                        .measurement_stats
+                        .and_then(|stats| stats.min.zip(stats.max))
+                        .filter(|(min, max)| min <= max),
                 })
             })
             .collect(),
@@ -302,10 +306,17 @@ mod tests {
             .position(|it| it == "Number of Expected Cells")
             .unwrap();
         assert!(cells < aliquot.len() - 1);
-        // And is narrowed by as a span, as the portal narrows by it.
-        assert!(kinds[0].1.columns().iter().any(|it| {
-            it.title == "Number of Expected Cells" && it.measured && it.spanned == Some(true)
-        }));
+        // And is narrowed by as a span, as the portal narrows by it, across
+        // the extent the platform gives rather than one guessed from a page.
+        let cells = kinds[0]
+            .1
+            .columns()
+            .into_iter()
+            .find(|it| it.title == "Number of Expected Cells")
+            .unwrap();
+        assert!(cells.measured && cells.spanned == Some(true));
+        assert_eq!(cells.extent, Some((384.0, 40000.0)));
+        assert_eq!(kinds[0].1.extent(&cells.id), Some((384.0, 40000.0)));
     }
 
     #[test]

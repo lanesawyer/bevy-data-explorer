@@ -208,6 +208,7 @@ mod tests {
             measured,
             hidden: false,
             spanned,
+            extent: None,
         };
         Plan::laid_out(vec![
             feature("diagnosis", false, Some(false)),

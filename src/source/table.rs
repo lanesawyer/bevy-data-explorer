@@ -450,7 +450,9 @@ pub enum TableFilterTerm {
     /// The column holds this value. Several terms on one column widen: any of
     /// them will do.
     Is { field: String, value: String },
-    /// The column's number falls between these, inclusive.
+    /// The column's number falls between these, inclusive. An end left where
+    /// the data ends is infinite: no end at all, rather than the data's own
+    /// end written as a nearby `f32` that could fall just short of it.
     Between { field: String, low: f32, high: f32 },
 }
 
@@ -524,8 +526,16 @@ impl TableFilters {
                     .filter(|span| span.restricts())
                     .map(|span| TableFilterTerm::Between {
                         field: column.id.clone(),
-                        low: span.from,
-                        high: span.to,
+                        low: if span.from <= span.low {
+                            f32::NEG_INFINITY
+                        } else {
+                            span.from
+                        },
+                        high: if span.to >= span.high {
+                            f32::INFINITY
+                        } else {
+                            span.to
+                        },
                     })
                     .into_iter()
                     .collect::<Vec<_>>(),
@@ -692,7 +702,8 @@ mod tests {
             [TableFilterTerm::Between {
                 field: "C".into(),
                 low: 80.0,
-                high: 100.0
+                // Left at the data's own end, so no end at all.
+                high: f32::INFINITY
             }]
         );
 

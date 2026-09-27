@@ -209,6 +209,14 @@ pub(super) fn specimen_filters(scope: &Scope, terms: &[TableFilterTerm]) -> Valu
         }
         // The platform takes a span as one string holding both ends.
         TableFilterTerm::Between { field, low, high } => {
+            let end = |end: f32, open: &str| {
+                if end.is_finite() {
+                    end.to_string()
+                } else {
+                    open.to_string()
+                }
+            };
+            let (low, high) = (end(*low, FLOOR), end(*high, CEILING));
             json!({ "field": field, "operator": "BETWEEN", "value": format!("[{low},{high}]") })
         }
     }));
@@ -252,7 +260,7 @@ fragment Shown on FeatureDisplayProperty {
   isDefault
   filterOperator
   featureType { referenceId title }
-  ... on MeasurementDisplayProperty { unit }
+  ... on MeasurementDisplayProperty { unit measurementStats { min max } }
 }";
 
 #[derive(Deserialize)]
@@ -302,9 +310,18 @@ pub(super) struct DisplayFeature {
     /// or `CONTAINS` for values.
     #[serde(default)]
     pub(super) filter_operator: Option<String>,
+    /// A measurement's smallest and largest value across the project.
+    #[serde(default)]
+    pub(super) measurement_stats: Option<Stats>,
     pub(super) feature_type: Titled,
     #[serde(default)]
     pub(super) unit: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct Stats {
+    pub(super) min: Option<f64>,
+    pub(super) max: Option<f64>,
 }
 
 /// Ask how the platform lays a project's specimens out.
@@ -319,6 +336,32 @@ pub(super) async fn ask_layout(endpoint: &str, project: &str) -> Result<LayoutDa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_span_left_at_the_datas_end_is_written_as_no_end() {
+        let term = |low: f32, high: f32| TableFilterTerm::Between {
+            field: "age".into(),
+            low,
+            high,
+        };
+        let written = |term: TableFilterTerm| {
+            specimen_filters(&Scope::project("P"), &[term])[1]["value"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(written(term(70.0, 90.5)), "[70,90.5]");
+        // Never an f32 standing in for the data's own end, which could fall
+        // just short of it and lose the rows there.
+        assert_eq!(
+            written(term(70.0, f32::INFINITY)),
+            format!("[70,{CEILING}]")
+        );
+        assert_eq!(
+            written(term(f32::NEG_INFINITY, 90.5)),
+            format!("[{FLOOR},90.5]")
+        );
+    }
 
     #[test]
     fn a_list_the_platform_writes_as_null_reads_as_an_empty_one() {

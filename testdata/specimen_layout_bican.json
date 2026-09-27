@@ -126,7 +126,11 @@
        "referenceId": "X8H1WGYZ1NPLBO8RREF",
        "title": "Number of Expected Cells"
       },
-      "unit": null
+      "unit": null,
+      "measurementStats": {
+       "min": 384,
+       "max": 40000
+      }
      },
      {
       "type": "ANNOTATION",
