@@ -101,6 +101,10 @@ pub struct TableState {
     /// The columns dragged to a width of their own, by heading.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub widths: BTreeMap<String, f32>,
+    /// The row picked out, by its place in the whole table counted from
+    /// zero, which the page, filters and sort above put back where it was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -468,8 +472,12 @@ pub fn apply_cells(properties: &mut CellProperties, saved: &CellsState) -> Vec<S
     missing
 }
 
-/// A table's page, filters, sort, hidden columns and widths, or nothing if it
-/// is on its first page with none of the rest.
+/// A table's page, filters, sort, hidden columns, widths and picked row, or
+/// nothing if it is on its first page with none of the rest.
+///
+/// The row is saved only while it is on the page still holding it: one the
+/// rows have been sorted or narrowed away from since, or paged away from, has
+/// no place the rest of the state would put it back at.
 ///
 /// Filters still on their way have nothing chosen against them, so a table
 /// saved then is saved without them.
@@ -480,6 +488,7 @@ pub fn table_of(
     sort: Option<&TableSort>,
     hidden: Option<&HiddenColumns>,
     widths: Option<&ColumnWidths>,
+    record: Option<usize>,
 ) -> Option<TableState> {
     let filters: Vec<ColumnFilter> = filters
         .map(|filters| {
@@ -520,6 +529,7 @@ pub fn table_of(
         sort,
         hidden,
         widths,
+        record,
     };
     (state != TableState::default()).then_some(state)
 }
@@ -832,7 +842,7 @@ mod tests {
             size: 100,
             total: Some(1000),
         };
-        let saved = table_of(&paging, None, Some(&edited), None, None, None).unwrap();
+        let saved = table_of(&paging, None, Some(&edited), None, None, None, None).unwrap();
         assert_eq!(saved.page, 3);
 
         let mut restored = table_filters();
@@ -849,7 +859,7 @@ mod tests {
             partitions: Vec::new(),
             chosen: "donor".into(),
         };
-        let saved = table_of(&paging, Some(&partitions), None, None, None, None).unwrap();
+        let saved = table_of(&paging, Some(&partitions), None, None, None, None, None).unwrap();
         assert_eq!(saved.partition.as_deref(), Some("donor"));
 
         let text = serde_json::to_string(&saved).unwrap();
@@ -863,7 +873,7 @@ mod tests {
     fn a_tables_column_widths_are_saved_on_their_own() {
         let paging = TablePaging::new(100, Some(1000));
         let widths = ColumnWidths([("Donor ID".to_string(), 180.0)].into());
-        let saved = table_of(&paging, None, None, None, None, Some(&widths)).unwrap();
+        let saved = table_of(&paging, None, None, None, None, Some(&widths), None).unwrap();
         assert_eq!(saved.widths, widths.0);
 
         let text = serde_json::to_string(&saved).unwrap();
@@ -875,7 +885,8 @@ mod tests {
                 None,
                 None,
                 None,
-                Some(&ColumnWidths::default())
+                Some(&ColumnWidths::default()),
+                None
             ),
             None
         );
@@ -887,7 +898,7 @@ mod tests {
         let mut sort = TableSort::default();
         sort.press("Age", false);
         let hidden = HiddenColumns(["Donor ID".to_string()].into());
-        let saved = table_of(&paging, None, None, Some(&sort), Some(&hidden), None).unwrap();
+        let saved = table_of(&paging, None, None, Some(&sort), Some(&hidden), None, None).unwrap();
         assert_eq!(saved.sort, sort.0);
         assert_eq!(saved.hidden, ["Donor ID"]);
 
@@ -896,13 +907,33 @@ mod tests {
     }
 
     #[test]
+    fn a_tables_picked_row_is_saved_on_its_own() {
+        let paging = TablePaging::new(100, Some(1000));
+        let saved = table_of(&paging, None, None, None, None, None, Some(42)).unwrap();
+        assert_eq!(saved.record, Some(42));
+
+        let text = serde_json::to_string(&saved).unwrap();
+        assert_eq!(serde_json::from_str::<TableState>(&text).unwrap(), saved);
+        let old: TableState = serde_json::from_str(r#"{"page":2}"#).unwrap();
+        assert_eq!(old.record, None);
+    }
+
+    #[test]
     fn a_table_on_its_first_page_narrowed_by_nothing_saves_nothing() {
         let paging = TablePaging::new(100, Some(1000));
         assert_eq!(
-            table_of(&paging, None, Some(&table_filters()), None, None, None),
+            table_of(
+                &paging,
+                None,
+                Some(&table_filters()),
+                None,
+                None,
+                None,
+                None
+            ),
             None
         );
-        assert_eq!(table_of(&paging, None, None, None, None, None), None);
+        assert_eq!(table_of(&paging, None, None, None, None, None, None), None);
     }
 
     #[test]

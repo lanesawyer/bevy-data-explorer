@@ -16,8 +16,8 @@ use bevy::prelude::*;
 
 use crate::app::schedule::Stage;
 use crate::source::table::{
-    ColumnWidths, HiddenColumns, SeenColumns, SourceTable, TableColumn, TableFilters, TablePaging,
-    TableSort,
+    ColumnWidths, HiddenColumns, SeenColumns, SelectedRecord, SourceTable, TableColumn,
+    TableFilters, TablePaging, TableSort,
 };
 
 use super::table_filters::{FilterIndex, narrow, offer, take_counts};
@@ -400,6 +400,7 @@ pub fn spawn_source(world: &mut World, table: Table) -> Entity {
         hidden,
         seen,
         ColumnWidths::default(),
+        SelectedRecord::default(),
     ));
     if !paged {
         // Everything is already in hand, so the whole table is put aside and

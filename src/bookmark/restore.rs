@@ -37,7 +37,8 @@ use crate::source::genes::{GeneSearch, ReadsGenes};
 use crate::source::properties::{CellColumns, CellProperties, ColorOverrides, PropertyState};
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::table::{
-    ColumnWidths, HiddenColumns, TableFilters, TablePaging, TablePartitions, TableSort,
+    ColumnWidths, HiddenColumns, Record, SelectedRecord, SourceTable, TableFilters, TablePaging,
+    TablePartitions, TableSort,
 };
 use crate::source::volume::SourceVolume;
 use crate::source::{DataSource, SourceExtent, SourceUrl};
@@ -124,6 +125,8 @@ pub struct TableAccess {
     sort: Option<&'static mut TableSort>,
     hidden: Option<&'static mut HiddenColumns>,
     widths: Option<&'static mut ColumnWidths>,
+    record: Option<&'static mut SelectedRecord>,
+    rows: Option<&'static SourceTable>,
 }
 
 /// What a restore needs of a source to put its genes back.
@@ -612,8 +615,11 @@ fn restore_table(
             );
         }
     }
+    // Anything that reorders or narrows the rows means the page in hand is
+    // about to be replaced, so the picked row waits for the one that does.
+    let mut reread = !saved.filters.is_empty();
     if let Some(sort) = table.sort.as_mut() {
-        sort.set_if_neq(TableSort(saved.sort.clone()));
+        reread |= sort.set_if_neq(TableSort(saved.sort.clone()));
     }
     if let Some(hidden) = table.hidden.as_mut() {
         hidden.set_if_neq(HiddenColumns(saved.hidden.iter().cloned().collect()));
@@ -629,6 +635,13 @@ fn restore_table(
     };
     if paging.page != page {
         paging.page = page;
+        reread = true;
+    }
+    if let (Some(row), Some(record)) = (saved.record, table.record.as_mut()) {
+        record.0 = Some(Record { row, fields: None });
+        if let (false, Some(rows)) = (reread, table.rows) {
+            record.read(rows);
+        }
     }
     false
 }
@@ -1009,6 +1022,7 @@ mod tests {
             TableSort::default(),
             HiddenColumns::default(),
             ColumnWidths::default(),
+            SelectedRecord::default(),
             PendingSettings {
                 state: SourceState {
                     table: Some(TableState {
@@ -1026,6 +1040,7 @@ mod tests {
                         }],
                         hidden: vec!["Donor ID".into()],
                         widths: [("Donor ID".to_string(), 180.0)].into(),
+                        record: Some(201),
                     }),
                     ..default()
                 },
@@ -1074,6 +1089,14 @@ mod tests {
         assert_eq!(
             world.get::<ColumnWidths>(source).unwrap().0.get("Donor ID"),
             Some(&180.0)
+        );
+        // Named by its place, and read once the narrowed page arrives.
+        assert_eq!(
+            world.get::<SelectedRecord>(source).unwrap().0,
+            Some(Record {
+                row: 201,
+                fields: None
+            })
         );
     }
 

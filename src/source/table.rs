@@ -286,6 +286,76 @@ impl HiddenColumns {
 #[derive(Component, Clone, Debug, Default, PartialEq)]
 pub struct ColumnWidths(pub BTreeMap<String, f32>);
 
+/// One row of a table, picked out by clicking it, with everything it holds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Record {
+    /// Where it falls in the whole table, counted from zero.
+    pub row: usize,
+    /// Every column of it, hidden ones included, as heading and value.
+    /// Absent until the page holding it has been read, which is how a
+    /// bookmark names one: by its place, before the rows are in hand.
+    pub fields: Option<Vec<(String, String)>>,
+}
+
+impl Record {
+    /// The row at `row` on the page `table` holds.
+    pub fn of(table: &SourceTable, row: usize) -> Self {
+        Record {
+            row: table.first + row,
+            fields: Some(fields_of(table, row)),
+        }
+    }
+}
+
+fn fields_of(table: &SourceTable, row: usize) -> Vec<(String, String)> {
+    table
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(at, column)| (column.name.clone(), table.cell(row, at).trim().to_string()))
+        .collect()
+}
+
+/// The row a table's frame was clicked on, which the inspector shows whole.
+///
+/// The frame's alone, like [`HiddenColumns`]: no format reads it. It keeps
+/// what the row held when it was clicked, so it still reads the same after
+/// the page turns or the rows are sorted out from under it; the frame marks
+/// the row only while it is still where it was.
+#[derive(Component, Clone, Debug, Default, PartialEq)]
+pub struct SelectedRecord(pub Option<Record>);
+
+impl SelectedRecord {
+    /// Where the record is on the page `table` holds, if it is there.
+    pub fn on_page(&self, table: &SourceTable) -> Option<usize> {
+        let record = self.0.as_ref()?;
+        let row = record.row.checked_sub(table.first)?;
+        if row >= table.rows.len() {
+            return None;
+        }
+        match &record.fields {
+            Some(fields) => (*fields == fields_of(table, row)).then_some(row),
+            None => Some(row),
+        }
+    }
+
+    /// Read a record named only by its place, once the page holding it is in
+    /// hand. Returns whether it was.
+    pub fn read(&mut self, table: &SourceTable) -> bool {
+        let unread = self
+            .0
+            .as_ref()
+            .is_some_and(|record| record.fields.is_none());
+        match self.on_page(table).filter(|_| unread) {
+            Some(row) => {
+                self.0 = Some(Record::of(table, row));
+                true
+            }
+            None => false,
+        }
+    }
+}
+
 /// One value a column holds, and whether it has been ticked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableFilterValue {
@@ -805,6 +875,49 @@ mod tests {
         assert_eq!(partitions.chosen().unwrap().id, "aliquot");
         assert!(partitions.choose("donor"));
         assert_eq!(partitions.chosen().unwrap().id, "donor");
+    }
+
+    #[test]
+    fn a_record_holds_every_column_hidden_or_not() {
+        let table = table();
+        let record = Record::of(&table, 0);
+        assert_eq!(record.row, 0);
+        assert_eq!(
+            record.fields.unwrap(),
+            [("a".to_string(), "1".to_string()), ("b".into(), "2".into())]
+        );
+    }
+
+    #[test]
+    fn a_record_is_on_the_page_only_while_its_row_still_holds_it() {
+        let mut table = table();
+        let selected = SelectedRecord(Some(Record::of(&table, 1)));
+        assert_eq!(selected.on_page(&table), Some(1));
+        // Sorted out from under it.
+        table.rows.swap(0, 1);
+        assert_eq!(selected.on_page(&table), None);
+        // Another page.
+        table.rows.swap(0, 1);
+        table.first = 100;
+        assert_eq!(selected.on_page(&table), None);
+    }
+
+    #[test]
+    fn a_record_named_by_its_place_is_read_once_its_page_arrives() {
+        let mut table = table();
+        table.first = 100;
+        let mut selected = SelectedRecord(Some(Record {
+            row: 1,
+            fields: None,
+        }));
+        assert!(!selected.read(&table));
+        table.first = 0;
+        assert!(selected.read(&table));
+        assert_eq!(
+            selected.0.as_ref().unwrap().fields.as_ref().unwrap()[0].1,
+            "3"
+        );
+        assert!(!selected.read(&table), "already read");
     }
 
     #[test]

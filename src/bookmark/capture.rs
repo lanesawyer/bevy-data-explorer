@@ -15,7 +15,8 @@ use crate::source::properties::{
 };
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::table::{
-    ColumnWidths, HiddenColumns, TableFilters, TablePaging, TablePartitions, TableSort,
+    ColumnWidths, HiddenColumns, SelectedRecord, SourceTable, TableFilters, TablePaging,
+    TablePartitions, TableSort,
 };
 use crate::source::{ShowsSource, SourceUrl};
 use crate::view::FrameRegion;
@@ -240,6 +241,10 @@ fn source_state(source: EntityRef, url: String) -> SourceState {
                 source.get::<TableSort>(),
                 source.get::<HiddenColumns>(),
                 source.get::<ColumnWidths>(),
+                source
+                    .get::<SelectedRecord>()
+                    .zip(source.get::<SourceTable>())
+                    .and_then(|(record, table)| record.on_page(table).map(|row| table.first + row)),
             )
         }),
     }

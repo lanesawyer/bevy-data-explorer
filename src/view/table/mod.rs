@@ -22,6 +22,9 @@
 //! cell under the pointer, and copied whole, however much of it the cell had
 //! room to show. The text itself is not selectable: that would take an
 //! editable text per cell, and a selection would stop at the ellipsis.
+//!
+//! Clicking a row picks out its record, which the inspector shows whole,
+//! hidden columns and all.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -40,7 +43,8 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::Stage;
 use crate::app::theme::{Palette, token};
 use crate::source::table::{
-    ColumnWidths, HiddenColumns, SourceTable, TablePaging, TableSort, to_first_page,
+    ColumnWidths, HiddenColumns, Record, SelectedRecord, SourceTable, TablePaging, TableSort,
+    to_first_page,
 };
 use crate::source::{ShowsSource, grouped};
 use crate::widgets::space;
@@ -52,7 +56,7 @@ use crate::widgets::{
 use super::chrome::{BUTTON_PX, CHROME_GAP};
 use super::overlay::CHROME_INSET;
 use super::overlay::PanelHeader;
-use super::{FrameArea, Panel, SelectedPanel};
+use super::{FrameArea, Panel, PanelRequest, SelectedPanel};
 
 mod copy;
 mod headings;
@@ -127,6 +131,8 @@ pub struct TableView {
     edges: Vec<f32>,
     /// The rows on screen, by their place on the page.
     live: HashMap<usize, Entity>,
+    /// The row on the page whose record is picked out, as last drawn.
+    picked: Option<usize>,
 }
 
 impl TableView {
@@ -322,6 +328,7 @@ fn spawn_table(commands: &mut Commands, panel: Entity, source: Entity, layout: L
                 names,
                 edges,
                 live: HashMap::new(),
+                picked: None,
             },
             // It covers the whole cell, so it has to stop the pointer reaching
             // the frame behind it — there is nothing there to pan over. It
@@ -426,6 +433,27 @@ fn depth_below(header: f32) -> f32 {
     CHROME_TOP_PX + header.max(BUTTON_PX) + CHROME_GAP_PX
 }
 
+/// Read a record a bookmark named by its place once the page holding it
+/// arrives.
+///
+/// Not on the frame the bookmark names it: the rows in hand then are the ones
+/// the bookmark's page, filters and sort are about to replace. A bookmark that
+/// replaces none of them reads it there and then instead.
+pub fn read_selected_records(
+    mut tables: Query<(&SourceTable, &mut SelectedRecord), Changed<SourceTable>>,
+) {
+    for (table, mut selected) in &mut tables {
+        if !selected.is_changed()
+            && selected
+                .0
+                .as_ref()
+                .is_some_and(|record| record.fields.is_none())
+        {
+            selected.read(table);
+        }
+    }
+}
+
 /// Hide what a frame filled with rows has no use for.
 ///
 /// A table is not layered over anything and nothing is layered over it: it
@@ -466,8 +494,12 @@ impl Plugin for TablePlugin {
             .add_observer(on_grip_drag)
             .add_observer(on_grip_drag_end)
             .add_observer(on_copy_pressed)
+            .add_observer(on_row_clicked)
             .add_systems(Update, select_pressed_tables.in_set(Stage::ControlsRead))
-            .add_systems(Update, sync_tables.in_set(Stage::FrameChrome))
+            .add_systems(
+                Update,
+                (sync_tables, read_selected_records).in_set(Stage::FrameChrome),
+            )
             .add_systems(
                 Update,
                 (

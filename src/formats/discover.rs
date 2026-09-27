@@ -225,6 +225,50 @@ pub fn names_a_table(source: &str) -> bool {
         || is_parquet(&source)
 }
 
+/// The addresses in a value that name something [`discover`] can open, for
+/// offering to open them from wherever the value is shown.
+///
+/// Known by shape alone, as [`names_a_table`] is: a Neuroglancer link, a Zarr
+/// store, or a file named by an extension read here. Nothing is fetched to
+/// decide, so an address offered here can still fail to open, and says why
+/// when it does. A value holding several addresses offers each of them.
+pub fn datasets_in(value: &str) -> Vec<String> {
+    let value = value.trim();
+    if names_a_dataset(value) {
+        return vec![value.to_string()];
+    }
+    value
+        .split(|c: char| c.is_whitespace() || c == ',' || c == ';')
+        .map(|token| token.trim_matches(['"', '\'', '(', ')', '[', ']', '<', '>']))
+        .filter(|token| names_a_dataset(token))
+        .map(str::to_string)
+        .collect()
+}
+
+fn names_a_dataset(source: &str) -> bool {
+    const SCHEMES: [&str; 7] = [
+        "http://", "https://", "s3://", "file://", "zarr://", "zarr2://", "zarr3://",
+    ];
+    if source.is_empty()
+        || source.contains(char::is_whitespace)
+        || !SCHEMES.iter().any(|scheme| source.starts_with(scheme))
+    {
+        return false;
+    }
+    if neuroglancer::in_link(source).is_some() {
+        return true;
+    }
+    let (source, _) = crate::formats::image::store::split_plane(source);
+    let path = source.split(['?', '#']).next().unwrap_or(source);
+    source.starts_with("zarr")
+        || path
+            .split('/')
+            .any(|segment| segment.to_ascii_lowercase().ends_with(".zarr"))
+        || names_a_table(source)
+        || is_json(source)
+        || is_dzi(source)
+}
+
 fn is_table(source: &str) -> bool {
     has_extension(source, ".csv") || has_extension(source, ".tsv")
 }
@@ -293,6 +337,37 @@ mod tests {
         assert!(is_json(
             "https://example.com/a/ScatterBrain.json?X-Amz-Signature=abc"
         ));
+    }
+
+    #[test]
+    fn a_value_offers_what_can_be_opened_from_it() {
+        let ng = "https://neuroglancer-demo.appspot.com/#!%7B%22layers%22%3A%5B%5D%7D";
+        assert_eq!(datasets_in(ng), [ng]);
+        let zarr = "https://example.com/stack.ome.zarr/";
+        assert_eq!(datasets_in(zarr), [zarr]);
+        assert_eq!(
+            datasets_in("s3://bucket/image.zarr/0"),
+            ["s3://bucket/image.zarr/0"]
+        );
+        assert_eq!(
+            datasets_in("https://example.com/a.csv, https://example.com/b.parquet"),
+            ["https://example.com/a.csv", "https://example.com/b.parquet"]
+        );
+    }
+
+    #[test]
+    fn a_value_that_is_not_a_dataset_offers_nothing() {
+        for value in [
+            "",
+            "Dementia",
+            "brain.zarr",
+            "https://portal.brain-map.org/",
+            "https://example.com/paper.pdf",
+            "precomputed://gs://bucket/volume",
+            "n5://https://example.com/a.n5",
+        ] {
+            assert!(datasets_in(value).is_empty(), "{value}");
+        }
     }
 
     #[test]

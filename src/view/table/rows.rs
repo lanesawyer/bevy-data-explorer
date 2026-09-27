@@ -10,6 +10,14 @@ pub(super) const OVERSCAN: usize = 3;
 /// A ceiling on the rows built at once, however tall a frame is made.
 pub(super) const MAX_LIVE_ROWS: usize = 400;
 
+/// A row on a table's page, which picks out its record when clicked.
+#[derive(Component)]
+pub struct TableRow {
+    panel: Entity,
+    /// Its place on the page.
+    row: usize,
+}
+
 /// One cell, sized to its column and holding as much of `value` as fits.
 pub(super) fn spawn_cell(
     commands: &mut Commands,
@@ -59,18 +67,22 @@ pub fn fill_tables(
     mut commands: Commands,
     mut views: Query<&mut TableView>,
     panels: Query<&ShowsSource>,
-    tables: Query<Ref<SourceTable>>,
+    tables: Query<(Ref<SourceTable>, Option<&SelectedRecord>)>,
     bodies: Query<(&ComputedNode, &ScrollPosition)>,
     palette: Res<Palette>,
 ) {
     for mut view in &mut views {
-        let Ok(table) = panels.get(view.panel).and_then(|shows| tables.get(shows.0)) else {
+        let Ok((table, record)) = panels.get(view.panel).and_then(|shows| tables.get(shows.0))
+        else {
             continue;
         };
         // The stripes carry the theme, so a theme change is a rebuild of
         // whatever is on screen; so is a page turning, since the rows in hand
-        // are then different ones. There is never much of it either way.
-        if palette.is_changed() || table.is_changed() {
+        // are then different ones, and a row being picked out. There is never
+        // much of it either way.
+        let picked = record.and_then(|record| record.on_page(&table));
+        if palette.is_changed() || table.is_changed() || picked != view.picked {
+            view.picked = picked;
             for row in view.live.drain().map(|(_, row)| row) {
                 commands.entity(row).despawn();
             }
@@ -137,13 +149,19 @@ pub(super) fn spawn_row(
 ) -> Entity {
     // Every other row is tinted, which is what carries the eye across a wide
     // table. The divider color turns over with the theme, so this does too.
-    let stripe = if row % 2 == 1 {
+    let stripe = if view.picked == Some(row) {
+        palette.selection.with_alpha(0.3)
+    } else if row % 2 == 1 {
         palette.divider.with_alpha(0.18)
     } else {
         Color::NONE
     };
     let entity = commands
         .spawn((
+            TableRow {
+                panel: view.panel,
+                row,
+            },
             Node {
                 position_type: PositionType::Absolute,
                 top: Val::Px(row as f32 * ROW_PX),
@@ -187,6 +205,38 @@ pub(super) fn spawn_row(
         commands.entity(entity).add_child(cell);
     }
     entity
+}
+
+/// Pick out the record of a clicked row, or let it go if it was already
+/// picked out, and open the inspector on it.
+pub fn on_row_clicked(
+    click: On<Pointer<Click>>,
+    rows: Query<&TableRow>,
+    panels: Query<&ShowsSource>,
+    mut tables: Query<(&SourceTable, &mut SelectedRecord)>,
+    mut requests: MessageWriter<PanelRequest>,
+) {
+    if click.button != PointerButton::Primary {
+        return;
+    }
+    let Ok(row) = rows.get(click.entity) else {
+        return;
+    };
+    let Ok((table, mut selected)) = panels
+        .get(row.panel)
+        .and_then(|shows| tables.get_mut(shows.0))
+    else {
+        return;
+    };
+    if row.row >= table.rows.len() {
+        return;
+    }
+    if selected.on_page(table) == Some(row.row) {
+        selected.0 = None;
+    } else {
+        selected.0 = Some(Record::of(table, row.row));
+        requests.write(PanelRequest::Inspect(row.panel));
+    }
 }
 
 #[cfg(test)]
