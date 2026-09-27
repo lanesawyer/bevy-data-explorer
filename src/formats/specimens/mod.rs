@@ -32,8 +32,9 @@ use crate::app::net::{Fetching, fetching};
 use crate::app::schedule::Stage;
 use crate::source::properties::NumericRange;
 use crate::source::table::{
-    SortKey, SourceTable, TableColumn, TableFilter, TableFilterKind, TableFilterTerm,
-    TableFilterValue, TableFilters, TablePaging, TablePartition, TablePartitions, TableSort,
+    RecordFile, RecordFiles, RecordImage, RecordImages, RecordImagesState, SelectedRecord, SortKey,
+    SourceTable, TableColumn, TableFilter, TableFilterKind, TableFilterTerm, TableFilterValue,
+    TableFilters, TablePaging, TablePartition, TablePartitions, TableSort,
 };
 use crate::source::{SourceBusy, SourceStatus};
 
@@ -42,6 +43,7 @@ use super::table::{PAGE_ROWS, Table};
 mod filters;
 mod layout;
 mod pages;
+mod picked;
 mod plan;
 mod query;
 mod recount;
@@ -50,6 +52,7 @@ mod spans;
 use filters::*;
 use layout::*;
 use pages::*;
+use picked::*;
 use plan::*;
 use query::*;
 use recount::*;
@@ -141,7 +144,11 @@ pub async fn read(endpoint: &str, project: &str) -> Result<Specimens, String> {
         }
         None => layouts.whole.clone().unwrap_or_default(),
     };
-    let Layout { mut plan, sort } = layout;
+    let Layout {
+        mut plan,
+        sort,
+        images,
+    } = layout;
     if scope.kind.is_some() || !sort.is_empty() {
         let first = ask(endpoint, &scope, 0, &[], plan.sort(&sort)).await?;
         answer.aio_specimen = first.aio_specimen;
@@ -174,6 +181,7 @@ pub async fn read(endpoint: &str, project: &str) -> Result<Specimens, String> {
         plan,
         sort,
         kinds: layouts.kinds,
+        images,
     })
 }
 
@@ -196,6 +204,8 @@ pub struct Specimens {
     /// The kinds of specimen the project shows apart, each with its layout;
     /// empty for one that shows them together.
     kinds: Vec<(TablePartition, Layout)>,
+    /// The pictures a specimen of the kind on screen may have, by title.
+    images: Vec<String>,
 }
 
 /// The systems every specimen table shares, registered once however many are
@@ -213,6 +223,7 @@ impl Plugin for SpecimenSystems {
                 serve_spans,
                 serve_counts,
                 serve_pages,
+                serve_picked,
             )
                 .chain()
                 .in_set(Stage::Sources),
@@ -229,6 +240,7 @@ pub fn spawn_source(world: &mut World, specimens: Specimens) -> Entity {
         plan,
         sort,
         kinds,
+        images,
     } = specimens;
     let source = super::table::spawn_source(world, table);
     let mut entity = world.entity_mut(source);
@@ -247,6 +259,9 @@ pub fn spawn_source(world: &mut World, specimens: Specimens) -> Entity {
     entity.insert((
         TableSort(sort.clone()),
         SpecimenPages::new(endpoint, scope, plan, sort, layouts),
+        PickedSpecimen::new(images),
+        RecordImages::default(),
+        RecordFiles::default(),
     ));
     source
 }

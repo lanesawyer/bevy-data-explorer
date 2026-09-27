@@ -10,6 +10,7 @@ mod dock;
 mod field_well;
 mod frame_input;
 mod icons;
+mod lightbox;
 mod link;
 mod menu;
 mod modal;
@@ -35,6 +36,7 @@ pub use dock::{
 pub use field_well::field_well;
 pub use frame_input::BlocksFrameInput;
 pub use icons::{Icon, button_icon, icon_text};
+pub use lightbox::Enlargeable;
 pub use link::link_button;
 pub use menu::{
     MENU_WIDTH, Menu, MenuAnchor, MenuButton, spawn_icon_menu, spawn_menu, spawn_popup,
@@ -51,7 +53,7 @@ pub use spacing::space;
 pub use text::{size, text, text_dim, title};
 pub use truncate::{truncate_to_width, width_of};
 
-use crate::app::schedule::Stage;
+use crate::app::schedule::{Boot, Stage};
 
 /// Radius the Feathers containers round their outer corners to.
 const CORNER_PX: f32 = 4.0;
@@ -69,6 +71,10 @@ impl Plugin for WidgetsPlugin {
             .add_observer(menu::on_menu_button)
             .add_observer(accordion::toggle_accordions)
             .add_observer(link::on_link_pressed)
+            .add_observer(lightbox::enlarge)
+            .add_modal::<lightbox::Lightbox>()
+            .add_systems(Startup, lightbox::spawn_lightbox.in_set(Boot::Shell))
+            .add_systems(Update, lightbox::fit_lightbox.in_set(Stage::ControlsPlace))
             .add_observer(scroll::on_list_scroll)
             .add_observer(scroll::on_both_scroll)
             .add_observer(search::on_clear_search)

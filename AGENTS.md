@@ -121,7 +121,12 @@ columns, filters and rows.
 `HiddenColumns` is the frame's alone: no format reads it. So is `SelectedRecord`,
 the row last clicked, which the inspector lists whole, hidden columns
 included, offering to open any address in it `discover::datasets_in`
-recognizes. A format may
+recognizes. `RecordImages` is the question that
+row asks back: a format with pictures of its records — the BKP specimens'
+`specimenImages` — writes them, and the inspector shows them; `RecordFiles`
+likewise lists the files held about it, such as a Genetic Tools Atlas
+brain's OME-Zarr store. Any UI image
+given `widgets::Enlargeable` opens larger in the lightbox when clicked. A format may
 propose columns to leave out at first with `TableColumn::hidden_by_default`,
 taken up once per heading (`SeenColumns`) in `Stage::SourceDefaults`; after
 that the choice is the user's and the bookmark's.

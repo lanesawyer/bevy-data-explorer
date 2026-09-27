@@ -23,7 +23,7 @@ use crate::app::schedule::Stage;
 /// Above the menus, since it covers everything they could open over.
 const MODAL_Z: i32 = 20;
 /// Space between the panel's edge and what is in it, on every side.
-const PADDING_PX: f32 = space::SCREEN_INSET;
+pub(super) const PADDING_PX: f32 = space::SCREEN_INSET;
 
 /// Marks every modal's backdrop, whichever modal it is, for what places them
 /// all alike.
@@ -43,14 +43,17 @@ pub struct ModalParts {
     /// The title row: the title, a spacer, then the X. Anything inserted at
     /// index 1 sits beside the title.
     pub header: Entity,
+    /// The title's text, for a modal whose title changes with what it shows.
+    pub title: Entity,
 }
 
 /// Spawn a closed modal `width` wide, titled `title`.
 pub fn spawn_modal<M: Modal>(
     commands: &mut Commands,
-    title: &'static str,
+    title: impl Into<String>,
     width: f32,
 ) -> ModalParts {
+    let title = title.into();
     let screen = commands
         .spawn_scene(bsn! {
             BlocksFrameInput
@@ -126,7 +129,11 @@ pub fn spawn_modal<M: Modal>(
 
     commands.entity(panel).add_child(header);
     commands.entity(screen).add_child(panel);
-    ModalParts { panel, header }
+    ModalParts {
+        panel,
+        header,
+        title,
+    }
 }
 
 /// Open `M`, close it, or with `None` switch it.

@@ -356,6 +356,56 @@ impl SelectedRecord {
     }
 }
 
+/// A picture of a picked record, drawn and ready to show.
+#[derive(Debug, Clone)]
+pub struct RecordImage {
+    /// What it shows.
+    pub title: String,
+    /// What it is shown among, as a heading over its kind — electrophysiology,
+    /// say, whose three plots are read together.
+    pub group: String,
+    pub image: Handle<Image>,
+    /// How big it is, in its own pixels.
+    pub size: UVec2,
+}
+
+/// How the pictures of a picked record stand.
+#[derive(Debug, Clone, Default)]
+pub enum RecordImagesState {
+    /// No record is picked, or the one picked has nothing to show.
+    #[default]
+    None,
+    Fetching,
+    /// In the order to show them, those of a group together.
+    Ready(Vec<RecordImage>),
+    Failed(String),
+}
+
+/// Pictures of the record picked out in [`SelectedRecord`].
+///
+/// Another of the questions the grid asks and a format answers: the frame
+/// picks a row, and whatever produced the rows fetches whatever pictures it
+/// has of that record. The inspector shows them without knowing where they
+/// came from. A format with no pictures of its records never writes this.
+#[derive(Component, Debug, Default)]
+pub struct RecordImages(pub RecordImagesState);
+
+/// A file held about a picked record: a store, a state, an archive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordFile {
+    pub name: String,
+    /// What whatever produced the rows calls its kind — `zarr fileset`,
+    /// `fastq` — as it says it.
+    pub kind: String,
+    pub address: String,
+}
+
+/// Files held about the record picked out in [`SelectedRecord`], asked for
+/// and answered like [`RecordImages`]. Empty until they arrive, and for a
+/// record with none.
+#[derive(Component, Debug, Default, PartialEq, Eq)]
+pub struct RecordFiles(pub Vec<RecordFile>);
+
 /// One value a column holds, and whether it has been ticked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableFilterValue {

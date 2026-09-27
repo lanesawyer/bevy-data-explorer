@@ -12,6 +12,9 @@ use super::*;
 pub(super) struct Layout {
     pub(super) plan: Plan,
     pub(super) sort: Vec<SortKey>,
+    /// The pictures a specimen may have, by title, in the order to show them.
+    /// Empty for a table whose specimens have none.
+    pub(super) images: Vec<String>,
 }
 
 /// How a project is laid out, whichever way it is.
@@ -53,10 +56,16 @@ pub(super) fn layouts_of(data: LayoutData) -> Layouts {
 
 /// A table laid out from the platform's display features and default sort.
 ///
-/// A display feature that is neither an annotation nor a measurement — an
-/// image, say — is left out, since a row is read from those two alone.
+/// A display feature that is neither an annotation nor a measurement is left
+/// out of the columns, since a row is read from those two alone. An image is
+/// kept apart, as a picture the specimen may have.
 fn layout_of(mut features: Vec<DisplayFeature>, sort: Option<&str>, one_kind: bool) -> Layout {
     features.sort_by_key(|feature| feature.priority_order.unwrap_or(i64::MAX));
+    let images = features
+        .iter()
+        .filter(|feature| feature.kind.as_deref() == Some("IMAGE"))
+        .filter_map(|feature| feature.feature_type.title.clone())
+        .collect();
     let plan = Plan::laid_out(
         features
             .into_iter()
@@ -86,7 +95,7 @@ fn layout_of(mut features: Vec<DisplayFeature>, sort: Option<&str>, one_kind: bo
     );
     let plan = if one_kind { plan.of_one_kind() } else { plan };
     let sort = plan.keys_of(&sort_fields(sort));
-    Layout { plan, sort }
+    Layout { plan, sort, images }
 }
 
 /// The fields a default sort names, and whether each is descending.
@@ -395,7 +404,7 @@ mod tests {
             .map(|(kind, plan)| {
                 let layout = Layout {
                     plan: plan.clone(),
-                    sort: Vec::new(),
+                    ..default()
                 };
                 (kind.id.clone(), layout)
             })

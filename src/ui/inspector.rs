@@ -11,7 +11,10 @@
 //! details it lists everything that row holds, columns the frame hides
 //! included. A value naming a dataset — a Neuroglancer link, a Zarr store —
 //! gets a button opening it in a frame of its own, through `discover` like
-//! any address typed in.
+//! any address typed in. Pictures of the record, when whatever produced
+//! the rows has some, are shown above the fields, grouped by what they show,
+//! and open larger when clicked; files held about it, such as an OME-Zarr
+//! store, are listed with the same copy and open buttons as a field.
 
 use bevy::clipboard::Clipboard;
 use bevy::prelude::*;
@@ -23,13 +26,16 @@ use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
 use crate::formats::discover::datasets_in;
-use crate::source::table::{Record, SelectedRecord};
+use crate::source::table::{
+    Record, RecordFiles, RecordImage, RecordImages, RecordImagesState, SelectedRecord,
+};
 use crate::source::{DataSource, SourceStatus};
 use crate::view::{DatasetRequest, DatasetTarget, PanelRequest, SelectedSource};
 use crate::widgets::space;
 use crate::widgets::{
-    AddDock, BlocksFrameInput, Dock, DockEdge, DockWidth, Icon, button_icon, button_text,
-    dock_handle, place_right_dock, scroll_list, set_text, size, text, text_dim,
+    Accordion, AddDock, BlocksFrameInput, Dock, DockEdge, DockWidth, Enlargeable, Icon,
+    SectionLevel, button_icon, button_text, dock_handle, place_right_dock, scroll_list,
+    set_display, set_text, size, spawn_accordion, text, text_dim,
 };
 
 const WIDTH_PX: f32 = 300.0;
@@ -106,6 +112,23 @@ pub struct InspectorClose;
 /// The list the picked record's fields are built into.
 #[derive(Component, Clone, Default)]
 pub struct InspectorRecord;
+
+/// A section of a picked record.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RecordPart {
+    Images,
+    Files,
+    Fields,
+}
+
+/// A section of a picked record, whose open state carries over to the next.
+/// Images and Files are hidden while there is nothing in them.
+#[derive(Component)]
+pub struct RecordSection(RecordPart);
+
+/// Where a section's contents are built, as they arrive.
+#[derive(Component)]
+pub struct RecordBody(RecordPart);
 
 /// A button copying a field's value.
 #[derive(Component, Clone, Default)]
@@ -260,6 +283,7 @@ pub fn rebuild_record(
     selected: SelectedSource,
     records: Query<&SelectedRecord>,
     mut lists: Query<(Entity, &mut Node), With<InspectorRecord>>,
+    sections: Query<(&Accordion, &RecordSection)>,
     mut shown: Local<Option<Record>>,
 ) {
     let Ok((list, mut node)) = lists.single_mut() else {
@@ -273,6 +297,13 @@ pub fn rebuild_record(
         return;
     }
     *shown = record.cloned();
+    // A section closed on one row stays closed on the next.
+    let open = |part: RecordPart| {
+        sections
+            .iter()
+            .find(|(_, section)| section.0 == part)
+            .is_none_or(|(accordion, _)| accordion.open)
+    };
     commands.entity(list).despawn_children();
     let display = if record.is_some() {
         Display::Flex
@@ -288,10 +319,168 @@ pub fn rebuild_record(
         .spawn_scene(text(format!("Row {}", record.row + 1), size::BODY))
         .id();
     commands.entity(list).add_child(heading);
-    for (name, value) in record.fields.iter().flatten() {
-        let field = spawn_field(&mut commands, name, value);
-        commands.entity(list).add_child(field);
+
+    // Pictures first: a record with any is usually worth opening for them.
+    // Images and Files are shown by `fill_record_images` and
+    // `fill_record_files` once whatever produced the rows says it has some.
+    for (part, title) in [
+        (RecordPart::Images, "Images"),
+        (RecordPart::Files, "Files"),
+        (RecordPart::Fields, "Fields"),
+    ] {
+        let section = spawn_accordion(&mut commands, title, open(part), SectionLevel::Pane);
+        commands.entity(section.section).insert(RecordSection(part));
+        commands.entity(section.body).insert(RecordBody(part));
+        if part == RecordPart::Fields {
+            for (name, value) in record.fields.iter().flatten() {
+                let field = spawn_field(&mut commands, name, value);
+                commands.entity(section.body).add_child(field);
+            }
+        }
+        commands.entity(list).add_child(section.section);
     }
+}
+
+/// The body of `part` of the record on screen, and whether it was just built.
+fn body_of(
+    bodies: &Query<(Entity, &RecordBody, Ref<RecordBody>)>,
+    part: RecordPart,
+) -> Option<(Entity, bool)> {
+    bodies
+        .iter()
+        .find(|(_, body, _)| body.0 == part)
+        .map(|(entity, _, fresh)| (entity, fresh.is_added()))
+}
+
+/// Show or hide the section holding `part`.
+fn show_section(
+    sections: &Query<(Entity, &RecordSection)>,
+    nodes: &mut Query<&mut Node>,
+    part: RecordPart,
+    shown: bool,
+) {
+    for (entity, section) in sections {
+        if section.0 == part {
+            set_display(nodes, entity, shown);
+        }
+    }
+}
+
+/// Fill the Files section with what is held about the picked record, as it
+/// arrives, and hide it while there is nothing. Each file is copied and, when
+/// it names something that opens, opened, the way a field is.
+pub fn fill_record_files(
+    mut commands: Commands,
+    selected: SelectedSource,
+    files: Query<Ref<RecordFiles>>,
+    bodies: Query<(Entity, &RecordBody, Ref<RecordBody>)>,
+    sections: Query<(Entity, &RecordSection)>,
+    mut nodes: Query<&mut Node>,
+) {
+    let Some((body, fresh)) = body_of(&bodies, RecordPart::Files) else {
+        return;
+    };
+    let files = selected.get(&files);
+    if !fresh && !files.as_ref().is_some_and(Ref::is_changed) {
+        return;
+    }
+    let files = files.map(|it| it.0.clone()).unwrap_or_default();
+    show_section(&sections, &mut nodes, RecordPart::Files, !files.is_empty());
+    commands.entity(body).despawn_children();
+    for file in files {
+        let heading = if file.kind.is_empty() {
+            file.name
+        } else {
+            format!("{} ({})", file.name, file.kind)
+        };
+        let field = spawn_field(&mut commands, &heading, &file.address);
+        commands.entity(body).add_child(field);
+    }
+}
+
+/// Fill the Images section with the pictures of the picked record, as they
+/// arrive, and hide it while there are none.
+pub fn fill_record_images(
+    mut commands: Commands,
+    selected: SelectedSource,
+    pictures: Query<Ref<RecordImages>>,
+    bodies: Query<(Entity, &RecordBody, Ref<RecordBody>)>,
+    sections: Query<(Entity, &RecordSection)>,
+    mut nodes: Query<&mut Node>,
+) {
+    let Some((body, fresh)) = body_of(&bodies, RecordPart::Images) else {
+        return;
+    };
+    let pictures = selected.get(&pictures);
+    let changed = fresh || pictures.as_ref().is_some_and(Ref::is_changed);
+    if !changed {
+        return;
+    }
+    let state = pictures.map_or(RecordImagesState::None, |it| it.0.clone());
+    show_section(
+        &sections,
+        &mut nodes,
+        RecordPart::Images,
+        !matches!(state, RecordImagesState::None),
+    );
+    commands.entity(body).despawn_children();
+    let note = match &state {
+        RecordImagesState::None => return,
+        RecordImagesState::Fetching => "Fetching images\u{2026}".to_string(),
+        RecordImagesState::Failed(e) => e.clone(),
+        RecordImagesState::Ready(_) => String::new(),
+    };
+    let RecordImagesState::Ready(images) = state else {
+        let note = commands.spawn_scene(text_dim(note, size::SMALL)).id();
+        commands.entity(body).add_child(note);
+        return;
+    };
+    let mut group = None;
+    for image in images {
+        if group.as_ref() != Some(&image.group) {
+            let heading = commands
+                .spawn_scene(bsn! {
+                    text(image.group.clone(), size::SECONDARY)
+                    Node { margin: { UiRect::top(Val::Px(space::ROWS)) } }
+                })
+                .id();
+            commands.entity(body).add_child(heading);
+            group = Some(image.group.clone());
+        }
+        let picture = spawn_picture(&mut commands, image);
+        commands.entity(body).add_child(picture);
+    }
+}
+
+/// One picture under its title, as wide as the dock allows and never wider
+/// than itself, opening larger when clicked.
+fn spawn_picture(commands: &mut Commands, image: RecordImage) -> Entity {
+    let title = commands
+        .spawn_scene(text_dim(image.title.clone(), size::SMALL))
+        .id();
+    let size = image.size.as_vec2().max(Vec2::ONE);
+    let picture = commands
+        .spawn((
+            ImageNode::new(image.image),
+            Node {
+                width: Val::Percent(100.0),
+                max_width: Val::Px(size.x),
+                aspect_ratio: Some(size.x / size.y),
+                ..default()
+            },
+            Enlargeable { title: image.title },
+        ))
+        .id();
+    commands
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(space::STACKED),
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .add_children(&[title, picture])
+        .id()
 }
 
 /// One column of a record: its heading, what the row holds under it, and a
@@ -432,7 +621,14 @@ impl Plugin for InspectorPlugin {
             )
             .add_systems(
                 Update,
-                (update_inspector, rebuild_record).in_set(Stage::Chrome),
+                (
+                    update_inspector,
+                    rebuild_record,
+                    fill_record_images,
+                    fill_record_files,
+                )
+                    .chain()
+                    .in_set(Stage::Chrome),
             )
             .add_systems(Startup, spawn_inspector.in_set(Boot::Shell));
     }
