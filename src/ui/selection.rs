@@ -45,7 +45,7 @@ use crate::source::region::SelectedRegion;
 use crate::source::{ShowsSource, compact_count};
 use crate::ui::cell_panel::spawn_more_note;
 use crate::ui::inspector::Inspector;
-use crate::view::{FrameArea, FrameRegion, SelectMode, SelectedPanel, SelectedSource};
+use crate::view::{FrameRegion, SelectMode, SelectedPanel, SelectedSource};
 use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, DockWidth, Icon, SelectableText, button_icon,
@@ -121,6 +121,10 @@ impl Dock for SelectionDock {
 
     fn drag_to(&mut self, reach: f32, span: f32) {
         self.width.drag_to(reach - self.outboard, span);
+    }
+
+    fn taken(&self, window: Vec2) -> f32 {
+        self.current_width(window.x)
     }
 }
 
@@ -357,16 +361,6 @@ pub fn close_selection(
     if buttons.get(activate.entity).is_ok() {
         dock.open = false;
     }
-}
-
-/// Take the dock's width off the frame grid.
-pub fn reserve_space(
-    dock: Res<SelectionDock>,
-    windows: Query<&Window>,
-    mut area: ResMut<FrameArea>,
-) {
-    let Ok(window) = windows.single() else { return };
-    area.reserve_right(dock.current_width(window.width()));
 }
 
 /// Match the dock's chrome to its width, and keep its status line honest.
@@ -813,7 +807,10 @@ impl Plugin for SelectionPanelPlugin {
             .add_observer(on_category_picked)
             .add_observer(close_selection)
             .add_systems(Update, open_on_selection.in_set(Stage::DockInput))
-            .add_systems(Update, reserve_space.in_set(Stage::DockReserve))
+            .add_systems(
+                Update,
+                super::reserve_space::<SelectionDock>.in_set(Stage::DockReserve),
+            )
             .add_systems(Update, rebuild_selection_dock.in_set(Stage::ControlsBuild))
             .add_systems(Update, update_selection_dock.in_set(Stage::Chrome))
             .add_systems(Startup, spawn_selection_dock.in_set(Boot::Shell));
@@ -825,6 +822,7 @@ mod tests {
     use super::*;
     use crate::source::properties::CellProperty;
     use crate::source::tree::{Tree, TreeLevel, TreeNode};
+    use crate::view::FrameArea;
 
     fn value(code: u16, label: &str) -> PropertyValue {
         PropertyValue {

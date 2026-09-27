@@ -315,6 +315,28 @@ fn hide_by_default(
     }
 }
 
+/// Name a table after the file it came from, less whichever of `extensions`
+/// it ends in, in either case.
+pub fn label_for(url: &str, extensions: &[&str]) -> String {
+    let path = url.split(['?', '#']).next().unwrap_or(url);
+    let Some(file) = path.rsplit('/').find(|segment| !segment.is_empty()) else {
+        return "Table".to_string();
+    };
+    let stem = file
+        .rsplit_once('.')
+        .filter(|(_, extension)| {
+            extensions
+                .iter()
+                .any(|known| extension.eq_ignore_ascii_case(known))
+        })
+        .map_or(file, |(stem, _)| stem);
+    if stem.is_empty() {
+        "Table".to_string()
+    } else {
+        stem.to_string()
+    }
+}
+
 /// What a table's frame says of its shape.
 ///
 /// Written out rather than set with a multiplication sign: the overlay is

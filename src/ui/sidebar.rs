@@ -18,7 +18,7 @@ use bevy_ui_widgets::{Activate, ScrollArea};
 
 use crate::app::schedule::{Boot, Stage};
 use crate::source::{DataSource, ShowsSource};
-use crate::view::{Browsing, FrameArea, Panel, SelectedPanel};
+use crate::view::{Browsing, Panel, SelectedPanel};
 use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, button_text, display,
@@ -128,6 +128,10 @@ impl Dock for Sidebar {
             }
             None => self.collapsed = true,
         }
+    }
+
+    fn taken(&self, window: Vec2) -> f32 {
+        self.current_width(window.x)
     }
 }
 
@@ -393,12 +397,6 @@ fn spawn_sidebar(mut commands: Commands) {
     });
 }
 
-/// Take the sidebar's width off the frame grid.
-pub fn reserve_space(sidebar: Res<Sidebar>, windows: Query<&Window>, mut area: ResMut<FrameArea>) {
-    let Ok(window) = windows.single() else { return };
-    area.reserve_left(sidebar.current_width(window.width()));
-}
-
 pub fn toggle_sidebar(
     activate: On<Activate>,
     toggles: Query<(), With<SidebarToggle>>,
@@ -515,7 +513,7 @@ impl Plugin for SidebarPlugin {
             .add_observer(toggle_sidebar)
             .add_systems(
                 Update,
-                (measure_screen, reserve_space)
+                (measure_screen, super::reserve_space::<Sidebar>)
                     .chain()
                     .in_set(Stage::DockReserve),
             )
@@ -533,6 +531,7 @@ impl Plugin for SidebarPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::view::FrameArea;
 
     #[test]
     fn the_version_comes_from_the_manifest() {

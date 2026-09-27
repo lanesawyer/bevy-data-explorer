@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use crate::app::schedule::Stage;
 use crate::view::FrameArea;
-use crate::widgets::ModalScreen;
+use crate::widgets::{Dock, DockEdge, ModalScreen};
 
 pub mod add_source;
 pub mod bookmarks;
@@ -63,6 +63,17 @@ impl Plugin for UiPlugin {
             settings::SettingsPlugin,
         ))
         .add_systems(Update, center_modals.in_set(Stage::Chrome));
+    }
+}
+
+/// Take a dock's share of the window off the frame grid, on its own edge.
+pub fn reserve_space<D: Dock>(dock: Res<D>, windows: Query<&Window>, mut area: ResMut<FrameArea>) {
+    let Ok(window) = windows.single() else { return };
+    let taken = dock.taken(window.size());
+    match D::EDGE {
+        DockEdge::Left => area.reserve_left(taken),
+        DockEdge::Right => area.reserve_right(taken),
+        DockEdge::Bottom => area.reserve_bottom(taken),
     }
 }
 

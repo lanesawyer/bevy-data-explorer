@@ -93,6 +93,14 @@ impl Dock for LogPanel {
     fn drag_to(&mut self, reach: f32, span: f32) {
         self.height = LogPanel::height_for_drag(reach, span);
     }
+
+    fn taken(&self, window: Vec2) -> f32 {
+        if self.open {
+            self.height.min(max_height(window.y))
+        } else {
+            0.0
+        }
+    }
 }
 
 /// The tallest the panel may be in a window this tall. Applied to the height
@@ -259,15 +267,6 @@ pub fn on_copy_pressed(
     }
 }
 
-/// Take the panel's height off the grid while it is open.
-pub fn reserve_space(panel: Res<LogPanel>, windows: Query<&Window>, mut area: ResMut<FrameArea>) {
-    if !panel.open {
-        return;
-    }
-    let Ok(window) = windows.single() else { return };
-    area.reserve_bottom(panel.height.min(max_height(window.height())));
-}
-
 /// Keep the panel across the bottom of whatever the grid was left.
 pub fn place_log_panel(
     panel: Res<LogPanel>,
@@ -361,7 +360,10 @@ impl Plugin for LogPanelPlugin {
             // against the space it takes, and gives that space back the frame
             // it closes.
             .add_systems(Update, log_panel_shortcut.in_set(Stage::DockInput))
-            .add_systems(Update, reserve_space.in_set(Stage::DockReserve))
+            .add_systems(
+                Update,
+                super::reserve_space::<LogPanel>.in_set(Stage::DockReserve),
+            )
             .add_systems(Update, place_log_panel.in_set(Stage::Chrome))
             .add_systems(
                 Update,

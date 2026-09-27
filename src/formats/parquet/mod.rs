@@ -8,15 +8,7 @@ pub mod parse;
 
 /// Name a table after the file it came from.
 pub fn label_for(url: &str) -> String {
-    let path = url.split(['?', '#']).next().unwrap_or(url);
-    path.rsplit('/')
-        .find(|segment| !segment.is_empty())
-        .map(|file| {
-            file.trim_end_matches(".parquet")
-                .trim_end_matches(".PARQUET")
-        })
-        .filter(|stem| !stem.is_empty())
-        .map_or_else(|| "Table".to_string(), str::to_string)
+    super::table::label_for(url, &["parquet"])
 }
 
 #[cfg(test)]

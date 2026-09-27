@@ -76,8 +76,9 @@ list:
     main.rs    parse arguments, register what they name, run
 
 `app/` is in two halves. Its submodules — `net` (the async runtime reads go
-through), `schedule` (the stages), `theme`, `prefs` and `logs` — are the
-ground floor: every layer but `source` imports them, and they import nothing
+through), `graphql` (asking the APIs past the stores), `schedule` (the
+stages), `theme` and the desktop `accent` it follows, `prefs`, `logs` and
+`export` (writing rows out as CSV or JSON) — are the ground floor: every layer but `source` imports them, and they import nothing
 but `source`. `app/mod.rs` is the shell on top: it builds the window and task
 pool and adds every layer's plugin, so it imports all of them. Keep the
 submodules free of anything above `source`; a submodule that needs `view` or

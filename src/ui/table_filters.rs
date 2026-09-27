@@ -31,7 +31,7 @@ use crate::source::table::{
     to_first_page,
 };
 use crate::ui::cell_panel::range::{RangeOwner, spawn_range_control};
-use crate::ui::cell_panel::values::{LIST_MAX_PX, SEARCH_FROM, SearchedRows};
+use crate::ui::cell_panel::values::{SearchedRows, spawn_searched_list};
 use crate::ui::cell_panel::{ValueColumn, spawn_value_row};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::ui::table_partitions::spawn_partition_row;
@@ -39,8 +39,8 @@ use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
     Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, matches_search, patch_node,
-    scroll_list, set_text, size, spawn_accordion, spawn_header_button, spawn_menu,
-    spawn_search_field, spawn_skeleton, text, text_dim,
+    set_text, size, spawn_accordion, spawn_header_button, spawn_menu, spawn_skeleton, text,
+    text_dim,
 };
 
 /// Under the cell properties, which is where the same act on a point cloud
@@ -389,38 +389,9 @@ fn heading(column: &TableFilter) -> String {
 /// A column of values: a search once there are enough to need one, over a
 /// list that scrolls.
 fn spawn_values(commands: &mut Commands, column: usize, count: usize) -> Vec<Entity> {
-    let search = (count >= SEARCH_FROM).then(|| {
-        let search = spawn_search_field(commands, format!("Search {count} values"));
-        commands.entity(search.field).insert(FilterSearch);
-        search
-    });
-    let note = commands
-        .spawn_scene(bsn! {
-            text_dim("", size::SMALL)
-            Node { display: { Display::None } }
-        })
-        .id();
-    let list = commands
-        .spawn((
-            Node {
-                width: Val::Percent(100.0),
-                flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(space::LIST_ITEMS),
-                ..default()
-            },
-            FilterValueList {
-                column,
-                rows: SearchedRows::new(search.as_ref().map(|search| search.field), note),
-            },
-        ))
-        .id();
-    let scroller = commands.spawn_scene(scroll_list(LIST_MAX_PX)).id();
-    commands.entity(scroller).add_children(&[list, note]);
-    search
-        .map(|search| search.entry)
-        .into_iter()
-        .chain([scroller])
-        .collect()
+    spawn_searched_list(commands, count, FilterSearch, None, |rows| {
+        FilterValueList { column, rows }
+    })
 }
 
 /// Match each column's list to what is typed in its search: spawn the rows it

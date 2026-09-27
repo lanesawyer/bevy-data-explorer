@@ -103,6 +103,17 @@ pub struct PendingSettings {
     spans_asked: bool,
 }
 
+impl PendingSettings {
+    fn new(state: SourceState, since: f32) -> Self {
+        PendingSettings {
+            state,
+            since,
+            genes_asked: false,
+            spans_asked: false,
+        }
+    }
+}
+
 /// What a restore needs of a source to put its table back.
 #[derive(QueryData)]
 #[query_data(mutable)]
@@ -158,12 +169,9 @@ pub fn drive_restore(
             .map(
                 |state| match open.iter().find(|(_, url)| *url == state.url) {
                     Some((entity, _)) => {
-                        commands.entity(*entity).insert(PendingSettings {
-                            state: state.clone(),
-                            since: now,
-                            genes_asked: false,
-                            spans_asked: false,
-                        });
+                        commands
+                            .entity(*entity)
+                            .insert(PendingSettings::new(state.clone(), now));
                         Slot::Open(*entity)
                     }
                     None => {
@@ -206,12 +214,7 @@ pub fn drive_restore(
                     };
                     world.entity_mut(source).insert((
                         SourceUrl(state.url.clone()),
-                        PendingSettings {
-                            state,
-                            since: now,
-                            genes_asked: false,
-                            spans_asked: false,
-                        },
+                        PendingSettings::new(state, now),
                     ));
                     match world.get_resource_mut::<Restoring>() {
                         Some(mut restoring) if restoring.id == id => {
@@ -452,7 +455,7 @@ pub fn apply_pending_settings(
     ) in &mut sources
     {
         let pending = pending.into_inner();
-        let since = pending.since;
+        let patient = time.elapsed_secs() - pending.since <= CELLS_PATIENCE_SECS;
         let state = &mut pending.state;
         if let (Some(slice), Some(mut stack)) = (state.slice.take(), stack) {
             apply_slice(&mut stack, slice);
@@ -513,21 +516,19 @@ pub fn apply_pending_settings(
             (Some(_), Some(properties))
                 if properties.state != PropertyState::Ready || (has_columns && !described) =>
             {
-                if time.elapsed_secs() - since > CELLS_PATIENCE_SECS {
+                if !patient {
                     warn!(
                         "bookmark: gave up waiting for {}'s cell properties",
                         data.name
                     );
-                    false
-                } else {
-                    true
                 }
+                patient
             }
             // Genes the bookmark adds have to be there before anything can be
             // set on them, and each is added only once its histogram is in.
             (Some(saved), Some(properties))
                 if adding_genes(&properties, saved, &mut genes, &mut pending.genes_asked)
-                    && time.elapsed_secs() - since <= CELLS_PATIENCE_SECS =>
+                    && patient =>
             {
                 true
             }
@@ -543,7 +544,6 @@ pub fn apply_pending_settings(
                 false
             }
         };
-        let patient = time.elapsed_secs() - since <= CELLS_PATIENCE_SECS;
         let waiting =
             waiting | restore_table(data, state, &mut table, &mut pending.spans_asked, patient);
         if !waiting {

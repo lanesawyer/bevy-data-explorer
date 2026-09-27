@@ -89,6 +89,10 @@ pub trait Dock: Resource + Component<Mutability = Mutable> + FromWorld {
     /// Size the dock for a drag reaching `reach` in from its edge, in a window
     /// `span` across that way.
     fn drag_to(&mut self, reach: f32, span: f32);
+
+    /// How much of a window this size it takes across its edge right now:
+    /// nothing while closed, and never more than its share of the window.
+    fn taken(&self, window: Vec2) -> f32;
 }
 
 /// The most of the window a dock sized by [`DockWidth`] may take.

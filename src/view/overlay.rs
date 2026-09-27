@@ -40,7 +40,8 @@ use crate::view::{
     ShowFailed,
 };
 use crate::widgets::{
-    BlocksFrameInput, Icon, button_icon, patch_node, set_text, size, spawn_menu, text, text_dim,
+    BlocksFrameInput, Icon, button_icon, display, patch_node, set_text, size, spawn_menu, text,
+    text_dim,
 };
 
 use super::chrome::CHROME_GAP;
@@ -527,7 +528,7 @@ pub fn show_status_boxes(
                 .get(child)
                 .is_ok_and(|(text, line)| line.display != Display::None && !text.0.is_empty())
         });
-        let wanted = if said { Display::Flex } else { Display::None };
+        let wanted = display(said);
         patch_node(node, |node| node.display = wanted);
     }
 }

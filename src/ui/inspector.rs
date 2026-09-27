@@ -16,7 +16,7 @@ use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
 use crate::source::{DataSource, SourceStatus};
-use crate::view::{FrameArea, PanelRequest, SelectedSource};
+use crate::view::{PanelRequest, SelectedSource};
 use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, DockWidth, Icon, button_icon, dock_handle,
@@ -68,6 +68,10 @@ impl Dock for Inspector {
 
     fn drag_to(&mut self, reach: f32, span: f32) {
         self.width.drag_to(reach, span);
+    }
+
+    fn taken(&self, window: Vec2) -> f32 {
+        self.current_width(window.x)
     }
 }
 
@@ -162,16 +166,6 @@ pub fn close_inspector(
     }
 }
 
-/// Take the inspector's width off the frame grid.
-pub fn reserve_space(
-    inspector: Res<Inspector>,
-    windows: Query<&Window>,
-    mut area: ResMut<FrameArea>,
-) {
-    let Ok(window) = windows.single() else { return };
-    area.reserve_right(inspector.current_width(window.width()));
-}
-
 /// Match the inspector's chrome to its width, and fill it from the selection.
 pub fn update_inspector(
     inspector: Res<Inspector>,
@@ -227,7 +221,10 @@ impl Plugin for InspectorPlugin {
         app.add_dock::<Inspector>()
             .add_observer(close_inspector)
             .add_systems(Update, open_on_request.in_set(Stage::DockInput))
-            .add_systems(Update, reserve_space.in_set(Stage::DockReserve))
+            .add_systems(
+                Update,
+                super::reserve_space::<Inspector>.in_set(Stage::DockReserve),
+            )
             .add_systems(Update, update_inspector.in_set(Stage::Chrome))
             .add_systems(Startup, spawn_inspector.in_set(Boot::Shell));
     }
@@ -236,6 +233,7 @@ impl Plugin for InspectorPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::view::FrameArea;
 
     #[test]
     fn a_closed_inspector_takes_no_space_from_the_grid() {

@@ -145,7 +145,7 @@ pub fn apply_panel_requests(
     palette: Res<crate::app::theme::Palette>,
     // Every frame, including an empty one, which `panels` cannot see: it
     // shows no source.
-    frames: Query<(Entity, &Panel)>,
+    frames: Query<(), With<Panel>>,
 ) {
     let requests: Vec<PanelRequest> = requests.read().copied().collect();
     let awaiting: Vec<AwaitDataset> = awaiting.read().cloned().collect();
@@ -153,17 +153,13 @@ pub fn apply_panel_requests(
         return;
     }
 
-    let mut open: Vec<(usize, Entity)> = frames
-        .iter()
-        .map(|(entity, panel)| (panel.index, entity))
-        .collect();
-    open.sort_unstable();
+    // The cell the next frame opened takes, which is past every one open.
+    let mut next = frames.iter().count();
 
-    let (columns, rows) = grid_for(open.len().max(1));
+    let (columns, rows) = grid_for(next.max(1));
     let viewport = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32);
 
     let mut closing: Vec<Entity> = Vec::new();
-    let mut spawned = 0usize;
     let lookup = |entity: Entity| sources.get(entity).ok().map(|(data, ..)| data);
     // Layers added by an earlier request this frame, which the query cannot
     // see until the commands have run.
@@ -172,7 +168,7 @@ pub fn apply_panel_requests(
     for request in requests {
         match request {
             PanelRequest::Duplicate(panel) => {
-                if open.len() + spawned >= MAX_PANELS {
+                if next >= MAX_PANELS {
                     continue;
                 }
                 let Ok((_, _, shows, transform, projection, limits, layers, orbit)) =
@@ -197,7 +193,7 @@ pub fn apply_panel_requests(
                     &mut commands,
                     shows.0,
                     source.layer,
-                    open.len() + spawned,
+                    next,
                     *limits,
                     Some(flat),
                     palette.frame_bg,
@@ -216,10 +212,10 @@ pub fn apply_panel_requests(
                     }
                 }
                 info!("duplicated the frame showing {}", source.name);
-                spawned += 1;
+                next += 1;
             }
             PanelRequest::Open(source_entity) => {
-                if open.len() + spawned >= MAX_PANELS {
+                if next >= MAX_PANELS {
                     continue;
                 }
                 let Ok((source, extent, home)) = sources.get(source_entity) else {
@@ -229,13 +225,13 @@ pub fn apply_panel_requests(
                     &mut commands,
                     source_entity,
                     source.layer,
-                    open.len() + spawned,
+                    next,
                     extent.limits_from(home, viewport),
                     None,
                     palette.frame_bg,
                 );
                 info!("opened a frame onto {}", source.name);
-                spawned += 1;
+                next += 1;
             }
             PanelRequest::Close(panel) => {
                 if frames.contains(panel) && !closing.contains(&panel) {
@@ -249,14 +245,13 @@ pub fn apply_panel_requests(
                 }
             }
             PanelRequest::Browse(None) => {
-                if open.len() + spawned >= MAX_PANELS {
+                if next >= MAX_PANELS {
                     continue;
                 }
-                let panel =
-                    spawn_browse_panel(&mut commands, open.len() + spawned, palette.frame_bg);
+                let panel = spawn_browse_panel(&mut commands, next, palette.frame_bg);
                 selected.0 = Some(panel);
                 info!("opened an empty frame to browse from");
-                spawned += 1;
+                next += 1;
             }
             PanelRequest::Browse(Some(panel)) => {
                 if frames.contains(panel) {
@@ -411,10 +406,10 @@ pub fn apply_panel_requests(
     }
 
     for AwaitDataset { url, name } in awaiting {
-        if open.len() + spawned >= MAX_PANELS {
+        if next >= MAX_PANELS {
             continue;
         }
-        let panel = spawn_browse_panel(&mut commands, open.len() + spawned, palette.frame_bg);
+        let panel = spawn_browse_panel(&mut commands, next, palette.frame_bg);
         commands.entity(panel).insert(PendingShow {
             url: url.clone(),
             name,
@@ -423,7 +418,7 @@ pub fn apply_panel_requests(
             url,
             target: DatasetTarget::Show(panel),
         });
-        spawned += 1;
+        next += 1;
     }
 
     // Closing them all is allowed: the window falls back to the empty state it

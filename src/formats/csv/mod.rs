@@ -9,24 +9,7 @@ pub mod parse;
 
 /// Name a table after the file it came from.
 pub fn label_for(url: &str) -> String {
-    let path = url.split(['?', '#']).next().unwrap_or(url);
-    path.rsplit('/')
-        .find(|segment| !segment.is_empty())
-        .map_or_else(
-            || "Table".to_string(),
-            |file| {
-                let stem = file
-                    .trim_end_matches(".csv")
-                    .trim_end_matches(".CSV")
-                    .trim_end_matches(".tsv")
-                    .trim_end_matches(".TSV");
-                if stem.is_empty() {
-                    "Table".to_string()
-                } else {
-                    stem.to_string()
-                }
-            },
-        )
+    super::table::label_for(url, &["csv", "tsv"])
 }
 
 #[cfg(test)]

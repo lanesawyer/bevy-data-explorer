@@ -145,10 +145,29 @@ pub fn spawn_values(commands: &mut Commands, index: usize, property: &CellProper
         PropertyKind::Tree(tree) => (tree.nodes.len(), Some(spawn_tree_body(commands, index))),
         PropertyKind::Numeric(_) => return Vec::new(),
     };
+    spawn_searched_list(commands, count, ValueSearch, tree, |rows| ValueList {
+        property: index,
+        tree,
+        rows,
+    })
+}
 
+/// A list of `count` values that scrolls, under a search marked with `marker`
+/// once there are enough values to need one. `above` goes in the scroller
+/// ahead of the list, and `list` makes the list's own component from its rows.
+///
+/// Hands back what goes in the section: the search, if there is one, and the
+/// scroller.
+pub fn spawn_searched_list<L: Component>(
+    commands: &mut Commands,
+    count: usize,
+    marker: impl Component,
+    above: Option<Entity>,
+    list: impl FnOnce(SearchedRows) -> L,
+) -> Vec<Entity> {
     let search = (count >= SEARCH_FROM).then(|| {
         let search = spawn_search_field(commands, format!("Search {count} values"));
-        commands.entity(search.field).insert(ValueSearch);
+        commands.entity(search.field).insert(marker);
         search
     });
 
@@ -166,15 +185,14 @@ pub fn spawn_values(commands: &mut Commands, index: usize, property: &CellProper
                 row_gap: Val::Px(space::LIST_ITEMS),
                 ..default()
             },
-            ValueList {
-                property: index,
-                tree,
-                rows: SearchedRows::new(search.as_ref().map(|search| search.field), note),
-            },
+            list(SearchedRows::new(
+                search.as_ref().map(|search| search.field),
+                note,
+            )),
         ))
         .id();
     let scroller = commands.spawn_scene(scroll_list(LIST_MAX_PX)).id();
-    let children: Vec<Entity> = tree.into_iter().chain([list, note]).collect();
+    let children: Vec<Entity> = above.into_iter().chain([list, note]).collect();
     commands.entity(scroller).add_children(&children);
 
     search

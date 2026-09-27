@@ -22,7 +22,7 @@ use bevy_ui_widgets::Activate;
 
 use super::space;
 use super::{
-    BlocksFrameInput, CORNER_PX, Icon, button_icon, icon_text, patch_node, set_text, size,
+    BlocksFrameInput, CORNER_PX, Icon, button_icon, display, icon_text, patch_node, set_text, size,
     truncate_to_width,
 };
 
@@ -313,7 +313,7 @@ fn body_patch(accordion: Entity, open: bool) -> impl Scene {
             // Set here rather than left for `update_accordions` to correct:
             // that runs a frame later, and a section spawned closed would
             // draw its contents once before being hidden.
-            display: { body_display(open) },
+            display: { display(open) },
             width: { Val::Percent(100.0) },
             row_gap: { Val::Px(space::ROWS) },
             border: { UiRect::new(Val::Px(1.0), Val::Px(1.0), Val::Px(0.0), Val::Px(1.0)) },
@@ -356,12 +356,6 @@ fn caret(open: bool) -> Icon {
     }
 }
 
-/// Whether a section's body is laid out. Shared by the spawn and the update so
-/// the two cannot disagree about what a closed section looks like.
-fn body_display(open: bool) -> Display {
-    if open { Display::Flex } else { Display::None }
-}
-
 /// Toggle a section when its header is clicked.
 pub fn toggle_accordions(
     activate: On<Activate>,
@@ -390,7 +384,7 @@ pub fn update_accordions(
 ) {
     for (body, node) in &mut bodies {
         let open = accordions.get(body.accordion).is_ok_and(|a| a.open);
-        let wanted = body_display(open);
+        let wanted = display(open);
         patch_node(node, |node| node.display = wanted);
     }
 
@@ -463,7 +457,7 @@ mod tests {
         // A section spawned closed must be hidden from the start. Leaving it to
         // the update showed its contents for a frame first, which read as a
         // flash of checkboxes whenever the panel was rebuilt.
-        assert_eq!(body_display(false), Display::None);
-        assert_eq!(body_display(true), Display::Flex);
+        assert_eq!(display(false), Display::None);
+        assert_eq!(display(true), Display::Flex);
     }
 }

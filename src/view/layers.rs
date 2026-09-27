@@ -33,6 +33,7 @@ use bevy::render::render_resource::{Extent3d, TextureFormat};
 use super::Panel;
 use super::grid::{MAX_LAYERS, camera_order};
 use crate::source::{DataSource, ShowsSource};
+use crate::widgets::display;
 
 /// A camera drawing one extra source over a frame.
 #[derive(Component, Clone, Copy, Debug)]
@@ -368,7 +369,7 @@ fn composite_node(at: Vec2, extent: Vec2, shown: bool) -> Node {
         top: Val::Px(at.y),
         width: Val::Px(extent.x),
         height: Val::Px(extent.y),
-        display: if shown { Display::Flex } else { Display::None },
+        display: display(shown),
         ..default()
     }
 }
