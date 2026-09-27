@@ -789,6 +789,24 @@ impl Catalogs {
         }
     }
 
+    /// Ask again for every dashboard of the source keyed `key` that has not
+    /// arrived, dropping any request in flight, and leave one already shown
+    /// alone rather than blank it while it is counted again.
+    pub fn retry_dashboards(&mut self, key: &str) {
+        for slot in &mut self.slots {
+            if slot.source() != key {
+                continue;
+            }
+            if let Some(state) = slot.dashboard.as_mut()
+                && !matches!(state, DashboardState::Ready(_))
+            {
+                *state = DashboardState::Waiting;
+                slot.asking_dashboard = None;
+                self.dashboards_generation += 1;
+            }
+        }
+    }
+
     /// Start asking for each dashboard waiting to be asked whose source is
     /// on, and take in those that have answered.
     fn ask_dashboards(&mut self) {
@@ -1239,6 +1257,56 @@ mod tests {
         fn list(&self) -> BoxFuture<'static, Result<Vec<Entry>, String>> {
             self.0.list()
         }
+    }
+
+    /// A catalog with a dashboard, run by [`PROVIDER`].
+    struct Dashboarded;
+
+    impl Catalog for Dashboarded {
+        fn name(&self) -> &str {
+            "dashboarded"
+        }
+
+        fn provider(&self) -> Option<Provider> {
+            Some(PROVIDER)
+        }
+
+        fn list(&self) -> BoxFuture<'static, Result<Vec<Entry>, String>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+
+        fn has_dashboard(&self) -> bool {
+            true
+        }
+    }
+
+    fn dashboard_state(catalogs: &Catalogs) -> &DashboardState {
+        catalogs.dashboards().next().unwrap().state
+    }
+
+    #[test]
+    fn a_retry_asks_again_only_for_a_dashboard_that_has_not_arrived() {
+        let mut catalogs = Catalogs::default();
+        catalogs.add(Dashboarded);
+        catalogs.slots[0].dashboard = Some(DashboardState::Failed("refused".into()));
+        catalogs.retry_dashboards("provided");
+        assert!(matches!(
+            dashboard_state(&catalogs),
+            DashboardState::Waiting
+        ));
+
+        catalogs.slots[0].dashboard = Some(DashboardState::Ready(Dashboard::default()));
+        catalogs.retry_dashboards("provided");
+        assert!(
+            matches!(dashboard_state(&catalogs), DashboardState::Ready(_)),
+            "one on screen is not blanked"
+        );
+        catalogs.retry_dashboards("someone else");
+        catalogs.refresh_dashboards("provided");
+        assert!(
+            matches!(dashboard_state(&catalogs), DashboardState::Waiting),
+            "a refresh counts even one on screen again"
+        );
     }
 
     #[test]

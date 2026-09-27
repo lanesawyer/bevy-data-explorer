@@ -85,8 +85,13 @@ const KINDS: [(&str, &str, Category, Option<&str>); 5] = [
 static TOKEN: RwLock<Option<String>> = RwLock::new(None);
 
 /// Keep [`TOKEN`] the one in the preferences, and count the dashboard again
-/// on signing in or out, since what it can see changes with it. A renewal
-/// swaps one token for another and changes nothing it could see.
+/// on signing in or out, since what it can see changes with it.
+///
+/// A renewal swaps one token for another and changes nothing it could see,
+/// so a dashboard already shown is left alone. One that failed, or is still
+/// being asked with the token before, is asked again: a token saved last
+/// session has expired by the next, is sent once before it is renewed, and
+/// is refused.
 pub fn sync_token(prefs: Res<Preferences>, mut catalogs: ResMut<Catalogs>) {
     if prefs.is_changed()
         && let Ok(mut token) = TOKEN.write()
@@ -96,6 +101,8 @@ pub fn sync_token(prefs: Res<Preferences>, mut catalogs: ResMut<Catalogs>) {
         token.clone_from(&prefs.registry_token);
         if token.is_some() != signed_in {
             catalogs.refresh_dashboards(PROVIDER.key);
+        } else {
+            catalogs.retry_dashboards(PROVIDER.key);
         }
     }
 }
