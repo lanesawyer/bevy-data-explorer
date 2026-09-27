@@ -70,6 +70,11 @@ pub enum Stage {
     Sources,
     /// The grid works out where the pointer is and which frame it is over.
     HoverProbe,
+    /// What the pointer is over is carried to every other source that can
+    /// show the same thing. After [`HoverProbing`], because it reads what each
+    /// format answered there, and it cannot be part of it: it reads every
+    /// format's answer at once.
+    LinkHover,
     /// Everything that only reads what this frame decided: overlay text and
     /// tooltips. Last, so it never shows a value from the previous frame.
     Overlay,
@@ -134,6 +139,7 @@ pub fn configure(app: &mut App) {
             Stage::Sources,
             Stage::HoverProbe,
             HoverProbing,
+            Stage::LinkHover,
             RegionResolving,
             Stage::Overlay,
         )

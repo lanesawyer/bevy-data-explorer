@@ -589,6 +589,60 @@ impl CellProperties {
         self.properties.iter().map(CellProperty::applied).sum()
     }
 
+    /// The publisher's ids for what the color-by value `code` stands for:
+    /// its own and, in a taxonomy, that of every level above it, nearest
+    /// first. Nothing for a value the publisher gives no id.
+    fn references_of_colored(&self, code: u16) -> Vec<&str> {
+        let Some(property) = self.color_by.and_then(|index| self.properties.get(index)) else {
+            return Vec::new();
+        };
+        match &property.kind {
+            PropertyKind::Categorical(values) => values
+                .iter()
+                .find(|value| value.code == code)
+                .and_then(|value| value.reference.as_deref())
+                .into_iter()
+                .collect(),
+            PropertyKind::Tree(tree) => tree
+                .nodes
+                .iter()
+                .position(|node| node.level == tree.color_level && node.value.code == code)
+                .map(|node| {
+                    tree.lineage(node)
+                        .filter_map(|at| tree.nodes[at].value.reference.as_deref())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            PropertyKind::Numeric(_) => Vec::new(),
+        }
+    }
+
+    /// The value of the column these points are colored by that is the same
+    /// kind of cell as `code` is among `other`'s: the one sharing its
+    /// publisher's id, or failing that the id of a level above it.
+    ///
+    /// Two datasets placed in one taxonomy — cells measured in tissue and
+    /// cells sequenced apart, which are never the same cells — name the same
+    /// types by the same ids, and that is all this matches on. A cluster
+    /// hovered in one picks out its subclass in another colored by subclass;
+    /// the other way round there is no one value to name, and nothing is.
+    pub fn same_type_as(&self, other: &CellProperties, code: u16) -> Option<u16> {
+        let wanted = other.references_of_colored(code);
+        if wanted.is_empty() {
+            return None;
+        }
+        let (_, values) = self
+            .color_by
+            .and_then(|index| self.properties.get(index))?
+            .color_column()?;
+        wanted.iter().find_map(|reference| {
+            values
+                .iter()
+                .find(|value| value.reference.as_deref() == Some(*reference))
+                .map(|value| value.code)
+        })
+    }
+
     /// How to name a point's value in the column points are currently colored
     /// by: the property's name, and the label for that value.
     ///
@@ -1109,6 +1163,93 @@ impl CellSelection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn typed(code: u16, reference: Option<&str>) -> PropertyValue {
+        PropertyValue {
+            code,
+            label: format!("type {code}"),
+            reference: reference.map(str::to_string),
+            color: None,
+            count: None,
+            selected: false,
+        }
+    }
+
+    fn colored_by(id: &str, values: Vec<PropertyValue>) -> CellProperties {
+        CellProperties::ready(vec![CellProperty {
+            id: id.into(),
+            name: id.into(),
+            shown: true,
+            gene: None,
+            kind: PropertyKind::Categorical(values),
+        }])
+    }
+
+    /// Cells in tissue, colored by subclass under a class: astrocytes of two
+    /// subclasses.
+    fn tissue() -> CellProperties {
+        let level = |id: &str| TreeLevel {
+            id: id.into(),
+            name: id.into(),
+        };
+        let node = |level, parent, value| TreeNode {
+            level,
+            parent,
+            value,
+        };
+        CellProperties::ready(vec![CellProperty {
+            id: "TAXONOMY".into(),
+            name: "Taxonomy".into(),
+            shown: true,
+            gene: None,
+            kind: PropertyKind::Tree(Tree {
+                levels: vec![level("CLASS"), level("SUBCLASS")],
+                nodes: vec![
+                    node(0, None, typed(0, Some("class-astro"))),
+                    node(1, Some(0), typed(5, Some("subclass-astro-1"))),
+                    node(1, Some(0), typed(6, Some("subclass-astro-2"))),
+                ],
+                color_level: 1,
+            }),
+        }])
+    }
+
+    #[test]
+    fn a_type_is_found_in_another_dataset_by_its_publishers_id() {
+        let umap = colored_by(
+            "SUBCLASS",
+            vec![
+                typed(8, Some("subclass-astro-1")),
+                typed(9, Some("subclass-astro-2")),
+            ],
+        );
+        assert_eq!(umap.same_type_as(&tissue(), 6), Some(9));
+    }
+
+    #[test]
+    fn a_finer_type_picks_out_the_level_above_it_where_that_is_all_there_is() {
+        let umap = colored_by(
+            "CLASS",
+            vec![
+                typed(3, Some("class-astro")),
+                typed(4, Some("class-neuron")),
+            ],
+        );
+        assert_eq!(umap.same_type_as(&tissue(), 5), Some(3));
+    }
+
+    #[test]
+    fn a_coarser_type_names_no_one_finer_type() {
+        let umap = colored_by("CLASS", vec![typed(3, Some("class-astro"))]);
+        assert_eq!(tissue().same_type_as(&umap, 3), None);
+    }
+
+    #[test]
+    fn values_nobody_gave_an_id_are_never_matched() {
+        let named = colored_by("SUBCLASS", vec![typed(9, None)]);
+        let unnamed = colored_by("SUBCLASS", vec![typed(9, None)]);
+        assert_eq!(named.same_type_as(&unnamed, 9), None);
+    }
 
     fn categorical(id: &str, codes: &[u16]) -> CellProperty {
         CellProperty {

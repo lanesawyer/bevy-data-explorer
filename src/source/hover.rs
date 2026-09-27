@@ -116,6 +116,16 @@ pub fn resolve_hover<T: DescribesHover>(
     }
 }
 
+/// The value of the column its points are colored by that the pointer is
+/// over, in a source that colors points by category.
+///
+/// Written by the format with its hover answer, and read by whatever
+/// highlights that value: across every frame showing the source, and in any
+/// other source that names the same kind of cell. `None` whenever the
+/// pointer is over nothing of this source's.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HoveredCategory(pub Option<u16>);
+
 /// The set source plugins resolve the probe in.
 ///
 /// The grid writes the probe before it and the overlay reads the answers after

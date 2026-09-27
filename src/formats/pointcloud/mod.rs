@@ -20,7 +20,7 @@ use crate::formats::scatterbrain::nodes::{
 };
 use crate::formats::scatterbrain::{Rect, Scatterbrain, Slide};
 use crate::render::points::{PointMaterial, SourceHighlight};
-use crate::source::hover::{HoverInfo, HoverProbe};
+use crate::source::hover::{HoverInfo, HoverProbe, HoveredCategory};
 use crate::source::properties::{
     CellProperties, CellSelection, ColorOverrides, ColorScale, FilteredPoints, Shade,
 };
@@ -405,6 +405,7 @@ pub fn spawn_source(
         // systems can write through a query rather than through commands,
         // and so can leave them untouched when nothing has changed.
         SourceHighlight::default(),
+        HoveredCategory::default(),
         HoverInfo::default(),
         // Placeholder until a catalog's service supplies the real value
         // labels; the column names and ids are the dataset's own.
@@ -461,19 +462,17 @@ pub fn resolve_hover(
         &CellProperties,
         Option<&HoverProbe>,
         &mut HoverInfo,
-        &mut SourceHighlight,
+        &mut HoveredCategory,
     )>,
 ) {
-    for (streamer, source, properties, probe, mut info, mut highlight) in &mut sources {
+    for (streamer, source, properties, probe, mut info, mut hovered) in &mut sources {
         let hit = probe.and_then(|probe| streamer.pick(probe));
         let found = hit
             .as_ref()
             .map(|hit| describe(hit, streamer, source, properties));
 
         let category = hit.as_ref().and_then(|hit| hit.shade?.code());
-        if highlight.0 != category {
-            highlight.0 = category;
-        }
+        hovered.set_if_neq(HoveredCategory(category));
 
         let next = found.unwrap_or_default();
         info.set_if_neq(next);

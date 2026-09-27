@@ -18,6 +18,7 @@
 pub mod browse;
 pub mod camera;
 pub mod capture;
+pub mod cell_types;
 pub mod chrome;
 pub mod crosshair;
 pub mod dataset_menu;
@@ -268,6 +269,7 @@ impl Plugin for ViewPlugin {
             browse::BrowsePlugin,
             capture::CapturePlugin,
             scale_bar::ScaleBarPlugin,
+            cell_types::CellTypePlugin,
             crosshair::CrosshairPlugin,
             table::TablePlugin,
         ))

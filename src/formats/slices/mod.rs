@@ -29,7 +29,7 @@ use crate::formats::scatterbrain::nodes::{
 use crate::formats::scatterbrain::{Rect, Scatterbrain};
 use crate::render::points::{PointMaterial, SourceHighlight};
 use crate::source::ViewLimits;
-use crate::source::hover::{HoverInfo, HoverProbe};
+use crate::source::hover::{HoverInfo, HoverProbe, HoveredCategory};
 use crate::source::properties::{
     CellProperties, CellSelection, ColorOverrides, ColorScale, FilteredPoints, Shade,
 };
@@ -730,6 +730,7 @@ pub fn spawn_source(world: &mut World, cloud: Arc<Scatterbrain>, budget: usize) 
         // Both start empty, and are carried from registration so the hover
         // systems can write through a query rather than through commands.
         SourceHighlight::default(),
+        HoveredCategory::default(),
         HoverInfo::default(),
         // Placeholder until a catalog's service supplies the real value
         // labels; the column names and ids are the dataset's own.
@@ -798,10 +799,10 @@ pub fn resolve_hover(
     streamers: Query<&SliceStreamer>,
     probes: Query<&HoverProbe>,
     sources: Query<(&DataSource, &CellProperties)>,
-    mut answers: Query<(&mut HoverInfo, &mut SourceHighlight)>,
+    mut answers: Query<(&mut HoverInfo, &mut HoveredCategory)>,
 ) {
     for streamer in &streamers {
-        let Ok((mut info, mut highlight)) = answers.get_mut(streamer.source) else {
+        let Ok((mut info, mut hovered)) = answers.get_mut(streamer.source) else {
             continue;
         };
         let Ok((source, properties)) = sources.get(streamer.source) else {
@@ -814,12 +815,10 @@ pub fn resolve_hover(
             .and_then(|probe| streamer.pick(probe));
 
         let category = hit.as_ref().and_then(|hit| hit.shade?.code());
-        if highlight.0 != category {
-            highlight.0 = category;
-        }
+        hovered.set_if_neq(HoveredCategory(category));
 
-        // Both are left alone when unchanged: the highlight drives a uniform upload
-        // per resident node, and the tooltip a text layout.
+        // Both are left alone when unchanged: the highlight they lead to drives
+        // a uniform upload per resident node, and the tooltip a text layout.
         let next = hit
             .map(|hit| describe(&hit, streamer, source, properties))
             .unwrap_or_default();

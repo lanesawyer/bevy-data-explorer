@@ -78,7 +78,7 @@ impl Tree {
     }
 
     /// `node` and every node above it, nearest first.
-    fn lineage(&self, node: usize) -> impl Iterator<Item = usize> + '_ {
+    pub(super) fn lineage(&self, node: usize) -> impl Iterator<Item = usize> + '_ {
         std::iter::successors(Some(node), |&at| self.nodes[at].parent)
     }
 
