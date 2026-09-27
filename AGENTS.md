@@ -118,6 +118,12 @@ never touches a string),
 columns of their own — BICAN's library aliquots and donors — is shown a kind at
 a time, the sidebar picks the kind, and the format swaps in that kind's
 columns, filters and rows.
+`TableSearch` is one more: the sidebar's field writes text, and the format
+searches wherever all its rows are — names at the BKP Registry, every word
+through the platform's own search, every row in hand for a file read whole
+(`formats/table.rs`, counting the filters among what it found). A source
+that could search only the page in hand must not carry it: that search
+would miss every other page, and no field is better than a wrong answer.
 `HiddenColumns` is the frame's alone: no format reads it. So is `SelectedRecord`,
 the row last clicked, which the inspector lists whole, hidden columns
 included, offering to open any address in it `discover::datasets_in`

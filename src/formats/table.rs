@@ -17,7 +17,7 @@ use bevy::prelude::*;
 use crate::app::schedule::Stage;
 use crate::source::table::{
     ColumnWidths, HiddenColumns, SeenColumns, SelectedRecord, SourceTable, TableColumn,
-    TableFilters, TablePaging, TableSort,
+    TableFilters, TablePaging, TableSearch, TableSort,
 };
 
 use super::table_filters::{FilterIndex, narrow, offer, take_counts};
@@ -146,8 +146,11 @@ pub struct WholeTable {
     pub rows: Vec<Vec<String>>,
     /// Where each row falls as the table is sorted now.
     pub order: Vec<usize>,
-    /// Which rows the filters admit, by where they were read.
+    /// Which rows the filters and the search admit, by where they were read.
     admitted: Vec<bool>,
+    /// The text the rows were last searched for, and which of them it found.
+    searched: Option<String>,
+    found: Option<Vec<bool>>,
     /// The rows on offer, in `order` and admitted: `rows[shown[0]]` is the
     /// first on the first page.
     shown: Vec<usize>,
@@ -158,6 +161,8 @@ impl WholeTable {
         let order: Vec<usize> = (0..rows.len()).collect();
         WholeTable {
             admitted: vec![true; rows.len()],
+            searched: None,
+            found: None,
             shown: order.clone(),
             order,
             rows,
@@ -173,7 +178,9 @@ impl WholeTable {
 /// frame asking past the end lands on the last page instead of an empty one.
 ///
 /// Narrowed here too, and the filters counted again, whenever what is chosen
-/// in them changes; a change that was only to their counts is let pass.
+/// in them or searched for changes; a change that was only to their counts
+/// is let pass. Searched here as well: every row is in hand, so a search of
+/// them is as complete as one asked of an API.
 fn serve_pages(
     mut tables: Query<
         (
@@ -181,29 +188,46 @@ fn serve_pages(
             &mut TablePaging,
             &mut SourceTable,
             Ref<TableSort>,
+            Option<&TableSearch>,
             Option<(&mut TableFilters, &mut FilterIndex)>,
         ),
         Or<(
             Changed<TablePaging>,
             Changed<TableSort>,
             Changed<TableFilters>,
+            Changed<TableSearch>,
         )>,
     >,
 ) {
-    for (mut whole, mut paging, mut rows, sort, filtered) in &mut tables {
+    for (mut whole, mut paging, mut rows, sort, search, filtered) in &mut tables {
         let mut reshown = sort.is_changed();
         if sort.is_changed() {
             whole.order = order_of(&whole.rows, &rows.columns, &sort);
         }
-        if let Some((filters, mut index)) = filtered {
-            let terms = filters.chosen();
-            if index.applied.as_ref() != Some(&terms) {
-                let narrowed = narrow(&filters, &index, whole.rows.len());
-                whole.admitted = narrowed.admitted;
-                take_counts(filters, narrowed.counts);
-                index.applied = Some(terms);
+        let wanted = search.and_then(TableSearch::wanted).map(str::to_string);
+        let searched = whole.searched != wanted;
+        if searched {
+            whole.found = wanted.as_deref().map(|text| found_in(&whole.rows, text));
+            whole.searched = wanted;
+        }
+        match filtered {
+            Some((filters, mut index)) => {
+                let terms = filters.chosen();
+                if searched || index.applied.as_ref() != Some(&terms) {
+                    let narrowed =
+                        narrow(&filters, &index, whole.rows.len(), whole.found.as_deref());
+                    whole.admitted = narrowed.admitted;
+                    take_counts(filters, narrowed.counts);
+                    index.applied = Some(terms);
+                    reshown = true;
+                }
+            }
+            None if searched => {
+                let rows = whole.rows.len();
+                whole.admitted = whole.found.clone().unwrap_or_else(|| vec![true; rows]);
                 reshown = true;
             }
+            None => {}
         }
         if reshown {
             let shown: Vec<usize> = whole
@@ -235,6 +259,21 @@ fn serve_pages(
             rows.rows = wanted;
         }
     }
+}
+
+/// Which of `rows` hold every word of `text`, each in any cell and in any
+/// case, so "mouse cortex" finds a row saying one in one column and the
+/// other in the next.
+fn found_in(rows: &[Vec<String>], text: &str) -> Vec<bool> {
+    let words: Vec<String> = text.split_whitespace().map(str::to_lowercase).collect();
+    rows.iter()
+        .map(|row| {
+            let cells: Vec<String> = row.iter().map(|cell| cell.to_lowercase()).collect();
+            words
+                .iter()
+                .all(|word| cells.iter().any(|cell| cell.contains(word.as_str())))
+        })
+        .collect()
 }
 
 /// The order `rows` fall in when sorted by `sort`: each key in turn, the next
@@ -407,7 +446,10 @@ pub fn spawn_source(world: &mut World, table: Table) -> Entity {
         // the first page of it is what the frame draws.
         let whole = std::mem::take(&mut page.rows);
         page.rows = whole.iter().take(PAGE_ROWS).cloned().collect();
-        entity.insert(WholeTable::new(whole));
+        entity.insert((
+            WholeTable::new(whole),
+            TableSearch::new("Every word, each anywhere in a row, in any case."),
+        ));
         if let Some(filters) = table.filters {
             entity.insert(filters);
         }
@@ -608,6 +650,43 @@ mod tests {
         let page = app.world().get::<SourceTable>(source).unwrap();
         assert_eq!(page.first, 200);
         assert_eq!(page.rows.len(), 50);
+    }
+
+    #[test]
+    fn a_search_finds_every_word_anywhere_in_a_row_and_narrows_the_counts() {
+        let mut app = App::new();
+        app.add_systems(Update, serve_pages);
+        let table = Table::new(
+            "t",
+            "test",
+            headers(&["species", "region"]),
+            rows(&[
+                &["Mouse", "Visual cortex"],
+                &["Human", "Motor cortex"],
+                &["mouse", "Thalamus"],
+            ]),
+            None,
+        );
+        let source = spawn_source(app.world_mut(), table);
+        let names = |app: &App| -> Vec<String> {
+            let page = app.world().get::<SourceTable>(source).unwrap();
+            page.rows.iter().map(|row| row[1].clone()).collect()
+        };
+
+        app.world_mut().get_mut::<TableSearch>(source).unwrap().text = "MOUSE cortex".into();
+        app.update();
+        assert_eq!(names(&app), ["Visual cortex"]);
+        assert_eq!(
+            app.world().get::<TablePaging>(source).unwrap().total,
+            Some(1)
+        );
+        let filters = app.world().get::<TableFilters>(source).unwrap();
+        let counted: u64 = filters.columns[0].listed().iter().map(|it| it.count).sum();
+        assert_eq!(counted, 1, "the filters count only what was found");
+
+        app.world_mut().get_mut::<TableSearch>(source).unwrap().text = " ".into();
+        app.update();
+        assert_eq!(names(&app).len(), 3);
     }
 
     #[test]

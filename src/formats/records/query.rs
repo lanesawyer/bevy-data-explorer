@@ -8,10 +8,10 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-use super::kinds::{Facet, Kind, Vocabulary, all_of, nest, where_of};
+use super::kinds::{Asked, Facet, Kind, Vocabulary, all_of, nest};
 use crate::app::graphql::{self, Response};
 use crate::app::prefs::registry_token;
-use crate::source::table::{SortKey, TableFilterTerm};
+use crate::source::table::SortKey;
 
 /// The most the registry sends in one page. Asking for more is an error, not
 /// a short page, so a page of the table is asked for in halves of this.
@@ -67,14 +67,14 @@ fn after(offset: usize) -> Value {
     }
 }
 
-/// Read `rows` records from `offset`, narrowed by `terms` and ordered by
-/// `sort`, in one request of as many halves as that takes.
+/// Read `rows` records from `offset`, narrowed by what is `asked` and
+/// ordered by `sort`, in one request of as many halves as that takes.
 pub(super) async fn ask_page(
     endpoint: &str,
     kind: Kind,
     offset: usize,
     rows: usize,
-    terms: &[TableFilterTerm],
+    asked: &Asked,
     sort: &[SortKey],
 ) -> Result<Landed, String> {
     let halves = rows.div_ceil(HALF).max(1);
@@ -85,7 +85,7 @@ pub(super) async fn ask_page(
     );
     let mut fields = String::new();
     let mut variables = serde_json::Map::new();
-    variables.insert("where".into(), where_of(terms));
+    variables.insert("where".into(), asked.where_value());
     variables.insert("order".into(), kind.order(sort));
     for half in 0..halves {
         declared.push_str(&format!(", $after{half}: String"));
@@ -216,10 +216,11 @@ pub(super) struct Reading {
     pub(super) known: Option<Vec<String>>,
 }
 
-/// What each filter offers, and how many records hold each value under
-/// `terms`.
+/// What each filter offers, and how many records hold each value under what
+/// is `asked`.
 ///
-/// Counted under every term, the filter's own included, as a table's
+/// Counted under every term, the filter's own included, and under the
+/// search, as a table's
 /// filters are, so a value left unticked while another is ticked counts
 /// none: the count is what ticking it would put on screen. All of them in
 /// one request; every data asset type at once took nine seconds, which is
@@ -228,7 +229,7 @@ pub(super) async fn ask_values(
     endpoint: &str,
     kind: Kind,
     readings: Vec<Reading>,
-    terms: &[TableFilterTerm],
+    asked: &Asked,
 ) -> Result<Vec<(String, Vec<(String, u64)>)>, String> {
     let mut labeled = Vec::new();
     for reading in readings {
@@ -243,7 +244,7 @@ pub(super) async fn ask_values(
         };
         labeled.push((reading.path, values));
     }
-    let base = where_of(terms);
+    let base = asked.where_value();
     let wheres: Vec<Value> = labeled
         .iter()
         .flat_map(|(path, values)| {
@@ -318,7 +319,9 @@ mod tests {
                     column: CREATED.into(),
                     descending: true,
                 }];
-                let landed = ask_page(STAGE, kind, 100, 100, &[], &sort).await.unwrap();
+                let landed = ask_page(STAGE, kind, 100, 100, &Asked::default(), &sort)
+                    .await
+                    .unwrap();
                 assert_eq!(landed.nodes.len(), 100, "{kind:?}");
                 assert!(landed.total > 100);
                 let rows = kind.rows(&landed.nodes);
@@ -335,7 +338,7 @@ mod tests {
                 path: "specimenType.label".into(),
                 known: None,
             }];
-            let values = ask_values(STAGE, Kind::Specimens, readings, &[])
+            let values = ask_values(STAGE, Kind::Specimens, readings, &Asked::default())
                 .await
                 .unwrap();
             let (_, counts) = &values[0];
@@ -345,6 +348,27 @@ mod tests {
                     .iter()
                     .any(|(label, count)| label == "brain specimen" && *count > 0)
             );
+        });
+    }
+
+    #[test]
+    #[ignore = "reads the live BKP Registry, signed in"]
+    fn a_live_search_matches_names_anywhere_in_them() {
+        crate::app::net::block_on(async {
+            let asked = Asked {
+                terms: Vec::new(),
+                search: Some("NEUROGLANCER".into()),
+            };
+            let landed = ask_page(STAGE, Kind::DataAssets, 0, 100, &asked, &[])
+                .await
+                .unwrap();
+            println!("{} data assets named for Neuroglancer", landed.total);
+            assert!(landed.total > 100 && landed.total < 10_000);
+            assert!(landed.nodes.iter().all(|node| {
+                node["name"]
+                    .as_str()
+                    .is_some_and(|name| name.to_lowercase().contains("neuroglancer"))
+            }));
         });
     }
 }

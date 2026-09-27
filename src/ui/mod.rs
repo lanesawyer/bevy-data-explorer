@@ -25,6 +25,7 @@ pub mod settings;
 pub mod sidebar;
 pub mod table_filters;
 pub mod table_partitions;
+pub mod table_search;
 pub mod view_config;
 pub mod welcome;
 
@@ -56,6 +57,7 @@ impl Plugin for UiPlugin {
         .add_plugins((
             table_filters::TableFilterPlugin,
             table_partitions::TablePartitionPlugin,
+            table_search::TableSearchPlugin,
             welcome::WelcomePlugin,
             dashboards::DashboardsPlugin,
             log_panel::LogPanelPlugin,

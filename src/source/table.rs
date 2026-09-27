@@ -202,6 +202,37 @@ impl TableSort {
     }
 }
 
+/// Text a table's rows are searched for.
+///
+/// Another of the questions the grid asks and a format answers: the sidebar's
+/// field writes the text once typing settles, and whatever produced the rows
+/// searches every one of them, narrowing as the filters do: a table read
+/// whole in memory, or one asked of an API that searches. A source that
+/// could search only the page in hand never carries this, and no field is
+/// offered: that search would say a row is not there when it is merely on
+/// another page.
+#[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
+pub struct TableSearch {
+    pub text: String,
+    /// What the text is matched against, in the source's own words, shown
+    /// under the field: one searches names, another every word of a record.
+    pub about: String,
+}
+
+impl TableSearch {
+    pub fn new(about: impl Into<String>) -> Self {
+        TableSearch {
+            text: String::new(),
+            about: about.into(),
+        }
+    }
+
+    /// The text to search for, or nothing if there is none to search for.
+    pub fn wanted(&self) -> Option<&str> {
+        Some(self.text.trim()).filter(|text| !text.is_empty())
+    }
+}
+
 /// One kind of record a table holds, read apart from the others.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TablePartition {

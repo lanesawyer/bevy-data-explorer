@@ -38,7 +38,7 @@ use crate::source::properties::{CellColumns, CellProperties, ColorOverrides, Pro
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::table::{
     ColumnWidths, HiddenColumns, Record, SelectedRecord, SourceTable, TableFilters, TablePaging,
-    TablePartitions, TableSort,
+    TablePartitions, TableSearch, TableSort,
 };
 use crate::source::volume::SourceVolume;
 use crate::source::{DataSource, SourceExtent, SourceUrl};
@@ -123,6 +123,7 @@ pub struct TableAccess {
     partitions: Option<&'static mut TablePartitions>,
     filters: Option<&'static mut TableFilters>,
     sort: Option<&'static mut TableSort>,
+    search: Option<&'static mut TableSearch>,
     hidden: Option<&'static mut HiddenColumns>,
     widths: Option<&'static mut ColumnWidths>,
     record: Option<&'static mut SelectedRecord>,
@@ -621,6 +622,12 @@ fn restore_table(
     if let Some(sort) = table.sort.as_mut() {
         reread |= sort.set_if_neq(TableSort(saved.sort.clone()));
     }
+    if let Some(search) = table.search.as_mut()
+        && search.text != saved.search
+    {
+        search.text.clone_from(&saved.search);
+        reread = true;
+    }
     if let Some(hidden) = table.hidden.as_mut() {
         hidden.set_if_neq(HiddenColumns(saved.hidden.iter().cloned().collect()));
     }
@@ -630,7 +637,9 @@ fn restore_table(
     // The total is the unfiltered table's until the narrowed one is counted,
     // so a page past its end is left for the format to bring back.
     let page = match paging.total {
-        Some(_) if saved.filters.is_empty() => paging.clamped(saved.page),
+        Some(_) if saved.filters.is_empty() && saved.search.is_empty() => {
+            paging.clamped(saved.page)
+        }
         _ => saved.page,
     };
     if paging.page != page {
@@ -1020,6 +1029,7 @@ mod tests {
             TablePaging::new(100, Some(1000)),
             TableFilters::pending(),
             TableSort::default(),
+            TableSearch::new("Names"),
             HiddenColumns::default(),
             ColumnWidths::default(),
             SelectedRecord::default(),
@@ -1041,6 +1051,7 @@ mod tests {
                         hidden: vec!["Donor ID".into()],
                         widths: [("Donor ID".to_string(), 180.0)].into(),
                         record: Some(201),
+                        search: "dementia".into(),
                     }),
                     ..default()
                 },
@@ -1054,6 +1065,13 @@ mod tests {
         // Sorted with the filters rather than before them, for the same
         // reason the page is.
         assert!(app.world().get::<TableSort>(source).unwrap().0.is_empty());
+        assert!(
+            app.world()
+                .get::<TableSearch>(source)
+                .unwrap()
+                .text
+                .is_empty()
+        );
         assert!(app.world().get::<PendingSettings>(source).is_some());
 
         // The columns land.
@@ -1076,6 +1094,7 @@ mod tests {
         assert_eq!(world.get::<TablePaging>(source).unwrap().page, 2);
         let filters = world.get::<TableFilters>(source).unwrap();
         assert!(filters.columns[0].listed()[0].chosen);
+        assert_eq!(world.get::<TableSearch>(source).unwrap().text, "dementia");
         let sort = &world.get::<TableSort>(source).unwrap().0;
         assert_eq!(sort[0].column, "Age");
         assert!(sort[0].descending);

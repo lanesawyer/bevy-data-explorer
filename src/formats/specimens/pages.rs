@@ -39,6 +39,8 @@ pub struct SpecimenPages {
     /// The order the rows now on screen were asked for in, for the same
     /// reason.
     pub(super) sorted: Vec<SortKey>,
+    /// The text the rows now on screen were searched for, likewise.
+    searched: Option<String>,
     /// The column whose distribution is being asked about, and the ask.
     /// What it was asked under is kept, since that is what its histogram
     /// has been counted under.
@@ -76,6 +78,7 @@ impl SpecimenPages {
             reading: None,
             applied: Vec::new(),
             sorted,
+            searched: None,
             spanning: None,
             counted: HashMap::new(),
             counting: None,
@@ -121,11 +124,13 @@ pub(super) fn serve_pages(
         &mut SourceBusy,
         Option<&TableFilters>,
         Option<&TableSort>,
+        Option<&TableSearch>,
     )>,
 ) {
-    for (mut pages, mut paging, mut rows, mut busy, filters, sort) in &mut sources {
+    for (mut pages, mut paging, mut rows, mut busy, filters, sort, search) in &mut sources {
         let wanted_values = filters.map(TableFilters::chosen).unwrap_or_default();
         let wanted_sort = sort.map(|sort| sort.0.clone()).unwrap_or_default();
+        let wanted_search = search.and_then(TableSearch::wanted).map(str::to_string);
         if let Some((page, fetch)) = pages.fetching.as_mut()
             && let Some(answer) = fetch.take()
         {
@@ -165,8 +170,10 @@ pub(super) fn serve_pages(
 
         // Whatever narrows or sorts the table puts it back on its first page,
         // not this: a bookmark restores its filters and its page together.
-        let narrowed =
-            pages.reread || pages.applied != wanted_values || pages.sorted != wanted_sort;
+        let narrowed = pages.reread
+            || pages.applied != wanted_values
+            || pages.sorted != wanted_sort
+            || pages.searched != wanted_search;
 
         let wanted = paging.first();
         let asking = pages.fetching.as_ref().map(|(page, _)| page * paging.size);
@@ -174,12 +181,21 @@ pub(super) fn serve_pages(
             let (endpoint, scope) = (pages.endpoint.clone(), pages.scope.clone());
             let values = wanted_values.clone();
             let order = pages.plan.sort(&wanted_sort);
+            // A search is counted only when what it matches may have
+            // changed; turning its page cannot change that.
+            let searching = wanted_search.clone().map(|text| Searching {
+                text,
+                count: narrowed,
+            });
             pages.reread = false;
             pages.applied = wanted_values;
             pages.sorted = wanted_sort;
+            pages.searched = wanted_search;
             pages.fetching = Some((
                 paging.page,
-                fetching(async move { ask(&endpoint, &scope, wanted, &values, order).await }),
+                fetching(
+                    async move { ask(&endpoint, &scope, wanted, &values, order, searching).await },
+                ),
             ));
         }
         busy.set_if_neq(SourceBusy(pages.fetching.is_some()));

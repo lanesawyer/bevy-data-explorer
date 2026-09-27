@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use super::snapshot::{
     Bookmark, FocusState, FrameState, LayerState, OrbitState, RegionState, SourceState, VERSION,
-    ViewState, cells_of, channels_of, table_of,
+    ViewState, cells_of, channels_of, table_of, with_search,
 };
 use crate::catalog::RegionFocus;
 use crate::render::points::SourcePointSize;
@@ -16,7 +16,7 @@ use crate::source::properties::{
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::table::{
     ColumnWidths, HiddenColumns, SelectedRecord, SourceTable, TableFilters, TablePaging,
-    TablePartitions, TableSort,
+    TablePartitions, TableSearch, TableSort,
 };
 use crate::source::{ShowsSource, SourceUrl};
 use crate::view::FrameRegion;
@@ -234,7 +234,7 @@ fn source_state(source: EntityRef, url: String) -> SourceState {
             })
             .map(cells_of),
         table: source.get::<TablePaging>().and_then(|paging| {
-            table_of(
+            let state = table_of(
                 paging,
                 source.get::<TablePartitions>(),
                 source.get::<TableFilters>(),
@@ -245,7 +245,8 @@ fn source_state(source: EntityRef, url: String) -> SourceState {
                     .get::<SelectedRecord>()
                     .zip(source.get::<SourceTable>())
                     .and_then(|(record, table)| record.on_page(table).map(|row| table.first + row)),
-            )
+            );
+            with_search(state, source.get::<TableSearch>())
         }),
     }
 }

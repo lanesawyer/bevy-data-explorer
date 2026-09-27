@@ -527,7 +527,9 @@ mod tests {
                 project: PROJECT.into(),
                 kind: Some(donor.id.clone()),
             };
-            let page = ask(endpoint, &scope, 0, &[], Value::Null).await.unwrap();
+            let page = ask(endpoint, &scope, 0, &[], Value::Null, None)
+                .await
+                .unwrap();
             assert_eq!(page.counted(), donor.count.map(|it| it as usize));
             let rows = plan.rows(&page.aio_specimen);
             let headers = plan.headers();

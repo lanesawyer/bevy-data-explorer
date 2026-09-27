@@ -20,6 +20,9 @@
 //! union of the features seen across the page, and a specimen with nothing
 //! under a feature leaves that cell empty — which is the honest answer, and
 //! what a spreadsheet of the same records would show.
+//!
+//! A search is the platform's own: every word of every specimen, matched as
+//! its search box matches them, rather than the page in hand.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -34,7 +37,7 @@ use crate::source::properties::NumericRange;
 use crate::source::table::{
     RecordFile, RecordFiles, RecordImage, RecordImages, RecordImagesState, SelectedRecord, SortKey,
     SourceTable, TableColumn, TableFilter, TableFilterKind, TableFilterTerm, TableFilterValue,
-    TableFilters, TablePaging, TablePartition, TablePartitions, TableSort,
+    TableFilters, TablePaging, TablePartition, TablePartitions, TableSearch, TableSort,
 };
 use crate::source::{SourceBusy, SourceStatus};
 
@@ -126,7 +129,7 @@ fn label_for(project: &str, title: Option<&str>) -> String {
 pub async fn read(endpoint: &str, project: &str) -> Result<Specimens, String> {
     let mut scope = Scope::project(project);
     let (answer, layouts) = futures::join!(
-        ask(endpoint, &scope, 0, &[], Value::Null),
+        ask(endpoint, &scope, 0, &[], Value::Null, None),
         ask_layout(endpoint, project)
     );
     let mut answer = answer?;
@@ -150,7 +153,7 @@ pub async fn read(endpoint: &str, project: &str) -> Result<Specimens, String> {
         images,
     } = layout;
     if scope.kind.is_some() || !sort.is_empty() {
-        let first = ask(endpoint, &scope, 0, &[], plan.sort(&sort)).await?;
+        let first = ask(endpoint, &scope, 0, &[], plan.sort(&sort), None).await?;
         answer.aio_specimen = first.aio_specimen;
         answer.total = first.total;
     }
@@ -262,6 +265,11 @@ pub fn spawn_source(world: &mut World, specimens: Specimens) -> Entity {
         PickedSpecimen::new(images),
         RecordImages::default(),
         RecordFiles::default(),
+        TableSearch::new(
+            "Whole words in any column, as the platform searches: * ends a word \
+             early, quotes keep words together, AND wants both. The filters' \
+             counts leave the search out.",
+        ),
     ));
     source
 }

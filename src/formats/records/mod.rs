@@ -14,7 +14,8 @@
 //! processes and 17.8 million data assets on 2026-09-27 — so a page is read
 //! at a time, ordered and narrowed at the registry. A picked record's links
 //! are read when it is picked: the processes a specimen or data asset went
-//! into and came out of, and what a process took in and put out.
+//! into and came out of, and what a process took in and put out. A search
+//! matches names, at the registry, so it finds a record on any page.
 
 use std::collections::HashMap;
 
@@ -26,7 +27,7 @@ use crate::app::schedule::Stage;
 use crate::source::SourceBusy;
 use crate::source::table::{
     RelatedRecords, SelectedRecord, SortKey, SourceTable, TableFilter, TableFilterKind,
-    TableFilterTerm, TableFilterValue, TableFilters, TablePaging, TableSort,
+    TableFilterValue, TableFilters, TablePaging, TableSearch, TableSort,
 };
 
 use super::table::{MAX_CHARS, PAGE_ROWS, Table};
@@ -40,7 +41,7 @@ mod related;
 pub use kinds::Kind;
 
 use filters::serve_values;
-use kinds::{CREATED, ID};
+use kinds::{Asked, CREATED, ID};
 use pages::serve_pages;
 use query::{Landed, ask_page};
 use related::serve_related;
@@ -81,7 +82,7 @@ fn opening_sort() -> Vec<SortKey> {
 /// Read the first page of a kind of record, and how many there are.
 pub async fn read(endpoint: &str, kind: Kind) -> Result<Records, String> {
     let sort = opening_sort();
-    let landed = ask_page(endpoint, kind, 0, PAGE_ROWS, &[], &sort).await?;
+    let landed = ask_page(endpoint, kind, 0, PAGE_ROWS, &Asked::default(), &sort).await?;
     let mut table = Table::paged(
         format!("{} (BKP Registry)", kind.title()),
         format!("BKP Registry {}", kind.title().to_lowercase()),
@@ -121,15 +122,15 @@ pub struct RecordPages {
     kind: Kind,
     /// The page being fetched, and the fetch, while one is in flight.
     fetching: Option<(usize, Fetching<Result<Landed, String>>)>,
-    /// The values in force on the rows now on screen, so a tick that changes
-    /// nothing does not refetch and one that does is noticed.
-    applied: Vec<TableFilterTerm>,
+    /// The values and search in force on the rows now on screen, so a tick
+    /// that changes nothing does not refetch and one that does is noticed.
+    applied: Asked,
     /// The order the rows now on screen were asked for in, likewise.
     sorted: Vec<SortKey>,
     /// Filters being read, what they are read under, and the read.
     reading: Option<ValuesRead>,
     /// What each filter's counts were counted under, by path.
-    counted: HashMap<String, Vec<TableFilterTerm>>,
+    counted: HashMap<String, Asked>,
     /// The record whose links are shown or being fetched, and the fetch.
     picked: Option<String>,
     linking: Option<Fetching<Result<Value, String>>>,
@@ -137,7 +138,7 @@ pub struct RecordPages {
 
 type ValuesRead = (
     Vec<String>,
-    Vec<TableFilterTerm>,
+    Asked,
     Fetching<Result<Vec<(String, Vec<(String, u64)>)>, String>>,
 );
 
@@ -178,12 +179,13 @@ pub fn spawn_source(world: &mut World, records: Records) -> Entity {
     world.entity_mut(source).insert((
         TableSort(sort.clone()),
         TableFilters::ready(filters_of(kind)),
+        TableSearch::new("Names holding the text, in any case."),
         RelatedRecords::default(),
         RecordPages {
             endpoint,
             kind,
             fetching: None,
-            applied: Vec::new(),
+            applied: Asked::default(),
             sorted: sort,
             reading: None,
             counted: HashMap::new(),
@@ -192,6 +194,15 @@ pub fn spawn_source(world: &mut World, records: Records) -> Entity {
         },
     ));
     source
+}
+
+/// What is asked of a table now: the values ticked and the text searched
+/// for.
+fn asked_of(filters: &TableFilters, search: &TableSearch) -> Asked {
+    Asked {
+        terms: filters.chosen(),
+        search: search.wanted().map(str::to_string),
+    }
 }
 
 /// The id of the record picked out of a table, once it has been read.

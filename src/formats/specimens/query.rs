@@ -3,29 +3,62 @@
 
 use super::*;
 
+/// A page of specimens: the project's title, how many match, and the page.
+///
+/// Read with the platform's search in place of its listing when there is
+/// text to search for. The search is asked for twice, since it has no count
+/// of its own: once for the page, and once for as many of its matches as it
+/// will send — which is also as far into them as it will page — named and no
+/// more, to count them. That second read is left out when only the page has
+/// turned, since the count cannot have changed.
 pub(super) const QUERY: &str = "query($project: [Filter], $specimens: [Filter], $sort: [Sort],
-  $groupBy: [groupBy_List_String_pattern_id], $limit: Int, $offset: Int) {
+  $groupBy: [groupBy_List_String_pattern_id], $limit: Int, $offset: Int,
+  $search: String!, $searching: Boolean!, $countHits: Boolean!, $window: Int) {
   project: dataCollectionProjectInventory(filter: $project, limit: 1) {
     referenceId
     title
   }
-  total: aio_specimenCounts(filter: $specimens, groupBy: $groupBy) {
+  total: aio_specimenCounts(filter: $specimens, groupBy: $groupBy) @skip(if: $searching) {
     count
   }
-  aio_specimen(filter: $specimens, sort: $sort, limit: $limit, offset: $offset) {
+  hits: aio_specimenSearch(query: $search, filter: $specimens, limit: $window)
+    @include(if: $countHits) {
     cRID { symbol }
-    specimenType { name }
-    annotations {
-      featureType { referenceId title }
-      taxons { symbol }
-    }
-    measurements {
-      featureType { referenceId title }
-      value
-      unit
-    }
+  }
+  aio_specimen(filter: $specimens, sort: $sort, limit: $limit, offset: $offset)
+    @skip(if: $searching) {
+    ...Row
+  }
+  found: aio_specimenSearch(query: $search, filter: $specimens, sort: $sort, limit: $limit,
+    offset: $offset) @include(if: $searching) {
+    ...Row
+  }
+}
+fragment Row on AIO_Specimen {
+  cRID { symbol }
+  specimenType { name }
+  annotations {
+    featureType { referenceId title }
+    taxons { symbol }
+  }
+  measurements {
+    featureType { referenceId title }
+    value
+    unit
   }
 }";
+
+/// The most matches the platform's search sends, and so the furthest into
+/// them it pages: past this it refuses the request outright ("Result window
+/// is too large"), measured 2026-09-27.
+pub(super) const SEARCH_WINDOW: usize = 10_000;
+
+/// Text to search specimens for, and whether to count what it matches.
+#[derive(Clone, Debug)]
+pub(super) struct Searching {
+    pub(super) text: String,
+    pub(super) count: bool,
+}
 
 /// Read a list that may arrive as `null` rather than as an empty one.
 ///
@@ -49,6 +82,12 @@ pub(super) struct Data {
     pub(super) total: Vec<Aggregate>,
     #[serde(default, deserialize_with = "maybe_list")]
     pub(super) aio_specimen: Vec<Specimen>,
+    /// A search's page, which becomes `aio_specimen` once read.
+    #[serde(default, deserialize_with = "maybe_list")]
+    found: Vec<Specimen>,
+    /// A search's matches, named and no more, when they were counted.
+    #[serde(default)]
+    hits: Option<Vec<Value>>,
 }
 
 #[derive(Deserialize)]
@@ -62,6 +101,9 @@ impl Data {
     /// Grouped by the project itself, so there is one figure to take; summed
     /// rather than indexed in case the grouping ever splits.
     pub(super) fn counted(&self) -> Option<usize> {
+        if let Some(hits) = &self.hits {
+            return Some(hits.len());
+        }
         let total: f64 = self.total.iter().filter_map(|it| it.count).sum();
         (total > 0.0).then_some(total as usize)
     }
@@ -134,12 +176,17 @@ pub(super) struct Taxon {
 ///
 /// `sort` is the platform's own list of fields and orders, as [`Plan::sort`]
 /// writes it.
+///
+/// `search` reads the page through the platform's search instead, which
+/// matches whole words in any of a specimen's values, and takes `*`, quotes
+/// and `AND` as a search box on the platform does.
 pub(super) async fn ask(
     endpoint: &str,
     scope: &Scope,
     offset: usize,
     terms: &[TableFilterTerm],
     sort: Value,
+    search: Option<Searching>,
 ) -> Result<Data, String> {
     let variables = json!({
         "project": [{ "field": "referenceId", "operator": "EQ", "value": scope.project }],
@@ -148,8 +195,16 @@ pub(super) async fn ask(
         "groupBy": ["projectReferenceIds"],
         "limit": PAGE,
         "offset": offset,
+        "search": search.as_ref().map_or("", |it| it.text.as_str()),
+        "searching": search.is_some(),
+        "countHits": search.as_ref().is_some_and(|it| it.count),
+        "window": SEARCH_WINDOW,
     });
-    graphql::ask(endpoint, QUERY, variables).await
+    let mut data: Data = graphql::ask(endpoint, QUERY, variables).await?;
+    if search.is_some() {
+        data.aio_specimen = std::mem::take(&mut data.found);
+    }
+    Ok(data)
 }
 
 /// One group of an `aio_specimenCounts` answer: a value and how many rows
@@ -376,5 +431,46 @@ mod tests {
         assert!(data.aio_specimen[0].annotations.is_empty());
         assert!(data.aio_specimen[0].measurements.is_empty());
         assert_eq!(data.counted(), None);
+    }
+
+    #[test]
+    #[ignore = "reads the live SEA-AD donors"]
+    fn a_live_search_matches_words_and_is_counted() {
+        const PROJECT: &str = "JGN327NUXRZSHEV88TN";
+        let endpoint = "https://idf-api-prod.aibs-idk-prod.net/";
+        let scope = Scope::project(PROJECT);
+        crate::app::net::block_on(async {
+            let search = |text: &str, count: bool| Searching {
+                text: text.into(),
+                count,
+            };
+            let both = ask(
+                endpoint,
+                &scope,
+                0,
+                &[],
+                Value::Null,
+                Some(search("Female AND Dementia", true)),
+            )
+            .await
+            .unwrap();
+            let counted = both.counted().unwrap();
+            println!("{counted} female donors with dementia");
+            assert!(counted > 0 && counted < 84);
+            assert_eq!(both.aio_specimen.len(), counted.min(PAGE));
+            // Turning the page does not count again.
+            let paged = ask(
+                endpoint,
+                &scope,
+                0,
+                &[],
+                Value::Null,
+                Some(search("Female", false)),
+            )
+            .await
+            .unwrap();
+            assert_eq!(paged.counted(), None);
+            assert!(!paged.aio_specimen.is_empty());
+        });
     }
 }

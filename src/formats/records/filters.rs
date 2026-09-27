@@ -1,18 +1,20 @@
 //! What a table of records can be narrowed by: every filter offered at
 //! once, what each offers read only when it is opened, and every one read
-//! counted again whenever what is ticked changes.
+//! counted again whenever what is ticked or searched for changes.
 
 use super::query::{Reading, ask_values};
 use super::*;
 
 /// Read the filters that are open and unread, count again the ones read
-/// under other ticks than those now in force, and put what comes back into
+/// under other ticks or another search than those now in force, and put what comes back into
 /// them.
 ///
 /// One request at a time, carrying every filter that wants reading when it
 /// goes; one wanted while it is out waits for the next.
-pub(super) fn serve_values(mut sources: Query<(&mut RecordPages, &mut TableFilters)>) {
-    for (mut pages, mut filters) in &mut sources {
+pub(super) fn serve_values(
+    mut sources: Query<(&mut RecordPages, &mut TableFilters, &TableSearch)>,
+) {
+    for (mut pages, mut filters, search) in &mut sources {
         if let Some((_, _, fetch)) = pages.reading.as_mut()
             && let Some(answer) = fetch.take()
         {
@@ -44,7 +46,7 @@ pub(super) fn serve_values(mut sources: Query<(&mut RecordPages, &mut TableFilte
         if pages.reading.is_some() || filters.pending {
             continue;
         }
-        let terms = filters.chosen();
+        let now = asked_of(&filters, search);
         let readings: Vec<Reading> = filters
             .columns
             .iter()
@@ -55,7 +57,7 @@ pub(super) fn serve_values(mut sources: Query<(&mut RecordPages, &mut TableFilte
                         known: None,
                     });
                 }
-                let stale = column.read() && pages.counted.get(&column.id) != Some(&terms);
+                let stale = column.read() && pages.counted.get(&column.id) != Some(&now);
                 stale.then(|| Reading {
                     path: column.id.clone(),
                     known: Some(
@@ -72,10 +74,10 @@ pub(super) fn serve_values(mut sources: Query<(&mut RecordPages, &mut TableFilte
             continue;
         }
         let paths = readings.iter().map(|it| it.path.clone()).collect();
-        let (endpoint, kind, asked) = (pages.endpoint.clone(), pages.kind, terms.clone());
+        let (endpoint, kind, asked) = (pages.endpoint.clone(), pages.kind, now.clone());
         pages.reading = Some((
             paths,
-            terms,
+            now,
             fetching(async move { ask_values(&endpoint, kind, readings, &asked).await }),
         ));
     }
@@ -85,14 +87,9 @@ pub(super) fn serve_values(mut sources: Query<(&mut RecordPages, &mut TableFilte
 /// offers, keeping what is ticked.
 ///
 /// A value nothing holds is not offered at all when it is first read under
-/// no ticks: the registry declares types it has no records of, and a third
-/// of the data asset types are that.
-fn take_values(
-    filters: &mut TableFilters,
-    path: &str,
-    counts: Vec<(String, u64)>,
-    asked: &[TableFilterTerm],
-) {
+/// no ticks and no search: the registry declares types it has no records
+/// of, and a third of the data asset types are that.
+fn take_values(filters: &mut TableFilters, path: &str, counts: Vec<(String, u64)>, asked: &Asked) {
     let Some(column) = filters.columns.iter_mut().find(|it| it.id == path) else {
         return;
     };
@@ -108,7 +105,7 @@ fn take_values(
             *kind = TableFilterKind::Values(Some(
                 counts
                     .into_iter()
-                    .filter(|(_, count)| *count > 0 || !asked.is_empty())
+                    .filter(|(_, count)| *count > 0 || *asked != Asked::default())
                     .map(|(label, count)| TableFilterValue {
                         label,
                         count,
@@ -135,7 +132,7 @@ mod tests {
             &mut filters,
             "status",
             vec![("PUBLISHED".into(), 38_562), ("RETRACTED".into(), 0)],
-            &[],
+            &Asked::default(),
         );
         let labels: Vec<&str> = filters.columns[1]
             .listed()
@@ -152,10 +149,13 @@ mod tests {
             &mut filters,
             "status",
             vec![("PUBLISHED".into(), 10), ("ARCHIVED".into(), 20)],
-            &[],
+            &Asked::default(),
         );
         filters.columns[1].listed_mut()[0].chosen = true;
-        let ticked = filters.chosen();
+        let ticked = Asked {
+            terms: filters.chosen(),
+            search: None,
+        };
         take_values(
             &mut filters,
             "status",

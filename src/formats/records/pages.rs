@@ -4,6 +4,9 @@
 use super::*;
 
 /// Ask for the page a frame has turned to, and take it when it lands.
+///
+/// A search or a tick that changes what is asked puts the table back on its
+/// first page, which the sidebar does as it writes them.
 pub(super) fn serve_pages(
     mut sources: Query<(
         &mut RecordPages,
@@ -11,11 +14,12 @@ pub(super) fn serve_pages(
         &mut SourceTable,
         &mut SourceBusy,
         &TableFilters,
+        &TableSearch,
         &TableSort,
     )>,
 ) {
-    for (mut pages, mut paging, mut rows, mut busy, filters, sort) in &mut sources {
-        let wanted_values = filters.chosen();
+    for (mut pages, mut paging, mut rows, mut busy, filters, search, sort) in &mut sources {
+        let wanted_values = asked_of(filters, search);
         let wanted_sort = sort.0.clone();
         if let Some((page, fetch)) = pages.fetching.as_mut()
             && let Some(answer) = fetch.take()

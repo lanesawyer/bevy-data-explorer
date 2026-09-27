@@ -908,6 +908,11 @@ unrelated things in one cell. The same goes the other way: a table is never offe
 layer over another frame, a frame repointed at a table drops its layers, and a
 request to layer one — from a bookmark, say — is refused.
 
+A table read whole is searched whole: every word typed must appear
+somewhere in a row, in any case, and the filters count only what was found.
+A table asked of an API a page at a time is searched there instead, or not
+at all — never a page at a time, which would miss every other page.
+
 ### Parquet tables
 
 Read whole and without Arrow, row by row, into the same table a CSV becomes.
@@ -1075,6 +1080,14 @@ project carrying only `BKP_DATASET`, `OME_ZARR`, `SPECIMEN_FILES` or nothing
 answered with none. `SPECIMEN_FILES` is the trap — it reads as though it
 should qualify, it does not, and no project carries it alone.
 
+A search is the platform's own `aio_specimenSearch`, over every word of
+every specimen: words rather than substrings, so `H20.33` finds nothing and
+`H20*` finds 37, with quotes and `AND` as its own search box takes them. It
+has no count, so the matches are read once more, named and no more, to
+count them — and only when the search or filters change, not as the page
+turns. It sends at most 10,000, which is also as far into them as it will
+page. The filters' counts cannot be searched and leave the search out.
+
 ### BKP Registry records
 
 The Pre-Public Data Catalog's three pages, read from the registry's GraphQL
@@ -1109,6 +1122,10 @@ Measured against the stage registry on 2026-09-27:
 - **Every process is of type Process.** The registry declares Acquisition,
   Procedure and Processing too, and holds none of them, so a process's type
   is neither shown at first nor filtered by; its kind is its schema's name.
+
+A search matches names holding the text, in any case, and narrows the
+filters' counts too; the registry answered one in under a second across all
+17.8 million data assets.
 
 A picked row's links are read when it is picked, one request each: the
 processes a specimen or data asset was input to and output of, and the

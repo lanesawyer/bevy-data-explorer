@@ -183,7 +183,16 @@ pub(super) enum Recounted {
 ///
 /// One pass over the rows, noting which columns turn each one away; a row
 /// turned away by one span alone still counts toward that span's histogram.
-pub(super) fn narrow(filters: &TableFilters, index: &FilterIndex, rows: usize) -> Narrowed {
+///
+/// `found` is which rows a search found, when there is one. A row it did not
+/// find is turned away before any column is asked, so it counts toward
+/// nothing: what every filter offers is counted among the rows searched for.
+pub(super) fn narrow(
+    filters: &TableFilters,
+    index: &FilterIndex,
+    rows: usize,
+    found: Option<&[bool]>,
+) -> Narrowed {
     enum Test<'a> {
         None,
         Values(Vec<bool>, &'a [u32]),
@@ -211,6 +220,9 @@ pub(super) fn narrow(filters: &TableFilters, index: &FilterIndex, rows: usize) -
     const NONE: usize = usize::MAX - 1;
     let turned: Vec<usize> = (0..rows)
         .map(|row| {
+            if found.is_some_and(|found| !found[row]) {
+                return SEVERAL;
+            }
             let mut by = NONE;
             for (at, test) in tests.iter().enumerate() {
                 let admits = match test {
@@ -367,7 +379,7 @@ mod tests {
         filters.columns[0].listed_mut()[0].chosen = true; // cortex
         filters.columns[1].span_mut().unwrap().to = 3.5;
 
-        let narrowed = narrow(&filters, &index, rows.len());
+        let narrowed = narrow(&filters, &index, rows.len(), None);
         assert_eq!(narrowed.admitted, [true, false, false, false, false]);
         let Recounted::Values(counts) = &narrowed.counts[0] else {
             panic!("words are counted by value")
@@ -385,7 +397,7 @@ mod tests {
     fn nothing_chosen_admits_every_row() {
         let (columns, rows) = table();
         let (filters, index) = offer(&columns, &rows);
-        let narrowed = narrow(&filters, &index, rows.len());
+        let narrowed = narrow(&filters, &index, rows.len(), None);
         assert!(narrowed.admitted.iter().all(|admitted| *admitted));
     }
 
@@ -408,7 +420,7 @@ mod tests {
         filters.columns[0].span_mut().unwrap().to = 40.0;
 
         let started = std::time::Instant::now();
-        let narrowed = narrow(&filters, &index, rows.len());
+        let narrowed = narrow(&filters, &index, rows.len(), None);
         assert_eq!(narrowed.admitted.len(), rows.len());
         assert!(
             started.elapsed() < std::time::Duration::from_secs(1),

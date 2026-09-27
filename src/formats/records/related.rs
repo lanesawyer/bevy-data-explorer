@@ -200,7 +200,9 @@ mod tests {
         use super::super::query::ask_page;
         crate::app::net::block_on(async {
             for kind in Kind::ALL {
-                let landed = ask_page(STAGE, kind, 0, 50, &[], &[]).await.unwrap();
+                let landed = ask_page(STAGE, kind, 0, 50, &Default::default(), &[])
+                    .await
+                    .unwrap();
                 let mut linked = 0;
                 for node in &landed.nodes {
                     let id = node["id"].as_str().unwrap();

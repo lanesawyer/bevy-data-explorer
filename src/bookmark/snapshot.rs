@@ -19,7 +19,7 @@ use crate::source::properties::{
 use crate::source::stack::SliceStack;
 use crate::source::table::{
     ColumnWidths, HiddenColumns, SortKey, TableFilterKind, TableFilters, TablePaging,
-    TablePartitions, TableSort,
+    TablePartitions, TableSearch, TableSort,
 };
 
 /// The format a bookmark is written in. Raised whenever a field changes
@@ -105,6 +105,9 @@ pub struct TableState {
     /// zero, which the page, filters and sort above put back where it was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record: Option<usize>,
+    /// The text the rows were searched for.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub search: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -530,6 +533,7 @@ pub fn table_of(
         hidden,
         widths,
         record,
+        search: String::new(),
     };
     (state != TableState::default()).then_some(state)
 }
@@ -548,6 +552,18 @@ pub fn ask_saved_columns(filters: &mut TableFilters, saved: &[ColumnFilter], ask
         coming |= column.awaiting();
     }
     coming
+}
+
+/// A table's state with what it was searched for: saved even when nothing
+/// else about the table is, since a search alone narrows it.
+pub fn with_search(state: Option<TableState>, search: Option<&TableSearch>) -> Option<TableState> {
+    match search.and_then(TableSearch::wanted) {
+        Some(text) => Some(TableState {
+            search: text.to_string(),
+            ..state.unwrap_or_default()
+        }),
+        None => state,
+    }
 }
 
 /// Put saved filters onto a table.
@@ -904,6 +920,20 @@ mod tests {
 
         let text = serde_json::to_string(&saved).unwrap();
         assert_eq!(serde_json::from_str::<TableState>(&text).unwrap(), saved);
+    }
+
+    #[test]
+    fn a_tables_search_is_saved_on_its_own() {
+        let mut search = TableSearch::new("Names");
+        assert_eq!(with_search(None, Some(&search)), None);
+        search.text = "  neuroglancer ".into();
+        let saved = with_search(None, Some(&search)).unwrap();
+        assert_eq!(saved.search, "neuroglancer");
+
+        let text = serde_json::to_string(&saved).unwrap();
+        assert_eq!(serde_json::from_str::<TableState>(&text).unwrap(), saved);
+        let old: TableState = serde_json::from_str(r#"{"page":2}"#).unwrap();
+        assert!(old.search.is_empty());
     }
 
     #[test]

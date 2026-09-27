@@ -35,6 +35,7 @@ use crate::ui::cell_panel::values::{SearchedRows, spawn_searched_list};
 use crate::ui::cell_panel::{ValueColumn, spawn_value_row};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::ui::table_partitions::spawn_partition_row;
+use crate::ui::table_search::spawn_search_row;
 use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
@@ -157,7 +158,10 @@ pub fn spawn_filter_section(mut commands: Commands, content: Query<Entity, With<
     commands.entity(parent).add_child(accordion.section);
     commands.entity(accordion.body).insert(FilterBody);
     let partitions = spawn_partition_row(&mut commands);
-    commands.entity(accordion.body).add_child(partitions);
+    let search = spawn_search_row(&mut commands);
+    commands
+        .entity(accordion.body)
+        .add_children(&[partitions, search]);
 
     let clear = spawn_header_button(&mut commands, accordion.header, Icon::FilterX);
     commands.entity(clear).insert(ClearFiltersButton);
