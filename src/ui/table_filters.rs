@@ -34,6 +34,7 @@ use crate::ui::cell_panel::range::{RangeOwner, spawn_range_control};
 use crate::ui::cell_panel::values::{SearchedRows, spawn_searched_list};
 use crate::ui::cell_panel::{ValueColumn, spawn_value_row};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
+use crate::ui::table_export::spawn_table_export_menu;
 use crate::ui::table_partitions::spawn_partition_row;
 use crate::ui::table_search::spawn_search_row;
 use crate::view::SelectedSource;
@@ -165,6 +166,8 @@ pub fn spawn_filter_section(mut commands: Commands, content: Query<Entity, With<
 
     let clear = spawn_header_button(&mut commands, accordion.header, Icon::FilterX);
     commands.entity(clear).insert(ClearFiltersButton);
+
+    spawn_table_export_menu(&mut commands, accordion.header);
 
     let menu = spawn_menu(&mut commands, accordion.header);
     commands.entity(menu).insert(ColumnMenu);

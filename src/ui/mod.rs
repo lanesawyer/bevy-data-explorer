@@ -20,9 +20,11 @@ pub mod help;
 pub mod inspector;
 pub mod layers;
 pub mod log_panel;
+pub mod record_export;
 pub mod selection;
 pub mod settings;
 pub mod sidebar;
+pub mod table_export;
 pub mod table_filters;
 pub mod table_partitions;
 pub mod table_search;
@@ -56,6 +58,7 @@ impl Plugin for UiPlugin {
         // tuple caps at twenty.
         .add_plugins((
             table_filters::TableFilterPlugin,
+            table_export::TableExportPlugin,
             table_partitions::TablePartitionPlugin,
             table_search::TableSearchPlugin,
             welcome::WelcomePlugin,
@@ -63,6 +66,7 @@ impl Plugin for UiPlugin {
             log_panel::LogPanelPlugin,
             help::HelpPlugin,
             settings::SettingsPlugin,
+            record_export::RecordExportPlugin,
         ))
         .add_systems(Update, center_modals.in_set(Stage::Chrome));
     }

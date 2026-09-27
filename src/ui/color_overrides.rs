@@ -43,7 +43,7 @@ use crate::app::schedule::{Boot, Stage};
 use crate::source::channels::SourceChannels;
 use crate::source::properties::{CellProperties, ColorOverrides, Provenance, default_color};
 use crate::ui::cell_panel::SWATCH_PX;
-use crate::ui::color_export::spawn_export_menu;
+use crate::ui::color_export::spawn_color_export_menu;
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedSource;
 use crate::widgets::space;
@@ -310,7 +310,7 @@ fn spawn_color_overrides(mut commands: Commands, content: Query<Entity, With<Sid
     ));
     commands.entity(parent).add_child(accordion.section);
     commands.entity(accordion.body).insert(OverridesBody);
-    spawn_export_menu(&mut commands, accordion.header, true);
+    spawn_color_export_menu(&mut commands, accordion.header, true);
     let reset = spawn_header_button(&mut commands, accordion.header, Icon::RotateCcw);
     commands.entity(reset).insert(ResetAllOverrides);
 

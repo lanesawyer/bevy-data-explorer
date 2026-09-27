@@ -7,6 +7,7 @@ mod accordion;
 mod button_text;
 mod caption;
 mod dock;
+mod export_menu;
 mod field_well;
 mod frame_input;
 mod icons;
@@ -33,6 +34,7 @@ pub use dock::{
     AddDock, Dock, DockEdge, DockWidth, HANDLE_PX, ResetDockSizes, dock_band, dock_handle,
     hold_drag_cursor, place_right_dock,
 };
+pub use export_menu::{close_menu_holding, spawn_export_menu};
 pub use field_well::field_well;
 pub use frame_input::BlocksFrameInput;
 pub use icons::{Icon, button_icon, icon_text};

@@ -16,7 +16,8 @@
 //! and open larger when clicked; files held about it, such as an OME-Zarr
 //! store, are listed with the same copy and open buttons as a field. So are
 //! the records it links to — the processes a BKP Registry specimen went
-//! into, the data assets a process wrote — under what links them.
+//! into, the data assets a process wrote — under what links them. Fields,
+//! Files and Related each export from their header (`record_export`).
 
 use bevy::clipboard::Clipboard;
 use bevy::prelude::*;
@@ -33,6 +34,7 @@ use crate::source::table::{
     SelectedRecord,
 };
 use crate::source::{DataSource, SourceStatus};
+use crate::ui::record_export::{RecordExportMenu, spawn_record_export_menu};
 use crate::view::{DatasetRequest, DatasetTarget, PanelRequest, SelectedSource};
 use crate::widgets::space;
 use crate::widgets::{
@@ -293,6 +295,7 @@ pub fn rebuild_record(
     records: Query<&SelectedRecord>,
     mut lists: Query<(Entity, &mut Node), With<InspectorRecord>>,
     sections: Query<(&Accordion, &RecordSection)>,
+    export_menus: Query<Entity, With<RecordExportMenu>>,
     mut shown: Local<Option<Record>>,
 ) {
     let Ok((list, mut node)) = lists.single_mut() else {
@@ -314,6 +317,9 @@ pub fn rebuild_record(
             .is_none_or(|(accordion, _)| accordion.open)
     };
     commands.entity(list).despawn_children();
+    for menu in &export_menus {
+        commands.entity(menu).despawn();
+    }
     let display = if record.is_some() {
         Display::Flex
     } else {
@@ -342,6 +348,7 @@ pub fn rebuild_record(
         let section = spawn_accordion(&mut commands, title, open(part), SectionLevel::Pane);
         commands.entity(section.section).insert(RecordSection(part));
         commands.entity(section.body).insert(RecordBody(part));
+        spawn_record_export_menu(&mut commands, section.header, part);
         if part == RecordPart::Fields {
             for (name, value) in record.fields.iter().flatten() {
                 let field = spawn_field(&mut commands, name, value);

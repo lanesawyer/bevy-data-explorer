@@ -22,7 +22,7 @@ pub struct Table {
     pub title: String,
     /// The file name the dialog suggests, without an extension.
     pub stem: String,
-    pub columns: Vec<&'static str>,
+    pub columns: Vec<String>,
     pub rows: Vec<Vec<Option<String>>>,
 }
 
@@ -80,7 +80,7 @@ impl Format {
 
 impl Serialize for Table {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        struct Row<'a>(&'a [&'static str], &'a [Option<String>]);
+        struct Row<'a>(&'a [String], &'a [Option<String>]);
         impl Serialize for Row<'_> {
             fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 let mut map = serializer.serialize_map(Some(self.0.len()))?;
@@ -172,7 +172,9 @@ mod tests {
         Table {
             title: "Export colors".into(),
             stem: "colors".into(),
-            columns: vec!["category", "displayName", "refId", "color"],
+            columns: ["category", "displayName", "refId", "color"]
+                .map(String::from)
+                .to_vec(),
             rows: vec![
                 vec![
                     Some("Class".into()),

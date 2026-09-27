@@ -11,7 +11,6 @@
 //! category, its label, and the publisher's own id for it where there is one.
 
 use bevy::prelude::*;
-use bevy_feathers::controls::FeathersButton;
 use bevy_ui_widgets::Activate;
 
 use crate::app::export::{Exports, Format, Table};
@@ -19,10 +18,7 @@ use crate::bookmark::store::file_stem;
 use crate::source::DataSource;
 use crate::source::properties::{CellProperties, ColorOverrides, PropertyKind, PropertyValue};
 use crate::view::SelectedSource;
-use crate::widgets::space;
-use crate::widgets::{
-    BlocksFrameInput, Icon, Menu, button_text, size, spawn_icon_menu, text, text_dim,
-};
+use crate::widgets::{Menu, close_menu_holding, spawn_export_menu};
 
 /// A button exporting the selected source's colors.
 #[derive(Component, Clone, Default)]
@@ -33,8 +29,7 @@ pub struct ExportColors {
 
 /// A download button in `header` opening a menu that says what it exports,
 /// and offers it in each format.
-pub fn spawn_export_menu(commands: &mut Commands, header: Entity, overrides_only: bool) {
-    let (_, menu) = spawn_icon_menu(commands, header, Icon::Download);
+pub fn spawn_color_export_menu(commands: &mut Commands, header: Entity, overrides_only: bool) {
     let (title, description) = if overrides_only {
         (
             "Export color overrides",
@@ -47,36 +42,13 @@ pub fn spawn_export_menu(commands: &mut Commands, header: Entity, overrides_only
              all properties, hidden ones included. Picked colors win.",
         )
     };
-    let button = |format: Format| {
-        bsn! {
-            @FeathersButton {
-                @caption: { bsn_list![button_text(format.label())] }
-            }
-            Node { flex_grow: { 1.0_f32 } }
-            BlocksFrameInput
-            ExportColors { overrides_only: { overrides_only }, format: { format } }
-        }
-    };
-    let content = commands
-        .spawn_scene(bsn! {
-            Node {
-                flex_direction: { FlexDirection::Column },
-                row_gap: { Val::Px(space::ROWS) },
-            }
-            Children [
-                text(title, size::BODY),
-                text_dim(description, size::SMALL),
-                (
-                    Node { column_gap: { Val::Px(space::CONTROLS) } }
-                    Children [
-                        {button(Format::Csv)},
-                        {button(Format::Json)},
-                    ]
-                ),
-            ]
-        })
-        .id();
-    commands.entity(menu).add_child(content);
+    let menu = spawn_export_menu(commands, header, title, description);
+    for (format, button) in menu.formats {
+        commands.entity(button).insert(ExportColors {
+            overrides_only,
+            format,
+        });
+    }
 }
 
 const COLUMNS: [&str; 4] = ["category", "displayName", "refId", "color"];
@@ -170,11 +142,7 @@ fn on_export_colors(
     let Ok(button) = buttons.get(activate.entity) else {
         return;
     };
-    for ancestor in parents.iter_ancestors(activate.entity) {
-        if let Ok(mut menu) = menus.get_mut(ancestor) {
-            menu.open = false;
-        }
-    }
+    close_menu_holding(activate.entity, &parents, &mut menus);
     let Some((source, properties, overrides)) = selected.get(&sources) else {
         return;
     };
@@ -191,7 +159,7 @@ fn on_export_colors(
         Table {
             title: "Export colors".into(),
             stem: format!("{}-{what}", file_stem(&source.name)),
-            columns: COLUMNS.to_vec(),
+            columns: COLUMNS.map(String::from).to_vec(),
             rows,
         },
         button.format,
