@@ -368,8 +368,8 @@ pub(super) struct Asked {
     pub(super) search: Option<String>,
 }
 
-/// What a search is matched against: every kind's records are named, and
-/// nothing else about them reads as words.
+/// What a search is matched against — the [`NAME`] column — since every
+/// kind's records are named, and nothing else about them reads as words.
 pub(super) const SEARCHED: &str = "name";
 
 impl Asked {

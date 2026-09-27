@@ -16,8 +16,8 @@ use bevy::prelude::*;
 
 use crate::app::schedule::Stage;
 use crate::source::table::{
-    ColumnWidths, HiddenColumns, SeenColumns, SelectedRecord, SourceTable, TableColumn,
-    TableFilters, TablePaging, TableSearch, TableSort,
+    ColumnWidths, HiddenColumns, SearchedColumns, SeenColumns, SelectedRecord, SourceTable,
+    TableColumn, TableFilters, TablePaging, TableSearch, TableSort,
 };
 
 use super::table_filters::{FilterIndex, narrow, offer, take_counts};
@@ -448,7 +448,10 @@ pub fn spawn_source(world: &mut World, table: Table) -> Entity {
         page.rows = whole.iter().take(PAGE_ROWS).cloned().collect();
         entity.insert((
             WholeTable::new(whole),
-            TableSearch::new("Every word, each anywhere in a row, in any case."),
+            TableSearch::new(
+                SearchedColumns::All,
+                "Every word typed, each anywhere in a row, in any case.",
+            ),
         ));
         if let Some(filters) = table.filters {
             entity.insert(filters);

@@ -924,7 +924,7 @@ mod tests {
 
     #[test]
     fn a_tables_search_is_saved_on_its_own() {
-        let mut search = TableSearch::new("Names");
+        let mut search = TableSearch::default();
         assert_eq!(with_search(None, Some(&search)), None);
         search.text = "  neuroglancer ".into();
         let saved = with_search(None, Some(&search)).unwrap();

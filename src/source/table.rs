@@ -214,16 +214,30 @@ impl TableSort {
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
 pub struct TableSearch {
     pub text: String,
-    /// What the text is matched against, in the source's own words, shown
-    /// under the field: one searches names, another every word of a record.
-    pub about: String,
+    /// Which columns the text is matched against, shown under the field.
+    pub columns: SearchedColumns,
+    /// How it is matched, and anything searched beyond the columns, in the
+    /// source's own words.
+    pub how: String,
+}
+
+/// The columns a search looks in.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum SearchedColumns {
+    /// Every one the table has, hidden ones included, whatever they are as
+    /// the table changes.
+    #[default]
+    All,
+    /// These, by heading.
+    Only(Vec<String>),
 }
 
 impl TableSearch {
-    pub fn new(about: impl Into<String>) -> Self {
+    pub fn new(columns: SearchedColumns, how: impl Into<String>) -> Self {
         TableSearch {
             text: String::new(),
-            about: about.into(),
+            columns,
+            how: how.into(),
         }
     }
 

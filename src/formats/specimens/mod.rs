@@ -35,9 +35,10 @@ use crate::app::net::{Fetching, fetching};
 use crate::app::schedule::Stage;
 use crate::source::properties::NumericRange;
 use crate::source::table::{
-    RecordFile, RecordFiles, RecordImage, RecordImages, RecordImagesState, SelectedRecord, SortKey,
-    SourceTable, TableColumn, TableFilter, TableFilterKind, TableFilterTerm, TableFilterValue,
-    TableFilters, TablePaging, TablePartition, TablePartitions, TableSearch, TableSort,
+    RecordFile, RecordFiles, RecordImage, RecordImages, RecordImagesState, SearchedColumns,
+    SelectedRecord, SortKey, SourceTable, TableColumn, TableFilter, TableFilterKind,
+    TableFilterTerm, TableFilterValue, TableFilters, TablePaging, TablePartition, TablePartitions,
+    TableSearch, TableSort,
 };
 use crate::source::{SourceBusy, SourceStatus};
 
@@ -265,8 +266,13 @@ pub fn spawn_source(world: &mut World, specimens: Specimens) -> Entity {
         PickedSpecimen::new(images),
         RecordImages::default(),
         RecordFiles::default(),
+        // Every value was found, measurements and specimen type among them,
+        // and so were the column names, units and project, which match
+        // every specimen that has them: measured against SEA-AD donors on
+        // 2026-09-27.
         TableSearch::new(
-            "Whole words in any column, as the platform searches: * ends a word \
+            SearchedColumns::All,
+            "Also column names, units and the project. Whole words: * ends one \
              early, quotes keep words together, AND wants both. The filters' \
              counts leave the search out.",
         ),

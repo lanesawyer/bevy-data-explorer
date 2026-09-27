@@ -1081,7 +1081,10 @@ answered with none. `SPECIMEN_FILES` is the trap — it reads as though it
 should qualify, it does not, and no project carries it alone.
 
 A search is the platform's own `aio_specimenSearch`, over every word of
-every specimen: words rather than substrings, so `H20.33` finds nothing and
+every specimen — every value, measurements and specimen type included, and
+also the column names, units and project, which match every specimen that
+has them, so `education` finds all 84 SEA-AD donors. Words rather than
+substrings, so `H20.33` finds nothing and
 `H20*` finds 37, with quotes and `AND` as its own search box takes them. It
 has no count, so the matches are read once more, named and no more, to
 count them — and only when the search or filters change, not as the page

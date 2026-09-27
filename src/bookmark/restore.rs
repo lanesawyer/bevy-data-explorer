@@ -1029,7 +1029,7 @@ mod tests {
             TablePaging::new(100, Some(1000)),
             TableFilters::pending(),
             TableSort::default(),
-            TableSearch::new("Names"),
+            TableSearch::default(),
             HiddenColumns::default(),
             ColumnWidths::default(),
             SelectedRecord::default(),

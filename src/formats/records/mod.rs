@@ -26,8 +26,8 @@ use crate::app::net::{Fetching, fetching};
 use crate::app::schedule::Stage;
 use crate::source::SourceBusy;
 use crate::source::table::{
-    RelatedRecords, SelectedRecord, SortKey, SourceTable, TableFilter, TableFilterKind,
-    TableFilterValue, TableFilters, TablePaging, TableSearch, TableSort,
+    RelatedRecords, SearchedColumns, SelectedRecord, SortKey, SourceTable, TableFilter,
+    TableFilterKind, TableFilterValue, TableFilters, TablePaging, TableSearch, TableSort,
 };
 
 use super::table::{MAX_CHARS, PAGE_ROWS, Table};
@@ -179,7 +179,10 @@ pub fn spawn_source(world: &mut World, records: Records) -> Entity {
     world.entity_mut(source).insert((
         TableSort(sort.clone()),
         TableFilters::ready(filters_of(kind)),
-        TableSearch::new("Names holding the text, in any case."),
+        TableSearch::new(
+            SearchedColumns::Only(vec![kinds::NAME.to_string()]),
+            "Anywhere in it, in any case.",
+        ),
         RelatedRecords::default(),
         RecordPages {
             endpoint,
