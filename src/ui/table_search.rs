@@ -4,9 +4,10 @@
 //! carrying [`TableSearch`] — and never for one it could only search a page
 //! of. What is typed is handed over once typing settles, since
 //! each search is a request, and the table goes back to its first page as a
-//! tick does. Under the field, the columns it looks in are named, since one
+//! tick does. Under the field it says which columns it looks in, since one
 //! source searches names alone and another every column, and then how it
-//! matches.
+//! matches. Every column is counted rather than named: a specimen table has
+//! nearly a hundred, and listing them buried the field under a paragraph.
 //!
 //! Like the filters it names no format: this writes the text, and whatever
 //! produced the rows searches for it.
@@ -117,22 +118,17 @@ fn read_table_search(
     }
 }
 
-/// What is written under the field: the columns searched, by heading, then
-/// how they are matched.
+/// What is written under the field: the columns searched, named when they
+/// are a chosen few and counted when they are all of them, then how they are
+/// matched.
 fn about(search: &TableSearch, table: Option<&SourceTable>) -> String {
-    let headings: Vec<&str> = match &search.columns {
-        SearchedColumns::Only(columns) => columns.iter().map(String::as_str).collect(),
-        SearchedColumns::All => table
-            .map(|table| table.columns.iter().map(|it| it.name.as_str()).collect())
-            .unwrap_or_default(),
-    };
-    let searches = match (&search.columns, headings.len()) {
-        (SearchedColumns::All, 0) => "Searches every column.".to_string(),
-        (SearchedColumns::All, 1) => format!("Searches its one column: {}.", headings[0]),
-        (SearchedColumns::All, count) => {
-            format!("Searches all {count} columns: {}.", headings.join(", "))
-        }
-        (SearchedColumns::Only(_), _) => format!("Searches {}.", headings.join(", ")),
+    let searches = match &search.columns {
+        SearchedColumns::Only(columns) => format!("Searches {}.", columns.join(", ")),
+        SearchedColumns::All => match table.map_or(0, |table| table.columns.len()) {
+            0 => "Searches every column.".to_string(),
+            1 => "Searches its one column.".to_string(),
+            count => format!("Searches all {count} columns."),
+        },
     };
     if search.how.is_empty() {
         searches
@@ -208,7 +204,7 @@ mod tests {
         let every = TableSearch::new(SearchedColumns::All, "");
         assert_eq!(
             about(&every, Some(&table(&["species", "region"]))),
-            "Searches all 2 columns: species, region."
+            "Searches all 2 columns."
         );
         assert_eq!(about(&every, None), "Searches every column.");
     }
