@@ -32,6 +32,7 @@ pub(super) fn kinds_of(data: KindsData) -> Vec<(TablePartition, Plan)> {
                             title: feature.feature_type.title?,
                             unit: feature.unit.filter(|unit| !unit.is_empty()),
                             measured,
+                            hidden: feature.is_default == Some(false),
                         })
                     })
                     .collect(),
@@ -53,10 +54,12 @@ pub(super) fn kinds_of(data: KindsData) -> Vec<(TablePartition, Plan)> {
 pub(super) fn columns_of(plan: &Plan) -> Vec<TableColumn> {
     plan.headers()
         .into_iter()
-        .map(|name| TableColumn {
+        .zip(plan.hidden())
+        .map(|(name, hidden_by_default)| TableColumn {
             chars: name.chars().count(),
             name,
             numeric: false,
+            hidden_by_default,
         })
         .collect()
 }
@@ -164,6 +167,30 @@ mod tests {
                 .iter()
                 .any(|(_, title, measured)| { title == "Number of Expected Cells" && *measured })
         );
+    }
+
+    #[test]
+    fn a_kind_opens_on_the_columns_the_platform_shows_it_with() {
+        let kinds = kinds_of(layout());
+        let aliquot = &kinds[0].1;
+        let hidden: Vec<String> = aliquot
+            .headers()
+            .into_iter()
+            .zip(aliquot.hidden())
+            .filter(|(_, hidden)| *hidden)
+            .map(|(name, _)| name)
+            .collect();
+        // Every row of one kind says the same kind.
+        assert!(hidden.iter().any(|name| name == KIND));
+        assert!(
+            hidden
+                .iter()
+                .any(|name| name == "Barcoded Cell Sample NHash ID")
+        );
+        assert!(!hidden.iter().any(|name| name == "Library Technique"));
+        assert!(columns_of(aliquot).iter().any(|it| it.hidden_by_default));
+        // 11 of the aliquots' 21 features are left out, and the kind.
+        assert_eq!(hidden.len(), 12);
     }
 
     #[test]

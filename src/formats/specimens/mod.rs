@@ -151,7 +151,7 @@ pub async fn read(endpoint: &str, project: &str) -> Result<Specimens, String> {
 
     let title = answer.project.first().and_then(|it| it.title.clone());
     let total = answer.counted().unwrap_or(answer.aio_specimen.len());
-    let table = Table::paged(
+    let mut table = Table::paged(
         label_for(project, title.as_deref()),
         detail_of(&plan),
         plan.headers(),
@@ -159,6 +159,9 @@ pub async fn read(endpoint: &str, project: &str) -> Result<Specimens, String> {
         None,
         Some(total),
     );
+    for (column, hidden) in table.rows.columns.iter_mut().zip(plan.hidden()) {
+        column.hidden_by_default = hidden;
+    }
     Ok(Specimens {
         endpoint: endpoint.to_string(),
         scope,

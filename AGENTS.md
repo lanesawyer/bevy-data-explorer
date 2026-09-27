@@ -117,7 +117,10 @@ never touches a string),
 columns of their own — BICAN's library aliquots and donors — is shown a kind at
 a time, the sidebar picks the kind, and the format swaps in that kind's
 columns, filters and rows.
-`HiddenColumns` is the frame's alone: no format reads it. Neither
+`HiddenColumns` is the frame's alone: no format reads it. A format may
+propose columns to leave out at first with `TableColumn::hidden_by_default`,
+taken up once per heading (`SeenColumns`) in `Stage::SourceDefaults`; after
+that the choice is the user's and the bookmark's. Neither
 knows about the controls, and `ui/table_filters.rs` names no format: a second
 source of rows is filtered by it without a line changing there.
 

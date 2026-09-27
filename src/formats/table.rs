@@ -16,7 +16,8 @@ use bevy::prelude::*;
 
 use crate::app::schedule::Stage;
 use crate::source::table::{
-    ColumnWidths, HiddenColumns, SourceTable, TableColumn, TableFilters, TablePaging, TableSort,
+    ColumnWidths, HiddenColumns, SeenColumns, SourceTable, TableColumn, TableFilters, TablePaging,
+    TableSort,
 };
 
 use super::table_filters::{FilterIndex, narrow, offer, take_counts};
@@ -124,6 +125,7 @@ impl Table {
                         // With no rows to judge by, every column would
                         // otherwise qualify as numbers.
                         numeric: numeric && !empty,
+                        hidden_by_default: false,
                     })
                     .collect(),
                 rows,
@@ -292,7 +294,24 @@ pub struct TableSystems;
 
 impl Plugin for TableSystems {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, serve_pages.in_set(Stage::Sources));
+        app.add_systems(Update, serve_pages.in_set(Stage::Sources))
+            .add_systems(Update, hide_by_default.in_set(Stage::SourceDefaults));
+    }
+}
+
+/// Hide the columns a table would leave out at first, as they appear.
+///
+/// For every table, whatever produced it: one read whole has its columns from
+/// the start, and one that reads a page at a time can gain columns or change
+/// them altogether when it shows another kind of record.
+fn hide_by_default(
+    mut tables: Query<(&SourceTable, &mut HiddenColumns, &mut SeenColumns), Changed<SourceTable>>,
+) {
+    for (table, mut hidden, mut seen) in &mut tables {
+        let mut next = hidden.clone();
+        if next.take_defaults(&mut seen, table) {
+            *hidden = next;
+        }
     }
 }
 
@@ -346,12 +365,18 @@ pub fn spawn_source(world: &mut World, table: Table) -> Entity {
 
     let mut page = table.rows;
     let paging = TablePaging::new(PAGE_ROWS, Some(rows));
+    // Taken up here as well as by `hide_by_default`, so a bookmark restored
+    // the moment the table opens is put over the defaults rather than under
+    // them.
+    let (mut hidden, mut seen) = (HiddenColumns::default(), SeenColumns::default());
+    hidden.take_defaults(&mut seen, &page);
     let mut entity = world.entity_mut(source);
     entity.insert((
         SourceStatus(status),
         paging,
         TableSort::default(),
-        HiddenColumns::default(),
+        hidden,
+        seen,
         ColumnWidths::default(),
     ));
     if !paged {
@@ -436,6 +461,45 @@ mod tests {
         );
         assert_eq!(table.rows.rows[0], ["1", "", ""]);
         assert_eq!(table.rows.rows[1], ["1", "2", "3"]);
+    }
+
+    #[test]
+    fn a_column_hidden_by_default_is_hidden_once_and_then_left_to_the_frame() {
+        let mut app = App::new();
+        app.add_systems(Update, hide_by_default);
+        let mut table = Table::paged(
+            "t",
+            "test",
+            headers(&["a", "b"]),
+            rows(&[&["1", "2"]]),
+            None,
+            Some(1),
+        );
+        table.rows.columns[1].hidden_by_default = true;
+        let source = spawn_source(app.world_mut(), table);
+        let hidden = |app: &App| app.world().get::<HiddenColumns>(source).unwrap().0.clone();
+        // Hidden from the moment the table opens, not a frame later.
+        assert!(hidden(&app).contains("b"));
+
+        // Shown by hand, as a bookmark would put it back.
+        app.world_mut()
+            .get_mut::<HiddenColumns>(source)
+            .unwrap()
+            .0
+            .clear();
+        app.update();
+        assert!(hidden(&app).is_empty(), "a column's default is taken once");
+
+        // A column the table gains later takes its own.
+        let mut page = app.world_mut().get_mut::<SourceTable>(source).unwrap();
+        page.columns.push(TableColumn {
+            name: "c".into(),
+            chars: 1,
+            numeric: false,
+            hidden_by_default: true,
+        });
+        app.update();
+        assert_eq!(hidden(&app).into_iter().collect::<Vec<_>>(), ["c"]);
     }
 
     #[test]

@@ -103,6 +103,7 @@ pub(super) fn table(rows: usize, columns: &[(&str, usize, bool)]) -> SourceTable
                 name: (*name).to_string(),
                 chars: *chars,
                 numeric: *numeric,
+                hidden_by_default: false,
             })
             .collect(),
         rows: (0..rows)

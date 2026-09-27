@@ -68,6 +68,11 @@ pub enum Stage {
     /// The format plugins stream. After `ControlsApply` so a filter changed
     /// this frame is applied this frame rather than next.
     Sources,
+    /// What a source proposes for its frames once it has written them —
+    /// columns a table would leave out at first — is taken up. In the frame
+    /// the source proposed it, so a bookmark restored in the next frame is
+    /// put over the proposal rather than under it.
+    SourceDefaults,
     /// The grid works out where the pointer is and which frame it is over.
     HoverProbe,
     /// What the pointer is over is carried to every other source that can
@@ -136,7 +141,9 @@ pub fn configure(app: &mut App) {
             Stage::ControlsBuild,
             Stage::ControlsPlace,
             Stage::ControlsApply,
-            Stage::Sources,
+            // Nested because a tuple of sets caps at twenty, as one of
+            // systems does; they still run in this order.
+            (Stage::Sources, Stage::SourceDefaults).chain(),
             Stage::HoverProbe,
             HoverProbing,
             Stage::LinkHover,

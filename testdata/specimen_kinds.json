@@ -9,6 +9,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 0,
+      "isDefault": true,
       "featureType": {
        "referenceId": "NSG3JKLR4SYNAD0L9KD",
        "title": "Library Aliquot NHash ID"
@@ -17,6 +18,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 1,
+      "isDefault": true,
       "featureType": {
        "referenceId": "0Q1P8KQ00174J6HA3LZ",
        "title": "Subject NHash ID"
@@ -25,6 +27,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 2,
+      "isDefault": true,
       "featureType": {
        "referenceId": "W762LUXTYXE7XVP6832",
        "title": "Library Technique"
@@ -33,6 +36,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 4,
+      "isDefault": true,
       "featureType": {
        "referenceId": "DCG56O8J7X7Q92SERPB",
        "title": "Tissue Sample Region Name"
@@ -41,6 +45,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 5,
+      "isDefault": true,
       "featureType": {
        "referenceId": "0DIRCAZL9U8HEYSH7G6",
        "title": "Subject Species"
@@ -49,6 +54,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 6,
+      "isDefault": true,
       "featureType": {
        "referenceId": "XVX3077LBGRY6GKYV9M",
        "title": "Subject Sex"
@@ -57,6 +63,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 7,
+      "isDefault": true,
       "featureType": {
        "referenceId": "F3WYZ0N4QYLOKPNYOGS",
        "title": "Grant Information"
@@ -65,6 +72,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 8,
+      "isDefault": true,
       "featureType": {
        "referenceId": "BJNJ8XP9M13ZB4EN3QB",
        "title": "Subject Age(s) of Death"
@@ -73,6 +81,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 9,
+      "isDefault": true,
       "featureType": {
        "referenceId": "37MCLNI1YEOMQOPTERJ",
        "title": "Barcoded Cell Sample Tags"
@@ -81,6 +90,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 10,
+      "isDefault": true,
       "featureType": {
        "referenceId": "PJWWCXZCNTCML0W47BU",
        "title": "Local Library Aliquot Name"
@@ -89,6 +99,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 11,
+      "isDefault": false,
       "featureType": {
        "referenceId": "URWDJD6Z39834608G8V",
        "title": "Barcoded Cell Sample NHash ID"
@@ -97,6 +108,7 @@
      {
       "type": "MEASUREMENT",
       "priorityOrder": 13,
+      "isDefault": false,
       "featureType": {
        "referenceId": "X8H1WGYZ1NPLBO8RREF",
        "title": "Number of Expected Cells"
@@ -106,6 +118,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 14,
+      "isDefault": false,
       "featureType": {
        "referenceId": "JALGVUSK3P6RO29HE2G",
        "title": "Enrichment Population"
@@ -114,6 +127,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 15,
+      "isDefault": false,
       "featureType": {
        "referenceId": "5NV0N4AWS3VQJEFS6MQ",
        "title": "Cell Prep Type"
@@ -122,6 +136,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 16,
+      "isDefault": false,
       "featureType": {
        "referenceId": "L11AP776MQKPZP41CTW",
        "title": "Library Prep Pass/Fail"
@@ -130,6 +145,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 17,
+      "isDefault": false,
       "featureType": {
        "referenceId": "HUBSTD1Q800NVCJIM79",
        "title": "Library NHash ID"
@@ -138,6 +154,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 18,
+      "isDefault": false,
       "featureType": {
        "referenceId": "84GOZ72XQHC9RWNBISA",
        "title": "Tissue Sample NHash ID"
@@ -146,6 +163,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 19,
+      "isDefault": false,
       "featureType": {
        "referenceId": "95RNAU23U6NN5P6W14O",
        "title": "Tissue Sample Region ID"
@@ -154,6 +172,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 21,
+      "isDefault": false,
       "featureType": {
        "referenceId": "MR548YKL13O9WKH0Q80",
        "title": "Sample Generating Lab"
@@ -162,6 +181,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 22,
+      "isDefault": false,
       "featureType": {
        "referenceId": "TQLE8R5T0KXOPDHNWWH",
        "title": "BCDC Data Collection Name"
@@ -170,6 +190,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 24,
+      "isDefault": false,
       "featureType": {
        "referenceId": "GT0TIR0K5BP8HK0Y2WV",
        "title": "File Availability"
@@ -185,6 +206,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 0,
+      "isDefault": true,
       "featureType": {
        "referenceId": "0Q1P8KQ00174J6HA3LZ",
        "title": "Subject NHash ID"
@@ -193,6 +215,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 1,
+      "isDefault": true,
       "featureType": {
        "referenceId": "BL0CCBUXOVTRYEWUTYU",
        "title": "Species"
@@ -201,6 +224,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 2,
+      "isDefault": true,
       "featureType": {
        "referenceId": "YYLVE7CFHZS58JLQ5UI",
        "title": "Species NCBI Taxon"
@@ -209,6 +233,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 3,
+      "isDefault": true,
       "featureType": {
        "referenceId": "Q91RVNDS26G6IV84LQX",
        "title": "Sex"
@@ -217,6 +242,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 4,
+      "isDefault": true,
       "featureType": {
        "referenceId": "P6DZGN8YWMEZGS7CB61",
        "title": "Age of Death"
@@ -225,6 +251,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 5,
+      "isDefault": true,
       "featureType": {
        "referenceId": "1G6JRA4GFDAOF1U9H03",
        "title": "Age of Death Value"
@@ -233,6 +260,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 6,
+      "isDefault": true,
       "featureType": {
        "referenceId": "KBWF6HTQ6EH53VR1YDT",
        "title": "Age of Death Unit"
@@ -241,6 +269,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 7,
+      "isDefault": true,
       "featureType": {
        "referenceId": "RZ5LEER7IIJQEQL3Z51",
        "title": "Age of Death Reference Point"
@@ -249,6 +278,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 8,
+      "isDefault": true,
       "featureType": {
        "referenceId": "26BDA1IVUPD8CW69VF6",
        "title": "Race"
@@ -257,6 +287,7 @@
      {
       "type": "ANNOTATION",
       "priorityOrder": 9,
+      "isDefault": true,
       "featureType": {
        "referenceId": "EDR4HA9PAMI4OUAZA1P",
        "title": "Ethnicity"

@@ -18,6 +18,9 @@ pub(super) struct Feature {
     /// rather than taxa listed, and worth a span when the platform cannot
     /// list it.
     pub(super) measured: bool,
+    /// Left out when the table opens, because the platform's own page leaves
+    /// it out. Still a column, offered in the frame's menu.
+    pub(super) hidden: bool,
 }
 
 impl Feature {
@@ -125,6 +128,7 @@ impl Plan {
                     title: title.to_string(),
                     unit: unit.map(str::to_string),
                     measured,
+                    hidden: false,
                 });
             }
         }
@@ -184,6 +188,17 @@ impl Plan {
         let mut fields = vec![SPECIMEN_FIELD.to_string(), KIND_FIELD.to_string()];
         fields.extend(self.features.iter().map(|feature| feature.id.clone()));
         fields
+    }
+
+    /// Whether each column, in the order of [`Plan::headers`], is left out
+    /// when the table opens.
+    ///
+    /// A plan the platform laid out is of one kind of specimen, so the column
+    /// saying which kind holds the same word all the way down.
+    pub(super) fn hidden(&self) -> Vec<bool> {
+        let mut hidden = vec![false, self.laid_out];
+        hidden.extend(self.features.iter().map(|feature| feature.hidden));
+        hidden
     }
 
     pub(super) fn headers(&self) -> Vec<String> {
@@ -367,6 +382,7 @@ mod tests {
             title: title.into(),
             unit: unit.map(Into::into),
             measured: unit.is_some(),
+            hidden: false,
         };
         let plan = Plan::laid_out(vec![
             feature("MM1MMES48T9H7ZX6E3Y", "Cognitive status", None),

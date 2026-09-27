@@ -316,6 +316,7 @@ mod tests {
             name: name.into(),
             chars: 1,
             numeric,
+            hidden_by_default: false,
         }
     }
 

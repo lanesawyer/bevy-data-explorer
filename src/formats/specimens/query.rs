@@ -230,6 +230,7 @@ pub(super) const KINDS: &str = "query($project: String!, $specimens: [Filter]) {
     displayFeatures {
       type
       priorityOrder
+      isDefault
       featureType { referenceId title }
       ... on MeasurementDisplayProperty { unit }
     }
@@ -266,6 +267,9 @@ pub(super) struct DisplayFeature {
     pub(super) kind: Option<String>,
     #[serde(default)]
     pub(super) priority_order: Option<i64>,
+    /// Shown when the table opens; the rest are offered but left out.
+    #[serde(default)]
+    pub(super) is_default: Option<bool>,
     pub(super) feature_type: Titled,
     #[serde(default)]
     pub(super) unit: Option<String>,

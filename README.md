@@ -1014,6 +1014,15 @@ screen. The choice is `TablePartitions` in `source/table.rs` and names no
 platform, so any source whose records split into kinds with columns of their
 own can offer the same choice.
 
+A kind opens on the columns the platform's page opens it on. Each display
+feature says whether it is shown by default — 11 of a library aliquot's 21 are
+not — and those start hidden, along with the Type column, which says the same
+thing all the way down a table of one kind. They are still columns, one tick
+away in the frame's menu. Any table can propose this: a column marked
+`hidden_by_default` is hidden the first time its heading appears and never
+again, so a column shown by hand stays shown as pages turn, as kinds are
+switched and back, and when a bookmark puts it back.
+
 A kind's columns are keyed by feature id, not by title. A BICAN donor carries
 two features both titled "Age of Death" on the record — a phrase and a number;
 the display properties call the second "Age of Death Value" — and keyed by

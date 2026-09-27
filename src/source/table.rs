@@ -31,6 +31,11 @@ pub struct TableColumn {
     /// Every value in it is a number, so it is set flush right the way a
     /// spreadsheet sets one.
     pub numeric: bool,
+    /// Whatever produced the table would leave it out at first: a column
+    /// kept for completeness rather than for reading. [`HiddenColumns`]
+    /// starts from this the first time the column appears, and after that
+    /// is the frame's alone.
+    pub hidden_by_default: bool,
 }
 
 /// A source's records, as rows under a header.
@@ -245,9 +250,34 @@ impl TablePartitions {
 /// The columns a table is drawn without, by heading.
 ///
 /// Nothing a format answers: the rows still hold them, and a filter or a sort
-/// on one still applies. Only the frame leaves them out.
+/// on one still applies. Only the frame leaves them out. A format proposes
+/// what to leave out at first, with [`TableColumn::hidden_by_default`], and
+/// that is taken up once per heading.
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
 pub struct HiddenColumns(pub BTreeSet<String>);
+
+/// The headings a table has shown so far, so a column's default is taken up
+/// the first time it appears and never again.
+///
+/// Never again because after that the choice is someone's: a column shown by
+/// hand stays shown when a page turns, when a table shows another kind of
+/// record and then comes back, or when a bookmark put it back.
+#[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
+pub struct SeenColumns(pub BTreeSet<String>);
+
+impl HiddenColumns {
+    /// Hide every column appearing for the first time that asks to be, and
+    /// say whether any did.
+    pub fn take_defaults(&mut self, seen: &mut SeenColumns, table: &SourceTable) -> bool {
+        let mut hid = false;
+        for column in &table.columns {
+            if seen.0.insert(column.name.clone()) && column.hidden_by_default {
+                hid |= self.0.insert(column.name.clone());
+            }
+        }
+        hid
+    }
+}
 
 /// Columns dragged to a width of their own, in logical pixels, by heading.
 ///
@@ -509,6 +539,7 @@ mod tests {
                     name: name.into(),
                     chars: 1,
                     numeric: false,
+                    hidden_by_default: name == "b",
                 })
                 .collect(),
             rows: vec![vec!["1".into(), "2".into()], vec!["3".into()]],
@@ -719,6 +750,26 @@ mod tests {
         sort.press("Age", true);
         sort.press("Age", false);
         assert_eq!(sorted(&sort), [("Age", false)]);
+    }
+
+    #[test]
+    fn a_column_is_hidden_by_default_only_the_first_time_it_appears() {
+        let mut table = table();
+        let (mut hidden, mut seen) = (HiddenColumns::default(), SeenColumns::default());
+        assert!(hidden.take_defaults(&mut seen, &table));
+        assert_eq!(hidden.0, BTreeSet::from(["b".to_string()]));
+
+        // Shown by hand, and left shown as the table changes under it.
+        hidden.0.clear();
+        table.columns[0].name = "c".into();
+        assert!(!hidden.take_defaults(&mut seen, &table));
+        assert!(hidden.0.is_empty());
+
+        // A column new to the table still takes its default.
+        table.columns[0].hidden_by_default = true;
+        table.columns[0].name = "d".into();
+        assert!(hidden.take_defaults(&mut seen, &table));
+        assert_eq!(hidden.0, BTreeSet::from(["d".to_string()]));
     }
 
     #[test]
