@@ -13,6 +13,7 @@ pub mod image;
 pub mod neuroglancer;
 pub mod parquet;
 pub mod pointcloud;
+pub mod records;
 pub mod scatterbrain;
 pub mod slices;
 pub mod specimens;
@@ -36,6 +37,7 @@ impl Plugin for FormatsPlugin {
             dzi::DziSystems,
             table::TableSystems,
             specimens::SpecimenSystems,
+            records::RecordSystems,
             pointcloud::PointCloudSystems,
             slices::SlicesSystems,
             svg::SvgSystems,
@@ -140,6 +142,7 @@ pub fn spawn_discovered(
         Discovered::Annotations(svg) => svg::spawn_source(world, std::sync::Arc::new(svg)),
         Discovered::Table(table) => table::spawn_source(world, *table),
         Discovered::Specimens(specimens) => specimens::spawn_source(world, *specimens),
+        Discovered::Records(records) => records::spawn_source(world, *records),
         // Several datasets rather than one, which whoever asked opens as a
         // bookmark; there is no one source to register.
         Discovered::Scene(_) => return None,

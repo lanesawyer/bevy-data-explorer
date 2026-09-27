@@ -8,6 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -175,6 +176,28 @@ impl Preferences {
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(path, json).map_err(|e| format!("writing {}: {e}", path.display()))
     }
+}
+
+/// The BKP Registry token, copied out of the preferences so a request made
+/// off the main thread can send it. `None` until it is first shared.
+static REGISTRY_TOKEN: RwLock<Option<Option<String>>> = RwLock::new(None);
+
+/// The BKP Registry token to send, if signed in.
+///
+/// Read from the file when nothing has shared it yet, which is how a
+/// dataset named on the command line — read before the preferences are —
+/// is still asked for as whoever is signed in.
+pub fn registry_token() -> Option<String> {
+    let shared = REGISTRY_TOKEN.read().ok().and_then(|token| token.clone());
+    shared.unwrap_or_else(|| Preferences::load(&path()).registry_token)
+}
+
+/// Make `token` the one [`registry_token`] answers, and say what it answered
+/// before if that was different.
+pub fn share_registry_token(token: &Option<String>) -> Option<Option<String>> {
+    let mut shared = REGISTRY_TOKEN.write().ok()?;
+    let before = shared.replace(token.clone()).flatten();
+    (before != *token).then_some(before)
 }
 
 /// Where the preferences were read from, and are written back to.

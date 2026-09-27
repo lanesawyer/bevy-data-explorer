@@ -406,6 +406,36 @@ pub struct RecordFile {
 #[derive(Component, Debug, Default, PartialEq, Eq)]
 pub struct RecordFiles(pub Vec<RecordFile>);
 
+/// Another record linked to a picked one: a process a specimen went into, a
+/// data asset a process wrote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelatedRecord {
+    pub name: String,
+    /// What kind of record it is and how it stands, in a few words.
+    pub detail: String,
+    /// Where it is stored, if it is something stored.
+    pub address: Option<String>,
+}
+
+/// Records linked to a picked one the same way, under what links them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelatedGroup {
+    pub title: String,
+    pub records: Vec<RelatedRecord>,
+}
+
+/// Records linked to the one picked out in [`SelectedRecord`], asked for and
+/// answered like [`RecordImages`]. A format whose records link to nothing
+/// never writes this.
+#[derive(Component, Debug, Clone, Default, PartialEq, Eq)]
+pub enum RelatedRecords {
+    #[default]
+    None,
+    Fetching,
+    Failed(String),
+    Ready(Vec<RelatedGroup>),
+}
+
 /// One value a column holds, and whether it has been ticked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableFilterValue {

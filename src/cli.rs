@@ -22,8 +22,10 @@ pub struct Args {
     /// Datasets to open, each in a frame of its own, in the order given: an
     /// OME-Zarr store (http(s) URL or local directory) or a manifest .json
     /// describing one, a Deep Zoom .dzi, Scatterbrain metadata, an .svg, a
-    /// .csv, .tsv or .parquet table, or a Brain Knowledge Platform endpoint
-    /// with `?specimens=<project>` on it. Left out, the window starts empty.
+    /// .csv, .tsv or .parquet table, a Brain Knowledge Platform endpoint
+    /// with `?specimens=<project>` on it, or a BKP Registry endpoint with
+    /// `?records=specimens`, `processes` or `dataAssets` on it. Left out, the
+    /// window starts empty.
     pub sources: Vec<String>,
 
     /// Another dataset in a frame of its own, usually Scatterbrain metadata

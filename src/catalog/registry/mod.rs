@@ -13,13 +13,14 @@
 //! Settings also has a test request, which logs a page of assets of any type.
 //!
 //! Its [`dashboard`] counts what it holds, and offers the newest of what the
-//! viewer can open.
+//! viewer can open. Its specimens, processes and data assets are also
+//! offered whole, as tables, by the [`prepublic`] catalog.
 
 pub mod dashboard;
 pub mod login;
+pub mod prepublic;
 
 use std::collections::BTreeMap;
-use std::sync::RwLock;
 
 use bevy::prelude::*;
 use futures::future::BoxFuture;
@@ -29,7 +30,7 @@ use super::dashboard::Dashboard;
 use super::{Catalog, Catalogs, Entry, Found, Provider};
 use crate::app::graphql::{self, Response};
 use crate::app::net::{Fetching, fetching};
-use crate::app::prefs::Preferences;
+use crate::app::prefs::{Preferences, registry_token, share_registry_token};
 use crate::source::Category;
 
 /// The pre-production service. Introspection is open; everything else wants
@@ -80,12 +81,9 @@ const KINDS: [(&str, &str, Category, Option<&str>); 5] = [
     ("parquet", "Parquet", Category::Table, None),
 ];
 
-/// The token in the preferences, copied here so a search running off the
-/// main thread can send it.
-static TOKEN: RwLock<Option<String>> = RwLock::new(None);
-
-/// Keep [`TOKEN`] the one in the preferences, and count the dashboard again
-/// on signing in or out, since what it can see changes with it.
+/// Keep the token requests send the one in the preferences, and count the
+/// dashboard again on signing in or out, since what it can see changes with
+/// it.
 ///
 /// A renewal swaps one token for another and changes nothing it could see,
 /// so a dashboard already shown is left alone. One that failed, or is still
@@ -94,12 +92,9 @@ static TOKEN: RwLock<Option<String>> = RwLock::new(None);
 /// is refused.
 pub fn sync_token(prefs: Res<Preferences>, mut catalogs: ResMut<Catalogs>) {
     if prefs.is_changed()
-        && let Ok(mut token) = TOKEN.write()
-        && *token != prefs.registry_token
+        && let Some(before) = share_registry_token(&prefs.registry_token)
     {
-        let signed_in = token.is_some();
-        token.clone_from(&prefs.registry_token);
-        if token.is_some() != signed_in {
+        if before.is_some() != prefs.registry_token.is_some() {
             catalogs.refresh_dashboards(PROVIDER.key);
         } else {
             catalogs.retry_dashboards(PROVIDER.key);
@@ -213,7 +208,7 @@ impl Catalog for Registry {
             return Box::pin(async { Ok(Found::default()) });
         }
         let endpoint = self.endpoint.clone();
-        let token = TOKEN.read().ok().and_then(|token| token.clone());
+        let token = registry_token();
         Box::pin(async move {
             let token = token.ok_or("Sign in to the BKP Registry in Settings to search it")?;
             search(&endpoint, &token, &text, only).await
@@ -226,7 +221,7 @@ impl Catalog for Registry {
 
     fn dashboard(&self) -> BoxFuture<'static, Result<Dashboard, String>> {
         let endpoint = self.endpoint.clone();
-        let token = TOKEN.read().ok().and_then(|token| token.clone());
+        let token = registry_token();
         Box::pin(async move {
             let token =
                 token.ok_or("Sign in to the BKP Registry in Settings to see what it holds.")?;

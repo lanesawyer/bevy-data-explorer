@@ -36,6 +36,8 @@ pub enum Discovered {
     Table(Box<Table>),
     /// A project's specimens, shown as a table a page at a time.
     Specimens(Box<crate::formats::specimens::Specimens>),
+    /// A kind of the BKP Registry's records, likewise a page at a time.
+    Records(Box<crate::formats::records::Records>),
     /// Several datasets another viewer asked to be shown together. Not a
     /// source: it is opened as a bookmark is, a frame for each.
     Scene(Scene),
@@ -52,6 +54,7 @@ impl Discovered {
             Discovered::Annotations(svg) => &svg.name,
             Discovered::Table(table) => &table.name,
             Discovered::Specimens(specimens) => &specimens.table.name,
+            Discovered::Records(records) => &records.table.name,
             Discovered::Scene(scene) => &scene.name,
         }
     }
@@ -80,6 +83,11 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
         return crate::formats::specimens::read(&endpoint, &project)
             .await
             .map(|specimens| Discovered::Specimens(Box::new(specimens)));
+    }
+    if let Some((endpoint, kind)) = crate::formats::records::query_of(source) {
+        return crate::formats::records::read(&endpoint, kind)
+            .await
+            .map(|records| Discovered::Records(Box::new(records)));
     }
 
     // An image can be asked for cut in a plane other than its own, which is
@@ -221,6 +229,7 @@ fn is_svg(source: &str) -> bool {
 pub fn names_a_table(source: &str) -> bool {
     let source = crate::formats::plain_url(source.trim());
     crate::formats::specimens::query_of(&source).is_some()
+        || crate::formats::records::query_of(&source).is_some()
         || is_table(&source)
         || is_parquet(&source)
 }

@@ -14,7 +14,9 @@
 //! any address typed in. Pictures of the record, when whatever produced
 //! the rows has some, are shown above the fields, grouped by what they show,
 //! and open larger when clicked; files held about it, such as an OME-Zarr
-//! store, are listed with the same copy and open buttons as a field.
+//! store, are listed with the same copy and open buttons as a field. So are
+//! the records it links to — the processes a BKP Registry specimen went
+//! into, the data assets a process wrote — under what links them.
 
 use bevy::clipboard::Clipboard;
 use bevy::prelude::*;
@@ -27,7 +29,8 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::{Boot, Stage};
 use crate::formats::discover::datasets_in;
 use crate::source::table::{
-    Record, RecordFiles, RecordImage, RecordImages, RecordImagesState, SelectedRecord,
+    Record, RecordFiles, RecordImage, RecordImages, RecordImagesState, RelatedRecords,
+    SelectedRecord,
 };
 use crate::source::{DataSource, SourceStatus};
 use crate::view::{DatasetRequest, DatasetTarget, PanelRequest, SelectedSource};
@@ -44,6 +47,11 @@ const MIN_PX: f32 = 200.0;
 /// Taller than any window, so the record scrolls against the room the dock
 /// leaves it rather than at some arbitrary point.
 const RECORD_MAX_PX: f32 = 4000.0;
+
+/// Linked records listed under one heading before the rest are only counted.
+/// A specimen can be input to hundreds of processes, and every one listed is
+/// a handful of entities.
+const RELATED_SHOWN: usize = 50;
 
 #[derive(Resource)]
 pub struct Inspector {
@@ -118,11 +126,12 @@ pub struct InspectorRecord;
 pub enum RecordPart {
     Images,
     Files,
+    Related,
     Fields,
 }
 
 /// A section of a picked record, whose open state carries over to the next.
-/// Images and Files are hidden while there is nothing in them.
+/// Images, Files and Related are hidden while there is nothing in them.
 #[derive(Component)]
 pub struct RecordSection(RecordPart);
 
@@ -321,11 +330,13 @@ pub fn rebuild_record(
     commands.entity(list).add_child(heading);
 
     // Pictures first: a record with any is usually worth opening for them.
-    // Images and Files are shown by `fill_record_images` and
-    // `fill_record_files` once whatever produced the rows says it has some.
+    // Images, Files and Related are shown by `fill_record_images`,
+    // `fill_record_files` and `fill_record_related` once whatever produced
+    // the rows says it has some.
     for (part, title) in [
         (RecordPart::Images, "Images"),
         (RecordPart::Files, "Files"),
+        (RecordPart::Related, "Related"),
         (RecordPart::Fields, "Fields"),
     ] {
         let section = spawn_accordion(&mut commands, title, open(part), SectionLevel::Pane);
@@ -395,6 +406,77 @@ pub fn fill_record_files(
         };
         let field = spawn_field(&mut commands, &heading, &file.address);
         commands.entity(body).add_child(field);
+    }
+}
+
+/// Fill the Related section with the records the picked one links to, as
+/// they arrive, and hide it while there is nothing to say. A linked record
+/// that is stored somewhere shows where, with the buttons a field has; any
+/// other shows its name.
+pub fn fill_record_related(
+    mut commands: Commands,
+    selected: SelectedSource,
+    related: Query<Ref<RelatedRecords>>,
+    bodies: Query<(Entity, &RecordBody, Ref<RecordBody>)>,
+    sections: Query<(Entity, &RecordSection)>,
+    mut nodes: Query<&mut Node>,
+) {
+    let Some((body, fresh)) = body_of(&bodies, RecordPart::Related) else {
+        return;
+    };
+    let related = selected.get(&related);
+    if !fresh && !related.as_ref().is_some_and(Ref::is_changed) {
+        return;
+    }
+    let related: RelatedRecords = related.map(|it| (*it).clone()).unwrap_or_default();
+    show_section(
+        &sections,
+        &mut nodes,
+        RecordPart::Related,
+        related != RelatedRecords::None,
+    );
+    commands.entity(body).despawn_children();
+    let groups = match related {
+        RelatedRecords::None => return,
+        RelatedRecords::Fetching => Err("Fetching linked records\u{2026}".to_string()),
+        RelatedRecords::Failed(e) => Err(e),
+        RelatedRecords::Ready(groups) if groups.is_empty() => Err("Linked to nothing.".to_string()),
+        RelatedRecords::Ready(groups) => Ok(groups),
+    };
+    let groups = match groups {
+        Ok(groups) => groups,
+        Err(note) => {
+            let note = commands.spawn_scene(text_dim(note, size::SMALL)).id();
+            commands.entity(body).add_child(note);
+            return;
+        }
+    };
+    for group in groups {
+        let heading = commands
+            .spawn_scene(bsn! {
+                text(format!("{} \u{b7} {}", group.title, group.records.len()), size::SECONDARY)
+                Node { margin: { UiRect::top(Val::Px(space::ROWS)) } }
+            })
+            .id();
+        commands.entity(body).add_child(heading);
+        let more = group.records.len().saturating_sub(RELATED_SHOWN);
+        for record in group.records.into_iter().take(RELATED_SHOWN) {
+            let field = match record.address {
+                Some(address) => spawn_field(
+                    &mut commands,
+                    &format!("{} \u{b7} {}", record.name, record.detail),
+                    &address,
+                ),
+                None => spawn_field(&mut commands, &record.detail, &record.name),
+            };
+            commands.entity(body).add_child(field);
+        }
+        if more > 0 {
+            let note = commands
+                .spawn_scene(text_dim(format!("and {more} more"), size::SMALL))
+                .id();
+            commands.entity(body).add_child(note);
+        }
     }
 }
 
@@ -626,6 +708,7 @@ impl Plugin for InspectorPlugin {
                     rebuild_record,
                     fill_record_images,
                     fill_record_files,
+                    fill_record_related,
                 )
                     .chain()
                     .in_set(Stage::Chrome),

@@ -167,6 +167,16 @@ its query string. A format may talk to an API; what it may not do is reach
 into `catalog`, which is below it. The endpoint comes off the address rather
 than from `catalog::bkp::PRODUCTION` for exactly that reason.
 
+`formats/records` is the BKP Registry's counterpart, likewise a query and not
+a file: its specimens, processes and data assets, addressed as the endpoint
+with `?records=<kind>`, each paged, sorted and filtered at the registry.
+`catalog/registry/prepublic.rs` lists the three as the Pre-Public Data
+Catalog. The registry wants a token, which a format cannot get from
+`catalog`, so the one in the preferences is shared through
+`app::prefs::registry_token`. A picked record's links — a specimen's
+processes, a process's data assets — are `RelatedRecords`, another answer
+the inspector shows without knowing who wrote it.
+
 The platform gets two catalogs rather than one. `catalog/bkp` lists a
 dataset's visualizations; `catalog/bkp/projects` lists the projects whose
 specimens are a table, which is a different query against the same API. Apart,

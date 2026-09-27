@@ -12,15 +12,19 @@
 //! `brightfield`, `epifluorescence`), which between them covered 18,350 of
 //! its 18,696 OME-Zarr stores on 2026-09-26. The light-sheet brains have no
 //! such tag on their stores; they are the Neuroglancer states.
+//!
+//! The Pre-Public Data Catalog's three tables are offered here too, each
+//! with how many records it holds, which the first request counts.
 
 use std::collections::{BTreeMap, HashSet};
 
 use serde::Deserialize;
 
-use super::{Asset, entry};
+use super::{Asset, entry, prepublic};
 use crate::app::graphql::{self, Response};
 use crate::catalog::Entry;
 use crate::catalog::dashboard::{Bar, Block, Dashboard, Figure, sentence_case};
+use crate::formats::records::Kind;
 
 /// How many of the newest images are offered.
 const NEWEST: usize = 6;
@@ -77,6 +81,7 @@ fn overview_query() -> String {
   tables: dataAssets(first: 1, where: {TABLES}) {{ totalCount }}
   subjects(first: 1) {{ totalCount }}
   specimens(first: 1) {{ totalCount }}
+  processes(first: 1) {{ totalCount }}
   cells(first: 1) {{ totalCount }}
   collections: dataAssetCollections(first: 1) {{ totalCount }}
   species(first: 50) {{ nodes {{ name commonName }} }}
@@ -107,6 +112,7 @@ struct Overview {
     tables: Count,
     subjects: Count,
     specimens: Count,
+    processes: Count,
     cells: Count,
     collections: Count,
     species: Nodes<Species>,
@@ -211,10 +217,10 @@ pub async fn dashboard(endpoint: &str, token: &str) -> Result<Dashboard, String>
     )
     .await?;
     let breakdown: BTreeMap<String, Count> = parse(&text)?;
-    Ok(build(overview, &breakdown))
+    Ok(build(endpoint, overview, &breakdown))
 }
 
-fn build(mut overview: Overview, breakdown: &BTreeMap<String, Count>) -> Dashboard {
+fn build(endpoint: &str, mut overview: Overview, breakdown: &BTreeMap<String, Count>) -> Dashboard {
     let counted = |alias: String| breakdown.get(&alias).map_or(0, |count| count.total);
     let page =
         |rest: &BTreeMap<String, Page>, alias: &str| rest.get(alias).map_or(0, |page| page.total);
@@ -294,8 +300,25 @@ fn build(mut overview: Overview, breakdown: &BTreeMap<String, Count>) -> Dashboa
         }),
     );
 
+    let tables = [
+        (Kind::Specimens, overview.specimens.total),
+        (Kind::Processes, overview.processes.total),
+        (Kind::DataAssets, overview.assets.total),
+    ]
+    .into_iter()
+    .map(|(kind, records)| Entry {
+        kind: format!("{} records", crate::source::compact_count(records)),
+        ..prepublic::entry(endpoint, kind)
+    })
+    .collect();
+
     let blocks = vec![
         figures,
+        Block::Datasets {
+            title: "Pre-Public Data Catalog".into(),
+            note: Some("Every specimen, process and data asset, as a table.".into()),
+            entries: tables,
+        },
         Block::Datasets {
             title: "Newest images".into(),
             note: Some("The latest published OME-Zarr stores.".into()),
@@ -376,6 +399,7 @@ mod tests {
         "tables": {"totalCount": 80660},
         "subjects": {"totalCount": 5602},
         "specimens": {"totalCount": 30145},
+        "processes": {"totalCount": 2092185},
         "cells": {"totalCount": 35152528},
         "collections": {"totalCount": 1511729},
         "species": {"nodes": [{"name": "Homo sapiens", "commonName": null},
@@ -419,7 +443,7 @@ mod tests {
     fn built() -> Dashboard {
         let overview: Overview = parse(OVERVIEW).unwrap();
         let breakdown: BTreeMap<String, Count> = parse(BREAKDOWN).unwrap();
-        build(overview, &breakdown)
+        build(STAGE, overview, &breakdown)
     }
 
     fn datasets<'a>(dashboard: &'a Dashboard, title: &str) -> &'a [Entry] {
@@ -446,6 +470,28 @@ mod tests {
                 _ => None,
             })
             .unwrap_or_else(|| panic!("no {title}"))
+    }
+
+    #[test]
+    fn the_pre_public_tables_are_offered_with_what_each_holds() {
+        let dashboard = built();
+        let tables = datasets(&dashboard, "Pre-Public Data Catalog");
+        let offered: Vec<(&str, &str)> = tables
+            .iter()
+            .map(|entry| (entry.name.as_str(), entry.kind.as_str()))
+            .collect();
+        assert_eq!(
+            offered,
+            [
+                ("Specimens", "30.1K records"),
+                ("Processes", "2.09M records"),
+                ("Data assets", "17.82M records"),
+            ]
+        );
+        assert_eq!(
+            crate::formats::records::query_of(&tables[1].url).map(|(_, kind)| kind),
+            Some(Kind::Processes)
+        );
     }
 
     #[test]

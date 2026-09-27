@@ -48,6 +48,11 @@ as you zoom. Five formats are supported so far:
   dropdown — seven of the platform's 172, from 38 specimens to 10,901. The
   reference one is the SEA-AD donor metadata: 84 donors across 32 columns of
   clinical and neuropathology features.
+- **BKP Registry records**: the registry's specimens, processes and data
+  assets, each a table paged, sorted and filtered at the registry, as the
+  Pre-Public Data Catalog lists them. Offered in the dataset dropdown, and
+  on the BKP Registry's home-page card with how many records each holds,
+  once signed in; a picked row lists what it links to in the details dock.
 
 None of the streamed formats is ever loaded in its entirety. An annotation
 document and a table are small enough to be read whole.
@@ -62,6 +67,7 @@ cargo run --release -- slide.dzi             # a Deep Zoom image, URL or file
 cargo run --release -- genes.csv             # a CSV or TSV table, URL or file
 cargo run --release -- terms.parquet         # a Parquet table, likewise
 cargo run --release -- '<bkp-endpoint>/?specimens=<project>'  # a specimen table
+cargo run --release -- '<bkpr-endpoint>/?records=processes'   # a BKP Registry table
 cargo run --release -- --points <url|file>   # a Scatterbrain metadata JSON
 cargo run --release -- --slices <url|file>   # a sectioned Scatterbrain JSON
 cargo run --release -- --z 3 <source>        # pick a z slice
@@ -1068,6 +1074,48 @@ names: every project carrying one of them answered with rows, and every
 project carrying only `BKP_DATASET`, `OME_ZARR`, `SPECIMEN_FILES` or nothing
 answered with none. `SPECIMEN_FILES` is the trap — it reads as though it
 should qualify, it does not, and no project carries it alone.
+
+### BKP Registry records
+
+The Pre-Public Data Catalog's three pages, read from the registry's GraphQL
+API as whoever is signed in, and addressed as the endpoint with the kind
+named on it, as the registry's own query for it is named:
+
+```
+https://stage-bkpr.brain.devlims.org/graphql/?records=specimens
+https://stage-bkpr.brain.devlims.org/graphql/?records=processes
+https://stage-bkpr.brain.devlims.org/graphql/?records=dataAssets
+```
+
+Unlike the platform's specimens, every record of a kind has the same fields,
+so the columns are written out rather than discovered. What varies is each
+record's `data`, which differs by schema and can hold thousands of file
+paths, so it is never asked for.
+
+Measured against the stage registry on 2026-09-27:
+
+- **Far too many to read whole**: 30,145 specimens, 2.09 million processes
+  and 17.8 million data assets. A page is 100 rows and about half a second,
+  sorted at the registry, even 100,000 rows deep.
+- **Fifty is the most one page holds.** Asking for more is an error rather
+  than a short page, so a page of the table is asked for as two aliased
+  halves in one request. Cursors are the row's index in base64, so a page is
+  reached directly rather than by walking to it.
+- **Filters count with `totalCount`.** There is no grouping, so a filter's
+  values are counted one aliased `first: 0` query each, under what is ticked.
+  Every data asset type at once — 134 of them — took nine seconds, which is
+  why a filter is read only when it is opened. A third of the types hold
+  nothing, and a value nothing holds is not offered.
+- **Every process is of type Process.** The registry declares Acquisition,
+  Procedure and Processing too, and holds none of them, so a process's type
+  is neither shown at first nor filtered by; its kind is its schema's name.
+
+A picked row's links are read when it is picked, one request each: the
+processes a specimen or data asset was input to and output of, and the
+specimens, data assets and subjects a process took in and put out. One
+specimen was input to over a hundred processes, which is why they are not
+asked for with the page. A linked data asset stored at an address shows it,
+with a button to open it when it is something the viewer reads.
 
 ### Things that were measured rather than assumed
 
