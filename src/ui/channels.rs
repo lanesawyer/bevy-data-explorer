@@ -13,9 +13,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use bevy::ui::{Checked, InteractionDisabled};
-use bevy_feathers::containers::{subpane, subpane_body, subpane_header};
-use bevy_feathers::controls::{FeathersCheckbox, FeathersToolButton};
-use bevy_feathers::theme::ThemedText;
+use bevy_feathers::controls::FeathersCheckbox;
 use bevy_ui_widgets::{Activate, SliderValue, ValueChange};
 
 use crate::app::schedule::Stage;
@@ -24,7 +22,10 @@ use crate::ui::cell_panel::SWATCH_PX;
 use crate::ui::color_overrides::PickChannelColor;
 use crate::view::SelectedSource;
 use crate::widgets::space;
-use crate::widgets::{BlocksFrameInput, Icon, button_icon, button_text, patch_node, spawn_slider};
+use crate::widgets::{
+    BlocksFrameInput, Icon, SectionLevel, button_text, patch_node, spawn_accordion,
+    spawn_header_button, spawn_slider,
+};
 
 /// Brightness runs 0..400 on the slider, so its readout is a percentage.
 const PERCENT: f32 = 100.0;
@@ -55,39 +56,25 @@ pub struct ChannelSlider {
 }
 
 /// The section, for View configuration to put in its body.
+///
+/// A section within a pane, as the cell panel's properties are, with its
+/// reset in the header the way theirs hold their clear. The reset is disabled
+/// rather than hidden until there is something to put back, so touching a
+/// slider moves nothing.
 pub fn spawn_channel_section(commands: &mut Commands) -> Entity {
-    // A Feathers sub-pane: the header keeps its height whatever it holds, and
-    // the reset sits at its far end, disabled rather than hidden until there is
-    // something to put back, so touching a slider moves nothing.
-    let title = commands
-        .spawn_scene(bsn! { Text("Channels") ThemedText })
-        .id();
-    let reset = commands
-        .spawn_scene(bsn! {
-            @FeathersToolButton {
-                @caption: { bsn_list![button_icon(Icon::RotateCcw)] }
-            }
-            BlocksFrameInput
-            ChannelReset
-            InteractionDisabled
-        })
-        .id();
-    let header = commands
-        .spawn_scene(bsn! { subpane_header() })
-        .add_children(&[title, reset])
-        .id();
-    let rows = commands
-        .spawn_scene(bsn! { subpane_body() ChannelRows })
-        .id();
+    let accordion = spawn_accordion(commands, "Channels", true, SectionLevel::Group);
+    let reset = spawn_header_button(commands, accordion.header, Icon::RotateCcw);
     commands
-        .spawn_scene(bsn! {
-            subpane()
-            ChannelSection
-            // Hidden until the selection has channels to show.
-            Node { display: { Display::None } }
-        })
-        .add_children(&[header, rows])
-        .id()
+        .entity(reset)
+        .insert((ChannelReset, InteractionDisabled));
+    commands.entity(accordion.body).insert(ChannelRows);
+    commands
+        .entity(accordion.section)
+        .insert(ChannelSection)
+        // Hidden until the selection has channels to show.
+        .entry::<Node>()
+        .and_modify(|mut node| node.display = Display::None);
+    accordion.section
 }
 
 /// Rebuild the rows when the selection moves to a source with other channels.
