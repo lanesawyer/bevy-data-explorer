@@ -62,7 +62,6 @@ use crate::source::properties::{CellColumns, CellProperties, CellProperty};
 use crate::source::region::SelectedRegion;
 use crate::source::{Category, DataSource, SourceUrl};
 use dashboard::{Dashboard, DashboardState};
-use examples::Example;
 
 /// One dataset a catalog offers.
 #[derive(Clone, Debug)]
@@ -292,8 +291,6 @@ pub struct Provider {
     pub name: &'static str,
     /// A line on what it offers, under its switch.
     pub about: &'static str,
-    /// What an empty window offers from it, under its name, while it is on.
-    pub examples: &'static [Example],
 }
 
 /// Somewhere datasets are listed.
@@ -1250,7 +1247,6 @@ mod tests {
         key: "provided",
         name: "Provided",
         about: "",
-        examples: &[],
     };
 
     impl Catalog for Provided {

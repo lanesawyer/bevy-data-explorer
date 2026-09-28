@@ -4,8 +4,8 @@
 //! a cleared rectangle with no way into the app. This fills it: what the viewer
 //! is for, a button opening the same empty frame the sidebar's New frame does
 //! to search for anything, the front page of each data source that has one
-//! ([`crate::ui::dashboards`]), every dataset it knows the address of — each
-//! data source's that is on beside the rest — and who made it.
+//! ([`crate::ui::dashboards`]), an example of each kind of dataset it reads,
+//! and who made it.
 //!
 //! The saved bookmarks are not here: the sidebar lists them, and starts open.
 //!
@@ -19,21 +19,20 @@ use bevy::prelude::*;
 use bevy_feathers::controls::{ButtonVariant, FeathersButton};
 use bevy_feathers::display::label_dim;
 use bevy_feathers::font_styles::InheritableFont;
-use bevy_ui_widgets::{Activate, ScrollArea};
+use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::{Boot, Stage};
 use crate::catalog::Catalogs;
 use crate::catalog::examples::{EXAMPLES, Example};
 use crate::ui::add_source::status_line;
 use crate::ui::help::{AUTHOR, LICENSE, LICENSE_URL, REPOSITORY};
-use crate::ui::settings::WhileSourceOn;
 use crate::view::browse::new_frame_button;
 use crate::view::{FrameArea, Panel};
-use crate::widgets::space;
 use crate::widgets::{
     BlocksFrameInput, Icon, button_text, display, link_button, patch_node, size, text, text_dim,
     title,
 };
+use crate::widgets::{ScrollBoth, space};
 
 /// The empty-state panel itself.
 #[derive(Component, Clone, Default)]
@@ -49,8 +48,7 @@ pub struct ExampleButton {
 /// wide window.
 const COLUMN_PX: f32 = 520.0;
 
-/// Width of each column of examples. Two sit side by side in a wide frame
-/// area and wrap one under the other in a narrow one.
+/// Width of the list of examples.
 const EXAMPLES_PX: f32 = 440.0;
 
 /// Above the frames, which is where it is drawn, but below the menus that open
@@ -70,31 +68,45 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
             // It covers the grid, so it has to stop clicks reaching whatever is
             // behind it. Frames can be opened while it is on screen.
             BlocksFrameInput
-            // A short frame area, under an open log panel, holds less than the
-            // screen needs: it scrolls rather than spilling over the docks.
-            ScrollArea
+            // A short or narrow frame area, under an open log panel or beside
+            // wide docks, holds less than the screen needs: it scrolls both
+            // ways rather than spilling over the docks or squeezing the cards.
+            ScrollBoth
             Node {
                 position_type: { PositionType::Absolute },
                 display: { Display::None },
                 flex_direction: { FlexDirection::Column },
-                align_items: { AlignItems::Center },
-                row_gap: { Val::Px(space::SCREEN_GAP) },
-                padding: { UiRect::all(Val::Px(space::SCREEN_GAP)) },
-                overflow: { Overflow::scroll_y() },
+                align_items: { AlignItems::FlexStart },
+                overflow: { Overflow::scroll() },
             }
             GlobalZIndex({ WELCOME_Z })
             InheritableFont { font_size: { 13.0f32 } }
         })
         .id();
 
+    // The padding is the page's rather than the screen's, so it scrolls with
+    // the page: an area scrolling both ways clips at its content box, and
+    // padding of its own would leave a band round the edge that cuts the page
+    // off short of the window. At least as large as the screen, so the footer
+    // still finds the foot of it.
+    let page = commands
+        .spawn_scene(bsn! {
+            Node {
+                flex_direction: { FlexDirection::Column },
+                align_items: { AlignItems::FlexStart },
+                flex_shrink: { 0.0_f32 },
+                min_width: { Val::Percent(100.0) },
+                min_height: { Val::Percent(100.0) },
+                row_gap: { Val::Px(space::SCREEN_GAP) },
+                padding: { UiRect::all(Val::Px(space::SCREEN_GAP)) },
+            }
+        })
+        .id();
+    commands.entity(screen).add_child(page);
+
     let title = commands
         .spawn_scene(bsn! {
             title("Bevy Data Explorer")
-            // Centered by auto margins at either end rather than by
-            // `JustifyContent::Center`, which overflows both ways once the
-            // content is taller than the screen and puts the top out of reach
-            // of the scroll. Auto margins shrink to nothing instead.
-            Node { margin: { UiRect::top(Val::Auto) } }
         })
         .id();
 
@@ -102,7 +114,6 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
         .spawn_scene(bsn! {
             text_dim(BLURB, size::BODY)
             Node { max_width: { Val::Px(COLUMN_PX) } }
-            TextLayout { justify: { Justify::Center } }
         })
         .id();
 
@@ -110,34 +121,14 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
     // it — one at a time.
     let dashboards = crate::ui::dashboards::spawn_dashboards(&mut commands, &catalogs);
 
-    // Each data source's own examples lead, since they are what most people
-    // come to look at, each shown while its source is on; the formats the
-    // viewer reads follow beside them.
-    let mut examples = Vec::new();
-    for provider in catalogs.providers() {
-        if provider.examples.is_empty() {
-            continue;
-        }
-        let column = example_column(&mut commands, provider.name, provider.examples);
-        commands.entity(column).insert(WhileSourceOn {
-            key: provider.key,
-            shown: Display::Grid,
-        });
-        examples.push(column);
-    }
-    examples.push(example_column(&mut commands, "Other examples", &EXAMPLES));
-    let columns = commands
-        .spawn_scene(bsn! {
-            Node {
-                width: { Val::Percent(100.0) },
-                flex_wrap: { FlexWrap::Wrap },
-                justify_content: { JustifyContent::Center },
-                column_gap: { Val::Px(space::SCREEN_WIDE) },
-                row_gap: { Val::Px(space::SCREEN_GAP) },
-            }
-        })
-        .id();
-    commands.entity(columns).add_children(&examples);
+    // One of each kind the viewer reads, which says what can be pasted into
+    // it as much as it offers something to look at.
+    let examples = example_column(
+        &mut commands,
+        "Examples",
+        "One of every kind of data the explorer supports. Paste an address like any of these to open your own.",
+        &EXAMPLES,
+    );
 
     // Any dataset, and any address, is found in an empty frame: the same one
     // the sidebar's New frame button opens. First, since it reaches everything
@@ -146,9 +137,8 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
         .spawn_scene(bsn! {
             Node {
                 flex_direction: { FlexDirection::Column },
-                align_items: { AlignItems::Center },
+                align_items: { AlignItems::FlexStart },
                 width: { Val::Px(COLUMN_PX) },
-                max_width: { Val::Percent(100.0) },
                 row_gap: { Val::Px(space::ROWS) },
             }
             Children [
@@ -159,10 +149,9 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
         })
         .id();
 
-    let mut children = vec![title, blurb, browse, dashboards, columns];
+    let mut children = vec![title, blurb, browse, dashboards, examples];
 
-    // Pushed to the foot of the screen by its auto margin, which with the
-    // title's leaves the rest centered in what is between them.
+    // Pushed to the foot of the screen by its auto margin.
     let footer = commands
         .spawn_scene(bsn! {
             Node {
@@ -182,16 +171,23 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
         .id();
     children.push(footer);
 
-    commands.entity(screen).add_children(&children);
+    commands.entity(page).add_children(&children);
 }
 
-/// A heading over a button for each of `examples`, with its kind beside it.
+/// A heading and a line on what they are over a button for each of
+/// `examples`, with its kind beside it.
 ///
 /// A grid rather than a row per example, so the kinds share one column sized
 /// to the longest of them, and every button in the list ends in the same
 /// place rather than wherever its own kind happens to start.
-fn example_column(commands: &mut Commands, heading: &str, examples: &[Example]) -> Entity {
+fn example_column(
+    commands: &mut Commands,
+    heading: &str,
+    about: &str,
+    examples: &[Example],
+) -> Entity {
     let heading = heading.to_string();
+    let about = about.to_string();
     let column = commands
         .spawn_scene(bsn! {
             Node {
@@ -210,6 +206,10 @@ fn example_column(commands: &mut Commands, heading: &str, examples: &[Example]) 
             Children [
                 (
                     text(heading, size::BODY)
+                    Node { grid_column: { GridPlacement::span(2) } }
+                ),
+                (
+                    text_dim(about, size::SECONDARY)
                     Node {
                         grid_column: { GridPlacement::span(2) },
                         margin: { UiRect::bottom(Val::Px(space::HEADING)) },
@@ -313,48 +313,25 @@ impl Plugin for WelcomePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::bkp;
 
     #[test]
     fn every_kind_the_viewer_draws_is_offered() {
         // An empty window should leave nothing the viewer can draw without a
-        // way to open one. Scatterbrain comes from the platform: a UMAP is a
-        // single cloud, a grid of sections a sectioned one.
-        let kinds: Vec<&str> = EXAMPLES
-            .iter()
-            .chain(&bkp::EXAMPLES)
-            .map(|example| example.kind)
-            .collect();
-        assert!(kinds.iter().any(|kind| kind.contains("image")));
-        assert!(kinds.contains(&"UMAP"));
-        assert!(kinds.iter().any(|kind| kind.contains("sections")));
-        assert!(kinds.iter().any(|kind| kind.contains("stack")));
-        assert!(kinds.iter().any(|kind| kind.contains("Deep Zoom")));
-        assert!(kinds.iter().any(|kind| kind.contains("table")));
-    }
-
-    #[test]
-    fn every_dataset_the_app_knows_is_offered_here() {
-        // Not one of each kind. Two images can differ in the version of the
-        // store they are written in or in whether they are a stack, and picking
-        // one to stand for the other hides what makes them worth opening.
-        let all = || EXAMPLES.iter().chain(&bkp::EXAMPLES);
-        let mut urls: Vec<&str> = all().map(|example| example.url).collect();
-        urls.sort_unstable();
-        urls.dedup();
-        assert_eq!(urls.len(), all().count(), "two examples share a URL");
-    }
-
-    #[test]
-    fn every_example_names_an_address_that_can_be_fetched() {
-        // Written the way they were copied — one of them straight out of a
-        // neuroglancer config — so what matters is that each one comes out of
-        // the translation as something fetchable.
-        for example in EXAMPLES.iter().chain(&bkp::EXAMPLES) {
-            let url = crate::formats::plain_url(example.url);
-            assert!(url.starts_with("https://"), "{}: {url}", example.name);
-            assert!(!example.name.is_empty());
-            assert!(!example.kind.is_empty());
+        // way to open one. Scatterbrain is both a single cloud and a grid of
+        // sections, and each opens a different frame.
+        let kinds: Vec<&str> = EXAMPLES.iter().map(|example| example.kind).collect();
+        for kind in [
+            "OME-Zarr",
+            "Neuroglancer",
+            "Deep Zoom",
+            "SVG",
+            "UMAP",
+            "sections",
+            "CSV",
+            "Parquet",
+            "specimen table",
+        ] {
+            assert!(kinds.iter().any(|k| k.contains(kind)), "no {kind} example");
         }
     }
 }

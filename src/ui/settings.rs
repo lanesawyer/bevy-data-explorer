@@ -195,11 +195,10 @@ fn page_button(page: SettingsPage) -> impl Scene {
 #[derive(Component, Clone, Default)]
 pub struct SourceSwitch(pub &'static str);
 
-/// Shown only while the data source keyed is on, such as the registry's token
-/// or a provider's examples on the welcome screen.
+/// Shown only while the data source keyed is on, such as the registry's token.
 ///
-/// Carries the display it is shown with, since not everything so marked is a
-/// flex box: the welcome screen's example columns are grids.
+/// Carries the display it is shown with, since not everything so marked need
+/// be a flex box.
 #[derive(Component, Clone)]
 pub struct WhileSourceOn {
     pub key: &'static str,

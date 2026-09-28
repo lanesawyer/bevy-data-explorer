@@ -6,9 +6,8 @@
 //! offers. Nothing here knows which source it is drawing, so a new one needs
 //! nothing but a catalog that has a dashboard.
 //!
-//! One is shown at a time, picked from a list down the left the way the
-//! settings screen's pages are, so the home page stays one dashboard tall
-//! however many sources have one. Only the sources turned on are listed, and
+//! One is shown at a time, picked from a row of tabs across its top, so the
+//! home page stays one dashboard tall however many sources have one. Only the sources turned on are listed, and
 //! the list itself only once there are two to choose between.
 //!
 //! The cards are spawned once, with the welcome screen; what is inside one is
@@ -35,15 +34,12 @@ use crate::widgets::{
 pub const CARD_PX: f32 = 2.0 * BLOCK_PX + space::SCREEN_WIDE + 2.0 * space::CONTROL_INSET + 2.0;
 
 /// Width of each block after the headline numbers. Two sit side by side in a
-/// wide frame area and wrap one under the other in a narrow one.
+/// card, which keeps its width and scrolls with the home page rather than
+/// squeezing them.
 const BLOCK_PX: f32 = 440.0;
 
 /// The narrowest a headline number is given, so four share a row of a card.
 const FIGURE_PX: f32 = 180.0;
-
-/// The list of dashboards down the left, wide enough for a source's name on
-/// one line: "Brain Knowledge Platform" wrapped at 180.
-const NAV_PX: f32 = 220.0;
 
 /// What a button takes around its caption, its padding and border together.
 const BUTTON_INSET_PX: f32 = (space::CONTROL_INSET + space::SEAM) * 2.0;
@@ -76,8 +72,8 @@ struct DashboardNav;
 #[derive(Resource, Default)]
 struct ShownDashboard(Option<DashboardId>);
 
-/// The dashboards: a button for each down the left, and a card for each
-/// beside them, one card shown at a time.
+/// The dashboards: a button for each across the top, and a card for each
+/// under them, one card shown at a time.
 pub fn spawn_dashboards(commands: &mut Commands, catalogs: &Catalogs) -> Entity {
     let tabs: Vec<Entity> = catalogs
         .dashboards()
@@ -92,7 +88,6 @@ pub fn spawn_dashboards(commands: &mut Commands, catalogs: &Catalogs) -> Entity 
                             TextLayout { linebreak: { LineBreak::NoWrap } }
                         )] }
                     }
-                    Node { justify_content: { JustifyContent::Start } }
                     BlocksFrameInput
                 })
                 .insert(DashboardTab(view.id))
@@ -103,9 +98,8 @@ pub fn spawn_dashboards(commands: &mut Commands, catalogs: &Catalogs) -> Entity 
         .spawn((
             DashboardNav,
             Node {
-                width: Val::Px(NAV_PX),
-                flex_shrink: 0.0,
-                flex_direction: FlexDirection::Column,
+                flex_wrap: FlexWrap::Wrap,
+                column_gap: Val::Px(space::LIST_ITEMS),
                 row_gap: Val::Px(space::LIST_ITEMS),
                 ..default()
             },
@@ -115,9 +109,9 @@ pub fn spawn_dashboards(commands: &mut Commands, catalogs: &Catalogs) -> Entity 
     let cards = spawn_cards(commands, catalogs);
     commands
         .spawn(Node {
-            max_width: Val::Percent(100.0),
+            flex_direction: FlexDirection::Column,
             align_items: AlignItems::FlexStart,
-            column_gap: Val::Px(space::SCREEN_INSET),
+            row_gap: Val::Px(space::GROUPS),
             ..default()
         })
         .add_child(nav)
@@ -157,8 +151,6 @@ fn spawn_cards(commands: &mut Commands, catalogs: &Catalogs) -> Vec<Entity> {
                     Node {
                         display: { Display::None },
                         width: { Val::Px(CARD_PX) },
-                        min_width: { Val::Px(0.0) },
-                        flex_shrink: { 1.0_f32 },
                         row_gap: { Val::Px(space::STACKED) },
                     }
                 })
@@ -370,6 +362,10 @@ fn spawn_block(commands: &mut Commands, title: &str, note: Option<&str>) -> Enti
 
 /// A row for each bar: what it is, the bar against the largest, and the
 /// count.
+///
+/// A label too long for what the bar and the counts leave is cut with an
+/// ellipsis, as a dataset's name is, and clipped besides, so it never runs
+/// under the bar.
 fn spawn_breakdown(
     commands: &mut Commands,
     title: &str,
@@ -378,10 +374,17 @@ fn spawn_breakdown(
 ) -> Entity {
     let block = spawn_block(commands, title, note);
     let largest = bars.iter().map(|bar| bar.value).max().unwrap_or(1).max(1);
+    let counts: Vec<String> = bars.iter().map(|bar| compact_count(bar.value)).collect();
+    let widest_count = counts
+        .iter()
+        .map(|count| count.chars().count())
+        .max()
+        .unwrap_or(0);
+    let room =
+        BLOCK_PX - BAR_WIDTH_PX - width_of(widest_count, size::SECONDARY) - 2.0 * space::GROUPS;
     let mut cells = Vec::new();
-    for bar in bars {
-        let label = bar.label.clone();
-        let count = compact_count(bar.value);
+    for (bar, count) in bars.iter().zip(counts) {
+        let label = truncate_to_width(&bar.label, room, size::SECONDARY);
         let share = bar.value as f32 / largest as f32 * 100.0;
         let fill = commands
             .spawn((
@@ -409,11 +412,15 @@ fn spawn_breakdown(
             ))
             .add_child(fill)
             .id();
+        // The clip is on a box around the text rather than on the text,
+        // since a node clips its children and not what it draws itself.
         let label = commands
             .spawn_scene(bsn! {
-                text_dim(label, size::SECONDARY)
-                TextLayout { linebreak: { LineBreak::NoWrap } }
                 Node { min_width: { Val::Px(0.0) }, overflow: { Overflow::clip() } }
+                Children [(
+                    text_dim(label, size::SECONDARY)
+                    TextLayout { linebreak: { LineBreak::NoWrap } }
+                )]
             })
             .id();
         let count = commands

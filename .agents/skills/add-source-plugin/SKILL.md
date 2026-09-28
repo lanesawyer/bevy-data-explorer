@@ -64,7 +64,7 @@ that names it:
 - add a `Discovered` variant, and recognize it in `discover::discover` from the
   bytes (or an unambiguous extension) rather than from anything the user says;
 - map that variant to `spawn_source` in `spawn_discovered`;
-- add an entry to `EXAMPLES` if there is a public dataset to offer.
+- add exactly one entry to `catalog::examples::EXAMPLES` (see Step 3a).
 
 The command line, the URL field and the examples all go through
 `discover` and `spawn_discovered`, so nothing else needs to know the format
@@ -85,6 +85,31 @@ also highlights what it found, like the point clouds, writes its own.
 top-down. If what the source shows changes at runtime, keep the extent updated
 — a frame opened later is framed from it, and a stale one leaves that frame
 unable to zoom out.
+
+## Step 3a: Add its example
+
+`catalog/examples.rs` holds one example of every kind of dataset the viewer
+reads, and nothing else. It is the welcome screen's only list of datasets, and
+what it tells a newcomer is what they can paste into the URL field, so a
+format without one there is a format nobody finds. Every new format, and every
+new variant `discover` tells apart (a sectioned cloud against a single one),
+adds one entry:
+
+- `kind` names the format as someone would paste it ("Parquet table",
+  "Scatterbrain sections"), and is unique: `there_is_one_example_of_each_kind`
+  fails on a second example of a kind already there.
+- Pick something small that opens fast and shows the format at its best, from
+  a public address. A dataset a catalog already lists — a Brain Knowledge
+  Platform visualization or specimen table — is a good choice; give it that
+  catalog's exact address and `cataloged: true`, so it is offered once in the
+  picker and described as the catalog has it.
+- Add the kind's word to `every_kind_the_viewer_draws_is_offered` in
+  `ui/welcome.rs`, and name the format in the welcome `BLURB` there.
+- Run the ignored `every_example_is_recognized` in `catalog/examples.rs`
+  against the live store.
+
+Only a kind nobody can open without signing in, as the BKP Registry's records
+are, goes without one — say so in the doc comment on `Example`.
 
 ## Step 4: Bind the streamer to its source
 

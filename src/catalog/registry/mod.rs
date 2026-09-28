@@ -178,7 +178,6 @@ pub const PROVIDER: Provider = Provider {
     key: "bkp-registry",
     name: "BKP Registry",
     about: "The Institute's internal record of data assets. Pre-production, and needs signing in.",
-    examples: &[],
 };
 
 impl Catalog for Registry {

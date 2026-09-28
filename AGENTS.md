@@ -13,7 +13,9 @@ open, and a `spawn_source` that registers one dataset as a *source entity*.
 hands it to its format, and that one path serves the command line, the URL
 field and the examples alike. Adding a format touches `formats` and nothing in
 `view`, `ui` or `main`; frames are opened by querying the world for sources.
-See `.agents/skills/add-source-plugin`.
+It also adds one entry to `catalog::examples::EXAMPLES`, which holds exactly
+one example of every kind of dataset the viewer reads — the welcome screen's
+list of what can be pasted in. See `.agents/skills/add-source-plugin`.
 
 A Neuroglancer state is usually one image: stores on one grid are
 overlaid as a `Dataset` with `members`, whose channels follow its own and

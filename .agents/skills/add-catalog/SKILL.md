@@ -70,6 +70,14 @@ In `main.rs`, add it beside the others:
 The registration order is the order in the dropdown. Each catalog keeps its own
 slot, so a slow one never reorders those listed before it.
 
+A catalog gets no examples section of its own on the welcome screen: a source
+with something to show off does it with a dashboard (`has_dashboard` and
+`dashboard`). The welcome screen's examples are one of each *kind* of dataset,
+in `catalog/examples.rs`. If this catalog brings a kind nothing else offers — as
+`formats/specimens` came with the BKP's projects — add one of its entries there
+with its exact address and `cataloged: true`, and follow Step 3a of
+`add-source-plugin`.
+
 ## Step 4 (optional): Describe its cells
 
 If the catalog's service knows more about a dataset's cells than the files do

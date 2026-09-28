@@ -161,8 +161,8 @@ carries a swatch. How many cells hold each value takes the API seconds to
 count, so the counts are asked for once the labels are showing and written in
 beside them when they land. A dataset any catalog lists also takes the catalog's
 name for it in place of the reference id its address gives. The built-in
-examples keep what their files say about their cells, even where
-the platform also knows them, because no catalog vouches for their addresses.
+examples of the platform's kinds are its own addresses, so they are described
+as the platform has them; the rest keep what their files say about their cells.
 
 A taxonomy, or an atlas of regions within regions, is one property drawn as a
 tree: each value nests under its parent a level up, and a node expands to show
