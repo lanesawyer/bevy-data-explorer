@@ -469,7 +469,7 @@ dependencies = [
 
 [[package]]
 name = "bevy-data-explorer"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
