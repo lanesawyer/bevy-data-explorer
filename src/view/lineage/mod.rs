@@ -445,7 +445,9 @@ fn card_node(place: Vec2) -> Node {
         padding: UiRect::all(Val::Px(space::CONTROL_INSET)),
         border: UiRect::all(Val::Px(1.0)),
         border_radius: BorderRadius::all(Val::Px(6.0)),
-        overflow: Overflow::clip(),
+        // Not clipped: a clip is worked out from the card's unscaled layout,
+        // so a zoomed card cut its own text off. Its text is cut to fit
+        // instead.
         ..default()
     }
 }
