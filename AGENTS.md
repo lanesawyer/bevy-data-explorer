@@ -75,6 +75,9 @@ list:
     cli.rs     the command line
     main.rs    parse arguments, register what they name, run
 
+`tests/layers.rs` fails on any `crate::` path that climbs this list, test code
+aside, and on an `app` submodule reaching past `source`.
+
 `app/` is in two halves. Its submodules — `net` (the async runtime reads go
 through), `graphql` (asking the APIs past the stores), `schedule` (the
 stages), `theme` and the desktop `accent` it follows, `prefs`, `logs` and

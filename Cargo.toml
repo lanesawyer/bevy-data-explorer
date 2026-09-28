@@ -67,6 +67,13 @@ bytes = "1"
 # Already in the tree as rustls' crypto.
 ring = "0.17"
 
+# `tests/layers.rs` parses the source to check its imports. All three are
+# already in the tree through Bevy's derive macros.
+[dev-dependencies]
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
+syn = { version = "2", features = ["full", "visit-mut"] }
+
 [lints.rust]
 unsafe_code = "forbid"
 unused_qualifications = "warn"
