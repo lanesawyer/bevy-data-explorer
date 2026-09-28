@@ -21,6 +21,13 @@
 //! showing, so that a section growing long enough to scroll does not shunt
 //! every row beside it sideways.
 //!
+//! An area that scrolls both ways has content passing through both lanes, so
+//! it clips at its content box, which stops short of them, and its bars are
+//! let out of that clip. Its bars also reach past what it lays out, since each
+//! stands out in its lane, and taffy counts either one as content along the
+//! other's axis; so each of its bars is shown only once the content reaches
+//! past where the other would stand.
+//!
 //! That lane is taken out of padding rather than out of the rows, so a list
 //! that scrolls ends where everything beside it ends and its bar sits in the
 //! margin. An area with padding of its own gives up its right padding to the
@@ -30,7 +37,7 @@
 
 use bevy::ecs::template::EntityTemplate;
 use bevy::prelude::*;
-use bevy::ui::IgnoreScroll;
+use bevy::ui::{IgnoreScroll, OverrideClip};
 use bevy_feathers::controls::FeathersScrollbar;
 use bevy_ui_widgets::{ControlOrientation, ScrollArea};
 
@@ -215,6 +222,12 @@ pub fn add_scrollbars(
         if bars.is_empty() {
             continue;
         }
+        if bars.len() == 2 {
+            node.overflow_clip_margin = OverflowClipMargin::content_box();
+            for &bar in &bars {
+                commands.entity(bar).insert(OverrideClip);
+            }
+        }
         // Reserved on whichever axes scroll, which taffy works out for
         // itself: a node that scrolls up and down needs the space across.
         node.scrollbar_width = GUTTER_PX;
@@ -272,10 +285,21 @@ fn spawn_bar(commands: &mut Commands, area: Entity, orientation: ControlOrientat
 }
 
 /// Show each bar only while its area has something to scroll.
-pub fn show_scrollbars(areas: Query<&ComputedNode>, mut bars: Query<(&ScrollbarFor, &mut Node)>) {
+pub fn show_scrollbars(
+    areas: Query<(&ComputedNode, &Node), Without<ScrollbarFor>>,
+    mut bars: Query<(&ScrollbarFor, &mut Node)>,
+) {
     for (bar, node) in &mut bars {
-        let Ok(area) = areas.get(bar.area) else {
+        let Ok((area, area_node)) = areas.get(bar.area) else {
             continue;
+        };
+        // How far the bar across this one stands past what is laid out.
+        let reach = if area_node.overflow.x == OverflowAxis::Scroll
+            && area_node.overflow.y == OverflowAxis::Scroll
+        {
+            GUTTER_PX - EDGE_GAP_PX
+        } else {
+            0.0
         };
         let scale = area.inverse_scale_factor();
         let visible = (area.size() - area.scrollbar_size) * scale;
@@ -285,7 +309,7 @@ pub fn show_scrollbars(areas: Query<&ComputedNode>, mut bars: Query<(&ScrollbarF
             ControlOrientation::Horizontal => (content.x, visible.x),
         };
         patch_node(node, |node| {
-            node.display = display(overflows(content, visible));
+            node.display = display(overflows(content, visible + reach));
         });
     }
 }
@@ -376,6 +400,19 @@ mod tests {
         let area = scrolling(&mut app, Overflow::scroll_x());
         let (_, orientation) = bar_of(&mut app, area).expect("a bar");
         assert_eq!(orientation, ControlOrientation::Horizontal);
+    }
+
+    #[test]
+    fn an_area_scrolling_both_ways_keeps_its_content_out_of_the_lanes() {
+        let mut app = app();
+        let area = scrolling(&mut app, Overflow::scroll());
+        let node = app.world().entity(area).get::<Node>().unwrap();
+        assert_eq!(node.overflow_clip_margin, OverflowClipMargin::content_box());
+        let children = app.world().entity(area).get::<Children>().unwrap();
+        assert_eq!(children.len(), 2);
+        for bar in children.iter() {
+            assert!(app.world().entity(bar).contains::<OverrideClip>());
+        }
     }
 
     #[test]
