@@ -291,10 +291,13 @@ fn related_query(kind: Kind) -> String {
 
 /// What the record with this id links to, as the registry has it.
 pub(super) async fn ask_related(endpoint: &str, kind: Kind, id: &str) -> Result<Value, String> {
-    let mut answer: BTreeMap<String, Connection> =
+    // Null rather than absent when the registry refuses, so the refusal is
+    // what is reported rather than a failure to read the answer.
+    let mut answer: BTreeMap<String, Option<Connection>> =
         ask(endpoint, &related_query(kind), json!({ "id": id })).await?;
     answer
         .remove("r")
+        .flatten()
         .and_then(|it| it.nodes.into_iter().next())
         .ok_or_else(|| format!("the BKP Registry has no record {id}"))
 }
