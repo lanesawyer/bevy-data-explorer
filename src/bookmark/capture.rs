@@ -3,13 +3,14 @@
 use bevy::prelude::*;
 
 use super::snapshot::{
-    Bookmark, FocusState, FrameState, LayerState, OrbitState, RegionState, SourceState, VERSION,
-    ViewState, cells_of, channels_of, table_of, with_search, with_trail,
+    Bookmark, FocusState, FrameState, LayerState, LineageState, OrbitState, RegionState,
+    SourceState, VERSION, ViewState, cells_of, channels_of, table_of, with_search, with_trail,
 };
 use crate::catalog::RegionFocus;
 use crate::render::points::SourcePointSize;
 use crate::render::settings::SourceOpacity;
 use crate::source::channels::SourceChannels;
+use crate::source::lineage::LineageAsked;
 use crate::source::properties::{
     CellProperties, ColorOverrides, ColorScale, FilteredPoints, PropertyState, Provenance,
 };
@@ -233,6 +234,7 @@ fn source_state(source: EntityRef, url: String) -> SourceState {
                     && !matches!(properties.provenance, Provenance::Fetching(_))
             })
             .map(cells_of),
+        lineage: source.get::<LineageAsked>().map(LineageState::of),
         table: source.get::<TablePaging>().and_then(|paging| {
             let state = table_of(
                 paging,

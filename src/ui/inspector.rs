@@ -22,7 +22,8 @@
 //! A linked record whatever produced the rows can read is followed from
 //! there: the inspector shows it in the row's place, its own fields and
 //! links, and a trail above leads back to the row. Pictures and files are
-//! the row's, so they are left behind with it.
+//! the row's, so they are left behind with it. A record whose lineage can
+//! be drawn offers to open it in a frame of its own.
 
 use bevy::clipboard::Clipboard;
 use bevy::prelude::*;
@@ -35,8 +36,8 @@ use bevy_ui_widgets::Activate;
 use crate::app::schedule::{Boot, Stage};
 use crate::formats::discover::datasets_in;
 use crate::source::table::{
-    FollowedRecord, Record, RecordFiles, RecordImage, RecordImages, RecordImagesState, RecordTrail,
-    RelatedRecords, SelectedRecord, TrailStep,
+    FollowedRecord, Record, RecordFiles, RecordImage, RecordImages, RecordImagesState,
+    RecordLineage, RecordTrail, RelatedRecords, SelectedRecord, TrailStep,
 };
 use crate::source::{DataSource, SourceStatus};
 use crate::ui::record_export::{RecordExportMenu, spawn_record_export_menu};
@@ -165,6 +166,11 @@ pub struct FollowRecord {
     link: String,
     name: String,
 }
+
+/// Where the button opening the shown record's lineage goes, once whatever
+/// produced the rows says it has one.
+#[derive(Component, Clone, Default)]
+pub struct LineageSlot;
 
 /// A step of the trail above a followed record, going back to it: how many
 /// steps are kept, none going back to the row.
@@ -361,6 +367,8 @@ pub fn rebuild_record(
         spawn_trail(&mut commands, row, &trail)
     };
     commands.entity(list).add_child(heading);
+    let lineage = commands.spawn((LineageSlot, Node::default())).id();
+    commands.entity(list).add_child(lineage);
 
     // Pictures first: a record with any is usually worth opening for them.
     // Images, Files and Related are shown by `fill_record_images`,
@@ -433,6 +441,39 @@ fn spawn_trail(commands: &mut Commands, row: String, trail: &[TrailStep]) -> Ent
         })
         .add_children(&crumbs)
         .id()
+}
+
+/// Offer the lineage of the record shown, when whatever produced the rows
+/// has one to open.
+pub fn fill_record_lineage(
+    mut commands: Commands,
+    selected: SelectedSource,
+    lineages: Query<Ref<RecordLineage>>,
+    slots: Query<(Entity, Ref<LineageSlot>)>,
+) {
+    let Ok((slot, fresh)) = slots.single() else {
+        return;
+    };
+    let lineage = selected.get(&lineages);
+    if !fresh.is_added() && !lineage.as_ref().is_some_and(Ref::is_changed) {
+        return;
+    }
+    commands.entity(slot).despawn_children();
+    let Some(url) = lineage.and_then(|it| it.0.clone()) else {
+        return;
+    };
+    let button = commands
+        .spawn_scene(bsn! {
+            @FeathersButton {
+                @variant: { ButtonVariant::Normal },
+                @caption: { bsn_list![button_icon(Icon::Plus), button_text("Show its lineage")] }
+            }
+            Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+            BlocksFrameInput
+            OpenFieldDataset { url: { url } }
+        })
+        .id();
+    commands.entity(slot).add_child(button);
 }
 
 /// Fill the Fields section of a followed record as they arrive. A picked
@@ -880,6 +921,7 @@ impl Plugin for InspectorPlugin {
                     fill_record_files,
                     fill_record_related,
                     fill_followed_fields,
+                    fill_record_lineage,
                 )
                     .chain()
                     .in_set(Stage::Chrome),

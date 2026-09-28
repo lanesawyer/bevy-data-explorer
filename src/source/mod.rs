@@ -14,6 +14,7 @@ pub mod channels;
 pub mod genes;
 pub mod gradient;
 pub mod hover;
+pub mod lineage;
 pub mod properties;
 pub mod region;
 pub mod stack;

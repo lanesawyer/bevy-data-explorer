@@ -42,6 +42,7 @@ use bevy_ui_widgets::Activate;
 
 use crate::app::schedule::Stage;
 use crate::app::theme::{Palette, token};
+use crate::source::lineage::SourceLineage;
 use crate::source::table::{
     ColumnWidths, HiddenColumns, Record, RecordTrail, SelectedRecord, SourceTable, TablePaging,
     TableSort, to_first_page,
@@ -84,7 +85,7 @@ const PAD_PX: f32 = space::CONTROL_INSET;
 
 /// Drawn over the frame's cleared cell, and under the header, the buttons and
 /// the selection outline, which all sit at zero and must stay reachable.
-const TABLE_Z: i32 = -1;
+pub(super) const TABLE_Z: i32 = -1;
 
 /// Clear space left between the frame's own chrome and the top of the table.
 ///
@@ -418,7 +419,7 @@ pub fn place_tables(
 ///
 /// Measured rather than assumed, because the header is as tall as the status
 /// it is reporting — two lines for one dataset and three for another.
-fn chrome_depth(headers: &Query<(&PanelHeader, &ComputedNode)>, panel: Entity) -> f32 {
+pub(super) fn chrome_depth(headers: &Query<(&PanelHeader, &ComputedNode)>, panel: Entity) -> f32 {
     let header = headers
         .iter()
         .find(|(header, _)| header.panel == panel)
@@ -464,7 +465,7 @@ pub fn read_selected_records(
 /// whenever it is open.
 pub fn hide_layer_menus(
     panels: Query<&ShowsSource>,
-    tables: Query<(), With<SourceTable>>,
+    tables: Query<(), Or<(With<SourceTable>, With<SourceLineage>)>>,
     buttons: Query<(Entity, &MenuButton)>,
     mut menus: Query<(&super::overlay::SourceMenu, &mut Menu)>,
     mut nodes: Query<&mut Node>,

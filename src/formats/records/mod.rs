@@ -26,15 +26,16 @@ use crate::app::net::{Fetching, fetching};
 use crate::app::schedule::Stage;
 use crate::source::SourceBusy;
 use crate::source::table::{
-    FollowedRecord, RecordTrail, RelatedRecords, SearchedColumns, SelectedRecord, SortKey,
-    SourceTable, TableFilter, TableFilterKind, TableFilterValue, TableFilters, TablePaging,
-    TableSearch, TableSort,
+    FollowedRecord, RecordLineage, RecordTrail, RelatedRecord, RelatedRecords, SearchedColumns,
+    SelectedRecord, SortKey, SourceTable, TableFilter, TableFilterKind, TableFilterValue,
+    TableFilters, TablePaging, TableSearch, TableSort,
 };
 
 use super::table::{MAX_CHARS, PAGE_ROWS, Table};
 
 mod filters;
 mod kinds;
+pub mod lineage;
 mod pages;
 mod query;
 mod related;
@@ -151,7 +152,12 @@ impl Plugin for RecordSystems {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (serve_values, serve_pages, serve_related)
+            (
+                serve_values,
+                serve_pages,
+                serve_related,
+                lineage::serve_lineage,
+            )
                 .chain()
                 .in_set(Stage::Sources),
         );
@@ -187,6 +193,7 @@ pub fn spawn_source(world: &mut World, records: Records) -> Entity {
         RelatedRecords::default(),
         RecordTrail::default(),
         FollowedRecord::default(),
+        RecordLineage::default(),
         RecordPages {
             endpoint,
             kind,

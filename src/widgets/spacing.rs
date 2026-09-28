@@ -67,6 +67,12 @@ pub mod space {
     pub const SCREEN_GAP: f32 = step::XL;
     /// Between columns that share a whole-window screen.
     pub const SCREEN_WIDE: f32 = step::XXL;
+
+    /// Between the cards stacked in one column of a graph.
+    pub const GRAPH_CARDS: f32 = step::M;
+    /// Between a graph's columns: room for the lines joining them to turn
+    /// halfway across and still read as lines.
+    pub const GRAPH_COLUMNS: f32 = step::XXL * 2.0;
 }
 
 #[cfg(test)]

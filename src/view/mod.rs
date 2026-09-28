@@ -25,6 +25,7 @@ pub mod dataset_menu;
 pub mod grid;
 pub mod input;
 pub mod layers;
+pub mod lineage;
 pub mod link;
 pub mod loading;
 pub mod orbit;
@@ -272,6 +273,7 @@ impl Plugin for ViewPlugin {
             cell_types::CellTypePlugin,
             crosshair::CrosshairPlugin,
             table::TablePlugin,
+            lineage::LineagePlugin,
         ))
         .add_message::<PanelRequest>()
         .add_message::<DatasetRequest>()

@@ -38,6 +38,9 @@ pub enum Discovered {
     Specimens(Box<crate::formats::specimens::Specimens>),
     /// A kind of the BKP Registry's records, likewise a page at a time.
     Records(Box<crate::formats::records::Records>),
+    /// Where one of the BKP Registry's records came from and what came of
+    /// it, drawn as a graph.
+    Lineage(Box<crate::formats::records::lineage::Lineage>),
     /// Several datasets another viewer asked to be shown together. Not a
     /// source: it is opened as a bookmark is, a frame for each.
     Scene(Scene),
@@ -55,6 +58,7 @@ impl Discovered {
             Discovered::Table(table) => &table.name,
             Discovered::Specimens(specimens) => &specimens.table.name,
             Discovered::Records(records) => &records.table.name,
+            Discovered::Lineage(lineage) => &lineage.name,
             Discovered::Scene(scene) => &scene.name,
         }
     }
@@ -83,6 +87,11 @@ pub async fn discover(source: &str) -> Result<Discovered, String> {
         return crate::formats::specimens::read(&endpoint, &project)
             .await
             .map(|specimens| Discovered::Specimens(Box::new(specimens)));
+    }
+    if let Some((endpoint, kind, id)) = crate::formats::records::lineage::lineage_of(source) {
+        return crate::formats::records::lineage::read(&endpoint, kind, &id)
+            .await
+            .map(|lineage| Discovered::Lineage(Box::new(lineage)));
     }
     if let Some((endpoint, kind)) = crate::formats::records::query_of(source) {
         return crate::formats::records::read(&endpoint, kind)
@@ -230,6 +239,7 @@ pub fn names_a_table(source: &str) -> bool {
     let source = crate::formats::plain_url(source.trim());
     crate::formats::specimens::query_of(&source).is_some()
         || crate::formats::records::query_of(&source).is_some()
+        || crate::formats::records::lineage::lineage_of(&source).is_some()
         || is_table(&source)
         || is_parquet(&source)
 }

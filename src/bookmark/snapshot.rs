@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::render::points::{MAX_POINT_PX, MIN_POINT_PX};
 use crate::source::channels::{MAX_GAIN, SourceChannels};
 use crate::source::genes::Gene;
+use crate::source::lineage::LineageAsked;
 use crate::source::properties::{
     CellProperties, ColorScale, PropertyKind, SavedColor, SavedFiltered,
 };
@@ -78,6 +79,37 @@ pub struct SourceState {
     /// The page a table was on and what it was narrowed by.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub table: Option<TableState>,
+    /// How far a lineage was followed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<LineageState>,
+}
+
+/// The records of a lineage whose links were shown, and those shown whole,
+/// by the id the format knows them by.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct LineageState {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expanded: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unfolded: Vec<String>,
+}
+
+impl LineageState {
+    pub fn of(asked: &LineageAsked) -> Self {
+        LineageState {
+            expanded: asked.expanded.iter().cloned().collect(),
+            unfolded: asked.unfolded.iter().cloned().collect(),
+        }
+    }
+
+    /// What to ask of the lineage. A record the lineage has not reached yet
+    /// is asked for all the same: its links are read once it is.
+    pub fn asked(&self) -> LineageAsked {
+        LineageAsked {
+            expanded: self.expanded.iter().cloned().collect(),
+            unfolded: self.unfolded.iter().cloned().collect(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -662,6 +694,20 @@ mod tests {
                 kind: PropertyKind::Tree(tree()),
             },
         ])
+    }
+
+    #[test]
+    fn a_lineage_is_followed_as_far_again() {
+        let mut asked = LineageAsked::default();
+        asked.expanded.insert("processes:8c3f".into());
+        asked.expanded.insert("dataAssets:d2".into());
+        asked.unfolded.insert("processes:8c3f".into());
+        let saved = LineageState::of(&asked);
+        let json = serde_json::to_string(&saved).unwrap();
+        let read: LineageState = serde_json::from_str(&json).unwrap();
+        assert_eq!(read.asked(), asked);
+        let old: SourceState = serde_json::from_str(r#"{"url": "https://x/"}"#).unwrap();
+        assert!(old.lineage.is_none());
     }
 
     #[test]

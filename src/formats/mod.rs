@@ -143,6 +143,7 @@ pub fn spawn_discovered(
         Discovered::Table(table) => table::spawn_source(world, *table),
         Discovered::Specimens(specimens) => specimens::spawn_source(world, *specimens),
         Discovered::Records(records) => records::spawn_source(world, *records),
+        Discovered::Lineage(lineage) => records::lineage::spawn_source(world, *lineage),
         // Several datasets rather than one, which whoever asked opens as a
         // bookmark; there is no one source to register.
         Discovered::Scene(_) => return None,

@@ -483,6 +483,13 @@ pub struct TrailStep {
 #[derive(Component, Debug, Clone, Default, PartialEq, Eq)]
 pub struct RecordTrail(pub Vec<TrailStep>);
 
+/// Where the lineage of the record shown can be opened — the one at the end
+/// of the [`RecordTrail`], or the picked row — for a format whose records
+/// have one. Absent until the record is known to link to anything: one that
+/// links to nothing has no lineage worth a frame.
+#[derive(Component, Debug, Clone, Default, PartialEq, Eq)]
+pub struct RecordLineage(pub Option<String>);
+
 /// Every field of the record at the end of the [`RecordTrail`], as heading
 /// and value, as a picked row's are.
 #[derive(Component, Debug, Clone, Default, PartialEq, Eq)]

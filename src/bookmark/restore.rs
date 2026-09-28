@@ -34,6 +34,7 @@ use crate::render::points::SourcePointSize;
 use crate::render::settings::SourceOpacity;
 use crate::source::channels::SourceChannels;
 use crate::source::genes::{GeneSearch, ReadsGenes};
+use crate::source::lineage::LineageAsked;
 use crate::source::properties::{CellColumns, CellProperties, ColorOverrides, PropertyState};
 use crate::source::stack::{SliceGrid, SliceStack};
 use crate::source::table::{
@@ -442,6 +443,7 @@ pub fn apply_pending_settings(
         Has<Described>,
         GeneAccess,
         TableAccess,
+        Option<&mut LineageAsked>,
     )>,
 ) {
     for (
@@ -457,6 +459,7 @@ pub fn apply_pending_settings(
         described,
         mut genes,
         mut table,
+        lineage,
     ) in &mut sources
     {
         let pending = pending.into_inner();
@@ -484,6 +487,9 @@ pub fn apply_pending_settings(
             commands
                 .entity(entity)
                 .insert(ColorOverrides::restored(&colors));
+        }
+        if let (Some(saved), Some(mut asked)) = (state.lineage.take(), lineage) {
+            asked.set_if_neq(saved.asked());
         }
         if let Some(opacity) = state.opacity.take() {
             commands

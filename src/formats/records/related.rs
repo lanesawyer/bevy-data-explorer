@@ -9,7 +9,9 @@
 
 use super::query::ask_related;
 use super::*;
-use crate::source::table::{FollowedRecord, RecordTrail, RelatedGroup, RelatedRecord, TrailStep};
+use crate::source::table::{
+    FollowedRecord, RecordLineage, RecordTrail, RelatedGroup, RelatedRecord,
+};
 
 use super::kinds::{Shape, read, time_of};
 
@@ -23,11 +25,12 @@ pub(super) fn serve_related(
         &RecordTrail,
         &mut RelatedRecords,
         &mut FollowedRecord,
+        &mut RecordLineage,
     )>,
 ) {
-    for (mut pages, record, trail, mut related, mut followed) in &mut sources {
+    for (mut pages, record, trail, mut related, mut followed, mut lineage) in &mut sources {
         let wanted = match trail.0.last() {
-            Some(step) => followed_of(step),
+            Some(step) => kind_and_id(&step.link),
             None => id_of(record).map(|id| (pages.kind, id)),
         };
         let following = !trail.0.is_empty();
@@ -42,6 +45,7 @@ pub(super) fn serve_related(
                 (true, Some(_)) => FollowedRecord::Fetching,
                 (true, None) => FollowedRecord::Failed("Not a record this table can read.".into()),
             });
+            lineage.set_if_neq(RecordLineage(None));
             pages.linking = wanted.clone().map(|(kind, id)| {
                 let endpoint = pages.endpoint.clone();
                 fetching(async move { ask_related(&endpoint, kind, &id).await })
@@ -52,12 +56,21 @@ pub(super) fn serve_related(
             continue;
         };
         pages.linking = None;
-        let Some((kind, _)) = pages.picked else {
+        let Some((kind, id)) = pages.picked.clone() else {
             continue;
         };
         match answer {
             Ok(node) => {
-                *related = RelatedRecords::Ready(groups_of(kind, &node));
+                let groups = groups_of(kind, &node);
+                // A record linked to nothing has no lineage worth a frame.
+                if !groups.is_empty() {
+                    lineage.set_if_neq(RecordLineage(Some(lineage::address(
+                        &pages.endpoint,
+                        kind,
+                        &id,
+                    ))));
+                }
+                *related = RelatedRecords::Ready(groups);
                 if following {
                     *followed = FollowedRecord::Ready(fields_of(kind, &node));
                 }
@@ -74,12 +87,13 @@ pub(super) fn serve_related(
 }
 
 /// What a linked record is followed by: the kind of record it is and its id.
-fn link_to(kind: Kind, id: &str) -> String {
+pub(super) fn link_to(kind: Kind, id: &str) -> String {
     format!("{}:{id}", kind.root())
 }
 
-fn followed_of(step: &TrailStep) -> Option<(Kind, String)> {
-    let (root, id) = step.link.split_once(':')?;
+/// The kind and id a [`link_to`] names.
+pub(super) fn kind_and_id(link: &str) -> Option<(Kind, String)> {
+    let (root, id) = link.split_once(':')?;
     Some((Kind::from_root(root)?, id.to_string()))
 }
 
@@ -132,7 +146,7 @@ fn text(node: &Value, path: &str) -> String {
     read(node, path, Shape::Text)
 }
 
-fn process_of(node: &Value) -> RelatedRecord {
+pub(super) fn process_of(node: &Value) -> RelatedRecord {
     RelatedRecord {
         name: text(node, "name"),
         detail: line(&[
@@ -153,7 +167,7 @@ fn process_of(node: &Value) -> RelatedRecord {
 
 /// Whatever a process took in or put out: a data asset, a specimen or a
 /// subject. Anything else it can hold — a cell, a collection — is not read.
-fn asset_of(node: &Value) -> Option<RelatedRecord> {
+pub(super) fn asset_of(node: &Value) -> Option<RelatedRecord> {
     if let Some(asset) = node.get("dataAsset").filter(|it| !it.is_null()) {
         // Opened from its first copy with an address, since one on a file
         // share is nothing to fetch.
@@ -249,12 +263,8 @@ mod tests {
         };
         let link = specimen.link.clone().unwrap();
         assert_eq!(link, "specimens:5e1f");
-        let step = TrailStep {
-            link,
-            name: specimen.name.clone(),
-        };
         assert_eq!(
-            followed_of(&step),
+            kind_and_id(&link),
             Some((Kind::Specimens, "5e1f".to_string()))
         );
         assert!(subject.link.is_none(), "subjects are not a table");
