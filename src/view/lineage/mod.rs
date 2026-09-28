@@ -7,7 +7,8 @@
 //! from it to the right — with lines between them. A card's disclosure button
 //! asks for its own links, which the format fetches and adds; a crowd of them
 //! is folded into one card until that is pressed too. A record stored
-//! somewhere opens in a frame of its own.
+//! somewhere opens in a frame of its own, and the two point at each other
+//! (`links`).
 //!
 //! It knows nothing about any particular format: it reads the
 //! [`SourceLineage`] off whichever source a frame points at, and writes what
@@ -26,7 +27,7 @@ use crate::app::schedule::Stage;
 use crate::app::theme::token;
 use crate::formats::discover::datasets_in;
 use crate::source::lineage::{LineageAsked, Links, SourceLineage};
-use crate::source::{ShowsSource, compact_count};
+use crate::source::{ShowsSource, SourceUrl, compact_count};
 use crate::widgets::{
     BlocksFrameInput, Icon, button_icon, button_text, hold_drag_cursor, patch_node, size, space,
     text, text_dim, truncate_to_width,
@@ -37,8 +38,13 @@ use super::table::{TABLE_Z, chrome_depth};
 use super::{DatasetRequest, DatasetTarget, FrameArea, Panel, SelectedPanel};
 
 mod layout;
+mod links;
 
 use layout::{CARD_H, CARD_W, Shows, lay_out};
+use links::{
+    CardRecord, HoveredRecord, frames_showing, hover_records, mark_shown_cards,
+    outline_hovered_frames,
+};
 
 /// Room inside a card for its text, past its padding and border.
 const TEXT_W: f32 = CARD_W - 2.0 * space::CONTROL_INSET - 2.0;
@@ -350,11 +356,11 @@ fn spawn_card(
                 .id(),
         );
     }
-    if let Some(url) = node
+    let opens = node
         .address
         .as_deref()
-        .and_then(|address| datasets_in(address).into_iter().next())
-    {
+        .and_then(|address| datasets_in(address).into_iter().next());
+    if let Some(url) = opens.clone() {
         buttons.push(
             commands
                 .spawn_scene(bsn! {
@@ -372,11 +378,8 @@ fn spawn_card(
     } else {
         token::FRAME_BG
     };
-    let border = if at == 0 {
-        token::SELECTION
-    } else {
-        token::DIVIDER
-    };
+    // Set again by `mark_shown_cards`, the moment the card exists.
+    let border = token::DIVIDER;
     let row = commands
         .spawn(Node {
             column_gap: Val::Px(space::CONTROLS),
@@ -392,6 +395,10 @@ fn spawn_card(
             card_node(place),
             ThemeBackgroundColor(background),
             ThemeBorderColor(border),
+            CardRecord {
+                opens,
+                root: at == 0,
+            },
         ))
         .add_children(&[heading, title, row])
         .id()
@@ -486,17 +493,27 @@ pub fn on_unfold(
     }
 }
 
+/// Open a stored record in a frame of its own, or select the frame already
+/// showing it.
 pub fn on_open_stored(
     activate: On<Activate>,
     buttons: Query<&OpenStored>,
+    panels: Query<(Entity, &Panel, &ShowsSource)>,
+    urls: Query<&SourceUrl>,
+    mut selected: ResMut<SelectedPanel>,
     mut requests: MessageWriter<DatasetRequest>,
 ) {
-    if let Ok(button) = buttons.get(activate.entity) {
-        requests.write(DatasetRequest {
-            url: button.url.clone(),
-            target: DatasetTarget::NewFrame,
-        });
+    let Ok(button) = buttons.get(activate.entity) else {
+        return;
+    };
+    if let Some((frame, _)) = frames_showing(&button.url, &panels, &urls).next() {
+        selected.0 = Some(frame);
+        return;
     }
+    requests.write(DatasetRequest {
+        url: button.url.clone(),
+        target: DatasetTarget::NewFrame,
+    });
 }
 
 /// Fit each lineage to the frame it fills, below the frame's own chrome, and
@@ -581,9 +598,17 @@ impl Plugin for LineagePlugin {
             .add_observer(on_open_stored)
             .add_systems(Update, select_pressed_lineages.in_set(Stage::ControlsRead))
             .add_systems(Update, sync_lineages.in_set(Stage::FrameChrome))
+            .init_resource::<HoveredRecord>()
             .add_systems(
                 Update,
-                (fill_lineages, place_lineages, hold_pan_cursor)
+                (
+                    fill_lineages,
+                    place_lineages,
+                    hold_pan_cursor,
+                    hover_records,
+                    outline_hovered_frames,
+                    mark_shown_cards,
+                )
                     .chain()
                     .in_set(Stage::Chrome),
             );
