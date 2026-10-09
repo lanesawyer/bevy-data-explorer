@@ -138,7 +138,8 @@ the property filters nothing. Each sub-section offers to clear its own filters
 once it has any, and the section's header carries a control naming how many are
 applied across all of them; a numeric one draws a histogram of its distribution with a
 two-ended control under it, so a span is chosen against the shape of the data
-rather than blind. Buckets outside the chosen span are dimmed rather than
+rather than blind, and a number field for each end, typed into or scrubbed
+sideways, for a bound too exact to drag to. Buckets outside the chosen span are dimmed rather than
 hidden, keeping the whole distribution in view. The button in a sub-section's header colors points by
 that property; the checkboxes inside filter points down to the values still
 ticked, and excluded points are dropped as a node is built rather than hidden

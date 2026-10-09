@@ -11,15 +11,23 @@
 //!
 //! Either end is dragged by its thumb, and may be dragged past the other to
 //! pivot around it. Dragging anywhere else on the track slides the whole span,
-//! and clicking a bar narrows the span to that bucket.
+//! and clicking a bar narrows the span to that bucket. Under the track, each
+//! end is also a number field, typed into or scrubbed sideways, for a bound
+//! too exact to drag to.
 
 use bevy::picking::cursor::{EntityCursor, OverrideCursor};
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
+use bevy::scene::Ready;
+use bevy::text::{EditableText, EditableTextFilter};
 use bevy::ui::UiGlobalTransform;
 use bevy::window::SystemCursorIcon;
+use bevy_feathers::controls::{
+    FeathersNumberInput, HardLimit, NumberInputPrecision, NumberInputValue,
+};
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
+use bevy_ui_widgets::ValueChange;
 
 use crate::app::theme::{Palette, token};
 use crate::source::compact_count;
@@ -75,11 +83,22 @@ pub struct RangeTrack {
     pub property: usize,
 }
 
-/// The readout under a numeric range.
-#[derive(Component, Clone, Default)]
-pub struct RangeReadout {
+/// One end of a numeric range as a number field, under its track.
+#[derive(Component, Clone)]
+pub struct RangeInput {
     pub owner: RangeOwner,
     pub property: usize,
+    pub end: RangeEnd,
+}
+
+impl Default for RangeInput {
+    fn default() -> Self {
+        RangeInput {
+            owner: RangeOwner::CellProperty,
+            property: 0,
+            end: RangeEnd::From,
+        }
+    }
 }
 
 /// The filled span of a numeric range's rail.
@@ -157,9 +176,31 @@ fn bar_height(range: &NumericRange, bucket: usize) -> Val {
     Val::Px((count as f32 / peak as f32).max(0.02) * HISTOGRAM_PX)
 }
 
-/// The readout's text: the span's ends.
-fn span_text(range: &NumericRange) -> String {
-    format!("{:.2} - {:.2}", range.from, range.to)
+/// Decimal places a range's fields show and scrub in: two across an extent
+/// of about one, fewer across a wider one and more across a narrower one, so
+/// a step of the last digit is always a small part of the whole.
+fn decimals(range: &NumericRange) -> i32 {
+    let extent = (range.high - range.low).abs();
+    if !extent.is_normal() {
+        return 2;
+    }
+    (2 - extent.log10().floor() as i32).clamp(0, 6)
+}
+
+/// An end's value as its field shows it, rounded to the field's places.
+fn shown_value(range: &NumericRange, end: RangeEnd) -> NumberInputValue {
+    let value = match end {
+        RangeEnd::From => range.from,
+        RangeEnd::To => range.to,
+    };
+    let scale = 10f32.powi(decimals(range));
+    NumberInputValue::F32((value * scale).round() / scale)
+}
+
+/// What a range's field lets be typed: enough for a decimal number, and
+/// nothing that could not be part of one.
+fn is_number_char(c: char) -> bool {
+    c.is_ascii_digit() || c == '.' || c == '-'
 }
 
 /// The count's text: the cells inside the span, and of how many when the span
@@ -323,20 +364,37 @@ BackgroundColor({ bar_color(range, bucket, ramp, palette) })]
 
     // Deliberately not marked for rebuilding: these hang inside a
     // sub-section that is, and despawning is recursive.
-    let span = span_text(range);
+    let places = decimals(range);
+    let (low, high) = (range.low, range.high);
+    // No `SoftLimit`: Feathers draws one as a bar filling the field, which
+    // reads as progress and does not move with the pointer. Without it a
+    // scrub moves the value relative to where it started, at a pace taken
+    // from the places shown.
+    let field = |end: RangeEnd| {
+        let value = shown_value(range, end);
+        bsn! {
+            @FeathersNumberInput
+            RangeInput { owner: { owner }, property: { property }, end: { end } }
+            ~{ value }
+            NumberInputPrecision({ places })
+            ~{ HardLimit::f32(low..=high) }
+            BlocksFrameInput
+            Node { flex_grow: { 1.0_f32 }, flex_basis: { Val::ZERO }, min_width: { Val::ZERO } }
+            on(filter_range_input)
+        }
+    };
     let count = count_text(range);
     let readout = commands
         .spawn_scene(bsn! {
             Node {
                 width: { Val::Percent(100.0) },
-                justify_content: { JustifyContent::SpaceBetween },
+                align_items: { AlignItems::Center },
                 column_gap: { Val::Px(space::CONTROLS) },
             }
             Children [
-                RangeReadout { owner: { owner }, property: { property } }
-                Text({ span })
-                TextFont { font_size: { FontSize::Px(size::SMALL) } }
-                ThemeTextColor({ tokens::TEXT_DIM })
+                {field(RangeEnd::From)}
+                --
+                {field(RangeEnd::To)}
                 --
                 RangeCount { owner: { owner }, property: { property } }
                 Text({ count })
@@ -541,6 +599,58 @@ pub fn drag_range_handles(
     }
 }
 
+/// Keep letters out of a range's field once its text exists.
+///
+/// Feathers' number input takes any text and only rejects it on Enter, so the
+/// filter goes on the text inside it, which a scene's `Ready` waits for.
+fn filter_range_input(
+    ready: On<Ready>,
+    children: Query<&Children>,
+    texts: Query<(), With<EditableText>>,
+    mut commands: Commands,
+) {
+    for text in children
+        .iter_descendants(ready.entity)
+        .filter(|entity| texts.contains(*entity))
+    {
+        commands
+            .entity(text)
+            .insert(EditableTextFilter::new(is_number_char));
+    }
+}
+
+/// Move an end to what was typed into its field, or scrubbed to.
+///
+/// Kept on its own side of the other end rather than pivoting past it as a
+/// dragged thumb does: a field names the end it sets, and a typed lower bound
+/// above the upper one is a slip, not a request to swap them.
+pub fn on_range_input(
+    change: On<ValueChange<f32>>,
+    inputs: Query<&RangeInput>,
+    selected: SelectedSource,
+    mut sources: Query<&mut CellProperties>,
+    mut tables: Query<(&mut TableFilters, Option<&mut TablePaging>)>,
+) {
+    let Ok(input) = inputs.get(change.source) else {
+        return;
+    };
+    let Some(source) = selected.entity() else {
+        return;
+    };
+    let properties = sources.get_mut(source).ok();
+    let (filters, paging) = tables.get_mut(source).ok().unzip();
+    let Some(range) = range_mut(
+        input.owner,
+        input.property,
+        properties.map(Mut::into_inner),
+        filters.map(Mut::into_inner),
+    ) else {
+        return;
+    };
+    range.set_end(input.end, change.value);
+    to_first_page(paging.flatten());
+}
+
 /// Keep the range controls matching their property, without respawning them.
 ///
 /// A drag moves an end continuously, and rebuilding the panel would despawn
@@ -557,9 +667,10 @@ pub fn update_range_controls(
         (&RangeBar, &mut BackgroundColor, &mut Node),
         (Without<RangeFill>, Without<RangeHandle>),
     >,
-    readouts: Query<(Entity, &RangeReadout)>,
+    inputs: Query<(Entity, &RangeInput, &NumberInputValue)>,
     counts: Query<(Entity, &RangeCount)>,
     mut texts: Query<&mut Text>,
+    mut commands: Commands,
 ) {
     // A source holds cell properties or a table, never both, so a control is
     // read from whichever it names.
@@ -619,13 +730,15 @@ pub fn update_range_controls(
         }
     }
 
-    for (entity, readout) in &readouts {
-        let Some(range) = range_of(readout.owner, readout.property) else {
+    // Only when it differs: the value is immutable, and inserting it is what
+    // rewrites the field's text.
+    for (entity, input, shown) in &inputs {
+        let Some(range) = range_of(input.owner, input.property) else {
             continue;
         };
-        if let Ok(text) = texts.get_mut(entity) {
-            let wanted = span_text(range);
-            set_text(text, &wanted);
+        let wanted = shown_value(range, input.end);
+        if *shown != wanted {
+            commands.entity(entity).insert(wanted);
         }
     }
 
@@ -701,10 +814,32 @@ mod tests {
     }
 
     #[test]
-    fn the_readout_names_both_ends_of_the_span() {
+    fn a_field_shows_fewer_places_the_wider_the_extent() {
+        assert_eq!(decimals(&NumericRange::full(0.0, 1.0, vec![])), 2);
+        assert_eq!(decimals(&NumericRange::full(0.0, 500.0, vec![])), 0);
+        assert_eq!(decimals(&NumericRange::full(0.0, 0.05, vec![])), 4);
+        assert_eq!(decimals(&NumericRange::full(3.0, 3.0, vec![])), 2);
+    }
+
+    #[test]
+    fn a_field_shows_its_end_rounded_to_its_places() {
         let mut range = NumericRange::full(0.0, 10.0, vec![]);
-        range.from = 1.5;
-        assert_eq!(span_text(&range), "1.50 - 10.00");
+        range.from = 1.2345;
+        assert_eq!(
+            shown_value(&range, RangeEnd::From),
+            NumberInputValue::F32(1.2)
+        );
+        assert_eq!(
+            shown_value(&range, RangeEnd::To),
+            NumberInputValue::F32(10.0)
+        );
+    }
+
+    #[test]
+    fn a_field_takes_only_what_a_number_is_written_with() {
+        assert!("-12.5".chars().all(is_number_char));
+        assert!(!"1e3".chars().all(is_number_char));
+        assert!(!"abc".chars().all(is_number_char));
     }
 
     #[test]

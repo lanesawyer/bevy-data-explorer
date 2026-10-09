@@ -976,6 +976,7 @@ impl Plugin for CellPanelPlugin {
             .add_observer(on_clear_all)
             .add_observer(on_retry)
             .add_observer(visibility::on_show_toggled)
+            .add_observer(range::on_range_input)
             .add_systems(
                 Update,
                 (record_open_sections, range::drag_range_handles)

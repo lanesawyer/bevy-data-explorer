@@ -104,7 +104,6 @@ impl NumericRange {
     }
 
     /// Move one end, keeping it on its own side of the other.
-    #[cfg(test)]
     pub fn set_end(&mut self, end: RangeEnd, value: f32) {
         let value = value.clamp(self.low, self.high);
         match end {
