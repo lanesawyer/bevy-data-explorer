@@ -39,7 +39,7 @@ use bevy::ecs::template::EntityTemplate;
 use bevy::prelude::*;
 use bevy::ui::{IgnoreScroll, OverrideClip};
 use bevy_feathers::controls::FeathersScrollbar;
-use bevy_ui_widgets::{ControlOrientation, ScrollArea};
+use bevy_ui_widgets::{ControlOrientation, ListBox, ScrollArea};
 
 use super::spacing::step;
 use super::{BlocksFrameInput, display, patch_node, scroll::ScrollBoth, scroll::ScrollList};
@@ -159,6 +159,10 @@ fn stretches_children(parent: &Node) -> bool {
 }
 
 /// Give every scrolling area that has no bar yet a bar.
+///
+/// Except the inside of a Feathers list view — the list a select drops down —
+/// which brings a bar of its own, wired and placed; a second one here would
+/// stand beside it and take its gutter.
 pub fn add_scrollbars(
     mut commands: Commands,
     new: Query<
@@ -169,9 +173,17 @@ pub fn add_scrollbars(
         ),
     >,
     parents: Query<&ChildOf>,
+    list_views: Query<(), With<ListBox>>,
     mut nodes: Query<&mut Node>,
 ) {
     for area in &new {
+        if parents
+            .get(area)
+            .is_ok_and(|parent| list_views.contains(parent.parent()))
+        {
+            commands.entity(area).insert(HasScrollbar);
+            continue;
+        }
         let Ok(node) = nodes.get(area) else {
             continue;
         };
@@ -433,6 +445,29 @@ mod tests {
         app.update();
         app.update();
         assert_eq!(app.world().entity(area).get::<Children>().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_feathers_list_view_keeps_its_own_bar() {
+        // A select's list scrolls through a `ScrollArea` under a `ListBox`
+        // that already holds a bar; a second here would crowd it out.
+        let mut app = app();
+        let list = app.world_mut().spawn((ListBox, Node::default())).id();
+        let inner = app
+            .world_mut()
+            .spawn((
+                ScrollArea,
+                Node {
+                    overflow: Overflow::scroll_y(),
+                    ..default()
+                },
+                ChildOf(list),
+            ))
+            .id();
+        app.update();
+        assert!(bar_of(&mut app, inner).is_none());
+        let node = app.world().entity(inner).get::<Node>().unwrap();
+        assert_eq!(node.scrollbar_width, 0.0);
     }
 
     fn column(width: Val) -> Node {
