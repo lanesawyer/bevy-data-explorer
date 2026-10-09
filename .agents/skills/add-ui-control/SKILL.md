@@ -77,6 +77,13 @@ gets a file of its own there, re-exported from `widgets/mod.rs`.
   query and return early otherwise. Sliders here are read the other way: a
   `ControlsPlace` system compares the slider's `SliderValue` with the
   source's component and writes whichever changed.
+- **Tabs made of Feathers buttons** (`TabList` with `Tab` on each button, as
+  the settings pages and a table's record kinds are) still take presses as
+  `Activate`: a button stops a click and Enter at itself, so the strip's
+  `ValueChange` only ever comes from the arrow keys, and only with
+  `TabActivation::Automatic`. Handle `Activate`, and `ValueChange` too if
+  arrows should select; write `SelectedTab` from your own state so the
+  roving focus lands on the chosen tab.
 - **Drag targets** that are not buttons (resize handles) start from an
   `On<PointerPress>` observer and follow the held mouse button, as
   `widgets/dock.rs` does.

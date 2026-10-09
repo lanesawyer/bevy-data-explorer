@@ -5,13 +5,18 @@
 //! holds. It sits over the filters because it decides what they are: each
 //! kind has its own columns, and so its own filters below.
 //!
+//! The buttons are a tab strip, for the keyboard: the arrow keys move between
+//! them and Tab moves past the strip rather than stopping at every kind.
+//! Moving does not pick — each kind fetches its rows — so a press, by pointer
+//! or Enter, is still the button's own `Activate`.
+//!
 //! Like the filters it names no format. A source writes
 //! [`TablePartitions`], this writes the choice back, and whatever produced
 //! the rows serves the kind chosen.
 
 use bevy::prelude::*;
 use bevy_feathers::controls::{ButtonVariant, FeathersButton};
-use bevy_ui_widgets::Activate;
+use bevy_ui_widgets::{Activate, SelectedTab, Tab, TabList};
 
 use crate::app::schedule::Stage;
 use crate::source::grouped;
@@ -31,6 +36,10 @@ struct PartitionContent;
 /// Shows one kind.
 #[derive(Component, Clone)]
 struct PartitionButton(String);
+
+/// The strip the kinds' buttons are tabs of.
+#[derive(Component, Clone, Default)]
+struct PartitionTabs;
 
 /// A kind's button caption: its name, and how many rows it holds once
 /// counted.
@@ -93,6 +102,7 @@ fn rebuild_partitions(
                         @caption: { bsn_list! {@button_text(caption)} }
                     }
                     BlocksFrameInput
+                    Tab
                 })
                 .insert(PartitionButton(partition.id.clone()))
                 .id()
@@ -101,6 +111,8 @@ fn rebuild_partitions(
     let choices = commands
         .spawn((
             PartitionContent,
+            PartitionTabs,
+            TabList::default(),
             Node {
                 flex_wrap: FlexWrap::Wrap,
                 column_gap: Val::Px(space::CONTROLS),
@@ -117,17 +129,24 @@ fn rebuild_partitions(
 fn sync_partitions(
     selection: SelectedSource,
     tables: Query<&TablePartitions>,
-    mut buttons: Query<(&PartitionButton, &mut ButtonVariant)>,
+    mut buttons: Query<(Entity, &PartitionButton, &mut ButtonVariant)>,
+    mut strips: Query<&mut SelectedTab, With<PartitionTabs>>,
 ) {
     let Some(partitions) = selection.get(&tables) else {
         return;
     };
-    for (PartitionButton(id), mut variant) in &mut buttons {
-        variant.set_if_neq(if *id == partitions.chosen {
+    for (tab, PartitionButton(id), mut variant) in &mut buttons {
+        let chosen = *id == partitions.chosen;
+        variant.set_if_neq(if chosen {
             ButtonVariant::Primary
         } else {
             ButtonVariant::Normal
         });
+        if chosen {
+            for mut selected in &mut strips {
+                selected.set_if_neq(SelectedTab(Some(tab)));
+            }
+        }
     }
 }
 

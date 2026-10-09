@@ -13,7 +13,9 @@ use bevy_feathers::controls::{
 };
 use bevy_feathers::display::label_dim;
 use bevy_feathers::rounded_corners::RoundedCorners;
-use bevy_ui_widgets::{Activate, ValueChange};
+use bevy_ui_widgets::{
+    Activate, ControlOrientation, SelectedTab, Tab, TabActivation, TabList, ValueChange,
+};
 
 use crate::app::net::{Fetching, fetching};
 use crate::app::prefs::{Preferences, PreferencesFile, RegistryLogin};
@@ -174,6 +176,11 @@ impl SettingsPage {
     }
 }
 
+/// The column of page buttons: a vertical tab strip, so the arrow keys move
+/// between pages and Tab moves past them.
+#[derive(Component, Clone, Default)]
+pub struct PageTabs;
+
 /// The page shown, which stays put while the screen is closed.
 #[derive(Resource, Default)]
 pub struct ShownPage(SettingsPage);
@@ -186,6 +193,7 @@ fn page_button(page: SettingsPage) -> impl Scene {
             @caption: { bsn_list! {@button_text(page.title())} }
         }
         Node { justify_content: { JustifyContent::Start } }
+        Tab
         page
     }
 }
@@ -235,6 +243,13 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>, catalo
                             flex_direction: { FlexDirection::Column },
                             row_gap: { Val::Px(space::LIST_ITEMS) },
                         }
+                        // Automatic, since a page shows at once: an arrow key
+                        // turns to the next page rather than only focusing it.
+                        TabList {
+                            orientation: { ControlOrientation::Vertical },
+                            activation: { TabActivation::Automatic },
+                        }
+                        PageTabs
                         Children [
                             @page_button(SettingsPage::General)
                             --
@@ -818,14 +833,38 @@ pub fn on_reset_point_cloud(
     }
 }
 
+/// Turn to the page whose button was pressed.
+///
+/// The tabs are Feathers buttons, which stop a click and Enter at themselves
+/// and raise `Activate`, so the strip never hears a press: only the arrow
+/// keys reach it, in [`on_page_arrowed`].
 pub fn on_page_picked(
     activate: On<Activate>,
     buttons: Query<&SettingsPage, With<FeathersButton>>,
     mut shown: ResMut<ShownPage>,
 ) {
-    if let Ok(&page) = buttons.get(activate.entity)
-        && shown.0 != page
-    {
+    if let Ok(&page) = buttons.get(activate.entity) {
+        show_page(&mut shown, page);
+    }
+}
+
+/// Turn to the page an arrow key moved to.
+pub fn on_page_arrowed(
+    change: On<ValueChange<Option<Entity>>>,
+    strips: Query<(), With<PageTabs>>,
+    buttons: Query<&SettingsPage, With<FeathersButton>>,
+    mut shown: ResMut<ShownPage>,
+) {
+    if !strips.contains(change.source) {
+        return;
+    }
+    if let Some(&page) = change.value.and_then(|tab| buttons.get(tab).ok()) {
+        show_page(&mut shown, page);
+    }
+}
+
+fn show_page(shown: &mut ShownPage, page: SettingsPage) {
+    if shown.0 != page {
         shown.0 = page;
     }
 }
@@ -836,16 +875,23 @@ pub fn on_page_picked(
 /// hold the screen at the size of the tallest.
 pub fn sync_page(
     shown: Res<ShownPage>,
-    mut buttons: Query<(&SettingsPage, &mut ButtonVariant)>,
+    mut buttons: Query<(Entity, &SettingsPage, &mut ButtonVariant)>,
     mut pages: Query<(&SettingsPage, &mut Visibility), Without<ButtonVariant>>,
+    mut strips: Query<&mut SelectedTab, With<PageTabs>>,
 ) {
     let shown = shown.0;
-    for (page, mut variant) in &mut buttons {
-        variant.set_if_neq(if *page == shown {
+    for (tab, page, mut variant) in &mut buttons {
+        let picked = *page == shown;
+        variant.set_if_neq(if picked {
             ButtonVariant::Primary
         } else {
             ButtonVariant::Plain
         });
+        if picked {
+            for mut selected in &mut strips {
+                selected.set_if_neq(SelectedTab(Some(tab)));
+            }
+        }
     }
     for (page, mut visibility) in &mut pages {
         visibility.set_if_neq(if *page == shown {
@@ -1154,6 +1200,7 @@ impl Plugin for SettingsPlugin {
         app.add_modal::<SettingsScreen>()
             .init_resource::<ShownPage>()
             .add_observer(on_page_picked)
+            .add_observer(on_page_arrowed)
             .add_observer(on_source_switch)
             .add_observer(on_show_logs)
             .add_observer(on_reset_layout)
