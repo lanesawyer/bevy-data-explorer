@@ -2,22 +2,25 @@
 //!
 //! Any image in the UI can be made to open in it: give the entity carrying
 //! its [`ImageNode`] an [`Enlargeable`], and a click on it opens the picture
-//! here, scaled to fit the frames' share of the window without being cropped.
+//! here, scaled to fit the window without being cropped.
 //! It is a [`Modal`] like help and settings, and closes the same ways.
 
 use bevy::picking::cursor::EntityCursor;
 use bevy::prelude::*;
 use bevy::window::SystemCursorIcon;
 
-use super::modal::PADDING_PX;
-use super::{Modal, ModalScreen, set_modal_open, set_text, spawn_modal};
+use super::{Modal, ModalParts, spawn_modal};
 
 /// How far a picture is ever scaled up. A small plot stretched to fill a large
 /// window is mostly blur.
 const MAX_SCALE: f32 = 4.0;
 
-/// Room kept for the title row above the picture.
-const HEADER_PX: f32 = 48.0;
+/// The share of the window a picture may take: what Feathers' backdrop
+/// leaves the dialog across, and its body's cap down.
+const ROOM: Vec2 = Vec2::new(0.9, 0.8);
+
+/// Room kept around the picture for the dialog's own edges and padding.
+const CHROME_PX: Vec2 = Vec2::new(26.0, 12.0);
 
 /// An image that opens in the lightbox when clicked, titled `title`.
 #[derive(Component, Clone, Default)]
@@ -26,51 +29,42 @@ pub struct Enlargeable {
     pub title: String,
 }
 
-/// The lightbox's backdrop.
-#[derive(Component, Clone, Default)]
-pub struct Lightbox;
+/// The lightbox, carrying the picture it shows.
+///
+/// The picture is spawned with it and moved into its body once that exists,
+/// since a handle cannot be carried through the dialog's scene.
+#[derive(Component, Clone)]
+pub struct Lightbox {
+    picture: Entity,
+}
 
-/// Its X.
+impl Default for Lightbox {
+    fn default() -> Self {
+        Lightbox {
+            picture: Entity::PLACEHOLDER,
+        }
+    }
+}
+
+/// Nothing opens the lightbox but a picture, so nothing carries this.
 #[derive(Component, Clone, Default)]
 pub struct LightboxToggle;
 
 impl Modal for Lightbox {
     type Toggle = LightboxToggle;
+    const TITLE: &'static str = "";
+    const WIDTH: Val = Val::Auto;
 }
 
-/// The picture in the lightbox, and the panel it sets the width of.
+/// The picture in the lightbox.
 #[derive(Component)]
-pub struct LightboxImage {
-    panel: Entity,
-    title: Entity,
-}
-
-pub fn spawn_lightbox(mut commands: Commands) {
-    let parts = spawn_modal::<Lightbox>(&mut commands, "", 0.0);
-    let image = commands
-        .spawn((
-            LightboxImage {
-                panel: parts.panel,
-                title: parts.title,
-            },
-            ImageNode::default(),
-            Node {
-                flex_shrink: 0.0,
-                align_self: AlignSelf::Center,
-                ..default()
-            },
-        ))
-        .id();
-    commands.entity(parts.panel).add_child(image);
-}
+pub struct LightboxImage;
 
 /// Open a clicked [`Enlargeable`] image in the lightbox.
 pub fn enlarge(
     click: On<PointerClick>,
     pictures: Query<(&Enlargeable, &ImageNode), Without<LightboxImage>>,
-    mut shown: Query<(&LightboxImage, &mut ImageNode)>,
-    mut texts: Query<&mut Text>,
-    mut screens: Query<&mut Node, With<Lightbox>>,
+    mut commands: Commands,
 ) {
     if click.button != PointerButton::Primary {
         return;
@@ -78,61 +72,50 @@ pub fn enlarge(
     let Ok((picture, source)) = pictures.get(click.entity) else {
         return;
     };
-    let Ok((lightbox, mut image)) = shown.single_mut() else {
-        return;
-    };
-    image.image = source.image.clone();
-    if let Ok(text) = texts.get_mut(lightbox.title) {
-        set_text(text, &picture.title);
-    }
-    set_modal_open::<Lightbox>(&mut screens, Some(true));
+    let shown = commands
+        .spawn((
+            LightboxImage,
+            ImageNode::new(source.image.clone()),
+            Node {
+                flex_shrink: 0.0,
+                align_self: AlignSelf::Center,
+                ..default()
+            },
+        ))
+        .id();
+    let lightbox = Lightbox { picture: shown };
+    spawn_modal(&mut commands, lightbox, picture.title.clone(), Val::Auto);
 }
 
-/// Size the picture to the room the backdrop leaves it, and the panel to the
-/// picture.
+/// Put the picture in the lightbox as it opens.
+pub fn fill_lightbox(
+    add: On<Add<ModalParts>>,
+    lightboxes: Query<(&Lightbox, &ModalParts)>,
+    mut commands: Commands,
+) {
+    if let Ok((lightbox, parts)) = lightboxes.get(add.entity) {
+        commands.entity(parts.body).add_child(lightbox.picture);
+    }
+}
+
+/// Size the picture to the room the window leaves it. The dialog is as wide
+/// as what it holds, so it follows.
 pub fn fit_lightbox(
     windows: Query<&Window>,
-    screens: Query<&Node, (With<Lightbox>, With<ModalScreen>)>,
-    lightboxes: Query<(Entity, &LightboxImage, &ImageNode)>,
+    mut pictures: Query<(&ImageNode, &mut Node), With<LightboxImage>>,
     images: Res<Assets<Image>>,
-    mut nodes: Query<&mut Node, Without<Lightbox>>,
 ) {
-    let (Ok(window), Ok(screen)) = (windows.single(), screens.single()) else {
-        return;
-    };
-    if screen.display == Display::None {
-        return;
-    }
-    let Ok((entity, lightbox, image)) = lightboxes.single() else {
-        return;
-    };
-    let Some(size) = images.get(&image.image).map(Image::size_f32) else {
-        return;
-    };
-    // The backdrop is padded to the frames' share of the window, and the
-    // panel may take nine tenths of what is left.
-    let px = |val: Val| match val {
-        Val::Px(px) => px,
-        _ => 0.0,
-    };
-    let room = Vec2::new(
-        window.width() - px(screen.padding.left) - px(screen.padding.right),
-        window.height() - px(screen.padding.top) - px(screen.padding.bottom),
-    ) * 0.9
-        - Vec2::new(PADDING_PX * 2.0, PADDING_PX * 2.0 + HEADER_PX);
-    let shown = size * fit_scale(size, room);
-
-    if let Ok(mut node) = nodes.get_mut(entity) {
+    let Ok(window) = windows.single() else { return };
+    for (image, mut node) in &mut pictures {
+        let Some(size) = images.get(&image.image).map(Image::size_f32) else {
+            continue;
+        };
+        let room = window.size() * ROOM - CHROME_PX;
+        let shown = size * fit_scale(size, room);
         let (width, height) = (Val::Px(shown.x), Val::Px(shown.y));
         if node.width != width || node.height != height {
             node.width = width;
             node.height = height;
-        }
-    }
-    if let Ok(mut node) = nodes.get_mut(lightbox.panel) {
-        let width = Val::Px(shown.x + PADDING_PX * 2.0);
-        if node.width != width {
-            node.width = width;
         }
     }
 }

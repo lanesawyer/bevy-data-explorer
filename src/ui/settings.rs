@@ -19,7 +19,7 @@ use bevy_ui_widgets::{
 
 use crate::app::net::{Fetching, fetching};
 use crate::app::prefs::{Preferences, PreferencesFile, RegistryLogin};
-use crate::app::schedule::{Boot, Stage};
+use crate::app::schedule::Stage;
 use crate::app::theme::ThemeMode;
 use crate::catalog::Catalogs;
 use crate::catalog::registry::login::{self, SignIn};
@@ -29,16 +29,15 @@ use crate::ui::filtered::{FilteredTarget, filtered_controls};
 use crate::ui::log_panel::LogPanel;
 use crate::widgets::space;
 use crate::widgets::{
-    AddModal, Icon, Modal, ResetDockSizes, button_icon, button_text, field_well, set_modal_open,
-    size, spawn_modal, text,
+    AddModal, Icon, Modal, ModalParts, ResetDockSizes, button_icon, button_text, close_modal,
+    field_well, size, text,
 };
 use crate::widgets::{Notice, Tone, notice};
 
-const PANEL_PX: f32 = 620.0;
 /// The list of pages down the left.
 const NAV_PX: f32 = 140.0;
 
-/// The dimmed backdrop, which is the whole screen.
+/// The settings screen, while it is open.
 #[derive(Component, Clone, Default)]
 pub struct SettingsScreen;
 
@@ -48,6 +47,8 @@ pub struct SettingsToggle;
 
 impl Modal for SettingsScreen {
     type Toggle = SettingsToggle;
+    const TITLE: &'static str = "Settings";
+    const WIDTH: Val = Val::Px(620.0);
 }
 
 /// Opens the log panel, closing this screen so the log can be seen.
@@ -218,9 +219,20 @@ pub struct ResetLayoutButton;
 #[derive(Component, Clone, Default)]
 pub struct ResetPointCloudButton;
 
-pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>, catalogs: Res<Catalogs>) {
+/// Build the settings screen as it opens. Every control is spawned blank and
+/// set from the preferences by the sync systems below, which is what keeps
+/// them right while the screen is open as well.
+pub fn fill_settings(
+    add: On<Add<ModalParts>>,
+    screens: Query<&ModalParts, With<SettingsScreen>>,
+    mut commands: Commands,
+    file: Res<PreferencesFile>,
+    catalogs: Res<Catalogs>,
+) {
+    let Ok(&ModalParts { body, .. }) = screens.get(add.entity) else {
+        return;
+    };
     let saved_in = format!("Saved in {}", file.0.display());
-    let modal = spawn_modal::<SettingsScreen>(&mut commands, "Settings", PANEL_PX);
     // A subtitle, so it is drawn closer to the title than the panel's gap
     // would put it.
     let subtitle = commands
@@ -424,9 +436,7 @@ ResetPointCloudButton]
         })
         .add_children(&[nav, stack])
         .id();
-    commands
-        .entity(modal.panel)
-        .add_children(&[subtitle, pages]);
+    commands.entity(body).add_children(&[subtitle, pages]);
 }
 
 /// The gradient numeric coloring is drawn along, and how.
@@ -801,11 +811,12 @@ pub fn sync_registry(
 pub fn on_show_logs(
     activate: On<Activate>,
     buttons: Query<(), With<ShowLogsButton>>,
-    mut screens: Query<&mut Node, With<SettingsScreen>>,
+    open: Query<Entity, With<SettingsScreen>>,
+    mut commands: Commands,
     mut logs: ResMut<LogPanel>,
 ) {
     if buttons.contains(activate.entity) {
-        set_modal_open::<SettingsScreen>(&mut screens, Some(false));
+        close_modal(&mut commands, &open);
         logs.open = true;
     }
 }
@@ -931,8 +942,9 @@ pub fn sync_sources(
     prefs: Res<Preferences>,
     switches: Query<(Entity, &SourceSwitch, Has<Checked>)>,
     mut details: Query<(&WhileSourceOn, &mut Node)>,
+    opened: Query<(), Added<SourceSwitch>>,
 ) {
-    if !prefs.is_changed() {
+    if !prefs.is_changed() && opened.is_empty() {
         return;
     }
     for (entity, SourceSwitch(key), checked) in &switches {
@@ -1126,6 +1138,7 @@ pub fn sync_gradient_controls(
     prefs: Res<Preferences>,
     mut options: Query<(&GradientOption, &mut ButtonVariant)>,
     mut strips: Query<(&GradientStrip, &mut BackgroundGradient)>,
+    opened: Query<(), Added<GradientStrip>>,
     boxes: Query<
         (Entity, Has<Checked>, Has<ReverseGradientBox>),
         Or<(With<ReverseGradientBox>, With<WholeExtentBox>)>,
@@ -1140,7 +1153,8 @@ pub fn sync_gradient_controls(
             ButtonVariant::Normal
         });
     }
-    if *drawn_reversed != Some(scale.reversed) && !strips.is_empty() {
+    // Strips are spawned drawn one way round, each time the screen opens.
+    if (*drawn_reversed != Some(scale.reversed) || !opened.is_empty()) && !strips.is_empty() {
         *drawn_reversed = Some(scale.reversed);
         for (GradientStrip(gradient), mut drawn) in &mut strips {
             *drawn = strip(*gradient, scale.reversed);
@@ -1238,7 +1252,7 @@ impl Plugin for SettingsPlugin {
                 )
                     .in_set(Stage::ControlsPlace),
             )
-            .add_systems(Startup, spawn_settings.in_set(Boot::Shell));
+            .add_observer(fill_settings);
     }
 }
 

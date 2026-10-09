@@ -1,174 +1,195 @@
-//! A screen laid over the whole window: a dimmed backdrop and a panel in the
-//! middle of it, with a title and a button to close it.
+//! A screen laid over the whole window: Feathers' modal dialog, with a title
+//! and a button to close it.
 //!
-//! Help and settings are both one of these, and open and close the same ways:
-//! the button that opens it, its own X, Escape, or a click outside the panel.
+//! Help, settings and the lightbox are each one of these, and close the same
+//! ways: their own X, Escape, or a click outside the dialog. One exists only
+//! while it is open. Opening spawns it and closing despawns it, which is what
+//! Feathers' dialog expects: it takes the keyboard as it appears and keeps Tab
+//! inside it until it goes.
 //!
-//! The panel is centered in whatever the backdrop's padding leaves. That is
-//! set from above, by `ui::center_modals`, since what the frames occupy is the
-//! grid's business rather than a widget's.
+//! What goes in it is the modal's own business. [`ModalParts`] lands on the
+//! dialog once its scene has spawned, and each modal fills its body from an
+//! observer of that, with whatever it needs to read to do so.
 
+use bevy::input_focus::tab_navigation::TabIndex;
+use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::prelude::*;
-use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::font_styles::InheritableFont;
-use bevy_feathers::theme::ThemeBackgroundColor;
-use bevy_feathers::tokens;
-use bevy_ui_widgets::{Activate, ScrollArea};
+use bevy::scene::Ready;
+use bevy_feathers::controls::{
+    FeathersDialog, FeathersDialogBody, FeathersDialogClose, FeathersDialogHeader,
+};
+use bevy_feathers::theme::ThemedText;
+use bevy_ui_widgets::{Activate, RequestClose, ScrollArea};
 
+use super::BlocksFrameInput;
 use super::space;
-use super::{BlocksFrameInput, Icon, button_icon, size, text};
 use crate::app::schedule::Stage;
 
-/// Above the menus, since it covers everything they could open over.
-const MODAL_Z: i32 = 20;
-/// Space between the panel's edge and what is in it, on every side.
-pub(super) const PADDING_PX: f32 = space::SCREEN_INSET;
+/// The tallest a dialog's body grows, as a share of the window, before it
+/// scrolls.
+const BODY_MAX_HEIGHT_VH: f32 = 80.0;
 
-/// Marks every modal's backdrop, whichever modal it is, for what places them
-/// all alike.
+/// Marks every modal, whichever modal it is: the backdrop that covers the
+/// window, holding the dialog.
 #[derive(Component, Clone, Default)]
 pub struct ModalScreen;
 
-/// Marks a modal's backdrop. `Toggle` marks every button that opens or closes
-/// it, its own X among them.
-pub trait Modal: Component + Default {
+/// Marks a modal, on its backdrop. `Toggle` marks every button that opens or
+/// closes it.
+pub trait Modal: Component + Clone + Default + Unpin {
     type Toggle: Component + Default;
+    const TITLE: &'static str;
+    const WIDTH: Val;
 }
 
-/// What [`spawn_modal`] built, for the caller to fill.
+/// Where a modal's contents go, put on its backdrop once its dialog has
+/// spawned.
+#[derive(Component, Clone, Copy)]
 pub struct ModalParts {
-    /// The panel's column, below the header.
-    pub panel: Entity,
+    /// The dialog's column, below the header.
+    pub body: Entity,
     /// The title row: the title, a spacer, then the X. Anything inserted at
     /// index 1 sits beside the title.
     pub header: Entity,
-    /// The title's text, for a modal whose title changes with what it shows.
-    pub title: Entity,
 }
 
-/// Spawn a closed modal `width` wide, titled `title`.
+#[derive(Component, Clone, Default)]
+struct ModalBody;
+
+#[derive(Component, Clone, Default)]
+struct ModalHeader;
+
+/// The title, which holds the keyboard as the modal opens. Feathers otherwise
+/// hands it to the last control in the dialog and rings it, which drew the
+/// eye to the help screen's license link. A title draws no ring, and with the
+/// keyboard inside the dialog Escape and Tab work as before.
+#[derive(Component, Clone, Default)]
+struct ModalTitle;
+
+/// Open `modal`, titled `title` and `width` wide.
 pub fn spawn_modal<M: Modal>(
     commands: &mut Commands,
+    modal: M,
     title: impl Into<String>,
-    width: f32,
-) -> ModalParts {
+    width: Val,
+) -> Entity {
     let title = title.into();
-    let screen = commands
+    commands
         .spawn_scene(bsn! {
+            @FeathersDialog {
+                @width: { width },
+                @contents: { bsn_list! {
+                    @FeathersDialogHeader
+                    ModalHeader
+                    Children [
+                        Text({ title }) ThemedText ModalTitle TabIndex(-1)
+                        --
+                        Node { flex_grow: { 1.0_f32 } }
+                        --
+                        @FeathersDialogClose
+                    ]
+                    --
+                    @FeathersDialogBody
+                    ModalBody
+                    ScrollArea
+                    Node {
+                        max_height: { Val::Vh(BODY_MAX_HEIGHT_VH) },
+                        row_gap: { Val::Px(space::ROWS) },
+                        overflow: { Overflow::scroll_y() },
+                    }
+                } },
+            }
+            ~{ modal }
+            ModalScreen
             BlocksFrameInput
-            Node {
-                position_type: { PositionType::Absolute },
-                display: { Display::None },
-                width: { Val::Percent(100.0) },
-                height: { Val::Percent(100.0) },
-                justify_content: { JustifyContent::Center },
-                align_items: { AlignItems::Center },
-            }
-            BackgroundColor({ Color::srgba(0.0, 0.0, 0.0, 0.7) })
-            GlobalZIndex({ MODAL_Z })
-            InheritableFont { font_size: { 13.0f32 } }
+            on(find_parts)
         })
-        .insert((ModalScreen, M::default()))
-        .observe(close_on_backdrop::<M>)
-        .id();
+        .id()
+}
 
-    let panel = commands
-        .spawn_scene(bsn! {
-            Node {
-                width: { Val::Px(width) },
-                max_width: { Val::Percent(90.0) },
-                max_height: { Val::Percent(90.0) },
-                flex_direction: { FlexDirection::Column },
-                row_gap: { Val::Px(space::ROWS) },
-                // The scrollbar takes its lane out of the right padding.
-                padding: { UiRect::all(Val::Px(PADDING_PX)) },
-                border_radius: { BorderRadius::all(Val::Px(8.0)) },
-                overflow: { Overflow::scroll_y() },
-            }
-            ScrollArea
-            ThemeBackgroundColor({ tokens::WINDOW_BG })
-        })
-        // A click on the panel is not a click on the backdrop behind it.
-        .observe(|mut click: On<PointerClick>| click.propagate(false))
-        .id();
-
-    let close = commands
-        .spawn_scene(bsn! {
-            @FeathersToolButton {
-                @caption: { bsn_list! {@button_icon(Icon::X)} }
-            }
-        })
-        .insert(M::Toggle::default())
-        .id();
-
-    // Children added one by one rather than from a scene, so that where a
-    // caller inserts beside the title is certain.
-    let title = commands
-        .spawn_scene(bsn! { @text(title, size::SCREEN_HEADING) })
-        .id();
-    let spacer = commands
-        .spawn(Node {
-            flex_grow: 1.0,
-            ..default()
-        })
-        .id();
-    let header = commands
-        .spawn(Node {
-            width: Val::Percent(100.0),
-            align_items: AlignItems::Center,
-            column_gap: Val::Px(space::CONTROLS),
-            ..default()
-        })
-        .add_children(&[title, spacer, close])
-        .id();
-
-    commands.entity(panel).add_child(header);
-    commands.entity(screen).add_child(panel);
-    ModalParts {
-        panel,
-        header,
-        title,
+/// Hand a modal the entities to fill, once its dialog has spawned.
+fn find_parts(
+    ready: On<Ready>,
+    screens: Query<(), (With<ModalScreen>, Without<ModalParts>)>,
+    children: Query<&Children>,
+    bodies: Query<(), With<ModalBody>>,
+    headers: Query<(), With<ModalHeader>>,
+    titles: Query<(), With<ModalTitle>>,
+    mut focus: ResMut<InputFocus>,
+    mut commands: Commands,
+) {
+    if !screens.contains(ready.entity) {
+        return;
+    }
+    let body = children
+        .iter_descendants(ready.entity)
+        .find(|entity| bodies.contains(*entity));
+    let header = children
+        .iter_descendants(ready.entity)
+        .find(|entity| headers.contains(*entity));
+    if let Some(title) = children
+        .iter_descendants(ready.entity)
+        .find(|entity| titles.contains(*entity))
+    {
+        focus.set(title, FocusCause::Navigated);
+    }
+    if let (Some(body), Some(header)) = (body, header) {
+        commands
+            .entity(ready.entity)
+            .insert(ModalParts { body, header });
     }
 }
 
-/// Open `M`, close it, or with `None` switch it.
-pub fn set_modal_open<M: Modal>(screens: &mut Query<&mut Node, With<M>>, open: Option<bool>) {
-    for mut node in screens {
-        let now_open = open.unwrap_or(node.display == Display::None);
-        node.display = if now_open {
-            Display::Flex
-        } else {
-            Display::None
-        };
+/// Close `M`, if it is open.
+pub fn close_modal<M: Modal>(commands: &mut Commands, open: &Query<Entity, With<M>>) {
+    for screen in open {
+        commands.entity(screen).try_despawn();
     }
 }
 
 fn on_toggle<M: Modal>(
     activate: On<Activate>,
     toggles: Query<(), With<M::Toggle>>,
-    mut screens: Query<&mut Node, With<M>>,
+    open: Query<Entity, With<M>>,
+    mut commands: Commands,
 ) {
-    if toggles.contains(activate.entity) {
-        set_modal_open::<M>(&mut screens, None);
+    if !toggles.contains(activate.entity) {
+        return;
+    }
+    if open.is_empty() {
+        spawn_modal(&mut commands, M::default(), M::TITLE, M::WIDTH);
+    } else {
+        close_modal(&mut commands, &open);
     }
 }
 
-fn close_on_backdrop<M: Modal>(_click: On<PointerClick>, mut screens: Query<&mut Node, With<M>>) {
-    set_modal_open::<M>(&mut screens, Some(false));
+/// Close a modal its X or its backdrop asked to close.
+fn on_request_close(
+    close: On<RequestClose>,
+    screens: Query<(), With<ModalScreen>>,
+    mut commands: Commands,
+) {
+    if screens.contains(close.event_target()) {
+        commands.entity(close.event_target()).try_despawn();
+    }
 }
 
+/// Close on Escape wherever the keyboard is. Feathers' own Escape reaches the
+/// dialog only while something in it has the keyboard, and a click on its
+/// text takes the keyboard away.
 fn close_on_escape<M: Modal>(
     keys: Res<ButtonInput<KeyCode>>,
-    mut screens: Query<&mut Node, With<M>>,
+    open: Query<Entity, With<M>>,
+    mut commands: Commands,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
-        set_modal_open::<M>(&mut screens, Some(false));
+        close_modal(&mut commands, &open);
     }
 }
 
 pub trait AddModal {
-    /// Register a modal's toggling and closing. Spawning it is the caller's,
-    /// with [`spawn_modal`].
+    /// Register a modal's opening and closing. Filling it is the caller's,
+    /// from an observer of [`ModalParts`] landing on it.
     fn add_modal<M: Modal>(&mut self) -> &mut Self;
 }
 
@@ -176,5 +197,14 @@ impl AddModal for App {
     fn add_modal<M: Modal>(&mut self) -> &mut Self {
         self.add_observer(on_toggle::<M>)
             .add_systems(Update, close_on_escape::<M>.in_set(Stage::ControlsRead))
+    }
+}
+
+/// What every modal shares, registered once.
+pub struct ModalPlugin;
+
+impl Plugin for ModalPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_observer(on_request_close);
     }
 }

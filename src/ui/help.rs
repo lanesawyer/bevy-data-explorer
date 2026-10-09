@@ -8,9 +8,8 @@ use bevy::prelude::*;
 use bevy_feathers::controls::ButtonVariant;
 use bevy_feathers::display::{label, label_dim};
 
-use crate::app::schedule::Boot;
 use crate::widgets::space;
-use crate::widgets::{AddModal, Icon, Modal, link_button, size, spawn_modal, text};
+use crate::widgets::{AddModal, Icon, Modal, ModalParts, link_button, size, text};
 
 /// Taken from the manifest, like the version, so the two cannot disagree.
 pub const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
@@ -20,8 +19,6 @@ pub const LICENSE_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/
 const NEW_ISSUE_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/issues/new");
 const RELEASES_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/releases");
 const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
-
-const PANEL_PX: f32 = 520.0;
 
 /// Keys and gestures, and what each does. Kept to what works in every frame
 /// or says which kind of dataset it acts on.
@@ -39,7 +36,7 @@ const SHORTCUTS: [(&str, &str); 11] = [
     ("Esc", "Close this screen"),
 ];
 
-/// The dimmed backdrop, which is the whole screen.
+/// The help screen, while it is open.
 #[derive(Component, Clone, Default)]
 pub struct HelpScreen;
 
@@ -49,13 +46,21 @@ pub struct HelpToggle;
 
 impl Modal for HelpScreen {
     type Toggle = HelpToggle;
+    const TITLE: &'static str = "Bevy Data Explorer";
+    const WIDTH: Val = Val::Px(520.0);
 }
 
-pub fn spawn_help(mut commands: Commands) {
-    let modal = spawn_modal::<HelpScreen>(&mut commands, "Bevy Data Explorer", PANEL_PX);
+/// Fill the help screen as it opens.
+pub fn fill_help(
+    add: On<Add<ModalParts>>,
+    screens: Query<&ModalParts, With<HelpScreen>>,
+    mut commands: Commands,
+) {
+    let Ok(&ModalParts { body, header }) = screens.get(add.entity) else {
+        return;
+    };
     let version = commands.spawn_scene(bsn! { @label_dim(VERSION) }).id();
-    commands.entity(modal.header).insert_children(1, &[version]);
-    let panel = modal.panel;
+    commands.entity(header).insert_children(1, &[version]);
     let intro = commands
         .spawn_scene(bsn! {
             Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(space::ROWS) } }
@@ -126,7 +131,7 @@ pub fn spawn_help(mut commands: Commands) {
     let mut children = vec![intro];
     children.extend(rows);
     children.push(links);
-    commands.entity(panel).add_children(&children);
+    commands.entity(body).add_children(&children);
 }
 
 /// The help screen and the button that opens it.
@@ -134,8 +139,7 @@ pub struct HelpPlugin;
 
 impl Plugin for HelpPlugin {
     fn build(&self, app: &mut App) {
-        app.add_modal::<HelpScreen>()
-            .add_systems(Startup, spawn_help.in_set(Boot::Shell));
+        app.add_modal::<HelpScreen>().add_observer(fill_help);
     }
 }
 

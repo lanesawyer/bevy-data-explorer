@@ -29,6 +29,12 @@ screen over the whole window, like help and settings), `spawn_slider`,
 `button_icon`, `button_text`, `caption`, `link_button`. A new generic widget
 gets a file of its own there, re-exported from `widgets/mod.rs`.
 
+- **A modal** is a component implementing `Modal`, registered with
+  `add_modal`. It is Feathers' dialog and exists only while open: its toggle
+  spawns it, and its X, Escape or a click outside despawn it. Fill it from an
+  `On<Add<ModalParts>>` observer filtered to it, and keep anything it shows in
+  a resource, set by sync systems, since every open builds it afresh.
+
 - **Sliders** come from `spawn_slider`, never raw `FeathersSlider`. It adds
   the `SliderPrecision` that Feathers leaves out, without which the slider
   never redraws, and snaps the value to where the track was clicked.

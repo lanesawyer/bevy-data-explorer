@@ -140,7 +140,7 @@ Two causes that are not the value itself:
 - **A scrolling area** keeps a lane for its scrollbar on the right whether or
   not the bar shows (`scrollbar_width`, set in `widgets/scrollbar.rs`), so its
   content sits further from the right edge than the left. Take the gutter off
-  that side's padding, as `widgets/modal.rs` does.
+  that side's padding.
 
 ## A Feathers control looks unresponsive but works
 

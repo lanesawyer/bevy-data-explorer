@@ -41,7 +41,7 @@ pub use icons::{Icon, button_icon, icon_text};
 pub use lightbox::Enlargeable;
 pub use link::link_button;
 pub use menu::{IconMenu, MENU_WIDTH, close_menu_holding, spawn_icon_menu, spawn_menu};
-pub use modal::{AddModal, Modal, ModalScreen, set_modal_open, spawn_modal};
+pub use modal::{AddModal, Modal, ModalParts, close_modal, spawn_modal};
 pub use notice::{Notice, Tone, notice};
 pub use patch::{display, patch_node, set_display, set_text};
 pub use scroll::{ScrollBoth, scroll_list};
@@ -53,7 +53,7 @@ pub use spacing::space;
 pub use text::{size, text, text_dim, title};
 pub use truncate::{truncate_to_width, width_of};
 
-use crate::app::schedule::{Boot, Stage};
+use crate::app::schedule::Stage;
 
 /// Radius the Feathers containers round their outer corners to.
 const CORNER_PX: f32 = 4.0;
@@ -70,9 +70,10 @@ impl Plugin for WidgetsPlugin {
             .add_observer(bevy_ui_widgets::slider_self_update)
             .add_observer(accordion::toggle_accordions)
             .add_observer(link::on_link_pressed)
+            .add_plugins(modal::ModalPlugin)
             .add_observer(lightbox::enlarge)
+            .add_observer(lightbox::fill_lightbox)
             .add_modal::<lightbox::Lightbox>()
-            .add_systems(Startup, lightbox::spawn_lightbox.in_set(Boot::Shell))
             .add_systems(Update, lightbox::fit_lightbox.in_set(Stage::ControlsPlace))
             .add_observer(scroll::on_list_scroll)
             .add_observer(scroll::on_both_scroll)
