@@ -45,6 +45,14 @@ impl Plugin for ExplorerPlugin {
                 }),
         );
 
+        // A panic in a system, observer or command arrives here as an error.
+        // A release build logs it, where the log panel shows it, so a dataset
+        // that trips a reader costs that read rather than the session; a
+        // debug build still stops on it.
+        if !cfg!(debug_assertions) {
+            app.set_error_handler(bevy::ecs::error::error);
+        }
+
         // After `DefaultPlugins`, which is what creates the schedules being
         // configured, and before any plugin below declares membership of a
         // stage.
