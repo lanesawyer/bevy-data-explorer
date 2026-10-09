@@ -10,13 +10,14 @@
 //! section therefore names a Feathers token and not a color, so the light
 //! theme turns it over along with everything else.
 
+use bevy::app::Propagate;
 use bevy::prelude::*;
 use bevy_feathers::containers::{group_body, group_header, pane_body, pane_header};
 use bevy_feathers::controls::{ButtonVariant, FeathersButton, FeathersToolButton};
 use bevy_feathers::display::label;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::rounded_corners::RoundedCorners;
-use bevy_feathers::theme::{ThemeBorderColor, ThemeTextColor};
+use bevy_feathers::theme::{SurfaceLevel, ThemeBorderColor, ThemeContext, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
 
@@ -242,11 +243,17 @@ pub fn spawn_accordion(
                 // Feathers' pane body has no border of its own, which left an
                 // open pane's box without sides or a bottom under its header.
                 ThemeBorderColor({ tokens::PANE_HEADER_BORDER })
+                // The surface the controls inside are drawn against, so
+                // Feathers can lift them off it; its own subpane says the
+                // same of its body.
+                Propagate::<ThemeContext>(ThemeContext(SurfaceLevel::Higher))
             })
         }
-        SectionLevel::Group => {
-            commands.spawn_scene(bsn! { @group_body() @{body_patch(accordion, open)} })
-        }
+        SectionLevel::Group => commands.spawn_scene(bsn! {
+            @group_body()
+            @{body_patch(accordion, open)}
+            Propagate::<ThemeContext>(ThemeContext(SurfaceLevel::Highest))
+        }),
     }
     .id();
 

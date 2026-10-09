@@ -1,11 +1,12 @@
 //! Popups anchored under the button that opens them.
 
+use bevy::app::Propagate;
 use bevy::input_focus::InputFocus;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::font_styles::InheritableFont;
-use bevy_feathers::theme::ThemeBackgroundColor;
+use bevy_feathers::theme::{SurfaceLevel, ThemeBackgroundColor, ThemeContext};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, ScrollArea};
 
@@ -132,6 +133,8 @@ pub fn spawn_popup(commands: &mut Commands) -> Entity {
                 overflow: { Overflow::scroll_y() },
             }
             ThemeBackgroundColor({ tokens::MENU_BG })
+            // Floating, as Feathers' own popups are, for the controls inside.
+            Propagate::<ThemeContext>(ThemeContext(SurfaceLevel::Floating))
             InheritableFont { font_size: { 13.0f32 } }
             GlobalZIndex({ MENU_Z })
             BlocksFrameInput

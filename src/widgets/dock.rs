@@ -8,11 +8,12 @@
 //! the same for all of them, and live here. So does remembering the size each
 //! was dragged to, in the user's preferences.
 
+use bevy::app::Propagate;
 use bevy::ecs::component::Mutable;
 use bevy::picking::cursor::{EntityCursor, OverrideCursor};
 use bevy::prelude::*;
 use bevy::window::SystemCursorIcon;
-use bevy_feathers::theme::{ThemeBackgroundColor, ThemeBorderColor};
+use bevy_feathers::theme::{SurfaceLevel, ThemeBackgroundColor, ThemeBorderColor, ThemeContext};
 use bevy_feathers::tokens;
 
 use super::{BlocksFrameInput, display, patch_node};
@@ -202,6 +203,7 @@ pub fn dock_band() -> impl Scene {
     bsn! {
         ThemeBackgroundColor({ tokens::PANE_BODY_BG })
         ThemeBorderColor({ tokens::PANE_HEADER_BORDER })
+        Propagate::<ThemeContext>(ThemeContext(SurfaceLevel::Higher))
     }
 }
 
