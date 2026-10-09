@@ -31,14 +31,15 @@ use bevy::picking::cursor::EntityCursor;
 use bevy::prelude::*;
 use bevy::window::SystemCursorIcon;
 use bevy_feathers::controls::{
-    ColorChannel, ColorPlaneValue, ColorSwatchValue, FeathersButton, FeathersColorPlane,
-    FeathersColorSlider, FeathersColorSwatch, FeathersToolButton, SliderBaseColor,
+    ColorChannel, ColorPlaneValue, ColorSwatchGridUpdate, ColorSwatchValue, FeathersButton,
+    FeathersColorPlane, FeathersColorSlider, FeathersColorSwatch, FeathersColorSwatchGrid,
+    FeathersToolButton, SliderBaseColor,
 };
 use bevy_feathers::theme::ThemeTextColor;
 use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, Button, SliderValue, ValueChange};
 
-use crate::app::prefs::Preferences;
+use crate::app::prefs::{Preferences, RECENT_COLORS};
 use crate::app::schedule::{Boot, Stage};
 use crate::source::channels::SourceChannels;
 use crate::source::properties::{CellProperties, ColorOverrides, Provenance, default_color};
@@ -239,18 +240,9 @@ pub struct PickerPlane;
 #[derive(Component, Clone, Default)]
 pub struct PickerLightness;
 
-/// The row of colors recently picked, to choose from again.
+/// The grid of colors recently picked, to choose from again.
 #[derive(Component, Clone, Default)]
 pub struct PickerUsed;
-
-/// One color recently picked.
-#[derive(Component, Clone)]
-#[require(
-    Button,
-    BlocksFrameInput,
-    EntityCursor = EntityCursor::System(SystemCursorIcon::Pointer)
-)]
-pub struct UsedColor(Color);
 
 /// Puts the value back to its own color.
 #[derive(Component, Clone, Default)]
@@ -348,12 +340,13 @@ fn spawn_color_overrides(mut commands: Commands, content: Query<Entity, With<Sid
                 BlocksFrameInput
                 PickerLightness
                 --
-                Node {
-                    flex_wrap: { FlexWrap::Wrap },
-                    column_gap: { Val::Px(space::CONTROLS) },
-                    row_gap: { Val::Px(space::CONTROLS) },
-                    display: { Display::None },
+                // Two rows of six, which is what is remembered.
+                @FeathersColorSwatchGrid {
+                    size: { UVec2::new(RECENT_COLORS as u32 / 2, 2) },
+                    opaque_color_percentage: { 0.0_f32 },
                 }
+                Node { display: { Display::None } }
+                BlocksFrameInput
                 PickerUsed
                 --
                 @FeathersButton {
@@ -484,16 +477,16 @@ fn on_lightness(
 }
 
 fn on_used_color(
-    activate: On<Activate>,
-    chips: Query<&UsedColor>,
+    change: On<ValueChange<Color>>,
+    grids: Query<(), With<PickerUsed>>,
     mut picking: ResMut<Picking>,
     mut colors: Colors,
 ) {
-    let Ok(UsedColor(used)) = chips.get(activate.entity) else {
+    if !grids.contains(change.source) {
         return;
-    };
+    }
     recolor(&mut picking, &mut colors, |color| {
-        *color = Hsla::from(*used);
+        *color = Hsla::from(change.value);
     });
 }
 
@@ -645,15 +638,16 @@ fn remember_picked(
     *last = now;
 }
 
-/// Offer the colors recently picked to pick again. Rebuilt only when they
-/// change.
-fn rebuild_used_colors(
-    mut commands: Commands,
+/// Offer the colors recently picked to pick again, when they change.
+///
+/// The grid's cells stay put; only what they hold is replaced.
+fn sync_used_colors(
     prefs: Res<Preferences>,
-    mut rows: Query<(Entity, &mut Node), With<PickerUsed>>,
+    mut grids: Query<(Entity, &mut Node), With<PickerUsed>>,
+    mut swatches: ColorSwatchGridUpdate,
     mut shown: Local<Option<Vec<[f32; 3]>>>,
 ) {
-    let Ok((row, node)) = rows.single_mut() else {
+    let Ok((grid, node)) = grids.single_mut() else {
         return;
     };
     if shown.as_ref() == Some(&prefs.recent_colors) {
@@ -662,25 +656,8 @@ fn rebuild_used_colors(
     patch_node(node, |node| {
         node.display = display(!prefs.recent_colors.is_empty());
     });
-    commands.entity(row).despawn_related::<Children>();
-    let chips: Vec<Entity> = prefs
-        .recent_colors()
-        .map(|color| {
-            commands
-                .spawn((
-                    Node {
-                        width: Val::Px(SWATCH_PX * 1.5),
-                        height: Val::Px(SWATCH_PX * 1.5),
-                        border_radius: BorderRadius::all(Val::Px(3.0)),
-                        ..default()
-                    },
-                    BackgroundColor(color),
-                    UsedColor(color),
-                ))
-                .id()
-        })
-        .collect();
-    commands.entity(row).add_children(&chips);
+    let colors: Vec<Color> = prefs.recent_colors().collect();
+    swatches.update(grid, &colors, None);
     *shown = Some(prefs.recent_colors.clone());
 }
 
@@ -828,7 +805,7 @@ impl Plugin for ColorOverridesPlugin {
             .add_observer(on_reset_all)
             .add_systems(
                 Update,
-                (rebuild_override_list, rebuild_used_colors)
+                (rebuild_override_list, sync_used_colors)
                     .chain()
                     .in_set(Stage::ControlsBuild),
             )
