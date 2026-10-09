@@ -18,8 +18,7 @@ use bevy_ui_widgets::{Activate, SliderValue, ValueChange};
 
 use crate::app::schedule::Stage;
 use crate::source::channels::{MAX_GAIN, SourceChannels};
-use crate::ui::cell_panel::SWATCH_PX;
-use crate::ui::color_overrides::PickChannelColor;
+use crate::ui::color_overrides::{PickChannelColor, color_square};
 use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
@@ -129,22 +128,13 @@ pub fn rebuild_channel_rows(
 
     for (index, channel) in channels.channels.iter().enumerate() {
         let caption = format!("{} ({})", channel.label, index + 1);
-        let [r, g, b] = channel.color;
         // The channel's own color, not a theme's: it is what the channel is
         // painted in, and means the same in either theme. Pressed, it opens
-        // the picker a value's square does.
+        // the picker a value's square does, and is painted by the same
+        // system.
         let swatch = commands
-            .spawn((
-                Node {
-                    width: Val::Px(SWATCH_PX),
-                    height: Val::Px(SWATCH_PX),
-                    border_radius: BorderRadius::all(Val::Px(2.0)),
-                    flex_shrink: 0.0,
-                    ..default()
-                },
-                BackgroundColor(Color::srgb(r, g, b)),
-                PickChannelColor { channel: index },
-            ))
+            .spawn_scene(color_square())
+            .insert(PickChannelColor { channel: index })
             .id();
         let checkbox = commands
             .spawn_scene(bsn! {

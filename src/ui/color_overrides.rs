@@ -1,16 +1,15 @@
 //! Colors picked for values in place of the ones their points are drawn in.
 //!
 //! Any color square standing for a value — beside it in the cell panel, or in
-//! the list here — is a [`PickColor`], and pressing one opens a single picker
-//! anchored under it: a hue and saturation plane, a lightness slider, the
-//! colors recently picked to choose from again, and a way back to the value's
-//! own color.
+//! the list here — is a Feathers color input marked [`PickColor`]: pressed, it
+//! drops down Feathers' picker, with its wheel, its RGB and HSL sliders and
+//! the colors recently picked. There is no way back to a value's own color in
+//! there; an override is dropped from the list here, which is where every one
+//! of them is seen.
 //!
-//! A color becomes a recent one when the picker is done with it — closed, or
-//! moved to another value — rather than while it is being dragged, so the row
-//! holds what was settled on and not every shade passed through on the way.
-//! They are kept in the preferences, so a palette built up in one session is
-//! there in the next.
+//! The recent colors are Feathers' ([`ColorInputSettings`]), which it adds to
+//! as a picker closes. They are kept in the preferences as well, so a palette
+//! built up in one session is there in the next.
 //!
 //! What was picked is a [`ColorOverrides`] on the source, by column and code,
 //! so it outlives a service replacing the properties and follows the coloring
@@ -21,111 +20,72 @@
 //! square to pick again and a button to drop it, and only appears once there
 //! is one.
 //!
-//! A channel's square opens the same picker, as a [`PickChannelColor`]. What
-//! is picked for a channel is written onto the channel itself in
+//! A channel's square is the same input, as a [`PickChannelColor`]. What is
+//! picked for a channel is written onto the channel itself in
 //! [`SourceChannels`], which already keeps what the dataset published to go
-//! back to, so it is not listed here: the channel's row is where it is seen.
+//! back to, so it is not listed here: the channel's row is where it is seen,
+//! and the channels' reset button where it is undone.
 
 use bevy::ecs::system::SystemParam;
-use bevy::picking::cursor::EntityCursor;
 use bevy::prelude::*;
-use bevy::window::SystemCursorIcon;
 use bevy_feathers::controls::{
-    ColorChannel, ColorPlaneValue, ColorSwatchGridUpdate, ColorSwatchValue, FeathersButton,
-    FeathersColorPlane, FeathersColorSlider, FeathersColorSwatch, FeathersColorSwatchGrid,
-    FeathersToolButton, SliderBaseColor,
+    ColorInputSettings, ColorInputValue, FeathersColorInput, FeathersToolButton,
 };
 use bevy_feathers::theme::ThemeTextColor;
 use bevy_feathers::tokens;
-use bevy_ui_widgets::{Activate, Button, SliderValue, ValueChange};
+use bevy_ui_widgets::{Activate, ValueChange};
 
-use crate::app::prefs::{Preferences, RECENT_COLORS};
+use crate::app::prefs::Preferences;
 use crate::app::schedule::{Boot, Stage};
 use crate::source::channels::SourceChannels;
 use crate::source::properties::{CellProperties, ColorOverrides, Provenance, default_color};
-use crate::ui::cell_panel::SWATCH_PX;
 use crate::ui::color_export::spawn_color_export_menu;
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, Menu, MenuAnchor, SectionLevel, button_icon, button_text, display,
-    patch_node, set_text, size, spawn_accordion, spawn_header_button, spawn_popup,
+    BlocksFrameInput, Icon, SectionLevel, button_icon, size, spawn_accordion, spawn_header_button,
 };
 
 /// Just below the cell properties, whose colors these are.
 const SECTION_ORDER: u32 = 22;
 
-/// Height of the hue and saturation plane, as the filtered-points picker has.
-const PLANE_PX: f32 = 100.0;
+/// Two colors this close are the same one, written down two ways: the input
+/// holds what was dragged, in whichever space it was dragged in, and the
+/// override what was kept.
+const SAME_COLOR: f32 = 0.5 / 255.0;
 
-/// Below this saturation a color has no hue to speak of, and reading one back
-/// from it would throw the plane's thumb to the left edge.
-const GRAY: f32 = 1e-3;
-
-/// A square standing for one value's color, which opens the picker on it.
+/// A square standing for one value's color, picking it when pressed.
 #[derive(Component, Clone, Default)]
-#[require(
-    Button,
-    BlocksFrameInput,
-    BackgroundColor,
-    EntityCursor = EntityCursor::System(SystemCursorIcon::Pointer)
-)]
+#[require(BlocksFrameInput)]
 pub struct PickColor {
     pub column: String,
     pub code: u16,
 }
 
-/// A channel's square, which opens the picker on the color it is painted in.
+/// A channel's square, picking the color it is painted in.
 #[derive(Component, Clone, Default)]
-#[require(
-    Button,
-    BlocksFrameInput,
-    BackgroundColor,
-    EntityCursor = EntityCursor::System(SystemCursorIcon::Pointer)
-)]
+#[require(BlocksFrameInput)]
 pub struct PickChannelColor {
     pub channel: usize,
 }
 
-/// A dot in the middle of a value's square, saying its color was picked
-/// rather than its own. Only the cell panel's squares carry one: everything in
-/// the list here is picked.
-#[derive(Component, Clone, Default)]
-#[require(Pickable::IGNORE, BackgroundColor)]
-#[require(Node = Node {
-    width: Val::Px(MARK_PX),
-    height: Val::Px(MARK_PX),
-    border_radius: BorderRadius::all(Val::Px(MARK_PX / 2.0)),
-    display: Display::None,
-    ..default()
-})]
-pub struct OverrideMark;
+/// A color square: Feathers' color input, for whatever is put beside it to
+/// say what it picks.
+pub fn color_square() -> impl Scene {
+    bsn! {
+        @FeathersColorInput
+        Node { flex_shrink: { 0.0_f32 } }
+    }
+}
 
-/// Small enough to leave the color around it readable.
-const MARK_PX: f32 = 4.0;
-
-/// Above this lightness a mark is drawn dark, and below it light, so it shows
-/// on whatever was picked.
-const LIGHT: f32 = 0.6;
-
-/// What the picker is choosing a color for.
+/// What a square picks a color for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Target {
     /// A value of a property, by column and code.
     Value { column: String, code: u16 },
     /// A channel of an image, by its place in the source's channels.
     Channel(usize),
-}
-
-/// What the picker is open on, on which source.
-#[derive(Resource, Default)]
-pub struct Picking {
-    source: Option<Entity>,
-    target: Option<Target>,
-    /// Whether a color has been picked since the picker was last done with
-    /// one, and so is worth remembering once it is.
-    picked: bool,
 }
 
 /// Everything a color can be picked for, read and written the same way
@@ -148,20 +108,6 @@ impl Colors<'_, '_> {
                 let [r, g, b] = self.channels.get(source).ok()?.channels.get(*index)?.color;
                 Some(Color::srgb(r, g, b))
             }
-        }
-    }
-
-    /// Whether `target` is drawn in a color picked for it rather than its own.
-    fn picked(&self, source: Entity, target: &Target) -> bool {
-        match target {
-            Target::Value { column, code } => self
-                .values
-                .get(source)
-                .is_ok_and(|(_, overrides)| overrides.get(column, *code).is_some()),
-            Target::Channel(index) => self.channels.get(source).is_ok_and(|channels| {
-                channels.channels.get(*index).map(|it| it.color)
-                    != channels.published(*index).map(|it| it.color)
-            }),
         }
     }
 
@@ -188,65 +134,38 @@ impl Colors<'_, '_> {
             }
         }
     }
-
-    /// Put `target` back in its own color.
-    fn reset(&mut self, source: Entity, target: &Target) {
-        match target {
-            Target::Value { column, code } => {
-                if let Ok((_, mut overrides)) = self.values.get_mut(source) {
-                    overrides.remove(column, *code);
-                }
-            }
-            Target::Channel(index) => {
-                if let Ok(mut channels) = self.channels.get_mut(source)
-                    && let Some(own) = channels.published(*index).map(|it| it.color)
-                {
-                    channels.channels[*index].color = own;
-                }
-            }
-        }
-    }
-
-    /// How the picker's title names `target`.
-    fn describe(&self, source: Entity, target: &Target) -> String {
-        match target {
-            Target::Value { column, code } => self.values.get(source).map_or_else(
-                |_| format!("{column}: code {code}"),
-                |(properties, _)| describe(properties, column, *code),
-            ),
-            Target::Channel(index) => self
-                .channels
-                .get(source)
-                .ok()
-                .and_then(|channels| channels.channels.get(*index))
-                .map_or_else(|| format!("channel {}", index + 1), |it| it.label.clone()),
-        }
-    }
 }
 
-#[derive(Component, Clone, Default)]
-pub struct ColorPicker;
+/// What the square `entity` picks a color for, if it is one.
+fn target_of(
+    entity: Entity,
+    values: &Query<&PickColor>,
+    channels: &Query<&PickChannelColor>,
+) -> Option<Target> {
+    if let Ok(square) = values.get(entity) {
+        return Some(Target::Value {
+            column: square.column.clone(),
+            code: square.code,
+        });
+    }
+    channels
+        .get(entity)
+        .ok()
+        .map(|square| Target::Channel(square.channel))
+}
 
-#[derive(Component, Clone, Default)]
-pub struct PickerTitle;
-
-#[derive(Component, Clone, Default)]
-pub struct PickerSwatch;
-
-/// Hue across, saturation down.
-#[derive(Component, Clone, Default)]
-pub struct PickerPlane;
-
-#[derive(Component, Clone, Default)]
-pub struct PickerLightness;
-
-/// The grid of colors recently picked, to choose from again.
-#[derive(Component, Clone, Default)]
-pub struct PickerUsed;
-
-/// Puts the value back to its own color.
-#[derive(Component, Clone, Default)]
-pub struct PickerReset;
+/// Whether `a` and `b` are the same color, whatever space each is held in.
+fn same_color(a: Color, b: Color) -> bool {
+    let (a, b) = (a.to_srgba(), b.to_srgba());
+    [
+        a.red - b.red,
+        a.green - b.green,
+        a.blue - b.blue,
+        a.alpha - b.alpha,
+    ]
+    .iter()
+    .all(|gap| gap.abs() < SAME_COLOR)
+}
 
 #[derive(Component, Clone, Default)]
 pub struct OverridesBody;
@@ -280,7 +199,7 @@ fn current(
     })
 }
 
-/// How the list and the picker name a value: its column, and its label.
+/// How the list names a value: its column, and its label.
 fn describe(properties: &CellProperties, column: &str, code: u16) -> String {
     match properties.value_in(column, code) {
         Some((name, value)) => format!("{name}: {}", value.label),
@@ -305,202 +224,29 @@ fn spawn_color_overrides(mut commands: Commands, content: Query<Entity, With<Sid
     spawn_color_export_menu(&mut commands, accordion.header, true);
     let reset = spawn_header_button(&mut commands, accordion.header, Icon::RotateCcw);
     commands.entity(reset).insert(ResetAllOverrides);
-
-    let picker = spawn_popup(&mut commands);
-    commands.entity(picker).insert((
-        ColorPicker,
-        MenuAnchor {
-            button: Entity::PLACEHOLDER,
-        },
-    ));
-    let parts = commands
-        .spawn_scene(bsn! {
-            Node {
-                flex_direction: { FlexDirection::Column },
-                row_gap: { Val::Px(space::ROWS) },
-            }
-            Children [
-                Text("")
-                TextFont { font_size: { FontSize::Px(size::SECONDARY) } }
-                ThemeTextColor({ tokens::TEXT_MAIN })
-                PickerTitle
-                --
-                @FeathersColorSwatch
-                PickerSwatch
-                --
-                @FeathersColorPlane
-                FeathersColorPlane::HueSaturation
-                Node { height: { Val::Px(PLANE_PX) } }
-                BlocksFrameInput
-                PickerPlane
-                --
-                @FeathersColorSlider {
-                    @channel: { ColorChannel::HslLightness }
-                }
-                BlocksFrameInput
-                PickerLightness
-                --
-                // Two rows of six, which is what is remembered.
-                @FeathersColorSwatchGrid {
-                    size: { UVec2::new(RECENT_COLORS as u32 / 2, 2) },
-                    opaque_color_percentage: { 0.0_f32 },
-                }
-                Node { display: { Display::None } }
-                BlocksFrameInput
-                PickerUsed
-                --
-                @FeathersButton {
-                    @caption: { bsn_list! {
-                        @button_icon(Icon::RotateCcw)
-                        --
-                        @button_text("Use its own color")
-                    } }
-                }
-                Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-                BlocksFrameInput
-                PickerReset
-            ]
-        })
-        .id();
-    commands.entity(picker).add_child(parts);
 }
 
-/// Open the picker under the square pressed, on what it stands for; or close
-/// it, if it was already open there.
-fn open_picker(
-    square: Entity,
-    target: Target,
-    source: Option<Entity>,
-    picking: &mut Picking,
-    pickers: &mut Query<(&mut Menu, &mut MenuAnchor), With<ColorPicker>>,
-) {
-    let Ok((mut menu, mut anchor)) = pickers.single_mut() else {
-        return;
-    };
-    if menu.open && anchor.button == square {
-        menu.open = false;
-        return;
-    }
-    // What was picked before stays marked, so moving on from it remembers it
-    // as closing the picker would.
-    picking.source = source;
-    picking.target = Some(target);
-    anchor.button = square;
-    menu.open = true;
-}
-
-fn on_pick_color(
-    activate: On<Activate>,
-    squares: Query<&PickColor>,
-    selected: SelectedSource,
-    mut picking: ResMut<Picking>,
-    mut pickers: Query<(&mut Menu, &mut MenuAnchor), With<ColorPicker>>,
-) {
-    let Ok(square) = squares.get(activate.entity) else {
-        return;
-    };
-    let target = Target::Value {
-        column: square.column.clone(),
-        code: square.code,
-    };
-    open_picker(
-        activate.entity,
-        target,
-        selected.entity(),
-        &mut picking,
-        &mut pickers,
-    );
-}
-
-fn on_pick_channel_color(
-    activate: On<Activate>,
-    squares: Query<&PickChannelColor>,
-    selected: SelectedSource,
-    mut picking: ResMut<Picking>,
-    mut pickers: Query<(&mut Menu, &mut MenuAnchor), With<ColorPicker>>,
-) {
-    let Ok(square) = squares.get(activate.entity) else {
-        return;
-    };
-    let target = Target::Channel(square.channel);
-    open_picker(
-        activate.entity,
-        target,
-        selected.entity(),
-        &mut picking,
-        &mut pickers,
-    );
-}
-
-/// Change the color being picked, starting from the one it is drawn in. Held
-/// as HSL so a gray keeps the hue it was dragged to.
-fn recolor(picking: &mut Picking, colors: &mut Colors, change: impl FnOnce(&mut Hsla)) {
-    let (Some(source), Some(target)) = (picking.source, picking.target.clone()) else {
-        return;
-    };
-    let Some(color) = colors.current(source, &target) else {
-        return;
-    };
-    let mut color = Hsla::from(color);
-    change(&mut color);
-    colors.set(source, &target, Color::Hsla(color));
-    picking.picked = true;
-}
-
-fn on_plane(
-    change: On<ValueChange<Vec2>>,
-    planes: Query<(), With<PickerPlane>>,
-    mut picking: ResMut<Picking>,
-    mut colors: Colors,
-) {
-    if planes.get(change.source).is_err() {
-        return;
-    }
-    let value = change.value;
-    recolor(&mut picking, &mut colors, |color| {
-        color.hue = value.x * 360.0;
-        color.saturation = 1.0 - value.y;
-    });
-}
-
-fn on_lightness(
-    change: On<ValueChange<f32>>,
-    sliders: Query<(), With<PickerLightness>>,
-    mut picking: ResMut<Picking>,
-    mut colors: Colors,
-) {
-    if sliders.get(change.source).is_err() {
-        return;
-    }
-    let value = change.value;
-    recolor(&mut picking, &mut colors, |color| color.lightness = value);
-}
-
-fn on_used_color(
+/// Write what a square's picker chose onto what the square stands for.
+///
+/// The input is told its own value back at once, as Feathers' own
+/// `color_input_self_update` would, so a drag is drawn where it is rather
+/// than a frame behind.
+fn on_square_picked(
     change: On<ValueChange<Color>>,
-    grids: Query<(), With<PickerUsed>>,
-    mut picking: ResMut<Picking>,
+    values: Query<&PickColor>,
+    channels: Query<&PickChannelColor>,
+    selected: SelectedSource,
     mut colors: Colors,
+    mut commands: Commands,
 ) {
-    if !grids.contains(change.source) {
+    let Some(target) = target_of(change.source, &values, &channels) else {
         return;
-    }
-    recolor(&mut picking, &mut colors, |color| {
-        *color = Hsla::from(change.value);
-    });
-}
-
-fn on_picker_reset(
-    activate: On<Activate>,
-    buttons: Query<(), With<PickerReset>>,
-    picking: Res<Picking>,
-    mut colors: Colors,
-) {
-    if buttons.get(activate.entity).is_err() {
-        return;
-    }
-    if let (Some(source), Some(target)) = (picking.source, &picking.target) {
-        colors.reset(source, target);
+    };
+    commands
+        .entity(change.source)
+        .insert(ColorInputValue(change.value));
+    if let Some(source) = selected.entity() {
+        colors.set(source, &target, change.value);
     }
 }
 
@@ -523,17 +269,12 @@ fn on_reset_all(
     buttons: Query<(), With<ResetAllOverrides>>,
     selected: SelectedSource,
     mut sources: Query<&mut ColorOverrides>,
-    mut pickers: Query<&mut Menu, With<ColorPicker>>,
 ) {
     if buttons.get(activate.entity).is_err() {
         return;
     }
     if let Some(mut overrides) = selected.get_mut(&mut sources) {
         overrides.clear();
-    }
-    // Its square has just gone with the list.
-    for mut menu in &mut pickers {
-        menu.open = false;
     }
 }
 
@@ -586,12 +327,7 @@ fn rebuild_override_list(
                         column_gap: { Val::Px(space::CONTROLS) },
                     }
                     Children [
-                        Node {
-                            width: { Val::Px(SWATCH_PX) },
-                            height: { Val::Px(SWATCH_PX) },
-                            flex_shrink: { 0.0_f32 },
-                            border_radius: { BorderRadius::all(Val::Px(2.0)) },
-                        }
+                        @color_square()
                         PickColor { column: { column.clone() }, code: { code } }
                         --
                         Text({ label })
@@ -613,180 +349,47 @@ fn rebuild_override_list(
     commands.entity(body).add_children(&rows);
 }
 
-/// Remember the color something was left in once the picker is done with it:
-/// closed, or moved on to something else.
-fn remember_picked(
-    mut picking: ResMut<Picking>,
-    pickers: Query<&Menu, With<ColorPicker>>,
-    colors: Colors,
-    mut prefs: ResMut<Preferences>,
-    mut last: Local<Option<(Entity, Target)>>,
-) {
-    let open = pickers.single().is_ok_and(|menu| menu.open);
-    let now = picking.source.filter(|_| open).zip(picking.target.clone());
-    if *last == now {
-        return;
-    }
-    if let Some((source, target)) = last.take()
-        && picking.picked
-        && colors.picked(source, &target)
-        && let Some(color) = colors.current(source, &target)
-    {
-        prefs.remember_color(color);
-    }
-    picking.picked = false;
-    *last = now;
-}
-
-/// Offer the colors recently picked to pick again, when they change.
+/// Show every square in the color what it stands for is drawn in.
 ///
-/// The grid's cells stay put; only what they hold is replaced.
-fn sync_used_colors(
-    prefs: Res<Preferences>,
-    mut grids: Query<(Entity, &mut Node), With<PickerUsed>>,
-    mut swatches: ColorSwatchGridUpdate,
-    mut shown: Local<Option<Vec<[f32; 3]>>>,
-) {
-    let Ok((grid, node)) = grids.single_mut() else {
-        return;
-    };
-    if shown.as_ref() == Some(&prefs.recent_colors) {
-        return;
-    }
-    patch_node(node, |node| {
-        node.display = display(!prefs.recent_colors.is_empty());
-    });
-    let colors: Vec<Color> = prefs.recent_colors().collect();
-    swatches.update(grid, &colors, None);
-    *shown = Some(prefs.recent_colors.clone());
-}
-
-/// Paint every channel's square in the color the channel is painted in.
-fn paint_channel_swatches(
-    selected: SelectedSource,
-    sources: Query<&SourceChannels>,
-    mut squares: Query<(&PickChannelColor, &mut BackgroundColor)>,
-) {
-    let Some(channels) = selected.get(&sources) else {
-        return;
-    };
-    for (square, mut background) in &mut squares {
-        if let Some(channel) = channels.channels.get(square.channel) {
-            let [r, g, b] = channel.color;
-            background.set_if_neq(BackgroundColor(Color::srgb(r, g, b)));
-        }
-    }
-}
-
-/// Paint every square in the color its value is drawn in, and mark the ones
-/// whose color was picked.
-fn paint_swatches(
-    selected: SelectedSource,
-    sources: Query<(&CellProperties, &ColorOverrides)>,
-    mut squares: Query<(&PickColor, &mut BackgroundColor), Without<OverrideMark>>,
-    mut marks: Query<(&ChildOf, &mut Node, &mut BackgroundColor), With<OverrideMark>>,
-) {
-    let Some((properties, overrides)) = selected.get(&sources) else {
-        return;
-    };
-    for (square, mut background) in &mut squares {
-        let wanted = current(properties, overrides, &square.column, square.code);
-        background.set_if_neq(BackgroundColor(wanted));
-    }
-    for (parent, node, mut background) in &mut marks {
-        let Ok(square) = squares.get(parent.parent()) else {
-            continue;
-        };
-        let picked = overrides.get(&square.0.column, square.0.code);
-        patch_node(node, |node| node.display = display(picked.is_some()));
-        if let Some(color) = picked {
-            background.set_if_neq(BackgroundColor(mark_color(color)));
-        }
-    }
-}
-
-/// The dot on a picked square: dark on a light color and light on a dark one,
-/// so it shows whatever was picked.
-fn mark_color(picked: Color) -> Color {
-    if Hsla::from(picked).lightness > LIGHT {
-        Color::BLACK
-    } else {
-        Color::WHITE
-    }
-}
-
-/// Where the hue and saturation plane's thumb sits for `color`, with its
-/// lightness alongside. A gray has no hue to read back, so it keeps the one
-/// the thumb is `across` at rather than jumping to the left edge.
-fn plane_position(color: Hsla, across: f32) -> Vec3 {
-    let across = if color.saturation < GRAY {
-        across
-    } else {
-        color.hue / 360.0
-    };
-    Vec3::new(across, 1.0 - color.saturation, color.lightness)
-}
-
-/// Show the picker as what it is open on stands, and close it when that
-/// belongs to a source no longer selected.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "each part of the picker is its own query"
-)]
-fn sync_picker(
+/// Written only where it differs, by more than the rounding between color
+/// spaces: every write sends Feathers back through the picker's controls, and
+/// one a frame would fight a drag.
+fn paint_squares(
     mut commands: Commands,
     selected: SelectedSource,
-    picking: Res<Picking>,
     colors: Colors,
-    mut pickers: Query<&mut Menu, With<ColorPicker>>,
-    mut titles: Query<&mut Text, With<PickerTitle>>,
-    mut swatches: Query<&mut ColorSwatchValue, With<PickerSwatch>>,
-    mut planes: Query<&mut ColorPlaneValue, With<PickerPlane>>,
-    mut sliders: Query<(Entity, &SliderValue, &mut SliderBaseColor), With<PickerLightness>>,
-    mut resets: Query<&mut Node, With<PickerReset>>,
+    values: Query<&PickColor>,
+    channels: Query<&PickChannelColor>,
+    squares: Query<(Entity, &ColorInputValue)>,
 ) {
-    let Ok(mut menu) = pickers.single_mut() else {
+    let Some(source) = selected.entity() else {
         return;
     };
-    if !menu.open {
-        return;
+    for (square, value) in &squares {
+        let Some(wanted) = target_of(square, &values, &channels)
+            .and_then(|target| colors.current(source, &target))
+        else {
+            continue;
+        };
+        if !same_color(value.0, wanted) {
+            commands.entity(square).insert(ColorInputValue(wanted));
+        }
     }
-    let found = picking
-        .source
-        .filter(|source| selected.entity() == Some(*source))
-        .zip(picking.target.as_ref())
-        .and_then(|(source, target)| Some((source, target, colors.current(source, target)?)));
-    let Some((source, target, color)) = found else {
-        menu.open = false;
-        return;
-    };
-    let hsla = Hsla::from(color);
+}
 
-    for text in &mut titles {
-        set_text(text, &colors.describe(source, target));
+/// Keep Feathers' recent colors in the preferences, and start it from them.
+fn share_recent_colors(
+    mut settings: ResMut<ColorInputSettings>,
+    mut prefs: ResMut<Preferences>,
+    mut started: Local<bool>,
+) {
+    if !*started {
+        *started = true;
+        settings.recent_colors = prefs.recent_colors().collect();
+        return;
     }
-    for mut swatch in &mut swatches {
-        if swatch.0 != color {
-            swatch.0 = color;
-        }
-    }
-    for mut plane in &mut planes {
-        let wanted = plane_position(hsla, plane.0.x);
-        if plane.0 != wanted {
-            plane.0 = wanted;
-        }
-    }
-    for (entity, value, mut base) in &mut sliders {
-        if base.0 != color {
-            base.0 = color;
-        }
-        if (value.0 - hsla.lightness).abs() > 1e-4 {
-            commands.entity(entity).insert(SliderValue(hsla.lightness));
-        }
-    }
-    let overridden = colors.picked(source, target);
-    for node in &mut resets {
-        patch_node(node, |node| node.display = display(overridden));
+    if settings.is_changed() {
+        prefs.keep_recent_colors(&settings.recent_colors);
     }
 }
 
@@ -794,28 +397,12 @@ pub struct ColorOverridesPlugin;
 
 impl Plugin for ColorOverridesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Picking>()
-            .add_observer(on_pick_color)
-            .add_observer(on_pick_channel_color)
-            .add_observer(on_plane)
-            .add_observer(on_lightness)
-            .add_observer(on_used_color)
-            .add_observer(on_picker_reset)
+        app.add_observer(on_square_picked)
             .add_observer(on_reset_override)
             .add_observer(on_reset_all)
-            .add_systems(
-                Update,
-                (rebuild_override_list, sync_used_colors)
-                    .chain()
-                    .in_set(Stage::ControlsBuild),
-            )
-            .add_systems(
-                Update,
-                (paint_swatches, paint_channel_swatches, sync_picker)
-                    .chain()
-                    .in_set(Stage::ControlsPlace),
-            )
-            .add_systems(Update, remember_picked.in_set(Stage::ControlsApply))
+            .add_systems(Update, rebuild_override_list.in_set(Stage::ControlsBuild))
+            .add_systems(Update, paint_squares.in_set(Stage::ControlsPlace))
+            .add_systems(Update, share_recent_colors.in_set(Stage::ControlsApply))
             .add_systems(Startup, spawn_color_overrides.in_set(Boot::DockContent));
     }
 }
@@ -866,7 +453,7 @@ mod tests {
         }
     }
 
-    /// Run `work` against the picker's view of `world`.
+    /// Run `work` against the squares' view of `world`.
     fn with_colors<T>(world: &mut World, work: impl FnOnce(&mut Colors) -> T) -> T {
         let mut state = SystemState::<Colors>::new(world);
         let mut colors = state.get_mut(world).unwrap();
@@ -880,26 +467,13 @@ mod tests {
         let (mut world, source) = world();
         with_colors(&mut world, |colors| {
             assert_eq!(colors.current(source, &value()), Some(RED));
-            assert!(!colors.picked(source, &value()));
             colors.set(source, &value(), TEAL);
             assert_eq!(colors.current(source, &value()), Some(TEAL));
-            assert!(colors.picked(source, &value()));
         });
     }
 
     #[test]
-    fn a_reset_value_goes_back_to_its_own_color() {
-        let (mut world, source) = world();
-        with_colors(&mut world, |colors| {
-            colors.set(source, &value(), TEAL);
-            colors.reset(source, &value());
-            assert_eq!(colors.current(source, &value()), Some(RED));
-            assert!(!colors.picked(source, &value()));
-        });
-    }
-
-    #[test]
-    fn a_channel_is_picked_for_and_reset_the_same_way_as_a_value() {
+    fn a_channel_is_picked_for_the_same_way_as_a_value() {
         let (mut world, source) = world();
         let gfp = Target::Channel(1);
         with_colors(&mut world, |colors| {
@@ -908,29 +482,7 @@ mod tests {
                 Some(Color::srgb(0.0, 1.0, 0.0))
             );
             colors.set(source, &gfp, TEAL);
-            assert!(colors.picked(source, &gfp));
-            colors.reset(source, &gfp);
-            assert!(!colors.picked(source, &gfp), "back to how it was published");
-            assert_eq!(
-                colors.current(source, &gfp),
-                Some(Color::srgb(0.0, 1.0, 0.0))
-            );
-        });
-    }
-
-    #[test]
-    fn the_picker_names_a_value_by_its_column_and_label_and_a_channel_by_its_label() {
-        let (mut world, source) = world();
-        with_colors(&mut world, |colors| {
-            assert_eq!(colors.describe(source, &value()), "Class: Astrocyte");
-            assert_eq!(colors.describe(source, &Target::Channel(0)), "DAPI");
-            // What the source does not hold is still named, by where it is.
-            assert_eq!(colors.describe(source, &Target::Channel(5)), "channel 6");
-            let unknown = Target::Value {
-                column: "CLASS".into(),
-                code: 9,
-            };
-            assert_eq!(colors.describe(source, &unknown), "CLASS: code 9");
+            assert!(same_color(colors.current(source, &gfp).unwrap(), TEAL));
         });
     }
 
@@ -943,16 +495,12 @@ mod tests {
     }
 
     #[test]
-    fn a_gray_keeps_the_hue_its_thumb_was_left_at() {
-        let gray = Hsla::hsl(0.0, 0.0, 0.5);
-        assert_eq!(plane_position(gray, 0.4).x, 0.4);
-        let teal = Hsla::hsl(180.0, 1.0, 0.25);
-        assert_eq!(plane_position(teal, 0.4), Vec3::new(0.5, 0.0, 0.25));
-    }
-
-    #[test]
-    fn a_picked_mark_shows_on_light_and_dark_colors_alike() {
-        assert_eq!(mark_color(Color::srgb(1.0, 1.0, 0.8)), Color::BLACK);
-        assert_eq!(mark_color(Color::srgb(0.1, 0.1, 0.3)), Color::WHITE);
+    fn a_color_dragged_in_hsl_is_the_one_kept_in_rgb() {
+        // The input holds what the picker dragged, the override what was
+        // kept; writing one over the other every frame would fight the drag.
+        let dragged = Color::hsl(180.0, 1.0, 0.25);
+        assert!(same_color(dragged, Color::from(dragged.to_srgba())));
+        assert!(!same_color(dragged, TEAL.with_alpha(0.5)));
+        assert!(!same_color(RED, TEAL));
     }
 }

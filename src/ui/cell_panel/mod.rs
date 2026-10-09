@@ -50,7 +50,7 @@ use crate::source::properties::{
 };
 use crate::source::{DataSource, compact_count};
 use crate::ui::color_export::spawn_color_export_menu;
-use crate::ui::color_overrides::{OverrideMark, PickColor};
+use crate::ui::color_overrides::{PickColor, color_square};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedSource;
 use crate::widgets::space;
@@ -148,10 +148,6 @@ const MIN_SEGMENT: f32 = 0.005;
 /// dozen slices in, narrow enough to leave a sidebar's labels their room.
 const BAR_PX: f32 = 6.0;
 const BAR_WIDTH_PX: f32 = 56.0;
-
-/// The side of a value's color square: big enough to aim at, since pressing
-/// it picks a color.
-pub const SWATCH_PX: f32 = 12.0;
 
 /// The slot a count is written right-aligned into, so a row with a long one
 /// does not push its bar out of line with the rest.
@@ -386,15 +382,8 @@ pub fn spawn_value_row(
     // knows whether the user has picked one.
     let swatch = commands
         .spawn_scene(bsn! {
-            Node {
-                width: { Val::Px(SWATCH_PX) },
-                height: { Val::Px(SWATCH_PX) },
-                flex_shrink: { 0.0_f32 },
-                border_radius: { BorderRadius::all(Val::Px(2.0)) },
-                display: { Display::None },
-                justify_content: { JustifyContent::Center },
-                align_items: { AlignItems::Center },
-            }
+            @color_square()
+            Node { display: { Display::None } }
             ValueSwatch
             ValueColumn {
                 column: { column.column.clone() },
@@ -404,7 +393,6 @@ pub fn spawn_value_row(
                 column: { column.column.clone() },
                 code: { column.code },
             }
-            Children [ OverrideMark ]
         })
         .id();
     let boxed = commands

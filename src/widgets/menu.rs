@@ -111,12 +111,9 @@ fn anchor(commands: &mut Commands, parent: Entity, button: Entity, menu: Entity)
     commands.entity(menu).insert(MenuAnchor { button });
 }
 
-/// A closed popup of its own, for a caller that anchors it with a
-/// [`MenuAnchor`] and opens it itself — one popup that moves between several
-/// buttons, rather than a button apiece. That popup opens from something that
-/// already looks like it opens one, such as a color swatch; an icon button
-/// opening a menu goes through [`spawn_icon_menu`] for its chevron.
-pub fn spawn_popup(commands: &mut Commands) -> Entity {
+/// A closed popup, for [`spawn_menu`] and [`spawn_icon_menu`] to anchor under
+/// their buttons.
+fn spawn_popup(commands: &mut Commands) -> Entity {
     commands
         .spawn_scene(bsn! {
             Menu
