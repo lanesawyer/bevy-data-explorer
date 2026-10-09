@@ -9,6 +9,19 @@
 //! in the app: no system orders itself against another module's system. What
 //! follows is why each boundary is where it is, because an ordering nobody can
 //! explain is an ordering that gets broken.
+//!
+//! The chain is a strong one, not Bevy 0.20's `chain_weak`. A weak chain orders
+//! two sets only where their systems touch the same data, and several of these
+//! boundaries are about commands rather than data: chrome spawned in one stage
+//! is placed in a later one, after the commands between them have landed.
+//! Nothing conflicts there for a weak chain to see, and a menu positioned
+//! before it was built is the bug that comes back.
+//!
+//! Whether anything leans on an order nobody wrote down is checked by building
+//! with `--features shuffle-schedule` and running with `BDE_SCHEDULE_SEED` set
+//! to a number: systems are shuffled within the stages, differently for each
+//! seed, so a system that worked only because it happened to run after
+//! another stops working.
 
 use bevy::prelude::*;
 
@@ -152,4 +165,30 @@ pub fn configure(app: &mut App) {
         )
             .chain(),
     );
+    #[cfg(feature = "shuffle-schedule")]
+    shuffle(app);
+}
+
+/// Shuffle `Startup` and `Update` with the seed in `BDE_SCHEDULE_SEED`, if
+/// there is one.
+#[cfg(feature = "shuffle-schedule")]
+fn shuffle(app: &mut App) {
+    use bevy::ecs::schedule::{ScheduleBuildSettings, ScheduleLabel};
+
+    let Some(seed) = std::env::var("BDE_SCHEDULE_SEED")
+        .ok()
+        .and_then(|seed| seed.parse::<u64>().ok())
+    else {
+        warn!("shuffle-schedule is built in, but BDE_SCHEDULE_SEED holds no number");
+        return;
+    };
+    info!("shuffling the schedule with seed {seed}");
+    for label in [Startup.intern(), Update.intern()] {
+        app.edit_schedule(label, |schedule| {
+            schedule.set_build_settings(ScheduleBuildSettings {
+                shuffle_seed: Some(seed),
+                ..schedule.get_build_settings()
+            });
+        });
+    }
 }

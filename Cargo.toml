@@ -67,6 +67,13 @@ bytes = "1"
 # Already in the tree as rustls' crypto.
 ring = "0.17"
 
+[features]
+# Shuffles the order of systems within the ordering written down in
+# `app/schedule.rs`, seeded from `BDE_SCHEDULE_SEED`, to shake out a system
+# that only works because it happened to run after another. Bevy's own
+# schedule shuffling lives behind its `debug` feature.
+shuffle-schedule = ["bevy/debug"]
+
 # `tests/layers.rs` parses the source to check its imports. All three are
 # already in the tree through Bevy's derive macros.
 [dev-dependencies]

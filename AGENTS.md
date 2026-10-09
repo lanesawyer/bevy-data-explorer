@@ -301,7 +301,11 @@ re-measuring will regress something:
   system. Two bugs came from ordering by chain membership — a menu positioned
   before it was built, and an overlay documented as running after the sources
   that did not. If a new system needs a slot that does not exist, add a stage
-  and say in its doc comment why the boundary is there.
+  and say in its doc comment why the boundary is there. The chain stays a
+  strong one, not `chain_weak`, since some boundaries are about commands
+  landing rather than data. To find a system leaning on an order nobody wrote
+  down, build with `--features shuffle-schedule` and run with
+  `BDE_SCHEDULE_SEED=<n>`.
 - **`system_clipboard` is load-bearing in the feature list.** `bevy_ui_widgets`
   already binds Ctrl+V in the text field, but without that Cargo feature
   Bevy's clipboard is an in-app buffer: copy and paste work inside the window
