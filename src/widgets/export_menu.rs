@@ -30,7 +30,7 @@ pub fn spawn_export_menu(
         let entity = commands
             .spawn_scene(bsn! {
                 @FeathersButton {
-                    @caption: { bsn_list![button_text(format.label())] }
+                    @caption: { bsn_list! {@button_text(format.label())} }
                 }
                 Node { flex_grow: { 1.0_f32 } }
                 BlocksFrameInput

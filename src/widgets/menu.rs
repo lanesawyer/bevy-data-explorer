@@ -68,7 +68,7 @@ pub fn spawn_menu(commands: &mut Commands, parent: Entity) -> Entity {
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_icon(Icon::Ellipsis)] }
+                @caption: { bsn_list! {@button_icon(Icon::Ellipsis)} }
             }
             BlocksFrameInput
             MenuButton { menu: { menu } }
@@ -89,13 +89,12 @@ pub fn spawn_icon_menu(commands: &mut Commands, parent: Entity, icon: Icon) -> (
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![
-                    button_icon(icon),
-                    (
-                        button_icon(Icon::ChevronDown)
-                        TextFont { font_size: { FontSize::Px(10.0) } }
-                    ),
-                ] }
+                @caption: { bsn_list! {
+                    @button_icon(icon)
+                    --
+                    @button_icon(Icon::ChevronDown)
+                    TextFont { font_size: { FontSize::Px(10.0) } }
+                } }
             }
             BlocksFrameInput
             MenuButton { menu: { menu } }

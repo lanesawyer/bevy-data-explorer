@@ -163,24 +163,20 @@ pub fn spawn_log_panel(mut commands: Commands) {
                 column_gap: { Val::Px(space::CONTROLS) },
             }
             Children [
-                (
-                    text("Log", size::BODY)
-                    Node { flex_grow: { 1.0_f32 } }
-                ),
-                (
-                    @FeathersToolButton {
-                        @caption: { bsn_list![button_icon(Icon::Copy)] }
-                    }
-                    BlocksFrameInput
-                    CopyLogButton
-                ),
-                (
-                    @FeathersToolButton {
-                        @caption: { bsn_list![button_icon(Icon::X)] }
-                    }
-                    BlocksFrameInput
-                    LogPanelToggle
-                ),
+                @text("Log", size::BODY)
+                Node { flex_grow: { 1.0_f32 } }
+                --
+                @FeathersToolButton {
+                    @caption: { bsn_list! {@button_icon(Icon::Copy)} }
+                }
+                BlocksFrameInput
+                CopyLogButton
+                --
+                @FeathersToolButton {
+                    @caption: { bsn_list! {@button_icon(Icon::X)} }
+                }
+                BlocksFrameInput
+                LogPanelToggle
             ]
         })
         .id();
@@ -215,7 +211,7 @@ pub fn spawn_log_panel(mut commands: Commands) {
 
     commands.spawn_scene(bsn! {
         LogPanelHandle
-        dock_handle(DockEdge::Bottom)
+        @dock_handle(DockEdge::Bottom)
         Node {
             display: { Display::None },
         }

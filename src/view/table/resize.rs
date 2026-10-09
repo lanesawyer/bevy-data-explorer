@@ -61,7 +61,7 @@ pub(super) fn resize_table(
 
 /// Note how wide a column is as its grip starts to be dragged.
 pub fn on_grip_drag_start(
-    start: On<Pointer<DragStart>>,
+    start: On<PointerDragStart>,
     mut grips: Query<&mut ColumnGrip>,
     views: Query<&TableView>,
 ) {
@@ -79,7 +79,7 @@ pub fn on_grip_drag_start(
 
 /// Resize a column to follow its grip.
 pub fn on_grip_drag(
-    drag: On<Pointer<Drag>>,
+    drag: On<PointerDrag>,
     grips: Query<&ColumnGrip>,
     panels: Query<&ShowsSource>,
     mut widths: Query<&mut ColumnWidths>,
@@ -102,7 +102,7 @@ pub fn on_grip_drag(
     }
 }
 
-pub fn on_grip_drag_end(end: On<Pointer<DragEnd>>, mut grips: Query<&mut ColumnGrip>) {
+pub fn on_grip_drag_end(end: On<PointerDragEnd>, mut grips: Query<&mut ColumnGrip>) {
     if let Ok(mut grip) = grips.get_mut(end.entity) {
         grip.from = None;
     }

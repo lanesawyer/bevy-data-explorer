@@ -18,7 +18,7 @@
 
 use bevy::prelude::*;
 use bevy::window::{WindowTheme, WindowThemeChanged};
-use bevy_feathers::theme::{ThemeProps, UiTheme};
+use bevy_feathers::theme::{SemanticToken, ThemeProps, ThemeToken, UiTheme};
 
 use crate::app::net::{Fetching, fetching};
 use crate::app::prefs::{Preferences, ThemeChoice};
@@ -34,17 +34,46 @@ pub fn dark() -> ThemeProps {
     use bevy_feathers::{dark_theme::create_dark_theme, palette, tokens};
 
     let mut theme = create_dark_theme();
-    theme
-        .color
-        .insert(tokens::BUTTON_BG_HOVER, palette::GRAY_3.lighter(0.14));
-    theme
-        .color
-        .insert(tokens::BUTTON_BG_PRESSED, palette::ACCENT.darker(0.12));
-    theme.color.insert(
-        tokens::BUTTON_PRIMARY_BG_HOVER,
+    paint(
+        &mut theme,
+        &tokens::BUTTON_BG_HOVER,
+        palette::GRAY_3.lighter(0.14),
+    );
+    paint(
+        &mut theme,
+        &tokens::BUTTON_BG_PRESSED,
+        palette::ACCENT.darker(0.12),
+    );
+    paint(
+        &mut theme,
+        &tokens::BUTTON_PRIMARY_BG_HOVER,
         palette::ACCENT.lighter(0.08),
     );
     theme
+}
+
+/// Give `token` a color of its own.
+///
+/// Feathers assigns its tokens to shared semantic colors — a button's label,
+/// a menu item's and a checkbox's mark are all one "text on accent" — so
+/// writing a semantic color repaints every control that shares it. A token
+/// this module changes by itself is moved onto a slot named after it first,
+/// which also drops whatever the surface it sits on would have overridden.
+fn paint(theme: &mut ThemeProps, token: &ThemeToken, color: Color) -> SemanticToken {
+    let own = SemanticToken::new(token.to_string().into());
+    theme.token_assignments.insert(token.clone(), own.clone());
+    theme.semantic_base.insert(own.clone(), color);
+    own
+}
+
+/// Every color in the theme, on any surface.
+fn colors_mut(theme: &mut ThemeProps) -> impl Iterator<Item = (&SemanticToken, &mut Color)> {
+    theme.semantic_base.iter_mut().chain(
+        theme
+            .semantic_overrides
+            .values_mut()
+            .flat_map(|colors| colors.iter_mut()),
+    )
 }
 
 /// A first cut at a light theme, turned over from the dark one.
@@ -63,8 +92,15 @@ pub fn dark() -> ThemeProps {
 /// This is a starting point to look at and adjust, not a designed palette.
 pub fn light() -> ThemeProps {
     let mut theme = dark();
-    for (name, color) in &mut theme.color {
-        if !STAYS_PUT.contains(name) {
+    let kept: Vec<SemanticToken> = STAYS_PUT
+        .iter()
+        .map(|token| {
+            let color = theme.color(token);
+            paint(&mut theme, token, color)
+        })
+        .collect();
+    for (name, color) in colors_mut(&mut theme) {
+        if !kept.contains(name) {
             *color = flip(*color);
         }
     }
@@ -81,7 +117,7 @@ pub fn light() -> ThemeProps {
 /// Everything not named here turns over with its background. Leaving all white
 /// text alone was the first cut of this, and it left a menu and a URL field
 /// writing white on white.
-const STAYS_PUT: [bevy_feathers::theme::ThemeToken; 6] = {
+const STAYS_PUT: [ThemeToken; 6] = {
     use bevy_feathers::tokens::*;
     [
         BUTTON_TEXT,
@@ -105,7 +141,7 @@ const ACCENT_HUE_SPREAD: f32 = 25.0;
 const PALE_ACCENT: f32 = 0.75;
 
 /// The text drawn on the accent itself, which has to turn dark on a pale one.
-const ON_ACCENT: [bevy_feathers::theme::ThemeToken; 2] = {
+const ON_ACCENT: [ThemeToken; 2] = {
     use bevy_feathers::tokens::*;
     [BUTTON_PRIMARY_TEXT, CHECKBOX_MARK]
 };
@@ -134,12 +170,12 @@ fn onto_accent(color: Color, accent: Color) -> Color {
 
 /// Wear `accent` wherever Feathers wears its own.
 fn recolor(theme: &mut ThemeProps, accent: Color) {
-    for color in theme.color.values_mut() {
+    for (_, color) in colors_mut(theme) {
         *color = onto_accent(*color, accent);
     }
     if Oklcha::from(accent).lightness >= PALE_ACCENT {
-        for token in ON_ACCENT {
-            theme.color.insert(token, bevy_feathers::palette::BLACK);
+        for token in &ON_ACCENT {
+            paint(theme, token, bevy_feathers::palette::BLACK);
         }
     }
 }
@@ -289,7 +325,7 @@ impl Palette {
             (token::THUMB, self.thumb),
             (token::LOADING, self.fill),
         ] {
-            theme.color.insert(name, color);
+            paint(theme, &name, color);
         }
     }
 }
@@ -527,9 +563,9 @@ mod tests {
         let (dark, light) = (dark(), light());
 
         // The window goes from dark to light, and the text it carries with it.
-        let bg = |theme: &ThemeProps| lightness(theme.color[&tokens::WINDOW_BG]);
+        let bg = |theme: &ThemeProps| lightness(theme.color(&tokens::WINDOW_BG));
         assert!(bg(&dark) < 0.5 && bg(&light) > 0.5);
-        let text = |theme: &ThemeProps| lightness(theme.color[&tokens::TEXT_MAIN]);
+        let text = |theme: &ThemeProps| lightness(theme.color(&tokens::TEXT_MAIN));
         assert!(text(&dark) > 0.5 && text(&light) < 0.5);
     }
 
@@ -538,7 +574,7 @@ mod tests {
         use bevy_feathers::tokens;
         let light = light();
         let gap =
-            lightness(light.color[&tokens::TEXT_MAIN]) - lightness(light.color[&tokens::WINDOW_BG]);
+            lightness(light.color(&tokens::TEXT_MAIN)) - lightness(light.color(&tokens::WINDOW_BG));
         assert!(gap.abs() > 0.3, "label text has to stay readable: {gap}");
     }
 
@@ -548,7 +584,7 @@ mod tests {
         let light = light();
         // The accent is the selection color; it says "this one" in either
         // theme, and a hue that moved with the theme would stop saying it.
-        assert_eq!(light.color[&tokens::BUTTON_PRIMARY_BG], palette::ACCENT);
+        assert_eq!(light.color(&tokens::BUTTON_PRIMARY_BG), palette::ACCENT);
     }
 
     #[test]
@@ -557,10 +593,10 @@ mod tests {
         // What the user sees first: a button that kept its dark background
         // needs to keep its pale text with it.
         let light = light();
-        assert!(lightness(light.color[&tokens::BUTTON_TEXT]) > 0.95);
+        assert!(lightness(light.color(&tokens::BUTTON_TEXT)) > 0.95);
         assert_eq!(
-            light.color[&tokens::BUTTON_PRIMARY_TEXT],
-            dark().color[&tokens::BUTTON_PRIMARY_TEXT]
+            light.color(&tokens::BUTTON_PRIMARY_TEXT),
+            dark().color(&tokens::BUTTON_PRIMARY_TEXT)
         );
     }
 
@@ -571,11 +607,11 @@ mod tests {
         // a URL field whose backgrounds turned light kept white text on them.
         let light = light();
         for token in [tokens::MENUITEM_TEXT, tokens::TEXT_INPUT_TEXT] {
-            let text = lightness(light.color[&token]);
+            let text = lightness(light.color(&token));
             assert!(text < 0.5, "{token} stayed pale over a pale background");
         }
-        assert!(lightness(light.color[&tokens::MENU_BG]) > 0.5);
-        assert!(lightness(light.color[&tokens::TEXT_INPUT_BG]) > 0.5);
+        assert!(lightness(light.color(&tokens::MENU_BG)) > 0.5);
+        assert!(lightness(light.color(&tokens::TEXT_INPUT_BG)) > 0.5);
     }
 
     #[test]
@@ -623,17 +659,17 @@ mod tests {
             tokens::CHECKBOX_BG_CHECKED,
             tokens::SLIDER_BAR,
         ] {
-            assert!((hue(theme.color[&token]) - want).abs() < 1.0, "{token:?}");
+            assert!((hue(theme.color(&token)) - want).abs() < 1.0, "{token:?}");
         }
         assert!((hue(palette.selection) - want).abs() < 1.0);
         assert!((hue(palette.fill) - want).abs() < 1.0);
         let (_, plain) = build(&ThemeMode::default(), None);
         for token in [tokens::WINDOW_BG, tokens::TEXT_MAIN, tokens::BUTTON_BG] {
-            assert_eq!(theme.color[&token], plain.color[&token], "{token:?}");
+            assert_eq!(theme.color(&token), plain.color(&token), "{token:?}");
         }
         assert!(
-            lightness(theme.color[&tokens::BUTTON_PRIMARY_BG_HOVER])
-                > lightness(theme.color[&tokens::BUTTON_PRIMARY_BG]),
+            lightness(theme.color(&tokens::BUTTON_PRIMARY_BG_HOVER))
+                > lightness(theme.color(&tokens::BUTTON_PRIMARY_BG)),
             "hover still lifts"
         );
     }
@@ -642,9 +678,9 @@ mod tests {
     fn a_pale_accent_takes_dark_text() {
         let yellow = Color::srgb_u8(255, 204, 0);
         let (_, theme) = build(&ThemeMode::default(), Some(yellow));
-        assert!(lightness(theme.color[&tokens::BUTTON_PRIMARY_TEXT]) < 0.2);
+        assert!(lightness(theme.color(&tokens::BUTTON_PRIMARY_TEXT)) < 0.2);
         let (_, blue) = build(&ThemeMode::default(), Some(Color::srgb_u8(0, 122, 255)));
-        assert!(lightness(blue.color[&tokens::BUTTON_PRIMARY_TEXT]) > 0.95);
+        assert!(lightness(blue.color(&tokens::BUTTON_PRIMARY_TEXT)) > 0.95);
     }
 
     #[test]
@@ -654,8 +690,8 @@ mod tests {
         let palette = Palette::light();
         let mut props = light();
         palette.into_theme(&mut props);
-        assert_eq!(props.color[&token::OVERLAY_BG], palette.overlay_bg);
-        assert_eq!(props.color[&token::SELECTION], palette.selection);
+        assert_eq!(props.color(&token::OVERLAY_BG), palette.overlay_bg);
+        assert_eq!(props.color(&token::SELECTION), palette.selection);
     }
 
     #[test]

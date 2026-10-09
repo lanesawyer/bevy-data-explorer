@@ -11,10 +11,10 @@
 //! instead, so it sits in an ordinary scroll area that the wheel moves.
 
 use bevy::input_focus::tab_navigation::TabIndex;
+use bevy::picking::cursor::EntityCursor;
 use bevy::prelude::*;
 use bevy::text::{EditableText, EditableTextSystems, TextCursorStyle, TextEdit};
 use bevy::window::SystemCursorIcon;
-use bevy_feathers::cursor::EntityCursor;
 use bevy_feathers::theme::UiTheme;
 use bevy_feathers::tokens;
 
@@ -116,6 +116,7 @@ fn style_selection(
             selection_color: theme.color(&tokens::TEXT_INPUT_SELECTION),
             unfocused_selection_color: theme.color(&tokens::TEXT_INPUT_SELECTION_UNFOCUSED),
             selected_text_color: None,
+            selection_radius: 0.0,
         };
     }
 }

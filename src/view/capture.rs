@@ -131,7 +131,7 @@ pub(super) fn spawn_capture_button(commands: &mut Commands, header: Entity, pane
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_icon(Icon::Camera)] }
+                @caption: { bsn_list! {@button_icon(Icon::Camera)} }
             }
             BlocksFrameInput
             PanelCaptureButton { panel: { panel } }

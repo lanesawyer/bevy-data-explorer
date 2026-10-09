@@ -6,8 +6,6 @@
 // when the data is read is what makes showing, hiding and brightening a
 // channel instant — only the uniform changes.
 
-#define_import_path bde::channel_mix
-
 struct ChannelMix {
     // Color of each channel; w is 1 when it is shown and 0 when not.
     colors: array<vec4<f32>, 16>,

@@ -13,11 +13,11 @@
 //! pivot around it. Dragging anywhere else on the track slides the whole span,
 //! and clicking a bar narrows the span to that bucket.
 
+use bevy::picking::cursor::{EntityCursor, OverrideCursor};
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::ui::UiGlobalTransform;
 use bevy::window::SystemCursorIcon;
-use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
 
@@ -233,16 +233,14 @@ pub fn spawn_range_control(
                         align_items: { AlignItems::End },
                         margin: { UiRect::horizontal(Val::Px(space::SEAM / 2.0)) },
                     }
-                    Children [(
-                        RangeBar { owner: { owner }, property: { property }, bucket: { bucket } }
-                        // Its column takes the click, however short the bar.
-                        template_value(Pickable::IGNORE)
-                        Node {
-                            width: { Val::Percent(100.0) },
-                            height: { height },
-                        }
-                        BackgroundColor({ bar_color(range, bucket, ramp, palette) })
-                    )]
+                    Children [RangeBar { owner: { owner }, property: { property }, bucket: { bucket } }
+// Its column takes the click, however short the bar.
+Pickable::IGNORE
+Node {
+    width: { Val::Percent(100.0) },
+    height: { height },
+}
+BackgroundColor({ bar_color(range, bucket, ramp, palette) })]
                 })
                 .id()
         })
@@ -278,26 +276,24 @@ pub fn spawn_range_control(
     let to = range.fraction_of(range.to);
     let rail = commands
         .spawn_scene(bsn! {
-            Node {
-                width: { Val::Percent(100.0) },
-                height: { Val::Px(RANGE_TRACK_PX) },
-                border_radius: { BorderRadius::all(Val::Px(RANGE_TRACK_PX * 0.5)) },
-            }
-            ThemeBackgroundColor({ token::TRACK })
-            // The track takes the press, wherever along it, to slide the span.
-            template_value(Pickable::IGNORE)
-            Children [(
-                RangeFill { owner: { owner }, property: { property } }
-                template_value(Pickable::IGNORE)
-                Node {
-                    position_type: { PositionType::Absolute },
-                    left: { Val::Percent(from * 100.0) },
-                    width: { Val::Percent((to - from) * 100.0) },
-                    height: { Val::Percent(100.0) },
-                }
-                ThemeBackgroundColor({ token::SELECTION })
-            )]
-        })
+                    Node {
+                        width: { Val::Percent(100.0) },
+                        height: { Val::Px(RANGE_TRACK_PX) },
+                        border_radius: { BorderRadius::all(Val::Px(RANGE_TRACK_PX * 0.5)) },
+                    }
+                    ThemeBackgroundColor({ token::TRACK })
+                    // The track takes the press, wherever along it, to slide the span.
+                    Pickable::IGNORE
+                    Children [RangeFill { owner: { owner }, property: { property } }
+        Pickable::IGNORE
+        Node {
+            position_type: { PositionType::Absolute },
+            left: { Val::Percent(from * 100.0) },
+            width: { Val::Percent((to - from) * 100.0) },
+            height: { Val::Percent(100.0) },
+        }
+        ThemeBackgroundColor({ token::SELECTION })]
+                })
         .id();
     commands.entity(track).add_child(rail);
 
@@ -337,18 +333,15 @@ pub fn spawn_range_control(
                 column_gap: { Val::Px(space::CONTROLS) },
             }
             Children [
-                (
-                    RangeReadout { owner: { owner }, property: { property } }
-                    Text({ span })
-                    TextFont { font_size: { FontSize::Px(size::SMALL) } }
-                    ThemeTextColor({ tokens::TEXT_DIM })
-                ),
-                (
-                    RangeCount { owner: { owner }, property: { property } }
-                    Text({ count })
-                    TextFont { font_size: { FontSize::Px(size::SMALL) } }
-                    ThemeTextColor({ tokens::TEXT_DIM })
-                ),
+                RangeReadout { owner: { owner }, property: { property } }
+                Text({ span })
+                TextFont { font_size: { FontSize::Px(size::SMALL) } }
+                ThemeTextColor({ tokens::TEXT_DIM })
+                --
+                RangeCount { owner: { owner }, property: { property } }
+                Text({ count })
+                TextFont { font_size: { FontSize::Px(size::SMALL) } }
+                ThemeTextColor({ tokens::TEXT_DIM })
             ]
         })
         .id();

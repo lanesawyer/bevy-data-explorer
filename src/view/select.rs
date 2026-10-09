@@ -121,7 +121,7 @@ pub(super) fn spawn_select_button(commands: &mut Commands, header: Entity, panel
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_icon(Icon::BoxSelect)] }
+                @caption: { bsn_list! {@button_icon(Icon::BoxSelect)} }
             }
             BlocksFrameInput
             Node { display: { Display::None } }
@@ -355,7 +355,7 @@ pub fn sync_region_outlines(
             RegionOutline { panel: { panel } }
             // Decoration, like the frame's own selection border: a rectangle
             // that swallowed the pointer would stop the drag still sizing it.
-            template_value(Pickable::IGNORE)
+            Pickable::IGNORE
             Node {
                 position_type: { PositionType::Absolute },
                 border: { UiRect::all(Val::Px(OUTLINE_PX)) },

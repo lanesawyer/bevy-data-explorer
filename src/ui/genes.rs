@@ -98,7 +98,7 @@ pub fn spawn_gene_panel(mut commands: Commands, content: Query<Entity, With<Side
     let status = commands
         .spawn_scene(bsn! {
             GeneStatus
-            text_dim("", size::SMALL)
+            @text_dim("", size::SMALL)
             Node { display: { Display::None } }
         })
         .id();
@@ -236,7 +236,7 @@ pub fn rebuild_gene_results(
             commands
                 .spawn_scene(bsn! {
                     @FeathersButton {
-                        @caption: { bsn_list![button_text(symbol)] }
+                        @caption: { bsn_list! {@button_text(symbol)} }
                     }
                     BlocksFrameInput
                     GeneResultButton { result: { result } }

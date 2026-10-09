@@ -34,7 +34,7 @@ pub(super) fn spawn_ui_camera(mut commands: Commands) {
         }
         // Draws no world geometry, only UI. RenderLayers keeps its field
         // private, so it is supplied whole rather than patched field by field.
-        template_value(RenderLayers::none())
+        RenderLayers::none()
         IsDefaultUiCamera
         UiCamera
     });

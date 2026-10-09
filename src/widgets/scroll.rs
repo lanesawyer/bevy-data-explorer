@@ -10,8 +10,8 @@
 //! it can move, and passes it on to whatever scrolls around it otherwise.
 
 use super::space;
-use bevy::input::mouse::MouseScrollUnit;
-use bevy::picking::events::{Pointer, Scroll};
+use bevy::input::mouse::MouseScrollPixelsPerLine;
+use bevy::picking::events::PointerScroll;
 use bevy::prelude::*;
 
 /// Marks a node that scrolls vertically up to its `max_height`, and hands the
@@ -55,18 +55,16 @@ pub struct ScrollBoth;
 /// across for a wheel with no sideways axis of its own — which is most of
 /// them.
 pub fn on_both_scroll(
-    mut scroll: On<Pointer<Scroll>>,
+    mut scroll: On<PointerScroll>,
     keys: Res<ButtonInput<KeyCode>>,
+    per_line: Res<MouseScrollPixelsPerLine>,
     mut areas: Query<(&ComputedNode, &mut ScrollPosition), With<ScrollBoth>>,
 ) {
     let Ok((computed, mut position)) = areas.get_mut(scroll.entity) else {
         return;
     };
-    let wheel = Vec2::new(scroll.x, scroll.y)
-        * match scroll.unit {
-            MouseScrollUnit::Line => MouseScrollUnit::SCROLL_UNIT_CONVERSION_FACTOR,
-            MouseScrollUnit::Pixel => 1.0,
-        };
+    let pixels = scroll.to_pixels(&per_line);
+    let wheel = Vec2::new(pixels.x, pixels.y);
     let delta = if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) {
         Vec2::new(wheel.y, 0.0)
     } else {
@@ -84,17 +82,14 @@ pub fn on_both_scroll(
 }
 
 pub fn on_list_scroll(
-    mut scroll: On<Pointer<Scroll>>,
+    mut scroll: On<PointerScroll>,
+    per_line: Res<MouseScrollPixelsPerLine>,
     mut lists: Query<(&ComputedNode, &mut ScrollPosition), With<ScrollList>>,
 ) {
     let Ok((computed, mut position)) = lists.get_mut(scroll.entity) else {
         return;
     };
-    let delta = scroll.y
-        * match scroll.unit {
-            MouseScrollUnit::Line => MouseScrollUnit::SCROLL_UNIT_CONVERSION_FACTOR,
-            MouseScrollUnit::Pixel => 1.0,
-        };
+    let delta = scroll.to_pixels(&per_line).y;
     let visible = computed.size().y * computed.inverse_scale_factor;
     let content = computed.content_size().y * computed.inverse_scale_factor;
     let wanted = scrolled(position.y, delta, content - visible);

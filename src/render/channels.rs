@@ -20,7 +20,7 @@ use bevy::shader::{ShaderRef, load_shader_library};
 use bevy::sprite_render::{Material2d, Material2dPlugin};
 
 /// Channels a tile can mix, four to each layer of its texture. Matches the
-/// array lengths in `channel_mix.wgsl`.
+/// array lengths in `channel_mix.wesl`.
 pub const MAX_CHANNELS: usize = 16;
 
 /// Channels a volume can mix. A 3D texture has no layers to hold more, so a
@@ -90,7 +90,7 @@ pub struct ChannelTileMaterial {
 
 fn shader() -> ShaderRef {
     ShaderRef::Path(
-        AssetPath::from_path_buf(embedded_path!("channel_tile.wgsl")).with_source("embedded"),
+        AssetPath::from_path_buf(embedded_path!("channel_tile.wesl")).with_source("embedded"),
     )
 }
 
@@ -156,8 +156,8 @@ pub struct ChannelRenderPlugin;
 
 impl Plugin for ChannelRenderPlugin {
     fn build(&self, app: &mut App) {
-        load_shader_library!(app, "channel_mix.wgsl");
-        embedded_asset!(app, "channel_tile.wgsl");
+        load_shader_library!(app, "channel_mix.wesl");
+        embedded_asset!(app, "channel_tile.wesl");
         app.add_plugins(Material2dPlugin::<ChannelTileMaterial>::default());
     }
 }

@@ -1,7 +1,7 @@
 //! Rendering for volumes: a stack of slices drawn in depth.
 //!
 //! A volume is one box whose shader marches each pixel's view ray through a 3D
-//! texture of the composited stack; see `volume_material.wgsl`. It is a 2D mesh
+//! texture of the composited stack; see `volume_material.wesl`. It is a 2D mesh
 //! for the same reason a frame is a 2D camera: a frame looking at a volume keeps
 //! its own camera and trades its projection for a perspective one, so the grid's
 //! draw order and its one clearing camera are untouched by a frame going 3D.
@@ -16,7 +16,9 @@ use bevy::render::render_resource::{
 
 use super::channels::ChannelMix;
 use bevy::shader::ShaderRef;
-use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dKey, Material2dPlugin};
+use bevy::sprite_render::{
+    AlphaMode2d, Material2d, Material2dKey, Material2dPipeline, Material2dPlugin,
+};
 
 /// Samples a ray may take, however long it is.
 ///
@@ -106,7 +108,7 @@ impl VolumeMaterial {
 /// out, for the reason given beside the point shader's.
 fn shader() -> ShaderRef {
     ShaderRef::Path(
-        AssetPath::from_path_buf(embedded_path!("volume_material.wgsl")).with_source("embedded"),
+        AssetPath::from_path_buf(embedded_path!("volume_material.wesl")).with_source("embedded"),
     )
 }
 
@@ -120,6 +122,7 @@ impl Material2d for VolumeMaterial {
     }
 
     fn specialize(
+        _pipeline: &Material2dPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: Material2dKey<Self>,
@@ -141,7 +144,7 @@ pub struct VolumeRenderPlugin;
 
 impl Plugin for VolumeRenderPlugin {
     fn build(&self, app: &mut App) {
-        embedded_asset!(app, "volume_material.wgsl");
+        embedded_asset!(app, "volume_material.wesl");
         app.add_plugins(Material2dPlugin::<VolumeMaterial>::default());
     }
 }

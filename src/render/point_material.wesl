@@ -11,10 +11,10 @@
 // a cell therefore enlarges every other cell sharing its value without a single
 // vertex being rewritten.
 
-#import bevy_sprite::{
-    mesh2d_functions::{get_world_from_local, mesh2d_position_local_to_clip},
-    mesh2d_view_bindings::view,
-}
+import bevy_sprite_render::mesh2d::{
+    functions::{get_world_from_local, mesh2d_position_local_to_clip},
+    view_bindings::view,
+};
 
 struct PointSettings {
     // Diameter in device pixels.

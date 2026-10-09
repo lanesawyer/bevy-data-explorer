@@ -30,12 +30,12 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use bevy::clipboard::Clipboard;
+use bevy::picking::cursor::{EntityCursor, OverrideCursor};
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::ui::{InteractionDisabled, ScrollPosition};
 use bevy::window::SystemCursorIcon;
 use bevy_feathers::controls::FeathersToolButton;
-use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeTextColor};
 use bevy_feathers::tokens;
 use bevy_ui_widgets::Activate;
@@ -332,11 +332,8 @@ fn spawn_table(commands: &mut Commands, panel: Entity, source: Entity, layout: L
                 picked: None,
             },
             // It covers the whole cell, so it has to stop the pointer reaching
-            // the frame behind it — there is nothing there to pan over. It
-            // holds no button of its own, so it carries an `Interaction` to be
-            // found by.
+            // the frame behind it — there is nothing there to pan over.
             BlocksFrameInput,
-            Interaction::default(),
             Node {
                 position_type: PositionType::Absolute,
                 flex_direction: FlexDirection::Column,

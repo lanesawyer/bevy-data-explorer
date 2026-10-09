@@ -48,7 +48,7 @@ pub struct NewFrameButton;
 pub fn new_frame_button(label: &'static str, variant: ButtonVariant) -> impl Scene {
     bsn! {
         @FeathersButton {
-            @caption: { bsn_list![button_text(label)] },
+            @caption: { bsn_list! {@button_text(label)} },
             @variant: { variant }
         }
         BlocksFrameInput
@@ -189,24 +189,21 @@ fn spawn_pane(commands: &mut Commands, catalogs: &Catalogs, panel: Entity) -> En
                 column_gap: { Val::Px(space::CONTROLS) },
             }
             Children [
-                (
-                    text("", size::FRAME_TITLE)
-                    BrowseTitle
-                    Node { flex_grow: { 1.0_f32 } }
-                ),
-                (
-                    @FeathersToolButton {
-                        @caption: { bsn_list![button_icon(Icon::X)] }
-                    }
-                    BrowseClose { panel: { panel } }
-                ),
+                @text("", size::FRAME_TITLE)
+                BrowseTitle
+                Node { flex_grow: { 1.0_f32 } }
+                --
+                @FeathersToolButton {
+                    @caption: { bsn_list! {@button_icon(Icon::X)} }
+                }
+                BrowseClose { panel: { panel } }
             ]
         })
         .id();
 
     let status = commands
         .spawn_scene(bsn! {
-            notice()
+            @notice()
             BrowseStatus
         })
         .id();

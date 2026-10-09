@@ -18,7 +18,9 @@ use bevy::render::render_resource::{
     AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError, VertexFormat,
 };
 use bevy::shader::ShaderRef;
-use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dKey, Material2dPlugin};
+use bevy::sprite_render::{
+    AlphaMode2d, Material2d, Material2dKey, Material2dPipeline, Material2dPlugin,
+};
 
 /// Which way a vertex is pushed out from its segment: across it by the normal,
 /// and past its end by the tangent, both unit length. The shader scales them by
@@ -80,7 +82,7 @@ impl Default for LineMaterial {
 /// the point shader's is.
 fn shader() -> ShaderRef {
     ShaderRef::Path(
-        AssetPath::from_path_buf(embedded_path!("line_material.wgsl")).with_source("embedded"),
+        AssetPath::from_path_buf(embedded_path!("line_material.wesl")).with_source("embedded"),
     )
 }
 
@@ -98,6 +100,7 @@ impl Material2d for LineMaterial {
     }
 
     fn specialize(
+        _pipeline: &Material2dPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         layout: &MeshVertexBufferLayoutRef,
         _key: Material2dKey<Self>,
@@ -117,7 +120,7 @@ pub struct LineRenderPlugin;
 
 impl Plugin for LineRenderPlugin {
     fn build(&self, app: &mut App) {
-        embedded_asset!(app, "line_material.wgsl");
+        embedded_asset!(app, "line_material.wesl");
         app.add_plugins(Material2dPlugin::<LineMaterial>::default());
     }
 }

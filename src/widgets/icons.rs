@@ -180,7 +180,7 @@ pub fn icon_text(icon: Icon) -> impl Scene {
 /// the reason `button_text` is.
 pub fn button_icon(icon: Icon) -> impl Scene {
     bsn! {
-        icon_text(icon)
+        @icon_text(icon)
         ThemeTextColor({ tokens::BUTTON_TEXT })
     }
 }

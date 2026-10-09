@@ -53,18 +53,17 @@ impl Modal for HelpScreen {
 
 pub fn spawn_help(mut commands: Commands) {
     let modal = spawn_modal::<HelpScreen>(&mut commands, "Bevy Data Explorer", PANEL_PX);
-    let version = commands.spawn_scene(bsn! { label_dim(VERSION) }).id();
+    let version = commands.spawn_scene(bsn! { @label_dim(VERSION) }).id();
     commands.entity(modal.header).insert_children(1, &[version]);
     let panel = modal.panel;
     let intro = commands
         .spawn_scene(bsn! {
             Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(space::ROWS) } }
             Children [
-                label_dim(crate::ui::welcome::BLURB),
-                (
-                    text("Getting around", size::DOCK_TITLE)
-                    Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
-                ),
+                @label_dim(crate::ui::welcome::BLURB)
+                --
+                @text("Getting around", size::DOCK_TITLE)
+                Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
             ]
         })
         .id();
@@ -76,11 +75,10 @@ pub fn spawn_help(mut commands: Commands) {
                 .spawn_scene(bsn! {
                     Node { column_gap: { Val::Px(space::GROUPS) } }
                     Children [
-                        (
-                            label(keys)
-                            Node { width: { Val::Px(170.0) }, flex_shrink: { 0.0_f32 } }
-                        ),
-                        label_dim(action),
+                        @label(keys)
+                        Node { width: { Val::Px(170.0) }, flex_shrink: { 0.0_f32 } }
+                        --
+                        @label_dim(action)
                     ]
                 })
                 .id(),
@@ -94,33 +92,33 @@ pub fn spawn_help(mut commands: Commands) {
                 row_gap: { Val::Px(space::ROWS) },
             }
             Children [
-                (
-                    text("Feedback and source", size::DOCK_TITLE)
-                    Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
-                ),
-                label_dim(
+                @text("Feedback and source", size::DOCK_TITLE)
+                Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
+                --
+                @label_dim(
                     "Found a bug or want a format supported? Open an issue. For a \
                      bug, copy the log from the log panel (F12) into it."
-                ),
-                (
-                    Node { column_gap: { Val::Px(space::CONTROLS) }, flex_wrap: { FlexWrap::Wrap }, row_gap: { Val::Px(space::CONTROLS) } }
-                    Children [
-                        link_button(Icon::Bug, "Report an issue", NEW_ISSUE_URL, ButtonVariant::Primary),
-                        link_button(Icon::ExternalLink, "GitHub", REPOSITORY, ButtonVariant::Normal),
-                        link_button(Icon::ExternalLink, "Releases", RELEASES_URL, ButtonVariant::Normal),
-                    ]
-                ),
-                (
-                    Node {
-                        align_items: { AlignItems::Center },
-                        column_gap: { Val::Px(space::CONTROLS) },
-                        margin: { UiRect::top(Val::Px(space::HEADING)) },
-                    }
-                    Children [
-                        label_dim(format!("Made by {AUTHOR} \u{00b7} Licensed under")),
-                        link_button(Icon::ExternalLink, LICENSE, LICENSE_URL, ButtonVariant::Plain),
-                    ]
-                ),
+                )
+                --
+                Node { column_gap: { Val::Px(space::CONTROLS) }, flex_wrap: { FlexWrap::Wrap }, row_gap: { Val::Px(space::CONTROLS) } }
+                Children [
+                    @link_button(Icon::Bug, "Report an issue", NEW_ISSUE_URL, ButtonVariant::Primary)
+                    --
+                    @link_button(Icon::ExternalLink, "GitHub", REPOSITORY, ButtonVariant::Normal)
+                    --
+                    @link_button(Icon::ExternalLink, "Releases", RELEASES_URL, ButtonVariant::Normal)
+                ]
+                --
+                Node {
+                    align_items: { AlignItems::Center },
+                    column_gap: { Val::Px(space::CONTROLS) },
+                    margin: { UiRect::top(Val::Px(space::HEADING)) },
+                }
+                Children [
+                    @label_dim(format!("Made by {AUTHOR} \u{00b7} Licensed under"))
+                    --
+                    @link_button(Icon::ExternalLink, LICENSE, LICENSE_URL, ButtonVariant::Plain)
+                ]
             ]
         })
         .id();

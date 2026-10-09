@@ -69,7 +69,7 @@ pub(super) fn spawn_link_button(commands: &mut Commands, header: Entity, panel: 
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_icon(Icon::Link)] }
+                @caption: { bsn_list! {@button_icon(Icon::Link)} }
             }
             BlocksFrameInput
             Node { display: { Display::None } }

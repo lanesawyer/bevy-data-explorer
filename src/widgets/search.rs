@@ -69,20 +69,20 @@ pub fn spawn_search_field(commands: &mut Commands, hint: impl Into<String>) -> S
     let field = commands.spawn_scene(bsn! { @FeathersTextInput }).id();
     let hint = commands
         .spawn_scene(bsn! {
-            label_dim(hint)
+            @label_dim(hint)
             SearchHint { field: { field } }
             Node {
                 position_type: { PositionType::Absolute },
                 left: { Val::Px(6.0) },
             }
-            template_value(Pickable::IGNORE)
+            Pickable::IGNORE
         })
         .id();
     let clear = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
                 @variant: { ButtonVariant::Plain },
-                @caption: { bsn_list![button_icon(Icon::X)] }
+                @caption: { bsn_list! {@button_icon(Icon::X)} }
             }
             BlocksFrameInput
             ClearSearch { field: { field } }

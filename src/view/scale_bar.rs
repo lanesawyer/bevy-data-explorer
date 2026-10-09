@@ -111,28 +111,25 @@ fn spawn_scale_bar(commands: &mut Commands, panel: Entity) {
         ThemeBackgroundColor({ token::OVERLAY_BG })
         // Drawn over the data but never in the way of it: the pointer passes
         // through to pan and hover the frame underneath.
-        template_value(Pickable::IGNORE)
+        Pickable::IGNORE
         Children [
-            (
-                ScaleBarLabel
-                Text
-                // Rewritten as the frame zooms, so it names the font itself
-                // rather than coming through `widgets::text`.
-                TextFont {
-                    font: FontSourceTemplate::Handle(fonts::REGULAR),
-                    font_size: { FontSize::Px(size::SECONDARY) },
-                }
-                ThemeTextColor({ token::OVERLAY_TEXT })
-                template_value(Pickable::IGNORE)
-            ),
-            (
-                ScaleBarRule
-                Node {
-                    height: { Val::Px(BAR_PX) },
-                }
-                ThemeBackgroundColor({ token::OVERLAY_TEXT })
-                template_value(Pickable::IGNORE)
-            ),
+            ScaleBarLabel
+            Text
+            // Rewritten as the frame zooms, so it names the font itself
+            // rather than coming through `widgets::text`.
+            TextFont {
+                font: FontSourceTemplate::Handle(fonts::REGULAR),
+                font_size: { FontSize::Px(size::SECONDARY) },
+            }
+            ThemeTextColor({ token::OVERLAY_TEXT })
+            Pickable::IGNORE
+            --
+            ScaleBarRule
+            Node {
+                height: { Val::Px(BAR_PX) },
+            }
+            ThemeBackgroundColor({ token::OVERLAY_TEXT })
+            Pickable::IGNORE
         ]
     });
 }

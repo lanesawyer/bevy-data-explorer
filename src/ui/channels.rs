@@ -149,7 +149,7 @@ pub fn rebuild_channel_rows(
         let checkbox = commands
             .spawn_scene(bsn! {
                 @FeathersCheckbox {
-                    @caption: { bsn_list![button_text(caption)] }
+                    @caption: { bsn_list! {@button_text(caption)} }
                 }
                 BlocksFrameInput
                 ChannelCheckbox { channel: { index } }

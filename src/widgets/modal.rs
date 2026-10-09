@@ -9,7 +9,6 @@
 //! grid's business rather than a widget's.
 
 use bevy::prelude::*;
-use bevy::ui::{FocusPolicy, Interaction};
 use bevy_feathers::controls::FeathersToolButton;
 use bevy_feathers::font_styles::InheritableFont;
 use bevy_feathers::theme::ThemeBackgroundColor;
@@ -57,10 +56,6 @@ pub fn spawn_modal<M: Modal>(
     let screen = commands
         .spawn_scene(bsn! {
             BlocksFrameInput
-            // It holds buttons, but the backdrop around them does not, and a
-            // click there has to stop at it rather than reach a frame.
-            Interaction
-            template_value(FocusPolicy::Block)
             Node {
                 position_type: { PositionType::Absolute },
                 display: { Display::None },
@@ -94,13 +89,13 @@ pub fn spawn_modal<M: Modal>(
             ThemeBackgroundColor({ tokens::WINDOW_BG })
         })
         // A click on the panel is not a click on the backdrop behind it.
-        .observe(|mut click: On<Pointer<Click>>| click.propagate(false))
+        .observe(|mut click: On<PointerClick>| click.propagate(false))
         .id();
 
     let close = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_icon(Icon::X)] }
+                @caption: { bsn_list! {@button_icon(Icon::X)} }
             }
         })
         .insert(M::Toggle::default())
@@ -109,7 +104,7 @@ pub fn spawn_modal<M: Modal>(
     // Children added one by one rather than from a scene, so that where a
     // caller inserts beside the title is certain.
     let title = commands
-        .spawn_scene(bsn! { text(title, size::SCREEN_HEADING) })
+        .spawn_scene(bsn! { @text(title, size::SCREEN_HEADING) })
         .id();
     let spacer = commands
         .spawn(Node {
@@ -158,7 +153,7 @@ fn on_toggle<M: Modal>(
     }
 }
 
-fn close_on_backdrop<M: Modal>(_click: On<Pointer<Click>>, mut screens: Query<&mut Node, With<M>>) {
+fn close_on_backdrop<M: Modal>(_click: On<PointerClick>, mut screens: Query<&mut Node, With<M>>) {
     set_modal_open::<M>(&mut screens, Some(false));
 }
 

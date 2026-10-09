@@ -5,10 +5,10 @@
 // segment, and this shader scales it to the wider of the stroke as drawn and a
 // floor in screen pixels — so the mesh never changes as the view does.
 
-#import bevy_sprite::{
-    mesh2d_functions::{get_world_from_local, mesh2d_position_local_to_clip},
-    mesh2d_view_bindings::view,
-}
+import bevy_sprite_render::mesh2d::{
+    functions::{get_world_from_local, mesh2d_position_local_to_clip},
+    view_bindings::view,
+};
 
 struct LineSettings {
     // The narrowest a stroke is drawn, in device pixels.

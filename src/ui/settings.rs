@@ -100,24 +100,23 @@ fn strip(gradient: Gradient, reversed: bool) -> BackgroundGradient {
 fn gradient_option(gradient: Gradient) -> impl Scene {
     bsn! {
         @FeathersButton {
-            @caption: { bsn_list![
-                (
-                    Node {
-                        width: { Val::Px(STRIP_PX) },
-                        height: { Val::Px(STRIP_HEIGHT_PX) },
-                        flex_shrink: { 0.0_f32 },
-                    }
-                    template_value(strip(gradient, false))
-                    template_value(GradientStrip(gradient))
-                ),
-                button_text(gradient.name()),
-            ] }
+            @caption: { bsn_list! {
+                Node {
+                    width: { Val::Px(STRIP_PX) },
+                    height: { Val::Px(STRIP_HEIGHT_PX) },
+                    flex_shrink: { 0.0_f32 },
+                }
+                strip(gradient, false)
+                GradientStrip(gradient)
+                --
+                @button_text(gradient.name())
+            } }
         }
         Node {
             column_gap: { Val::Px(space::CONTROLS * 2.0) },
             justify_content: { JustifyContent::Start },
         }
-        template_value(GradientOption(gradient))
+        GradientOption(gradient)
     }
 }
 
@@ -150,11 +149,11 @@ fn theme_option(
 ) -> impl Scene {
     bsn! {
         @FeathersButton {
-            @caption: { bsn_list![button_icon(icon), button_text(text)] },
+            @caption: { bsn_list! {@button_icon(icon) -- @button_text(text)} },
             @corners: { corners }
         }
         Node { column_gap: { Val::Px(space::ICON_LABEL) }, flex_grow: { 1.0_f32 } }
-        template_value(option)
+        option
     }
 }
 
@@ -184,10 +183,10 @@ fn page_button(page: SettingsPage) -> impl Scene {
     bsn! {
         @FeathersButton {
             @variant: { ButtonVariant::Plain },
-            @caption: { bsn_list![button_text(page.title())] }
+            @caption: { bsn_list! {@button_text(page.title())} }
         }
         Node { justify_content: { JustifyContent::Start } }
-        template_value(page)
+        page
     }
 }
 
@@ -218,50 +217,47 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>, catalo
     // would put it.
     let subtitle = commands
         .spawn_scene(bsn! {
-            label_dim(saved_in)
+            @label_dim(saved_in)
             Node { margin: { UiRect::top(Val::Px(space::STACKED - space::ROWS)) } }
         })
         .id();
     let nav = commands
         .spawn_scene(bsn! {
-            Node {
-                width: { Val::Px(NAV_PX) },
-                flex_shrink: { 0.0_f32 },
-                flex_direction: { FlexDirection::Column },
-                justify_content: { JustifyContent::SpaceBetween },
-                row_gap: { Val::Px(space::GROUPS) },
-            }
-            Children [
-                (
                     Node {
+                        width: { Val::Px(NAV_PX) },
+                        flex_shrink: { 0.0_f32 },
                         flex_direction: { FlexDirection::Column },
-                        row_gap: { Val::Px(space::LIST_ITEMS) },
+                        justify_content: { JustifyContent::SpaceBetween },
+                        row_gap: { Val::Px(space::GROUPS) },
                     }
                     Children [
-                        page_button(SettingsPage::General),
-                        page_button(SettingsPage::DataSources),
-                    ]
-                ),
-                // Not a setting, so it sits apart from them, in the corner.
-                (
-                    Node { align_items: { AlignItems::Start } }
-                    Children [(
-                        @FeathersButton {
-                            @caption: { bsn_list![
-                                button_icon(Icon::ScrollText),
-                                button_text("Logs"),
-                            ] }
+                        Node {
+                            flex_direction: { FlexDirection::Column },
+                            row_gap: { Val::Px(space::LIST_ITEMS) },
                         }
-                        Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-                        ShowLogsButton
-                    )]
-                ),
-            ]
-        })
+                        Children [
+                            @page_button(SettingsPage::General)
+                            --
+                            @page_button(SettingsPage::DataSources)
+                        ]
+                        --
+                        // Not a setting, so it sits apart from them, in the corner.
+                        Node { align_items: { AlignItems::Start } }
+                            Children [@FeathersButton {
+            @caption: { bsn_list! {
+                @button_icon(Icon::ScrollText)
+                --
+                @button_text("Logs")
+            } }
+        }
+        Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+        ShowLogsButton]
+                    ]
+                })
         .id();
     let general = commands
         .spawn_scene(bsn! {
-            template_value(SettingsPage::General)
+            SettingsPage::General
             // Every page in the one cell, so the stack is as tall as the
             // tallest and the screen keeps its size from page to page.
             Node {
@@ -272,94 +268,91 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>, catalo
                 row_gap: { Val::Px(space::ROWS) },
             }
             Children [
-                text("Layout", size::DOCK_TITLE),
-                (
-                    @FeathersCheckbox {
-                        @caption: { bsn_list![button_text("Remember panel sizes")] }
-                    }
-                    RememberLayoutBox
-                ),
-                label_dim(
+                @text("Layout", size::DOCK_TITLE)
+                --
+                @FeathersCheckbox {
+                    @caption: { bsn_list! {@button_text("Remember panel sizes")} }
+                }
+                RememberLayoutBox
+                --
+                @label_dim(
                     "The sidebar, inspector and log open at the size you last \
                      dragged them to."
-                ),
-                (
-                    Node { align_items: { AlignItems::Start } }
-                    Children [(
-                        @FeathersButton {
-                            @caption: { bsn_list![
-                                button_icon(Icon::RotateCcw),
-                                button_text("Reset panel sizes"),
-                            ] }
-                        }
-                        Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-                        ResetLayoutButton
-                    )]
-                ),
-                (
-                    text("Appearance", size::DOCK_TITLE)
-                    Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
-                ),
-                (
-                    Node { width: { Val::Percent(100.0) }, column_gap: { Val::Px(space::SEAM) } }
-                    Children [
-                        theme_option(ThemeOption::Light, Icon::Sun, "Light", RoundedCorners::Left),
-                        theme_option(ThemeOption::Dark, Icon::Moon, "Dark", RoundedCorners::None),
-                        theme_option(ThemeOption::System, Icon::Monitor, "System", RoundedCorners::Right),
-                    ]
-                ),
-                label_dim("System follows your operating system's light or dark setting."),
-                (
-                    @FeathersCheckbox {
-                        @caption: { bsn_list![button_text("Use the system accent color")] }
-                    }
-                    SystemAccentBox
-                ),
-                label_dim(
+                )
+                --
+                Node { align_items: { AlignItems::Start } }
+                Children [@FeathersButton {
+    @caption: { bsn_list! {
+        @button_icon(Icon::RotateCcw)
+        --
+        @button_text("Reset panel sizes")
+    } }
+}
+Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+ResetLayoutButton]
+                --
+                @text("Appearance", size::DOCK_TITLE)
+                Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
+                --
+                Node { width: { Val::Percent(100.0) }, column_gap: { Val::Px(space::SEAM) } }
+                Children [
+                    @theme_option(ThemeOption::Light, Icon::Sun, "Light", RoundedCorners::Left)
+                    --
+                    @theme_option(ThemeOption::Dark, Icon::Moon, "Dark", RoundedCorners::None)
+                    --
+                    @theme_option(ThemeOption::System, Icon::Monitor, "System", RoundedCorners::Right)
+                ]
+                --
+                @label_dim("System follows your operating system's light or dark setting.")
+                --
+                @FeathersCheckbox {
+                    @caption: { bsn_list! {@button_text("Use the system accent color")} }
+                }
+                SystemAccentBox
+                --
+                @label_dim(
                     "Buttons, switches and the selection take your operating system's \
                      accent, where it has one."
-                ),
-                (
-                    text("Point clouds", size::DOCK_TITLE)
-                    Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
-                ),
-                filtered_controls(FilteredTarget::Default),
-                label_dim(
+                )
+                --
+                @text("Point clouds", size::DOCK_TITLE)
+                Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
+                --
+                @filtered_controls(FilteredTarget::Default)
+                --
+                @label_dim(
                     "How a point cloud opens. Change one already open in its view \
                      configuration."
-                ),
-                (
-                    Node { align_items: { AlignItems::Start } }
-                    Children [(
-                        @FeathersButton {
-                            @caption: { bsn_list![
-                                button_icon(Icon::RotateCcw),
-                                button_text("Reset point cloud defaults"),
-                            ] }
-                        }
-                        Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-                        ResetPointCloudButton
-                    )]
-                ),
-                (
-                    @FeathersCheckbox {
-                        @caption: { bsn_list![button_text("Highlight the hovered cell's type")] }
-                    }
-                    Node { margin: { UiRect::top(Val::Px(space::ROWS)) } }
-                    HighlightCellTypesBox
-                ),
-                (
-                    @FeathersCheckbox {
-                        @caption: { bsn_list![button_text("In other datasets too")] }
-                    }
-                    Node { margin: { UiRect::left(Val::Px(space::INDENT)) } }
-                    LinkCellTypesBox
-                ),
-                label_dim(
+                )
+                --
+                Node { align_items: { AlignItems::Start } }
+                Children [@FeathersButton {
+    @caption: { bsn_list! {
+        @button_icon(Icon::RotateCcw)
+        --
+        @button_text("Reset point cloud defaults")
+    } }
+}
+Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+ResetPointCloudButton]
+                --
+                @FeathersCheckbox {
+                    @caption: { bsn_list! {@button_text("Highlight the hovered cell's type")} }
+                }
+                Node { margin: { UiRect::top(Val::Px(space::ROWS)) } }
+                HighlightCellTypesBox
+                --
+                @FeathersCheckbox {
+                    @caption: { bsn_list! {@button_text("In other datasets too")} }
+                }
+                Node { margin: { UiRect::left(Val::Px(space::INDENT)) } }
+                LinkCellTypesBox
+                --
+                @label_dim(
                     "Pointing at a cell draws the cells of its type larger in every \
                      frame showing its dataset, and in any other that names its cells \
                      by the same taxonomy, such as a UMAP beside a section."
-                ),
+                )
             ]
         })
         .id();
@@ -367,7 +360,7 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>, catalo
     commands.entity(general).add_child(gradients);
     let sources = commands
         .spawn_scene(bsn! {
-            template_value(SettingsPage::DataSources)
+            SettingsPage::DataSources
             // Every page in the one cell, so the stack is as tall as the
             // tallest and the screen keeps its size from page to page.
             Node {
@@ -378,11 +371,12 @@ pub fn spawn_settings(mut commands: Commands, file: Res<PreferencesFile>, catalo
                 row_gap: { Val::Px(space::ROWS) },
             }
             Children [
-                text("Data sources", size::DOCK_TITLE),
-                label_dim(
+                @text("Data sources", size::DOCK_TITLE)
+                --
+                @label_dim(
                     "What search offers. A source turned off is neither listed nor \
                      searched; anything already open from it stays open."
-                ),
+                )
             ]
         })
         .id();
@@ -438,7 +432,7 @@ fn spawn_gradient_section(commands: &mut Commands) -> Entity {
         .id();
     let heading = commands
         .spawn_scene(bsn! {
-            text("Gradient", size::DOCK_TITLE)
+            @text("Gradient", size::DOCK_TITLE)
             Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
         })
         .id();
@@ -446,26 +440,25 @@ fn spawn_gradient_section(commands: &mut Commands) -> Entity {
         .spawn_scene(bsn! {
             Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(space::ROWS) } }
             Children [
-                label_dim(
+                @label_dim(
                     "What points colored by a number are drawn along, in every \
                      dataset open and every one opened after."
-                ),
-                (
-                    @FeathersCheckbox {
-                        @caption: { bsn_list![button_text("Reverse the gradient")] }
-                    }
-                    ReverseGradientBox
-                ),
-                (
-                    @FeathersCheckbox {
-                        @caption: { bsn_list![button_text("Span the whole range, ignoring filters")] }
-                    }
-                    WholeExtentBox
-                ),
-                label_dim(
+                )
+                --
+                @FeathersCheckbox {
+                    @caption: { bsn_list! {@button_text("Reverse the gradient")} }
+                }
+                ReverseGradientBox
+                --
+                @FeathersCheckbox {
+                    @caption: { bsn_list! {@button_text("Span the whole range, ignoring filters")} }
+                }
+                WholeExtentBox
+                --
+                @label_dim(
                     "Narrowing a range then leaves every point the color it was, \
                      rather than spreading the gradient over what is left."
-                ),
+                )
             ]
         })
         .id();
@@ -496,23 +489,21 @@ fn spawn_source_switch(
                 margin: { UiRect::top(Val::Px(space::HEADING)) },
             }
             Children [
-                (
-                    Node {
-                        flex_direction: { FlexDirection::Column },
-                        flex_grow: { 1.0_f32 },
-                        min_width: { Val::Px(0.0) },
-                        row_gap: { Val::Px(space::STACKED) },
-                    }
-                    Children [
-                        text(name, size::BODY),
-                        label_dim(about),
-                    ]
-                ),
-                (
-                    @FeathersToggleSwitch
-                    Node { flex_shrink: { 0.0_f32 } }
-                    template_value(SourceSwitch(key))
-                ),
+                Node {
+                    flex_direction: { FlexDirection::Column },
+                    flex_grow: { 1.0_f32 },
+                    min_width: { Val::Px(0.0) },
+                    row_gap: { Val::Px(space::STACKED) },
+                }
+                Children [
+                    @text(name, size::BODY)
+                    --
+                    @label_dim(about)
+                ]
+                --
+                @FeathersToggleSwitch
+                Node { flex_shrink: { 0.0_f32 } }
+                SourceSwitch(key)
             ]
         })
         .id()
@@ -524,41 +515,33 @@ fn spawn_registry_section(commands: &mut Commands) -> Entity {
         .spawn_scene(bsn! {
             Node { flex_direction: { FlexDirection::Column }, row_gap: { Val::Px(space::ROWS) } }
             Children [
-                label_dim("Sign in with your Institute account in the browser."),
-                (
-                    field_well()
-                    Children [
-                        (
-                            @FeathersButton {
-                                @variant: { ButtonVariant::Primary },
-                                @caption: { bsn_list![button_text("Sign in with browser")] }
-                            }
-                            Node { align_self: { AlignSelf::Start } }
-                            SignInButton
-                        ),
-                        (
-                            notice()
-                            RegistryStatus
-                        ),
-                    ]
-                ),
-                (
-                    Node { column_gap: { Val::Px(space::CONTROLS) } }
-                    Children [
-                        (
-                            @FeathersButton {
-                                @caption: { bsn_list![button_text("Test request")] }
-                            }
-                            TestRegistryButton
-                        ),
-                        (
-                            @FeathersButton {
-                                @caption: { bsn_list![button_text("Sign out")] }
-                            }
-                            ForgetTokenButton
-                        ),
-                    ]
-                ),
+                @label_dim("Sign in with your Institute account in the browser.")
+                --
+                @field_well()
+                Children [
+                    @FeathersButton {
+                        @variant: { ButtonVariant::Primary },
+                        @caption: { bsn_list! {@button_text("Sign in with browser")} }
+                    }
+                    Node { align_self: { AlignSelf::Start } }
+                    SignInButton
+                    --
+                    @notice()
+                    RegistryStatus
+                ]
+                --
+                Node { column_gap: { Val::Px(space::CONTROLS) } }
+                Children [
+                    @FeathersButton {
+                        @caption: { bsn_list! {@button_text("Test request")} }
+                    }
+                    TestRegistryButton
+                    --
+                    @FeathersButton {
+                        @caption: { bsn_list! {@button_text("Sign out")} }
+                    }
+                    ForgetTokenButton
+                ]
             ]
         })
         .id()

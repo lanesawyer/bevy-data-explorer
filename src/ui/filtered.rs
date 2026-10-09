@@ -62,41 +62,34 @@ pub fn filtered_controls(target: FilteredTarget) -> impl Scene {
             row_gap: { Val::Px(space::ROWS) },
         }
         Children [
-            (
-                @FeathersCheckbox {
-                    @caption: { bsn_list![button_text("Draw filtered-out points")] }
+            @FeathersCheckbox {
+                @caption: { bsn_list! {@button_text("Draw filtered-out points")} }
+            }
+            BlocksFrameInput
+            FilteredBox({ target })
+            --
+            FilteredPicker({ target })
+            Node {
+                flex_direction: { FlexDirection::Column },
+                row_gap: { Val::Px(space::ROWS) },
+            }
+            Children [
+                @FeathersColorSwatch
+                FilteredSwatch({ target })
+                --
+                @FeathersColorPlane
+                FeathersColorPlane::HueSaturation
+                Node { height: { Val::Px(PLANE_PX) } }
+                BlocksFrameInput
+                FilteredPlane({ target })
+                --
+                @FeathersColorSlider {
+                    @channel: { ColorChannel::HslLightness },
+                    @value: { Hsla::from(FILTERED_GRAY).lightness }
                 }
                 BlocksFrameInput
-                FilteredBox({ target })
-            ),
-            (
-                FilteredPicker({ target })
-                Node {
-                    flex_direction: { FlexDirection::Column },
-                    row_gap: { Val::Px(space::ROWS) },
-                }
-                Children [
-                    (
-                        @FeathersColorSwatch
-                        FilteredSwatch({ target })
-                    ),
-                    (
-                        @FeathersColorPlane
-                        FeathersColorPlane::HueSaturation
-                        Node { height: { Val::Px(PLANE_PX) } }
-                        BlocksFrameInput
-                        FilteredPlane({ target })
-                    ),
-                    (
-                        @FeathersColorSlider {
-                            @channel: { ColorChannel::HslLightness },
-                            @value: { Hsla::from(FILTERED_GRAY).lightness }
-                        }
-                        BlocksFrameInput
-                        FilteredLightness({ target })
-                    ),
-                ]
-            ),
+                FilteredLightness({ target })
+            ]
         ]
     }
 }

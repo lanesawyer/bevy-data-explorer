@@ -103,17 +103,16 @@ pub fn notice() -> impl Scene {
         BackgroundColor
         BorderColor
         Children [
-            (icon_text(Icon::Info) NoticeIcon TextColor template_value(LineHeight::Px(LINE_PX))),
-            (
-                text(String::new(), size::SECONDARY)
-                NoticeText
-                template_value(LineHeight::Px(LINE_PX))
-                Node {
-                    flex_grow: { 1.0_f32 },
-                    min_width: { Val::Px(0.0) },
-                    top: { Val::Px(TEXT_DROP_PX) },
-                }
-            ),
+            @icon_text(Icon::Info) NoticeIcon TextColor LineHeight::Px(LINE_PX)
+            --
+            @text(String::new(), size::SECONDARY)
+            NoticeText
+            LineHeight::Px(LINE_PX)
+            Node {
+                flex_grow: { 1.0_f32 },
+                min_width: { Val::Px(0.0) },
+                top: { Val::Px(TEXT_DROP_PX) },
+            }
         ]
     }
 }

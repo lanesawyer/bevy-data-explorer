@@ -86,7 +86,7 @@ pub fn rebuild_visibility_menu(
             .spawn_scene(bsn! {
                 MenuContent
                 @FeathersCheckbox {
-                    @caption: { bsn_list![button_text(caption)] }
+                    @caption: { bsn_list! {@button_text(caption)} }
                 }
                 BlocksFrameInput
                 ShowPropertyCheckbox { property: { index } }
@@ -104,7 +104,7 @@ fn heading(commands: &mut Commands) -> Entity {
     commands
         .spawn_scene(bsn! {
             MenuContent
-            text("Show properties", size::BODY)
+            @text("Show properties", size::BODY)
             Node { margin: { UiRect::bottom(Val::Px(space::HEADING)) } }
         })
         .id()

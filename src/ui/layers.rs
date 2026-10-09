@@ -187,7 +187,7 @@ pub fn rebuild_layers(
     let heading = commands
         .spawn_scene(bsn! {
             LayersContent
-            text("Add a layer", size::SECONDARY)
+            @text("Add a layer", size::SECONDARY)
             Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
         })
         .id();
@@ -238,9 +238,7 @@ fn name_column(commands: &mut Commands, name: String, lines: Vec<String>) -> Ent
                 flex_shrink: { 1.0_f32 },
                 row_gap: { Val::Px(space::STACKED) },
             }
-            Children [(
-                text(name, size::BODY)
-            )]
+            Children [@text(name, size::BODY)]
         })
         .id();
     let captions: Vec<Entity> = lines
@@ -269,10 +267,10 @@ fn button(commands: &mut Commands, icon: Icon, action: LayerButton) -> Entity {
     commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_icon(icon)] }
+                @caption: { bsn_list! {@button_icon(icon)} }
             }
             BlocksFrameInput
-            template_value(action)
+            action
             Node { flex_shrink: { 0.0_f32 } }
         })
         .id()

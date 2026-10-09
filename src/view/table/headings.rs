@@ -95,7 +95,7 @@ pub(super) fn spawn_heading(
 
     let arrow = commands
         .spawn_scene(bsn! {
-            icon_text(Icon::ChevronUp)
+            @icon_text(Icon::ChevronUp)
             ThemeTextColor({ tokens::TEXT_DIM })
         })
         .insert(SortMark {
@@ -129,7 +129,7 @@ pub(super) fn spawn_heading(
 /// not at all. With shift held, the column is sorted within the ones already
 /// sorted rather than replacing them.
 pub fn on_heading_pressed(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     headings: Query<&TableHeading>,
     keys: Res<ButtonInput<KeyCode>>,
     grips: Query<(), With<ColumnGrip>>,

@@ -115,7 +115,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     let size_label = commands
         .spawn_scene(bsn! {
             PointSizeRow
-            text("Point size", size::SECONDARY)
+            @text("Point size", size::SECONDARY)
         })
         .id();
     let size_slider = spawn_slider(
@@ -130,7 +130,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     let filtered = commands
         .spawn_scene(bsn! {
             PointSizeRow
-            filtered_controls(FilteredTarget::Selected)
+            @filtered_controls(FilteredTarget::Selected)
         })
         .id();
 
@@ -155,7 +155,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     let step = |delta: i64, icon: Icon| {
         bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_icon(icon)] }
+                @caption: { bsn_list! {@button_icon(icon)} }
             }
             BlocksFrameInput
             SliceStep({ delta })
@@ -181,7 +181,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     let grid_box = commands
         .spawn_scene(bsn! {
             @FeathersCheckbox {
-                @caption: { bsn_list![button_text("Show every slice")] }
+                @caption: { bsn_list! {@button_text("Show every slice")} }
             }
             BlocksFrameInput
             SliceGridBox

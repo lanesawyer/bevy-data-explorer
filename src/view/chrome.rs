@@ -44,7 +44,7 @@ pub(super) fn spawn_dividers(mut commands: Commands) {
             ThemeBackgroundColor({ token::DIVIDER })
             // Decoration, like the selection outline: it must not swallow
             // pointer events along a frame's edge.
-            template_value(Pickable::IGNORE)
+            Pickable::IGNORE
             PanelDivider { axis: { axis }, ordinal: { ordinal } }
         });
     };
@@ -64,10 +64,8 @@ pub(super) fn spawn_selection_border(mut commands: Commands) {
         SelectionBorder
         // Decoration only. It covers the whole cell and draws above the
         // frame's own chrome, and picking blocks by default — which swallowed
-        // every pointer event over the selected frame. `Interaction` passes
-        // through by default, so the buttons that use it went on working and
-        // only the picking-driven ones appeared dead.
-        template_value(Pickable::IGNORE)
+        // every pointer event over the selected frame.
+        Pickable::IGNORE
         Node {
             position_type: { PositionType::Absolute },
             border: { UiRect::all(Val::Px(SELECTION_PX)) },
@@ -192,7 +190,7 @@ pub(super) fn spawn_corner_buttons(commands: &mut Commands, panel: Entity) -> Ve
             commands
                 .spawn_scene(bsn! {
                     @FeathersToolButton {
-                        @caption: { bsn_list![button_icon(icon)] },
+                        @caption: { bsn_list! {@button_icon(icon)} },
                         @variant: { variant_for(action) }
                     }
                     BlocksFrameInput

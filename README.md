@@ -271,7 +271,7 @@ than by asking each format plugin to implement it, so a new format fades
 without any code written for it — including tiles and octree nodes that stream
 in after the value was set.
 
-Widgets come from **Feathers**, Bevy 0.19's widget collection: the slider,
+Widgets come from **Feathers**, Bevy's widget collection: the slider,
 buttons and labels are Feathers controls, themed from its dark theme, so they
 match rather than being hand-styled one at a time.
 
@@ -600,16 +600,16 @@ fn button_chrome() -> impl Scene {
 }
 
 commands.spawn_scene(bsn! {
-    button_chrome()
+    @button_chrome()
     PanelButton { panel: { panel }, action: { action } }
-    Children [( Text({ action.glyph().to_string() }) .. )]
+    Children [ Text({ action.glyph().to_string() }) .. ]
 });
 ```
 
 Components patched this way need `Default + Clone`, since a scene writes its
 fields over defaults. Components that keep private state — `RenderLayers`,
-`Projection` — cannot be patched field by field and are supplied whole with
-`template_value`.
+`Projection` — cannot be patched field by field and are supplied whole as a
+template value, `~{...}`.
 
 The per-tile and per-node geometry spawned by the streamers stays a plain
 component tuple. Those run every frame as data arrives, where a scene buys

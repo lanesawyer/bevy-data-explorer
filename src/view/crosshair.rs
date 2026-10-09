@@ -80,7 +80,7 @@ fn sync_crosshairs(
                 }
                 ThemeBackgroundColor({ crate::app::theme::token::OVERLAY_TEXT })
                 // Drawn over the data, never in the way of it.
-                template_value(Pickable::IGNORE)
+                Pickable::IGNORE
             });
         }
     }

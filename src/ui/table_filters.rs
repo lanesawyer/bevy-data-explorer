@@ -302,7 +302,7 @@ pub fn rebuild_column_menu(
     let heading = commands
         .spawn_scene(bsn! {
             ColumnMenuContent
-            text("Show columns", size::BODY)
+            @text("Show columns", size::BODY)
             Node { margin: { UiRect::bottom(Val::Px(space::HEADING)) } }
         })
         .id();
@@ -314,7 +314,7 @@ pub fn rebuild_column_menu(
             .spawn_scene(bsn! {
                 ColumnMenuContent
                 @FeathersCheckbox {
-                    @caption: { bsn_list![button_text(caption)] }
+                    @caption: { bsn_list! {@button_text(caption)} }
                 }
                 BlocksFrameInput
                 ShowColumnCheckbox { column: { name } }

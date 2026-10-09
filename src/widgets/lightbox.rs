@@ -5,9 +5,9 @@
 //! here, scaled to fit the frames' share of the window without being cropped.
 //! It is a [`Modal`] like help and settings, and closes the same ways.
 
+use bevy::picking::cursor::EntityCursor;
 use bevy::prelude::*;
 use bevy::window::SystemCursorIcon;
-use bevy_feathers::cursor::EntityCursor;
 
 use super::modal::PADDING_PX;
 use super::{Modal, ModalScreen, set_modal_open, set_text, spawn_modal};
@@ -66,7 +66,7 @@ pub fn spawn_lightbox(mut commands: Commands) {
 
 /// Open a clicked [`Enlargeable`] image in the lightbox.
 pub fn enlarge(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     pictures: Query<(&Enlargeable, &ImageNode), Without<LightboxImage>>,
     mut shown: Query<(&LightboxImage, &mut ImageNode)>,
     mut texts: Query<&mut Text>,

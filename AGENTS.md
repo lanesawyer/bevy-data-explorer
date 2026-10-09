@@ -1,6 +1,6 @@
 # bevy-data-explorer
 
-A streaming explorer for large scientific datasets, built on Bevy 0.19. See
+A streaming explorer for large scientific datasets, built on Bevy 0.20. See
 `README.md` for what it does and how the pieces fit; this file covers what is
 easy to get wrong.
 
@@ -249,10 +249,11 @@ re-measuring will regress something:
   `Window::cursor_position` are logical. Scale by
   `ComputedNode::inverse_scale_factor`. This caused both a misaligned slider
   thumb and a menu that dismissed itself.
-- **`Interaction` versus `Activate`.** `bevy_ui::Button` drives `Interaction`;
-  `bevy_ui_widgets` and Feathers controls trigger an `Activate` event and carry
-  no `Interaction` at all. Polling `Changed<Interaction>` on a Feathers button
-  silently never fires.
+- **Presses arrive as events, not `Interaction`.** `bevy_ui_widgets` and
+  Feathers controls trigger an `Activate` event; `Interaction` and
+  `bevy_ui::Button` are deprecated in 0.20 and nothing here uses them. A drag
+  target that is not a button, such as a dock's handle, starts its drag from
+  an `On<PointerPress>` observer and follows the held mouse button.
 - **Only cell 0 clears the window.** The rest draw over it deliberately. Any
   code that reorders or removes frames must keep exactly one clearing camera,
   or renders accumulate. Layer cameras (`view/layers.rs`) render into images of
@@ -275,18 +276,26 @@ re-measuring will regress something:
   `EntityCursor` on the hovered entity, and hold a cursor through a drag with
   `hold_drag_cursor` in `widgets/dock.rs`. A new dock gets both, and its
   drag, by implementing `widgets::Dock` and registering with `add_dock`.
-- **Chrome that overlaps the grid needs `BlocksFrameInput`** and, if it holds
-  no buttons, an `Interaction` of its own — otherwise the pointer falls through
-  to the frame behind.
+- **Chrome that overlaps the grid needs `BlocksFrameInput`** — otherwise the
+  pointer falls through to the frame behind. It is found through picking's
+  `HoverMap`, which any UI node is in unless it is `Pickable::IGNORE`.
 - **A Feathers `label` ignores an inherited font.** It carries
   `PropagateOver<TextFont>`, so an `InheritableFont` on the panel around it is
   dropped and the text quietly stays at 13px. Text is spawned through
   `widgets::text` / `text_dim` with a size from `widgets::size`, which patch
   `TextFont` on the label itself; a container's `InheritableFont` still reaches
   buttons and fields, which is all it is for.
-- **BSN scene components** are patched `@Component { @prop: {expr} }`, with the
-  `@` on both. Components with private fields cannot be patched field by field;
-  supply them whole with `template_value(...)`.
+- **BSN in 0.20** marks every scene with `@`: a scene function is
+  `@label(text)`, an expression that makes one `@{expr}`, and a scene
+  component is patched `@Component { @prop: {expr} }`. A bare `foo(..)` is a
+  template, not a scene, and fails to build with a `Template`/`SceneEffect`
+  bound. Entities in a list are separated by `--`, with no parentheses, and
+  lists are `bsn_list! { }`. Components with private fields cannot be patched
+  field by field; supply them whole as `~{value}`.
+- **Shaders are WESL** (`src/render/*.wesl`). Imports are `import path;` and
+  name crate modules — `bevy_sprite_render::mesh2d::view_bindings::view` — and
+  one of ours is reached as `super::channel_mix`, since an embedded shader's
+  module path is its file path.
 - **Ordering lives in `app/schedule.rs` and nowhere else.** A system declares
   `.in_set(Stage::...)`; it never orders itself against another module's
   system. Two bugs came from ordering by chain membership — a menu positioned

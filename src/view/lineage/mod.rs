@@ -14,12 +14,12 @@
 //! [`SourceLineage`] off whichever source a frame points at, and writes what
 //! it wants into [`LineageAsked`].
 
-use bevy::input::mouse::MouseScrollUnit;
+use bevy::input::mouse::{MouseScrollPixelsPerLine, MouseScrollUnit};
+use bevy::picking::cursor::{EntityCursor, OverrideCursor};
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::window::SystemCursorIcon;
 use bevy_feathers::controls::{ButtonVariant, FeathersButton, FeathersToolButton};
-use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeBorderColor};
 use bevy_ui_widgets::Activate;
 
@@ -177,7 +177,6 @@ fn spawn_lineage(commands: &mut Commands, panel: Entity, source: Entity) {
             // It covers the whole cell, so it stops the pointer reaching the
             // frame behind it, as a table does.
             BlocksFrameInput,
-            Interaction::default(),
             EntityCursor::System(SystemCursorIcon::Grab),
             Node {
                 position_type: PositionType::Absolute,
@@ -193,7 +192,7 @@ fn spawn_lineage(commands: &mut Commands, panel: Entity, source: Entity) {
         .observe(on_wheel);
 }
 
-fn on_drag_start(start: On<Pointer<DragStart>>, mut views: Query<&mut LineageView>) {
+fn on_drag_start(start: On<PointerDragStart>, mut views: Query<&mut LineageView>) {
     if start.button == PointerButton::Primary
         && let Ok(mut view) = views.get_mut(start.entity)
     {
@@ -202,7 +201,7 @@ fn on_drag_start(start: On<Pointer<DragStart>>, mut views: Query<&mut LineageVie
 }
 
 /// Move the graph with the pointer, wherever on it the drag began.
-fn on_drag(drag: On<Pointer<Drag>>, mut views: Query<&mut LineageView>) {
+fn on_drag(drag: On<PointerDrag>, mut views: Query<&mut LineageView>) {
     if let Ok(mut view) = views.get_mut(drag.entity)
         && view.dragging
     {
@@ -210,22 +209,26 @@ fn on_drag(drag: On<Pointer<Drag>>, mut views: Query<&mut LineageView>) {
     }
 }
 
-fn on_drag_end(end: On<Pointer<DragEnd>>, mut views: Query<&mut LineageView>) {
+fn on_drag_end(end: On<PointerDragEnd>, mut views: Query<&mut LineageView>) {
     if let Ok(mut view) = views.get_mut(end.entity) {
         view.dragging = false;
     }
 }
 
 /// Step back from the graph or in again, about the pointer.
-fn on_wheel(mut wheel: On<Pointer<Scroll>>, mut views: Query<&mut LineageView>) {
+fn on_wheel(
+    mut wheel: On<PointerScroll>,
+    per_line: Res<MouseScrollPixelsPerLine>,
+    mut views: Query<&mut LineageView>,
+) {
     let Ok(mut view) = views.get_mut(wheel.entity) else {
         return;
     };
     let lines = match wheel.unit {
         MouseScrollUnit::Line => wheel.y,
-        MouseScrollUnit::Pixel => wheel.y / MouseScrollUnit::SCROLL_UNIT_CONVERSION_FACTOR,
+        MouseScrollUnit::Pixel => wheel.y / *per_line,
     };
-    let at = wheel.pointer_location.position - view.origin;
+    let at = wheel.pointer.position - view.origin;
     view.zoom(1.1f32.powf(lines), at);
     wheel.propagate(false);
 }
@@ -347,7 +350,7 @@ fn spawn_card(
                 .spawn_scene(bsn! {
                     @FeathersButton {
                         @variant: { ButtonVariant::Normal },
-                        @caption: { bsn_list![button_icon(icon), button_text(caption)] }
+                        @caption: { bsn_list! {@button_icon(icon) -- @button_text(caption)} }
                     }
                     Node { column_gap: { Val::Px(space::ICON_LABEL) } }
                     BlocksFrameInput
@@ -365,7 +368,7 @@ fn spawn_card(
             commands
                 .spawn_scene(bsn! {
                     @FeathersToolButton {
-                        @caption: { bsn_list![button_icon(Icon::ExternalLink)] }
+                        @caption: { bsn_list! {@button_icon(Icon::ExternalLink)} }
                     }
                     BlocksFrameInput
                     OpenStored { url: { url } }
@@ -423,7 +426,7 @@ fn spawn_fold(
             .spawn_scene(bsn! {
                 @FeathersButton {
                     @variant: { ButtonVariant::Normal },
-                    @caption: { bsn_list![button_icon(Icon::Ellipsis), button_text(caption)] }
+                    @caption: { bsn_list! {@button_icon(Icon::Ellipsis) -- @button_text(caption)} }
                 }
                 Node { column_gap: { Val::Px(space::ICON_LABEL) } }
                 BlocksFrameInput

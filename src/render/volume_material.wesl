@@ -11,11 +11,11 @@
 // so marching from the camera — or from where the ray enters, if that is
 // further — covers the whole of the volume in view.
 
-#import bevy_sprite::{
-    mesh2d_vertex_output::VertexOutput,
-    mesh2d_view_bindings::view,
-}
-#import bde::channel_mix::{ChannelMix, contribution, srgb_to_linear}
+import bevy_sprite_render::mesh2d::{
+    vertex_output::VertexOutput,
+    view_bindings::view,
+};
+import super::channel_mix::{ChannelMix, contribution, srgb_to_linear};
 
 struct VolumeSettings {
     // Corners of the box, in world space. The box is never rotated, so these

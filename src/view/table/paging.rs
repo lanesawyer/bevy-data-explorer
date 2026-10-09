@@ -66,7 +66,7 @@ pub(super) fn page_button(commands: &mut Commands, panel: Entity, step: PageStep
     commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_icon(step.icon())] }
+                @caption: { bsn_list! {@button_icon(step.icon())} }
             }
             BlocksFrameInput
             TablePageButton { panel: { panel }, step: { step } }

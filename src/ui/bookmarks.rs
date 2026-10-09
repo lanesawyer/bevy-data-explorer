@@ -160,7 +160,7 @@ pub fn spawn_bookmarks_section(
 
     let status = commands
         .spawn_scene(bsn! {
-            notice()
+            @notice()
             BookmarkStatus
         })
         .id();
@@ -222,11 +222,11 @@ fn command_button(
     commands
         .spawn_scene(bsn! {
             @FeathersButton {
-                @caption: { bsn_list![button_icon(icon), button_text(text)] }
+                @caption: { bsn_list! {@button_icon(icon) -- @button_text(text)} }
             }
             Node { column_gap: { Val::Px(space::ICON_LABEL) }, flex_shrink: { 0.0_f32 } }
             BlocksFrameInput
-            template_value(command)
+            command
         })
         .id()
 }
@@ -295,14 +295,11 @@ fn fill_list(commands: &mut Commands, list: Entity, saved: &SavedBookmarks, rena
                     height: { Val::Auto },
                 }
                 Children [
-                    (
-                        text(name, size::BODY)
-                        TextLayout { linebreak: { LineBreak::NoWrap } }
-                    ),
-                    (
-                        text_dim(detail, size::SMALL)
-                        TextLayout { linebreak: { LineBreak::NoWrap } }
-                    ),
+                    @text(name, size::BODY)
+                    TextLayout { linebreak: { LineBreak::NoWrap } }
+                    --
+                    @text_dim(detail, size::SMALL)
+                    TextLayout { linebreak: { LineBreak::NoWrap } }
                 ]
             })
             .id();
@@ -335,7 +332,7 @@ fn row_button(
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_icon(icon)] }
+                @caption: { bsn_list! {@button_icon(icon)} }
             }
             BlocksFrameInput
             Node { flex_shrink: { 0.0_f32 } }

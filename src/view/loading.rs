@@ -63,26 +63,24 @@ pub fn sync_loading_bars(
             continue;
         }
         commands.spawn_scene(bsn! {
-            LoadingBar { panel: { panel } }
-            Node {
-                position_type: { PositionType::Absolute },
-                display: { Display::None },
-                height: { Val::Px(HEIGHT_PX) },
-                overflow: { Overflow::clip() },
-            }
-            // Decoration along the frame's edge, like the outline under it.
-            template_value(Pickable::IGNORE)
-            Children [(
-                LoadingSweep
-                Node {
-                    position_type: { PositionType::Absolute },
-                    width: { Val::Percent(SWEEP_PERCENT) },
-                    height: { Val::Percent(100.0) },
-                }
-                ThemeBackgroundColor({ token::LOADING })
-                template_value(Pickable::IGNORE)
-            )]
-        });
+                    LoadingBar { panel: { panel } }
+                    Node {
+                        position_type: { PositionType::Absolute },
+                        display: { Display::None },
+                        height: { Val::Px(HEIGHT_PX) },
+                        overflow: { Overflow::clip() },
+                    }
+                    // Decoration along the frame's edge, like the outline under it.
+                    Pickable::IGNORE
+                    Children [LoadingSweep
+        Node {
+            position_type: { PositionType::Absolute },
+            width: { Val::Percent(SWEEP_PERCENT) },
+            height: { Val::Percent(100.0) },
+        }
+        ThemeBackgroundColor({ token::LOADING })
+        Pickable::IGNORE]
+                });
     }
 }
 

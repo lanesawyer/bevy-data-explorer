@@ -62,23 +62,24 @@ gets a file of its own there, re-exported from `widgets/mod.rs`.
   `a_spacing_is_named_rather_than_typed` fails `cargo test` on any gap,
   padding or margin written as a number, inline or in a constant named for
   one. Borders and `Val::Px(0.0)` are not spacing and are left alone.
-- **BSN**: patch a component with `@Component { @prop: {expr} }`, with the
-  `@` on both the component and each prop. A component with private fields
-  can't be patched field by field, so supply it whole with
-  `template_value(...)`.
+- **BSN**: a scene function is called `@label(text)` and a scene component
+  patched `@Component { @prop: {expr} }`, with the `@` on each prop too. List
+  entities are separated by `--`, without parentheses. A component with
+  private fields can't be patched field by field, so supply it whole as
+  `~{value}`.
 
 ## Step 3: React to it correctly
 
-- **Feathers and `bevy_ui_widgets` controls trigger events.** They carry no
-  `Interaction`, so `Changed<Interaction>` never fires. Use an observer:
+- **Feathers and `bevy_ui_widgets` controls trigger events.** `Interaction`
+  is deprecated and they carry none. Use an observer:
   `On<Activate>` for buttons, `On<ValueChange<bool>>` for checkboxes. Put a
   marker component on the control, and have the observer check it with a
   query and return early otherwise. Sliders here are read the other way: a
   `ControlsPlace` system compares the slider's `SliderValue` with the
   source's component and writes whichever changed.
-- **Plain `bevy_ui::Button` / `Interaction`** is only for drag targets
-  (resize handles, slider thumbs). Filter on `Changed<Interaction>`, since
-  `Pressed` reads true on every frame the button is held.
+- **Drag targets** that are not buttons (resize handles) start from an
+  `On<PointerPress>` observer and follow the held mouse button, as
+  `widgets/dock.rs` does.
 - **Acting on the selected frame**: take a `SelectedSource` parameter and
   ask it for the source (`.entity()`) or the source's item in a query
   (`.get(&query)`, `.get_mut(&mut query)`), as `view_config.rs` does. When the
@@ -103,9 +104,8 @@ also needs `add-bookmark-setting`.
 
 ## Step 4: Keep the pointer and cursor honest
 
-- **Anything that overlaps the grid needs `BlocksFrameInput`.** If it holds
-  no buttons, it also needs an `Interaction` of its own. Otherwise clicks and
-  scrolls fall through and pan the frame behind it.
+- **Anything that overlaps the grid needs `BlocksFrameInput`.** Otherwise
+  clicks and scrolls fall through and pan the frame behind it.
 - **Anything purely decorative drawn over a control** (outlines, rules,
   highlights, scrims) needs `Pickable::IGNORE`, or it blocks picking and the
   control underneath looks dead, including its hover.

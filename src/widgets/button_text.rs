@@ -14,7 +14,7 @@ use bevy_feathers::tokens;
 pub fn button_text(text: impl Into<String>) -> impl Scene {
     let text = text.into();
     bsn! {
-        label(text)
+        @label(text)
         ThemeTextColor({ tokens::BUTTON_TEXT })
     }
 }

@@ -136,7 +136,7 @@ pub fn spawn_accordion(
     let header = match level {
         SectionLevel::Pane => commands
             .spawn_scene(bsn! {
-                pane_header()
+                @pane_header()
                 Node {
                     width: { Val::Percent(100.0) },
                     padding: { UiRect::ZERO },
@@ -150,7 +150,7 @@ pub fn spawn_accordion(
             .id(),
         SectionLevel::Group => commands
             .spawn_scene(bsn! {
-                group_header()
+                @group_header()
                 Node {
                     width: { Val::Percent(100.0) },
                     padding: { UiRect::ZERO },
@@ -191,23 +191,20 @@ pub fn spawn_accordion(
                 padding: { UiRect::horizontal(Val::Px(space::CONTROL_INSET)) },
             }
             Children [
-                (
-                    AccordionCaret
-                    icon_text(caret(open))
-                    ThemeTextColor({ tokens::TEXT_MAIN })
-                ),
-                (
-                    AccordionTitle { full: { title.to_string() } }
-                    Node {
-                        flex_grow: { 1.0_f32 },
-                        flex_shrink: { 1.0_f32 },
-                        min_width: { Val::Px(0.0) },
-                    }
-                    label(title.to_string())
-                    // Long names are cut to fit rather than wrapped onto a
-                    // second line, which would break the header's height.
-                    TextLayout { linebreak: { LineBreak::NoWrap } }
-                ),
+                AccordionCaret
+                @icon_text(caret(open))
+                ThemeTextColor({ tokens::TEXT_MAIN })
+                --
+                AccordionTitle { full: { title.to_string() } }
+                Node {
+                    flex_grow: { 1.0_f32 },
+                    flex_shrink: { 1.0_f32 },
+                    min_width: { Val::Px(0.0) },
+                }
+                @label(title.to_string())
+                // Long names are cut to fit rather than wrapped onto a
+                // second line, which would break the header's height.
+                TextLayout { linebreak: { LineBreak::NoWrap } }
             ]
         })
         .id();
@@ -217,7 +214,7 @@ pub fn spawn_accordion(
     // header's height and shifted everything under it on every toggle.
     let border = match level {
         SectionLevel::Pane => tokens::PANE_HEADER_BORDER,
-        SectionLevel::Group => tokens::GROUP_HEADER_BORDER,
+        SectionLevel::Group => tokens::GROUP_BORDER,
     };
     let outline = commands
         .spawn_scene(bsn! {
@@ -232,7 +229,7 @@ pub fn spawn_accordion(
                 border_radius: { header_corners(open).to_border_radius(CORNER_PX) },
             }
             ThemeBorderColor({ border })
-            template_value(Pickable::IGNORE)
+            Pickable::IGNORE
         })
         .id();
     commands.entity(header).add_children(&[toggle, outline]);
@@ -240,15 +237,15 @@ pub fn spawn_accordion(
     let body = match level {
         SectionLevel::Pane => {
             commands.spawn_scene(bsn! {
-                pane_body()
-                {body_patch(accordion, open)}
+                @pane_body()
+                @{body_patch(accordion, open)}
                 // Feathers' pane body has no border of its own, which left an
                 // open pane's box without sides or a bottom under its header.
                 ThemeBorderColor({ tokens::PANE_HEADER_BORDER })
             })
         }
         SectionLevel::Group => {
-            commands.spawn_scene(bsn! { group_body() {body_patch(accordion, open)} })
+            commands.spawn_scene(bsn! { @group_body() @{body_patch(accordion, open)} })
         }
     }
     .id();
@@ -267,7 +264,7 @@ pub fn spawn_header_button(commands: &mut Commands, header: Entity, icon: Icon) 
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_icon(icon)] }
+                @caption: { bsn_list! {@button_icon(icon)} }
             }
             BlocksFrameInput
             // Header buttons hold their size; the title beside them gives way
@@ -440,10 +437,10 @@ mod tests {
         let open = header_corners(true).to_border_radius(CORNER_PX);
         let closed = header_corners(false).to_border_radius(CORNER_PX);
         // Open, the body under it carries the bottom of the box.
-        assert_eq!(open.bottom_left, Val::Px(0.0));
-        assert_eq!(open.top_left, Val::Px(CORNER_PX));
-        assert_eq!(closed.bottom_left, Val::Px(CORNER_PX));
-        assert_eq!(closed.top_left, Val::Px(CORNER_PX));
+        assert_eq!(open.bottom_left, CornerRadius::from(Val::Px(0.0)));
+        assert_eq!(open.top_left, CornerRadius::from(Val::Px(CORNER_PX)));
+        assert_eq!(closed.bottom_left, CornerRadius::from(Val::Px(CORNER_PX)));
+        assert_eq!(closed.top_left, CornerRadius::from(Val::Px(CORNER_PX)));
     }
 
     #[test]

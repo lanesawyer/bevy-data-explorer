@@ -106,13 +106,13 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
 
     let title = commands
         .spawn_scene(bsn! {
-            title("Bevy Data Explorer")
+            @title("Bevy Data Explorer")
         })
         .id();
 
     let blurb = commands
         .spawn_scene(bsn! {
-            text_dim(BLURB, size::BODY)
+            @text_dim(BLURB, size::BODY)
             Node { max_width: { Val::Px(COLUMN_PX) } }
         })
         .id();
@@ -142,9 +142,11 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
                 row_gap: { Val::Px(space::ROWS) },
             }
             Children [
-                new_frame_button("Browse all datasets", ButtonVariant::Primary),
-                label_dim("Search every catalog, or paste the URL of a dataset."),
-                status_line(),
+                @new_frame_button("Browse all datasets", ButtonVariant::Primary)
+                --
+                @label_dim("Search every catalog, or paste the URL of a dataset.")
+                --
+                @status_line()
             ]
         })
         .id();
@@ -161,10 +163,13 @@ pub fn spawn_welcome(mut commands: Commands, catalogs: Res<Catalogs>) {
                 padding: { UiRect::top(Val::Px(space::SCREEN_GAP)) },
             }
             Children [
-                label_dim(format!("Made by {AUTHOR} \u{00b7} Licensed under")),
-                link_button(Icon::ExternalLink, LICENSE, LICENSE_URL, ButtonVariant::Plain),
-                label_dim("\u{00b7}"),
-                link_button(Icon::ExternalLink, "GitHub", REPOSITORY, ButtonVariant::Plain),
+                @label_dim(format!("Made by {AUTHOR} \u{00b7} Licensed under"))
+                --
+                @link_button(Icon::ExternalLink, LICENSE, LICENSE_URL, ButtonVariant::Plain)
+                --
+                @label_dim("\u{00b7}")
+                --
+                @link_button(Icon::ExternalLink, "GitHub", REPOSITORY, ButtonVariant::Plain)
             ]
             InheritableFont { font_size: { 12.0f32 } }
         })
@@ -204,17 +209,14 @@ fn example_column(
                 row_gap: { Val::Px(space::LIST_ITEMS) },
             }
             Children [
-                (
-                    text(heading, size::BODY)
-                    Node { grid_column: { GridPlacement::span(2) } }
-                ),
-                (
-                    text_dim(about, size::SECONDARY)
-                    Node {
-                        grid_column: { GridPlacement::span(2) },
-                        margin: { UiRect::bottom(Val::Px(space::HEADING)) },
-                    }
-                ),
+                @text(heading, size::BODY)
+                Node { grid_column: { GridPlacement::span(2) } }
+                --
+                @text_dim(about, size::SECONDARY)
+                Node {
+                    grid_column: { GridPlacement::span(2) },
+                    margin: { UiRect::bottom(Val::Px(space::HEADING)) },
+                }
             ]
         })
         .id();
@@ -232,26 +234,24 @@ fn example_cells(commands: &mut Commands, example: &Example) -> [Entity; 2] {
     let url = example.url;
     let button = commands
         .spawn_scene(bsn! {
-            @FeathersButton {
-                @variant: { ButtonVariant::Normal },
-                @caption: { bsn_list![(
-                    button_text(name)
-                    // A name too long for the button is clipped rather than
-                    // wrapped onto a second line over its edge.
-                    TextLayout { linebreak: { LineBreak::NoWrap } }
-                )] }
-            }
-            BlocksFrameInput
-            ExampleButton { url: { url } }
-            Node {
-                min_width: { Val::Px(0.0) },
-                overflow: { Overflow::clip() },
-            }
-        })
+                    @FeathersButton {
+                        @variant: { ButtonVariant::Normal },
+                        @caption: { bsn_list! {@button_text(name)
+        // A name too long for the button is clipped rather than
+        // wrapped onto a second line over its edge.
+        TextLayout { linebreak: { LineBreak::NoWrap } }} }
+                    }
+                    BlocksFrameInput
+                    ExampleButton { url: { url } }
+                    Node {
+                        min_width: { Val::Px(0.0) },
+                        overflow: { Overflow::clip() },
+                    }
+                })
         .id();
     let kind = commands
         .spawn_scene(bsn! {
-            text_dim(kind, size::SECONDARY)
+            @text_dim(kind, size::SECONDARY)
         })
         .id();
     [button, kind]

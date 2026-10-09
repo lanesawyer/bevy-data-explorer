@@ -248,20 +248,19 @@ fn inset() -> UiRect {
 
 fn spawn_sidebar(mut commands: Commands) {
     commands.spawn_scene(bsn! {
-        SidebarRoot
-        Node {
-            position_type: { PositionType::Absolute },
-            left: { Val::Px(0.0) },
-            top: { Val::Px(0.0) },
-            height: { Val::Percent(100.0) },
-            flex_direction: { FlexDirection::Column },
-        }
-        // Through a token rather than a literal: the theme repaints everything
-        // that names one, and a dock painted by hand would stay dark while the
-        // controls inside it went light.
-        ThemeBackgroundColor({ tokens::WINDOW_BG })
-        Children [
-            (
+            SidebarRoot
+            Node {
+                position_type: { PositionType::Absolute },
+                left: { Val::Px(0.0) },
+                top: { Val::Px(0.0) },
+                height: { Val::Percent(100.0) },
+                flex_direction: { FlexDirection::Column },
+            }
+            // Through a token rather than a literal: the theme repaints everything
+            // that names one, and a dock painted by hand would stay dark while the
+            // controls inside it went light.
+            ThemeBackgroundColor({ tokens::WINDOW_BG })
+            Children [
                 // The title, and beside it the way to open a dataset: into a
                 // new frame, whose browser finds it.
                 Node {
@@ -272,28 +271,25 @@ fn spawn_sidebar(mut commands: Commands) {
                     padding: { inset() },
                     border: { UiRect::bottom(Val::Px(1.0)) },
                 }
-                dock_band()
+                @dock_band()
                 Children [
-                    (
-                        SidebarTitle
-                        Text({ FULL_TITLE.to_string() })
-                        TextFont { font_size: { FontSize::Px(size::DOCK_TITLE) } }
-                        ThemeTextColor({ tokens::TEXT_MAIN })
-                    ),
-                    (
-                        @FeathersToolButton {
-                            @caption: { bsn_list![
-                                button_icon(Icon::Plus),
-                                (button_text("New frame") SidebarLabel),
-                            ] }
-                        }
-                        Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-                        crate::view::browse::NewFrameButton
-                        BlocksFrameInput
-                    ),
+                    SidebarTitle
+                    Text({ FULL_TITLE.to_string() })
+                    TextFont { font_size: { FontSize::Px(size::DOCK_TITLE) } }
+                    ThemeTextColor({ tokens::TEXT_MAIN })
+                    --
+                    @FeathersToolButton {
+                        @caption: { bsn_list! {
+                            @button_icon(Icon::Plus)
+                            --
+                            @button_text("New frame") SidebarLabel
+                        } }
+                    }
+                    Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+                    crate::view::browse::NewFrameButton
+                    BlocksFrameInput
                 ]
-            ),
-            (
+                --
                 SidebarContent
                 // Takes whatever the title and footer leave and scrolls within
                 // it, so tall sections never push the footer off the window.
@@ -309,8 +305,7 @@ fn spawn_sidebar(mut commands: Commands) {
                     overflow: { Overflow::scroll_y() },
                     padding: { inset() },
                 }
-            ),
-            (
+                --
                 // What acts on the app rather than on any section, on a band
                 // of its own at the foot. Pushed down by its margin, so it
                 // stays on the bottom edge whether the sections are showing or
@@ -324,76 +319,67 @@ fn spawn_sidebar(mut commands: Commands) {
                     padding: { inset() },
                     border: { UiRect::top(Val::Px(1.0)) },
                 }
-                dock_band()
+                @dock_band()
                 Children [
-            (
-                Node {
-                    width: { Val::Percent(100.0) },
-                    align_items: { AlignItems::Center },
+            Node {
+                width: { Val::Percent(100.0) },
+                align_items: { AlignItems::Center },
+            }
+            Children [@FeathersToolButton {
+        @caption: { bsn_list! {
+            @button_icon(Icon::Settings)
+            --
+            @button_text("Settings") SidebarLabel
+        } }
+    }
+    Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+    crate::ui::settings::SettingsToggle
+    BlocksFrameInput]
+            --
+            Node {
+                width: { Val::Percent(100.0) },
+                align_items: { AlignItems::Center },
+            }
+            Children [@FeathersToolButton {
+        @caption: { bsn_list! {
+            @button_icon(Icon::CircleHelp)
+            --
+            @button_text("Help") SidebarLabel
+        } }
+    }
+    Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+    crate::ui::help::HelpToggle
+    BlocksFrameInput]
+            --
+            Node {
+                width: { Val::Percent(100.0) },
+                align_items: { AlignItems::Center },
+                justify_content: { JustifyContent::SpaceBetween },
+            }
+            Children [
+                @FeathersToolButton {
+                    @caption: { bsn_list! {
+                        @button_icon(Icon::PanelLeftClose)
+                        --
+                        @button_text("Collapse") SidebarLabel
+                    } }
                 }
-                Children [(
-                    @FeathersToolButton {
-                        @caption: { bsn_list![
-                            button_icon(Icon::Settings),
-                            (button_text("Settings") SidebarLabel),
-                        ] }
-                    }
-                    Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-                    crate::ui::settings::SettingsToggle
-                    BlocksFrameInput
-                )]
-            ),
-            (
-                Node {
-                    width: { Val::Percent(100.0) },
-                    align_items: { AlignItems::Center },
-                }
-                Children [(
-                    @FeathersToolButton {
-                        @caption: { bsn_list![
-                            button_icon(Icon::CircleHelp),
-                            (button_text("Help") SidebarLabel),
-                        ] }
-                    }
-                    Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-                    crate::ui::help::HelpToggle
-                    BlocksFrameInput
-                )]
-            ),
-            (
-                Node {
-                    width: { Val::Percent(100.0) },
-                    align_items: { AlignItems::Center },
-                    justify_content: { JustifyContent::SpaceBetween },
-                }
-                Children [
-                    (
-                        @FeathersToolButton {
-                            @caption: { bsn_list![
-                                button_icon(Icon::PanelLeftClose),
-                                (button_text("Collapse") SidebarLabel),
-                            ] }
-                        }
-                        Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-                        SidebarToggle
-                        BlocksFrameInput
-                    ),
-                    (
-                        SidebarVersion
-                        Text({ VERSION.to_string() })
-                        TextFont { font_size: { FontSize::Px(size::BODY) } }
-                        ThemeTextColor({ tokens::TEXT_DIM })
-                    ),
+                Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+                SidebarToggle
+                BlocksFrameInput
+                --
+                SidebarVersion
+                Text({ VERSION.to_string() })
+                TextFont { font_size: { FontSize::Px(size::BODY) } }
+                ThemeTextColor({ tokens::TEXT_DIM })
+            ]
                 ]
-            ),
-                ]
-            ),
-        ]
-    });
+            ]
+        });
 
     commands.spawn_scene(bsn! {
         SidebarHandle
-        dock_handle(DockEdge::Left)
+        @dock_handle(DockEdge::Left)
     });
 }
 

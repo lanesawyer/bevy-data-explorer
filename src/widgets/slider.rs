@@ -4,7 +4,7 @@ use bevy::ui::{InteractionDisabled, Pressed};
 use bevy_feathers::controls::FeathersSlider;
 use bevy_feathers::theme::UiTheme;
 use bevy_feathers::tokens;
-use bevy_ui_widgets::{Slider, SliderPrecision, TrackClick};
+use bevy_ui_widgets::{Slider, SliderPrecision, SliderValue, TrackClick};
 
 use super::BlocksFrameInput;
 
@@ -34,10 +34,10 @@ pub fn spawn_slider(
         .spawn_scene(bsn! {
             BlocksFrameInput
             @FeathersSlider {
-                @value: { value },
                 @min: { range.0 },
                 @max: { range.1 }
             }
+            SliderValue({ value })
             // After the scene, so this patches the track behavior it set.
             Slider { track_click: { TrackClick::Snap } }
             SliderPrecision({ decimals })

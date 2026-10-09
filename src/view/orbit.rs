@@ -193,7 +193,7 @@ pub(super) fn spawn_view_button(commands: &mut Commands, header: Entity, panel: 
     let button = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_icon(Icon::Cube)] }
+                @caption: { bsn_list! {@button_icon(Icon::Cube)} }
             }
             BlocksFrameInput
             Node { display: { Display::None } }

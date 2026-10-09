@@ -119,7 +119,7 @@ pub fn place_copy_buttons(
 
 /// Copy the whole value of the cell a pressed copy button sits in.
 pub fn on_copy_pressed(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     mut buttons: Query<&mut CopyCellButton>,
     panels: Query<&ShowsSource>,
     tables: Query<&SourceTable>,

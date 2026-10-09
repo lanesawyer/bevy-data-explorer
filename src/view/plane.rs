@@ -142,7 +142,7 @@ pub(super) fn spawn_plane_menu(commands: &mut Commands, header: Entity, panel: E
     let choice = |plane: Option<&'static str>, label: &'static str| {
         bsn! {
             @FeathersButton {
-                @caption: { bsn_list![button_text(label)] }
+                @caption: { bsn_list! {@button_text(label)} }
             }
             BlocksFrameInput
             PlaneChoice { panel: { panel }, plane: { plane } }
@@ -155,44 +155,45 @@ pub(super) fn spawn_plane_menu(commands: &mut Commands, header: Entity, panel: E
                 row_gap: { Val::Px(space::ROWS) },
             }
             Children [
-                (
-                    @FeathersButton {
-                        @caption: { bsn_list![button_text("All views")] }
-                    }
-                    BlocksFrameInput
-                    AllViews { panel: { panel } }
-                ),
-                text_dim(
+                @FeathersButton {
+                    @caption: { bsn_list! {@button_text("All views")} }
+                }
+                BlocksFrameInput
+                AllViews { panel: { panel } }
+                --
+                @text_dim(
                     "The stack cut three ways and in 3D, a frame each, linked on one point. \
                      Double-click in any of them to move it.",
                     size::SMALL
-                ),
-                text("One plane", size::BODY),
-                {choice(Some(PLANES[0].0), PLANES[0].1)},
-                {choice(Some(PLANES[1].0), PLANES[1].1)},
-                {choice(Some(PLANES[2].0), PLANES[2].1)},
-                (
-                    Node {
-                        flex_direction: { FlexDirection::Column },
-                        row_gap: { Val::Px(space::STACKED) },
+                )
+                --
+                @text("One plane", size::BODY)
+                --
+                {choice(Some(PLANES[0].0), PLANES[0].1)}
+                --
+                {choice(Some(PLANES[1].0), PLANES[1].1)}
+                --
+                {choice(Some(PLANES[2].0), PLANES[2].1)}
+                --
+                Node {
+                    flex_direction: { FlexDirection::Column },
+                    row_gap: { Val::Px(space::STACKED) },
+                }
+                BackToDefault { panel: { panel } }
+                Children [
+                    @FeathersButton {
+                        @caption: { bsn_list! {
+                            @button_text(back_label(None)) BackToDefaultLabel { panel: { panel } }
+                        } }
                     }
-                    BackToDefault { panel: { panel } }
-                    Children [
-                        (
-                            @FeathersButton {
-                                @caption: { bsn_list![
-                                    (button_text(back_label(None)) BackToDefaultLabel { panel: { panel } })
-                                ] }
-                            }
-                            BlocksFrameInput
-                            PlaneChoice { panel: { panel }, plane: { None } }
-                        ),
-                        text_dim(
-                            "Undo the plane chosen, and cut the stack the way it opens on its own.",
-                            size::SMALL
-                        ),
-                    ]
-                ),
+                    BlocksFrameInput
+                    PlaneChoice { panel: { panel }, plane: { None } }
+                    --
+                    @text_dim(
+                        "Undo the plane chosen, and cut the stack the way it opens on its own.",
+                        size::SMALL
+                    )
+                ]
             ]
         })
         .id();

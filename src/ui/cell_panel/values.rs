@@ -173,7 +173,7 @@ pub fn spawn_searched_list<L: Component>(
 
     let note = commands
         .spawn_scene(bsn! {
-            text_dim("", size::SMALL)
+            @text_dim("", size::SMALL)
             Node { display: { Display::None } }
         })
         .id();

@@ -20,7 +20,7 @@ pub fn field_well() -> impl Scene {
             border: { UiRect::all(Val::Px(1.0)) },
             border_radius: { BorderRadius::all(Val::Px(CORNER_PX)) },
         }
-        ThemeBackgroundColor({ tokens::GROUP_BODY_BG })
-        ThemeBorderColor({ tokens::GROUP_BODY_BORDER })
+        ThemeBackgroundColor({ tokens::GROUP_BG })
+        ThemeBorderColor({ tokens::GROUP_BORDER })
     }
 }

@@ -245,83 +245,71 @@ fn spawn_selection_dock(mut commands: Commands) {
         ThemeBackgroundColor({ tokens::WINDOW_BG })
         InheritableFont { font_size: { 13.0f32 } }
         Children [
-            (
-                // The title and the count of what is selected, on a band that
-                // stays put above the lists that scroll.
-                Node {
-                    width: { Val::Percent(100.0) },
-                    flex_direction: { FlexDirection::Column },
-                    row_gap: { Val::Px(space::ROWS) },
-                    padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
-                    border: { UiRect::bottom(Val::Px(1.0)) },
-                }
-                dock_band()
-                Children [
-            (
-                Node {
-                    width: { Val::Percent(100.0) },
-                    align_items: { AlignItems::Center },
-                    justify_content: { JustifyContent::SpaceBetween },
-                    column_gap: { Val::Px(space::CONTROLS) },
-                }
-                Children [
-                    // No Node of its own: a `min_width` of zero on a label lets
-                    // the row collapse it to nothing, which is a title that
-                    // simply never appears. The inspector's is the shape that
-                    // works.
-                    (
-                        SelectionTitle
-                        text("Cell Selection", size::DOCK_TITLE)
-                    ),
-                    (
-                        @FeathersToolButton {
-                            @caption: { bsn_list![button_icon(Icon::X)] }
-                        }
-                        Node { flex_shrink: { 0.0_f32 } }
-                        SelectionClose
-                        BlocksFrameInput
-                    ),
-                ]
-            ),
-            (
-                SelectionStatus
-                text_dim("", size::SMALL)
-            ),
-                ]
-            ),
-            (
-                // The padding the lists' scrollbars reach into.
-                Node {
-                    width: { Val::Percent(100.0) },
-                    flex_direction: { FlexDirection::Column },
-                    flex_grow: { 1.0_f32 },
-                    min_height: { Val::ZERO },
-                    row_gap: { Val::Px(space::ROWS) },
-                    padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
-                }
-                Children [
-            (
-                SelectionBody
-                scroll_list(LIST_MAX_PX)
-                Node { flex_shrink: { 0.0_f32 } }
-            ),
-            (
-                SelectionDetail
-                scroll_list(LIST_MAX_PX)
-                Node {
-                    display: { Display::None },
-                    flex_grow: { 1.0_f32 },
-                    min_height: { Val::ZERO },
-                }
-            ),
-                ]
-            ),
+            // The title and the count of what is selected, on a band that
+            // stays put above the lists that scroll.
+            Node {
+                width: { Val::Percent(100.0) },
+                flex_direction: { FlexDirection::Column },
+                row_gap: { Val::Px(space::ROWS) },
+                padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
+                border: { UiRect::bottom(Val::Px(1.0)) },
+            }
+            @dock_band()
+            Children [
+        Node {
+            width: { Val::Percent(100.0) },
+            align_items: { AlignItems::Center },
+            justify_content: { JustifyContent::SpaceBetween },
+            column_gap: { Val::Px(space::CONTROLS) },
+        }
+        Children [
+            // No Node of its own: a `min_width` of zero on a label lets
+            // the row collapse it to nothing, which is a title that
+            // simply never appears. The inspector's is the shape that
+            // works.
+            SelectionTitle
+                @text("Cell Selection", size::DOCK_TITLE)
+            --
+            @FeathersToolButton {
+                @caption: { bsn_list! {@button_icon(Icon::X)} }
+            }
+            Node { flex_shrink: { 0.0_f32 } }
+            SelectionClose
+            BlocksFrameInput
+        ]
+        --
+        SelectionStatus
+        @text_dim("", size::SMALL)
+            ]
+            --
+            // The padding the lists' scrollbars reach into.
+            Node {
+                width: { Val::Percent(100.0) },
+                flex_direction: { FlexDirection::Column },
+                flex_grow: { 1.0_f32 },
+                min_height: { Val::ZERO },
+                row_gap: { Val::Px(space::ROWS) },
+                padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
+            }
+            Children [
+        SelectionBody
+        @scroll_list(LIST_MAX_PX)
+        Node { flex_shrink: { 0.0_f32 } }
+        --
+        SelectionDetail
+        @scroll_list(LIST_MAX_PX)
+        Node {
+            display: { Display::None },
+            flex_grow: { 1.0_f32 },
+            min_height: { Val::ZERO },
+        }
+            ]
         ]
     });
 
     commands.spawn_scene(bsn! {
         SelectionHandle
-        dock_handle(DockEdge::Right)
+        @dock_handle(DockEdge::Right)
         Node {
             display: { Display::None },
         }
@@ -523,7 +511,7 @@ pub fn rebuild_selection_dock(
             commands
                 .spawn_scene(bsn! {
                     SelectionContent
-                    text_dim("No cells in the rectangle.", size::SMALL)
+                    @text_dim("No cells in the rectangle.", size::SMALL)
                 })
                 .id(),
         );
@@ -613,8 +601,9 @@ fn spawn_detail(
                     flex_shrink: { 0.0_f32 },
                 }
                 Children [
-                    text(focus.label.clone(), size::BODY),
-                    text_dim(caption, size::SMALL),
+                    @text(focus.label.clone(), size::BODY)
+                    --
+                    @text_dim(caption, size::SMALL)
                 ]
             })
             .id(),
@@ -629,7 +618,7 @@ fn spawn_detail(
             commands
                 .spawn_scene(bsn! {
                     SelectionContent
-                    text_dim(note, size::SMALL)
+                    @text_dim(note, size::SMALL)
                 })
                 .id(),
         );
@@ -647,7 +636,7 @@ fn spawn_detail(
             commands
                 .spawn_scene(bsn! {
                     SelectionContent
-                    text_dim("No cells of this category in the rectangle.", size::SMALL)
+                    @text_dim("No cells of this category in the rectangle.", size::SMALL)
                 })
                 .id(),
         );
@@ -668,7 +657,7 @@ fn spawn_cell_record(
         };
         let heading = commands
             .spawn_scene(bsn! {
-                text_dim(name.clone(), size::SMALL)
+                @text_dim(name.clone(), size::SMALL)
             })
             .id();
         let held = commands
@@ -765,7 +754,7 @@ fn spawn_category_row(
         .id();
     let text = commands
         .spawn_scene(bsn! {
-            button_text(caption)
+            @button_text(caption)
         })
         .id();
     commands.entity(row).add_children(&[dot, text]);

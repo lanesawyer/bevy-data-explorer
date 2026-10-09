@@ -113,7 +113,7 @@ impl CustomLoad {
 /// The status line, for the empty window to place.
 pub fn status_line() -> impl Scene {
     bsn! {
-        notice()
+        @notice()
         CustomStatus
     }
 }

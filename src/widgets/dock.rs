@@ -9,10 +9,9 @@
 //! was dragged to, in the user's preferences.
 
 use bevy::ecs::component::Mutable;
+use bevy::picking::cursor::{EntityCursor, OverrideCursor};
 use bevy::prelude::*;
-use bevy::ui::FocusPolicy;
 use bevy::window::SystemCursorIcon;
-use bevy_feathers::cursor::{EntityCursor, OverrideCursor};
 use bevy_feathers::theme::{ThemeBackgroundColor, ThemeBorderColor};
 use bevy_feathers::tokens;
 
@@ -169,9 +168,10 @@ pub struct DockHandle {
 
 /// A dock's drag handle, to be placed along its inner edge by the dock.
 ///
-/// Not a button: `ui_focus_system` drives `Interaction` on any node carrying
-/// it, and a drag target wants the press without the chrome. It names its own
-/// cursor for hovering; see [`hold_drag_cursor`] for the drag itself.
+/// Not a button: a drag target wants the press without the chrome, so a press
+/// on it starts the drag ([`press_dock_handle`]) and the held mouse button
+/// carries it on. It names its own cursor for hovering; see
+/// [`hold_drag_cursor`] for the drag itself.
 pub fn dock_handle(edge: DockEdge) -> impl Scene {
     let (width, height) = match edge {
         DockEdge::Left | DockEdge::Right => (Val::Px(HANDLE_PX), Val::Percent(100.0)),
@@ -180,8 +180,6 @@ pub fn dock_handle(edge: DockEdge) -> impl Scene {
     let cursor = edge.cursor();
     bsn! {
         DockHandle
-        Interaction
-        template_value(FocusPolicy::Block)
         BlocksFrameInput
         EntityCursor::System({ cursor })
         GlobalZIndex({ DOCK_HANDLE_Z })
@@ -207,17 +205,28 @@ pub fn dock_band() -> impl Scene {
     }
 }
 
+/// Start dragging a handle pressed with the primary button.
+fn press_dock_handle(mut press: On<PointerPress>, mut handles: Query<&mut DockHandle>) {
+    if press.button != PointerButton::Primary {
+        return;
+    }
+    if let Ok(mut handle) = handles.get_mut(press.entity) {
+        handle.dragging = true;
+        press.propagate(false);
+    }
+}
+
 /// Follow a drag of the dock's handle, for as long as the button is held.
 fn drag_dock<D: Dock>(
     mut dock: ResMut<D>,
     windows: Query<&Window>,
     mouse: Res<ButtonInput<MouseButton>>,
-    mut handles: Query<(&Interaction, &mut DockHandle), With<D::Handle>>,
+    mut handles: Query<&mut DockHandle, With<D::Handle>>,
 ) {
     let held = mouse.pressed(MouseButton::Left);
     let mut dragging = false;
-    for (interaction, mut handle) in &mut handles {
-        let now = held && (handle.dragging || *interaction == Interaction::Pressed);
+    for mut handle in &mut handles {
+        let now = held && handle.dragging;
         if handle.dragging != now {
             handle.dragging = now;
         }
@@ -324,6 +333,7 @@ impl AddDock for App {
     fn add_dock<D: Dock>(&mut self) -> &mut Self {
         self.init_resource::<D>()
             .add_observer(reset_dock_size::<D>)
+            .add_observer(press_dock_handle)
             .add_systems(Startup, restore_dock_size::<D>.in_set(Boot::Window))
             .add_systems(
                 Update,

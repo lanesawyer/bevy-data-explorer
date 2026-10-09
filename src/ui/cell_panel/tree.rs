@@ -109,7 +109,7 @@ pub fn fill_color_menu(
 ) {
     let heading = commands
         .spawn_scene(bsn! {
-            label("Color by")
+            @label("Color by")
             Node { margin: { UiRect::bottom(Val::Px(space::HEADING)) } }
         })
         .id();
@@ -119,7 +119,7 @@ pub fn fill_color_menu(
         let button = commands
             .spawn_scene(bsn! {
                 @FeathersButton {
-                    @caption: { bsn_list![button_text(name)] }
+                    @caption: { bsn_list! {@button_text(name)} }
                 }
                 BlocksFrameInput
                 ColorLevelButton { property: { property }, level: { level } }
@@ -162,7 +162,7 @@ fn spawn_branch(
         commands
             .spawn_scene(bsn! {
                 @FeathersToolButton {
-                    @caption: { bsn_list![button_icon(Icon::ChevronRight)] }
+                    @caption: { bsn_list! {@button_icon(Icon::ChevronRight)} }
                 }
                 BlocksFrameInput
                 Node { flex_shrink: { 0.0_f32 }, width: { Val::Px(TOGGLE_PX) } }

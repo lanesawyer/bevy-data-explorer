@@ -90,7 +90,7 @@ fn rebuild_partitions(
                 .spawn_scene(bsn! {
                     @FeathersButton {
                         @variant: { ButtonVariant::Normal },
-                        @caption: { bsn_list![button_text(caption)] }
+                        @caption: { bsn_list! {@button_text(caption)} }
                     }
                     BlocksFrameInput
                 })

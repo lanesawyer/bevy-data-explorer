@@ -193,48 +193,41 @@ fn spawn_inspector(mut commands: Commands) {
         ThemeBackgroundColor({ tokens::WINDOW_BG })
         InheritableFont { font_size: { 13.0f32 } }
         Children [
-            (
-                Node {
-                    width: { Val::Percent(100.0) },
-                    align_items: { AlignItems::Center },
-                    justify_content: { JustifyContent::SpaceBetween },
+            Node {
+                width: { Val::Percent(100.0) },
+                align_items: { AlignItems::Center },
+                justify_content: { JustifyContent::SpaceBetween },
+            }
+            Children [
+                InspectorTitle
+                @text("Details", size::DOCK_TITLE)
+                --
+                @FeathersToolButton {
+                    @caption: { bsn_list! {@button_icon(Icon::X)} }
                 }
-                Children [
-                    (
-                        InspectorTitle
-                        text("Details", size::DOCK_TITLE)
-                    ),
-                    (
-                        @FeathersToolButton {
-                            @caption: { bsn_list![button_icon(Icon::X)] }
-                        }
-                        InspectorClose
-                        BlocksFrameInput
-                    ),
-                ]
-            ),
-            (
-                InspectorBody
-                Text({ String::new() })
-                TextFont { font_size: { FontSize::Px(size::SECONDARY) } }
-                ThemeTextColor({ tokens::TEXT_MAIN })
-            ),
-            (
-                InspectorRecord
-                scroll_list(RECORD_MAX_PX)
-                Node {
-                    display: { Display::None },
-                    flex_grow: { 1.0_f32 },
-                    min_height: { Val::ZERO },
-                    row_gap: { Val::Px(space::ROWS) },
-                }
-            ),
+                InspectorClose
+                BlocksFrameInput
+            ]
+            --
+            InspectorBody
+            Text({ String::new() })
+            TextFont { font_size: { FontSize::Px(size::SECONDARY) } }
+            ThemeTextColor({ tokens::TEXT_MAIN })
+            --
+            InspectorRecord
+            @scroll_list(RECORD_MAX_PX)
+            Node {
+                display: { Display::None },
+                flex_grow: { 1.0_f32 },
+                min_height: { Val::ZERO },
+                row_gap: { Val::Px(space::ROWS) },
+            }
         ]
     });
 
     commands.spawn_scene(bsn! {
         InspectorHandle
-        dock_handle(DockEdge::Right)
+        @dock_handle(DockEdge::Right)
         Node {
             display: { Display::None },
         }
@@ -420,7 +413,7 @@ fn spawn_trail(commands: &mut Commands, row: String, trail: &[TrailStep]) -> Ent
                 .spawn_scene(bsn! {
                     @FeathersButton {
                         @variant: { ButtonVariant::Normal },
-                        @caption: { bsn_list![button_text(name)] }
+                        @caption: { bsn_list! {@button_text(name)} }
                     }
                     BlocksFrameInput
                     TrailCrumb({ kept })
@@ -466,7 +459,7 @@ pub fn fill_record_lineage(
         .spawn_scene(bsn! {
             @FeathersButton {
                 @variant: { ButtonVariant::Normal },
-                @caption: { bsn_list![button_icon(Icon::Plus), button_text("Show its lineage")] }
+                @caption: { bsn_list! {@button_icon(Icon::Plus) -- @button_text("Show its lineage")} }
             }
             Node { column_gap: { Val::Px(space::ICON_LABEL) } }
             BlocksFrameInput
@@ -611,7 +604,7 @@ pub fn fill_record_related(
     for group in groups {
         let heading = commands
             .spawn_scene(bsn! {
-                text(format!("{} \u{b7} {}", group.title, group.records.len()), size::SECONDARY)
+                @text(format!("{} \u{b7} {}", group.title, group.records.len()), size::SECONDARY)
                 Node { margin: { UiRect::top(Val::Px(space::ROWS)) } }
             })
             .id();
@@ -632,7 +625,7 @@ pub fn fill_record_related(
                     .spawn_scene(bsn! {
                         @FeathersButton {
                             @variant: { ButtonVariant::Normal },
-                            @caption: { bsn_list![button_icon(Icon::ChevronRight), button_text("Show its links")] }
+                            @caption: { bsn_list! {@button_icon(Icon::ChevronRight) -- @button_text("Show its links")} }
                         }
                         Node {
                             align_self: { AlignSelf::Start },
@@ -698,7 +691,7 @@ pub fn fill_record_images(
         if group.as_ref() != Some(&image.group) {
             let heading = commands
                 .spawn_scene(bsn! {
-                    text(image.group.clone(), size::SECONDARY)
+                    @text(image.group.clone(), size::SECONDARY)
                     Node { margin: { UiRect::top(Val::Px(space::ROWS)) } }
                 })
                 .id();
@@ -759,18 +752,15 @@ fn spawn_field(commands: &mut Commands, name: &str, value: &str) -> Entity {
                     column_gap: { Val::Px(space::CONTROLS) },
                 }
                 Children [
-                    (
-                        text_dim(name, size::SMALL)
-                        Node { flex_grow: { 1.0_f32 }, min_width: { Val::ZERO } }
-                    ),
-                    (
-                        @FeathersToolButton {
-                            @caption: { bsn_list![button_icon(Icon::Copy)] }
-                        }
-                        Node { flex_shrink: { 0.0_f32 } }
-                        BlocksFrameInput
-                        CopyField { value: { value } }
-                    ),
+                    @text_dim(name, size::SMALL)
+                    Node { flex_grow: { 1.0_f32 }, min_width: { Val::ZERO } }
+                    --
+                    @FeathersToolButton {
+                        @caption: { bsn_list! {@button_icon(Icon::Copy)} }
+                    }
+                    Node { flex_shrink: { 0.0_f32 } }
+                    BlocksFrameInput
+                    CopyField { value: { value } }
                 ]
             })
             .id()
@@ -803,7 +793,7 @@ fn spawn_field(commands: &mut Commands, name: &str, value: &str) -> Entity {
             .spawn_scene(bsn! {
                 @FeathersButton {
                     @variant: { ButtonVariant::Normal },
-                    @caption: { bsn_list![button_icon(Icon::Plus), button_text("Open in a new frame")] }
+                    @caption: { bsn_list! {@button_icon(Icon::Plus) -- @button_text("Open in a new frame")} }
                 }
                 Node {
                     align_self: { AlignSelf::Start },

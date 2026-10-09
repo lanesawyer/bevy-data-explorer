@@ -81,15 +81,13 @@ pub fn spawn_dashboards(commands: &mut Commands, catalogs: &Catalogs) -> Entity 
             let name = view.name.to_string();
             commands
                 .spawn_scene(bsn! {
-                    @FeathersButton {
-                        @variant: { ButtonVariant::Plain },
-                        @caption: { bsn_list![(
-                            button_text(name)
-                            TextLayout { linebreak: { LineBreak::NoWrap } }
-                        )] }
-                    }
-                    BlocksFrameInput
-                })
+                                    @FeathersButton {
+                                        @variant: { ButtonVariant::Plain },
+                                        @caption: { bsn_list! {@button_text(name)
+                TextLayout { linebreak: { LineBreak::NoWrap } }} }
+                                    }
+                                    BlocksFrameInput
+                                })
                 .insert(DashboardTab(view.id))
                 .id()
         })
@@ -147,7 +145,7 @@ fn spawn_cards(commands: &mut Commands, catalogs: &Catalogs) -> Vec<Entity> {
             parts.push(body);
             commands
                 .spawn_scene(bsn! {
-                    field_well()
+                    @field_well()
                     Node {
                         display: { Display::None },
                         width: { Val::Px(CARD_PX) },
@@ -303,8 +301,9 @@ fn spawn_figures(commands: &mut Commands, figures: &[Figure]) -> Entity {
                         row_gap: { Val::Px(space::STACKED) },
                     }
                     Children [
-                        text(value, size::SCREEN_HEADING),
-                        text(label, size::SECONDARY),
+                        @text(value, size::SCREEN_HEADING)
+                        --
+                        @text(label, size::SECONDARY)
                     ]
                 })
                 .id();
@@ -341,17 +340,15 @@ fn spawn_block(commands: &mut Commands, title: &str, note: Option<&str>) -> Enti
                 row_gap: { Val::Px(space::LIST_ITEMS) },
             }
             Children [
-                (
-                    text(title, size::BODY)
-                    Node { margin: { UiRect::bottom(Val::Px(space::STACKED)) } }
-                ),
+                @text(title, size::BODY)
+                Node { margin: { UiRect::bottom(Val::Px(space::STACKED)) } }
             ]
         })
         .id();
     if let Some(note) = note {
         let note = commands
             .spawn_scene(bsn! {
-                text_dim(note.to_string(), size::SECONDARY)
+                @text_dim(note.to_string(), size::SECONDARY)
                 Node { margin: { UiRect::bottom(Val::Px(space::STACKED)) } }
             })
             .id();
@@ -416,16 +413,14 @@ fn spawn_breakdown(
         // since a node clips its children and not what it draws itself.
         let label = commands
             .spawn_scene(bsn! {
-                Node { min_width: { Val::Px(0.0) }, overflow: { Overflow::clip() } }
-                Children [(
-                    text_dim(label, size::SECONDARY)
-                    TextLayout { linebreak: { LineBreak::NoWrap } }
-                )]
-            })
+                            Node { min_width: { Val::Px(0.0) }, overflow: { Overflow::clip() } }
+                            Children [@text_dim(label, size::SECONDARY)
+            TextLayout { linebreak: { LineBreak::NoWrap } }]
+                        })
             .id();
         let count = commands
             .spawn_scene(bsn! {
-                text(count, size::SECONDARY)
+                @text(count, size::SECONDARY)
                 TextLayout { justify: { Justify::Right } }
             })
             .id();
@@ -477,19 +472,17 @@ fn spawn_datasets(
         let kind = entry.kind.clone();
         let button = commands
             .spawn_scene(bsn! {
-                @FeathersButton {
-                    @variant: { ButtonVariant::Normal },
-                    @caption: { bsn_list![(
-                        button_text(name)
-                        TextLayout { linebreak: { LineBreak::NoWrap } }
-                    )] }
-                }
-                BlocksFrameInput
-                Node {
-                    min_width: { Val::Px(0.0) },
-                    overflow: { Overflow::clip() },
-                }
-            })
+                            @FeathersButton {
+                                @variant: { ButtonVariant::Normal },
+                                @caption: { bsn_list! {@button_text(name)
+            TextLayout { linebreak: { LineBreak::NoWrap } }} }
+                            }
+                            BlocksFrameInput
+                            Node {
+                                min_width: { Val::Px(0.0) },
+                                overflow: { Overflow::clip() },
+                            }
+                        })
             .insert(DashboardDataset(entry.url.clone()))
             .id();
         let kind = commands.spawn_scene(text_dim(kind, size::SECONDARY)).id();

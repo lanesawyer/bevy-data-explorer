@@ -45,7 +45,7 @@ pub mod size {
 pub fn text(content: impl Into<String>, size: f32) -> impl Scene {
     let content = content.into();
     bsn! {
-        label(content)
+        @label(content)
         TextFont { font_size: { FontSize::Px(size) } }
     }
 }
@@ -54,7 +54,7 @@ pub fn text(content: impl Into<String>, size: f32) -> impl Scene {
 pub fn text_dim(content: impl Into<String>, size: f32) -> impl Scene {
     let content = content.into();
     bsn! {
-        label_dim(content)
+        @label_dim(content)
         TextFont { font_size: { FontSize::Px(size) } }
     }
 }
@@ -63,7 +63,7 @@ pub fn text_dim(content: impl Into<String>, size: f32) -> impl Scene {
 pub fn title(content: impl Into<String>) -> impl Scene {
     let content = content.into();
     bsn! {
-        label(content)
+        @label(content)
         TextFont {
             font: FontSourceTemplate::Handle(fonts::BOLD),
             font_size: { FontSize::Px(size::SCREEN_TITLE) },

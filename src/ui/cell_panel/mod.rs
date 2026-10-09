@@ -276,7 +276,7 @@ pub fn rebuild_cell_panel(
         let message = commands
             .spawn_scene(bsn! {
                 CellPanelContent
-                text_dim("No properties for this dataset.", size::SMALL)
+                @text_dim("No properties for this dataset.", size::SMALL)
             })
             .id();
         commands.entity(body).add_child(message);
@@ -410,7 +410,7 @@ pub fn spawn_value_row(
     let boxed = commands
         .spawn_scene(bsn! {
             @FeathersCheckbox {
-                @caption: { bsn_list![button_text(caption)] }
+                @caption: { bsn_list! {@button_text(caption)} }
             }
             Node { flex_shrink: { 1.0_f32 }, min_width: { Val::ZERO } }
             BlocksFrameInput
@@ -519,7 +519,7 @@ pub fn spawn_more_note(commands: &mut Commands, more: usize) -> Entity {
     let note = format!("and {more} more; search to find them");
     commands
         .spawn_scene(bsn! {
-            text_dim(note, size::SMALL)
+            @text_dim(note, size::SMALL)
         })
         .id()
 }
@@ -729,17 +729,14 @@ fn spawn_failed(commands: &mut Commands, error: &str) -> Entity {
                 row_gap: { Val::Px(space::ROWS) },
             }
             Children [
-                (
-                    text_dim(message, size::SMALL)
-                ),
-                (
-                    @FeathersButton {
-                        @caption: { bsn_list![button_icon(Icon::RotateCcw), button_text("Retry")] }
-                    }
-                    Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-                    BlocksFrameInput
-                    RetryButton
-                ),
+                @text_dim(message, size::SMALL)
+                --
+                @FeathersButton {
+                    @caption: { bsn_list! {@button_icon(Icon::RotateCcw) -- @button_text("Retry")} }
+                }
+                Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+                BlocksFrameInput
+                RetryButton
             ]
         })
         .id()

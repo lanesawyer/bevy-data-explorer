@@ -27,13 +27,13 @@
 //! back to, so it is not listed here: the channel's row is where it is seen.
 
 use bevy::ecs::system::SystemParam;
+use bevy::picking::cursor::EntityCursor;
 use bevy::prelude::*;
 use bevy::window::SystemCursorIcon;
 use bevy_feathers::controls::{
     ColorChannel, ColorPlaneValue, ColorSwatchValue, FeathersButton, FeathersColorPlane,
     FeathersColorSlider, FeathersColorSwatch, FeathersToolButton, SliderBaseColor,
 };
-use bevy_feathers::cursor::EntityCursor;
 use bevy_feathers::theme::ThemeTextColor;
 use bevy_feathers::tokens;
 use bevy_ui_widgets::{Activate, Button, SliderValue, ValueChange};
@@ -328,50 +328,44 @@ fn spawn_color_overrides(mut commands: Commands, content: Query<Entity, With<Sid
                 row_gap: { Val::Px(space::ROWS) },
             }
             Children [
-                (
-                    Text("")
-                    TextFont { font_size: { FontSize::Px(size::SECONDARY) } }
-                    ThemeTextColor({ tokens::TEXT_MAIN })
-                    PickerTitle
-                ),
-                (
-                    @FeathersColorSwatch
-                    PickerSwatch
-                ),
-                (
-                    @FeathersColorPlane
-                    FeathersColorPlane::HueSaturation
-                    Node { height: { Val::Px(PLANE_PX) } }
-                    BlocksFrameInput
-                    PickerPlane
-                ),
-                (
-                    @FeathersColorSlider {
-                        @channel: { ColorChannel::HslLightness }
-                    }
-                    BlocksFrameInput
-                    PickerLightness
-                ),
-                (
-                    Node {
-                        flex_wrap: { FlexWrap::Wrap },
-                        column_gap: { Val::Px(space::CONTROLS) },
-                        row_gap: { Val::Px(space::CONTROLS) },
-                        display: { Display::None },
-                    }
-                    PickerUsed
-                ),
-                (
-                    @FeathersButton {
-                        @caption: { bsn_list![
-                            button_icon(Icon::RotateCcw),
-                            button_text("Use its own color"),
-                        ] }
-                    }
-                    Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-                    BlocksFrameInput
-                    PickerReset
-                ),
+                Text("")
+                TextFont { font_size: { FontSize::Px(size::SECONDARY) } }
+                ThemeTextColor({ tokens::TEXT_MAIN })
+                PickerTitle
+                --
+                @FeathersColorSwatch
+                PickerSwatch
+                --
+                @FeathersColorPlane
+                FeathersColorPlane::HueSaturation
+                Node { height: { Val::Px(PLANE_PX) } }
+                BlocksFrameInput
+                PickerPlane
+                --
+                @FeathersColorSlider {
+                    @channel: { ColorChannel::HslLightness }
+                }
+                BlocksFrameInput
+                PickerLightness
+                --
+                Node {
+                    flex_wrap: { FlexWrap::Wrap },
+                    column_gap: { Val::Px(space::CONTROLS) },
+                    row_gap: { Val::Px(space::CONTROLS) },
+                    display: { Display::None },
+                }
+                PickerUsed
+                --
+                @FeathersButton {
+                    @caption: { bsn_list! {
+                        @button_icon(Icon::RotateCcw)
+                        --
+                        @button_text("Use its own color")
+                    } }
+                }
+                Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+                BlocksFrameInput
+                PickerReset
             ]
         })
         .id();
@@ -599,29 +593,25 @@ fn rebuild_override_list(
                         column_gap: { Val::Px(space::CONTROLS) },
                     }
                     Children [
-                        (
-                            Node {
-                                width: { Val::Px(SWATCH_PX) },
-                                height: { Val::Px(SWATCH_PX) },
-                                flex_shrink: { 0.0_f32 },
-                                border_radius: { BorderRadius::all(Val::Px(2.0)) },
-                            }
-                            PickColor { column: { column.clone() }, code: { code } }
-                        ),
-                        (
-                            Text({ label })
-                            TextFont { font_size: { FontSize::Px(size::SMALL) } }
-                            ThemeTextColor({ tokens::TEXT_MAIN })
-                            Node { flex_grow: { 1.0_f32 }, min_width: { Val::ZERO } }
-                        ),
-                        (
-                            @FeathersToolButton {
-                                @caption: { bsn_list![button_icon(Icon::X)] }
-                            }
-                            Node { flex_shrink: { 0.0_f32 } }
-                            BlocksFrameInput
-                            ResetOverride { column: { column }, code: { code } }
-                        ),
+                        Node {
+                            width: { Val::Px(SWATCH_PX) },
+                            height: { Val::Px(SWATCH_PX) },
+                            flex_shrink: { 0.0_f32 },
+                            border_radius: { BorderRadius::all(Val::Px(2.0)) },
+                        }
+                        PickColor { column: { column.clone() }, code: { code } }
+                        --
+                        Text({ label })
+                        TextFont { font_size: { FontSize::Px(size::SMALL) } }
+                        ThemeTextColor({ tokens::TEXT_MAIN })
+                        Node { flex_grow: { 1.0_f32 }, min_width: { Val::ZERO } }
+                        --
+                        @FeathersToolButton {
+                            @caption: { bsn_list! {@button_icon(Icon::X)} }
+                        }
+                        Node { flex_shrink: { 0.0_f32 } }
+                        BlocksFrameInput
+                        ResetOverride { column: { column }, code: { code } }
                     ]
                 })
                 .id()

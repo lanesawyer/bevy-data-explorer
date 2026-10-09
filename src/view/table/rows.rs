@@ -211,7 +211,7 @@ pub(super) fn spawn_row(
 /// picked out, and open the inspector on it. Either way the links followed
 /// from the last one are left behind.
 pub fn on_row_clicked(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     rows: Query<&TableRow>,
     panels: Query<&ShowsSource>,
     mut tables: Query<(&SourceTable, &mut SelectedRecord, Option<&mut RecordTrail>)>,

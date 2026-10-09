@@ -1,7 +1,7 @@
 // Draws one image tile by mixing its channels, four to an array layer.
 
-#import bevy_sprite::mesh2d_vertex_output::VertexOutput
-#import bde::channel_mix::{ChannelMix, contribution, srgb_to_linear}
+import bevy_sprite_render::mesh2d::vertex_output::VertexOutput;
+import super::channel_mix::{ChannelMix, contribution, srgb_to_linear};
 
 @group(2) @binding(0) var<uniform> channels: ChannelMix;
 @group(2) @binding(1) var samples: texture_2d_array<f32>;

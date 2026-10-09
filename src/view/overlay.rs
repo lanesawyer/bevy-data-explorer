@@ -254,7 +254,7 @@ fn spawn_tooltip(commands: &mut Commands, panel: Entity) {
         // Deliberately not `BlocksFrameInput`: a tooltip that swallowed the
         // pointer would suppress the very probe that produced it, and the
         // tooltip would flicker on and off as it appeared under the cursor.
-        template_value(Pickable::IGNORE)
+        Pickable::IGNORE
     });
 }
 
@@ -265,7 +265,7 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
             PanelHeader { panel: { panel } }
             // Spans the cell's width, so it must let the pointer through to
             // the frame everywhere but on the buttons it holds.
-            template_value(Pickable::IGNORE)
+            Pickable::IGNORE
             Node {
                 position_type: { PositionType::Absolute },
                 flex_direction: { FlexDirection::Column },
@@ -278,7 +278,7 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
 
     let header = commands
         .spawn_scene(bsn! {
-            template_value(Pickable::IGNORE)
+            Pickable::IGNORE
             Node {
                 width: { Val::Percent(100.0) },
                 align_items: { AlignItems::Center },
@@ -294,7 +294,7 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
     let info = commands
         .spawn_scene(bsn! {
             @FeathersToolButton {
-                @caption: { bsn_list![button_icon(Icon::Info)] }
+                @caption: { bsn_list! {@button_icon(Icon::Info)} }
             }
             BlocksFrameInput
             PanelInfoButton { panel: { panel } }
@@ -745,7 +745,7 @@ fn menu_heading(commands: &mut Commands, content: &str, gap: f32) -> Entity {
     commands
         .spawn_scene(bsn! {
             SourceMenuContent
-            text(content, size::SECONDARY)
+            @text(content, size::SECONDARY)
             Node { margin: { UiRect::new(Val::Px(space::STACKED), Val::Px(0.0), Val::Px(gap), Val::Px(space::STACKED)) } }
         })
         .id()
@@ -756,7 +756,7 @@ fn menu_caption(commands: &mut Commands, content: &str) -> Entity {
     commands
         .spawn_scene(bsn! {
             SourceMenuContent
-            label_dim(content)
+            @label_dim(content)
             Node { margin: { UiRect::new(Val::Px(space::STACKED), Val::Px(0.0), Val::Px(0.0), Val::Px(space::HEADING)) } }
         })
         .id()
@@ -787,25 +787,20 @@ fn menu_row(
                 padding: { UiRect::vertical(Val::Px(space::ITEM_INSET)) },
             }
             Children [
-                (
-                    Node {
-                        flex_direction: { FlexDirection::Column },
-                        flex_grow: { 1.0_f32 },
-                        flex_shrink: { 1.0_f32 },
-                        min_width: { Val::Px(0.0) },
-                        overflow: { Overflow::clip() },
-                    }
-                    Children [
-                        (
-                            text(name, size::BODY)
-                            TextLayout { linebreak: { LineBreak::NoWrap } }
-                        ),
-                        (
-                            text_dim(note, size::SMALL)
-                            TextLayout { linebreak: { LineBreak::NoWrap } }
-                        ),
-                    ]
-                ),
+                Node {
+                    flex_direction: { FlexDirection::Column },
+                    flex_grow: { 1.0_f32 },
+                    flex_shrink: { 1.0_f32 },
+                    min_width: { Val::Px(0.0) },
+                    overflow: { Overflow::clip() },
+                }
+                Children [
+                    @text(name, size::BODY)
+                    TextLayout { linebreak: { LineBreak::NoWrap } }
+                    --
+                    @text_dim(note, size::SMALL)
+                    TextLayout { linebreak: { LineBreak::NoWrap } }
+                ]
             ]
         })
         .id();
@@ -813,10 +808,10 @@ fn menu_row(
         let button = commands
             .spawn_scene(bsn! {
                 @FeathersToolButton {
-                    @caption: { bsn_list![button_icon(icon)] }
+                    @caption: { bsn_list! {@button_icon(icon)} }
                 }
                 BlocksFrameInput
-                template_value(choice)
+                choice
                 Node { flex_shrink: { 0.0_f32 } }
             })
             .id();

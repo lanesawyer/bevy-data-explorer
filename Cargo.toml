@@ -6,9 +6,9 @@ authors = ["Lane Sawyer"]
 repository = "https://github.com/lanesawyer/bevy-data-explorer"
 
 [dependencies]
-bevy = { version = "0.19", default-features = false, features = ["bevy_winit", "bevy_sprite", "bevy_window", "bevy_core_pipeline", "bevy_render", "bevy_asset", "bevy_log", "bevy_text", "bevy_ui", "bevy_ui_render", "x11", "wayland", "multi_threaded", "default_font", "bevy_picking", "bevy_scene", "bevy_ui_widgets", "ui_picking", "bevy_feathers", "system_clipboard"] }
-bevy_feathers = "0.19"
-bevy_ui_widgets = "0.19"
+bevy = { version = "0.20", default-features = false, features = ["bevy_winit", "bevy_sprite", "bevy_window", "bevy_core_pipeline", "bevy_render", "bevy_asset", "bevy_log", "bevy_text", "bevy_ui", "bevy_ui_render", "x11", "wayland", "multi_threaded", "default_font", "bevy_picking", "bevy_scene", "bevy_ui_widgets", "ui_picking", "bevy_feathers", "system_clipboard", "custom_cursor"] }
+bevy_feathers = "0.20"
+bevy_ui_widgets = "0.20"
 clap = { version = "4", features = ["derive"] }
 # Already in the tree through `bevy_image`, declared here for the PNG encoder a
 # saved frame is written with, and for decoding Deep Zoom tiles, which are JPEG

@@ -1,6 +1,6 @@
 ---
 name: debug-bevy-ui
-description: 'Diagnose Bevy 0.19 UI, input and rendering faults in bevy-data-explorer — dead buttons, misplaced chrome, input reaching the wrong thing, blank or accumulating renders. Use when: a widget does nothing, UI lands in the wrong place, clicks pass through, or something renders wrongly.'
+description: 'Diagnose Bevy 0.20 UI, input and rendering faults in bevy-data-explorer — dead buttons, misplaced chrome, input reaching the wrong thing, blank or accumulating renders. Use when: a widget does nothing, UI lands in the wrong place, clicks pass through, or something renders wrongly.'
 ---
 
 # Debug Bevy UI
@@ -12,22 +12,15 @@ and most of them build cleanly and fail silently.
 
 Which button is it?
 
-- `bevy_ui::Button` drives `Interaction`, so `Changed<Interaction>` works.
 - `bevy_ui_widgets` and **all Feathers controls** trigger an `Activate` entity
-  event and carry **no `Interaction` component at all**. Polling for a changed
-  interaction never fires. Use `app.add_observer(...)` on `On<Activate>` and
-  read `activate.entity`.
+  event. Use `app.add_observer(...)` on `On<Activate>` and read
+  `activate.entity`.
+- `bevy_ui::Button` and `Interaction` are deprecated in 0.20 and nothing here
+  uses them. Polling `Changed<Interaction>` on a Feathers control never fires.
 
-Keep every button on one of the two, not a mix. This app uses Feathers
-throughout, so presses arrive as `Activate` and hover styling comes from the
-theme. The only plain `Button`s left are drag targets — resize handles and
-slider thumbs — which want `Interaction` to detect a press but are not buttons
-to look at.
-
-If it fired once and then stopped, or flickered: `Interaction` reads as
-`Pressed` on *every frame* the button is held. Toggling on the value rather
-than the transition flips state for the length of the click. Filter with
-`Changed<Interaction>`.
+Drag targets that are not buttons — a dock's resize handle — start from an
+`On<PointerPress>` observer that checks the entity and sets a `dragging` flag,
+then follow the held mouse button until it is released (`widgets/dock.rs`).
 
 ## A popup closes as soon as it is clicked
 
@@ -59,16 +52,10 @@ viewport and `IsDefaultUiCamera`.
 
 ## A widget under a decorative overlay does nothing, not even hover
 
-Bevy has two independent hit tests, and an overlay can pass one while blocking
-the other:
-
-- `Interaction` is driven by `ui_focus_system` and respects `FocusPolicy`,
-  which **passes through** by default.
-- Picking — which is what `bevy_ui_widgets` and every Feathers control rely on
-  — respects `Pickable::should_block_lower`, which **blocks** by default.
-
-So a decorative node drawn over a widget leaves `Interaction` buttons working
-while picking-driven ones look completely dead, hover included. Add
+Picking — which is what `bevy_ui_widgets` and every Feathers control rely on
+— respects `Pickable::should_block_lower`, which **blocks** by default. So a
+decorative node drawn over a widget leaves it looking completely dead, hover
+included. Add
 `Pickable::IGNORE` to anything that only draws: selection outlines, rules,
 scrims, highlights.
 
@@ -80,8 +67,8 @@ fault is that nothing is reaching it.
 
 Two separate requirements:
 
-- The chrome needs `BlocksFrameInput`, and if it holds no buttons it needs an
-  `Interaction` of its own, or it is not detectable as chrome.
+- The chrome needs `BlocksFrameInput`. It is found through picking's
+  `HoverMap`, so it must not be `Pickable::IGNORE`.
 - The frame's own bounds test must check **all four edges**. Testing only for
   positions before the grid origin catches left-hand chrome but lets right-hand
   chrome through, where the cell lookup clamps to the last frame and drives it.
@@ -168,7 +155,10 @@ image assets this crate does not ship. Use words or plain ASCII.
 
 ## Something cannot be patched in BSN
 
-Scene components take `@Component { @prop: {expr} }`, with the `@` on both the
-component and each prop. Patched components need `Default + Clone`, since a
-scene writes fields over defaults. Components with private fields cannot be
-patched field by field — supply them whole with `template_value(...)`.
+Every scene takes `@`: `@label(text)`, `@{expr}`, and
+`@Component { @prop: {expr} }` with the `@` on each prop too. A scene function
+called without it is read as a template and fails with a `Template` or
+`SceneEffect` bound. List entities are separated by `--`, without parentheses.
+Patched components need `Default + Clone`, since a scene writes fields over
+defaults. Components with private fields cannot be patched field by field —
+supply them whole as `~{value}`.

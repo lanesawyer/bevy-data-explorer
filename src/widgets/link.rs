@@ -22,7 +22,7 @@ pub fn link_button(
     bsn! {
         @FeathersButton {
             @variant: { variant },
-            @caption: { bsn_list![button_icon(icon), button_text(text)] }
+            @caption: { bsn_list! {@button_icon(icon) -- @button_text(text)} }
         }
         Node { column_gap: { Val::Px(space::ICON_LABEL) } }
         BlocksFrameInput

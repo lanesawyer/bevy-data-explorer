@@ -206,12 +206,12 @@ pub fn spawn_browse_panel(commands: &mut Commands, index: usize, background: Col
                 clear_color: { clear_color_for(index, background) },
                 order: { grid::camera_order(index, 0) },
             }
-            template_value(Projection::Orthographic(OrthographicProjection::default_2d()))
-            template_value(RenderLayers::none())
+            ~{Projection::Orthographic(OrthographicProjection::default_2d())}
+            RenderLayers::none()
             Transform { translation: { Vec3::new(0.0, 0.0, 1000.0) } }
             Panel { index: { index } }
             Browsing
-            template_value(limits)
+            limits
         })
         .id()
 }
@@ -246,15 +246,15 @@ pub fn spawn_panel(
             }
             // Both keep private state, so they are supplied whole rather than
             // patched field by field.
-            template_value(Projection::Orthographic(OrthographicProjection {
+            ~{Projection::Orthographic(OrthographicProjection {
                 scale: view.scale,
                 ..OrthographicProjection::default_2d()
-            }))
-            template_value(RenderLayers::layer(layer))
+            })}
+            RenderLayers::layer(layer)
             Transform { translation: { view.center.extend(1000.0) } }
             Panel { index: { index } }
             ShowsSource({ source })
-            template_value(limits)
+            limits
         })
         .id()
 }

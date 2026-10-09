@@ -186,16 +186,14 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
 
     let button = commands
         .spawn_scene(bsn! {
-            @FeathersMenuButton {
-                @caption: { bsn_list![(
-                    button_text("")
-                    PanelTitle
-                    TextFont { font_size: { FontSize::Px(size::FRAME_TITLE) } }
-                    Node { margin: { UiRect::right(Val::Px(space::ICON_LABEL)) } }
-                )] }
-            }
-            BlocksFrameInput
-        })
+                    @FeathersMenuButton {
+                        @caption: { bsn_list! {@button_text("")
+        PanelTitle
+        TextFont { font_size: { FontSize::Px(size::FRAME_TITLE) } }
+        Node { margin: { UiRect::right(Val::Px(space::ICON_LABEL)) } }} }
+                    }
+                    BlocksFrameInput
+                })
         .id();
 
     let popup = commands
@@ -213,7 +211,7 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
     let browse = commands
         .spawn_scene(bsn! {
             @FeathersMenuItem {
-                @caption: { bsn_list![button_text("Browse all datasets\u{2026}")] }
+                @caption: { bsn_list! {@button_text("Browse all datasets\u{2026}")} }
             }
             BrowseItem { panel: { panel } }
         })
@@ -368,7 +366,7 @@ fn spawn_chip_row<T, C: Component>(
             let button = commands
                 .spawn_scene(bsn! {
                     @FeathersButton {
-                        @caption: { bsn_list![button_text(label)] },
+                        @caption: { bsn_list! {@button_text(label)} },
                         @corners: { corners }
                     }
                     Node { flex_grow: { 1.0_f32 } }
@@ -626,7 +624,7 @@ pub fn rebuild_dataset_lists(
                 commands
                     .spawn_scene(bsn! {
                         DatasetListContent
-                        text_dim(
+                        @text_dim(
                             format!("The grid is full at {MAX_PANELS} frames. Close one to open another."),
                             size::SMALL
                         )
@@ -755,7 +753,7 @@ pub fn rebuild_dataset_lists(
                 commands
                     .spawn_scene(bsn! {
                         DatasetListContent
-                        text_dim(note, size::SMALL)
+                        @text_dim(note, size::SMALL)
                         Node { margin: { UiRect::axes(Val::Px(space::CONTROL_INSET), Val::Px(space::ITEM_INSET)) } }
                     })
                     .id(),
@@ -765,7 +763,7 @@ pub fn rebuild_dataset_lists(
             let none = commands
                 .spawn_scene(bsn! {
                     DatasetListContent
-                    label_dim("Nothing matches")
+                    @label_dim("Nothing matches")
                     Node { margin: { UiRect::all(Val::Px(space::CONTROL_INSET)) } }
                 })
                 .id();
@@ -788,7 +786,7 @@ fn heading(commands: &mut Commands, content: &str, first: bool, big: bool) -> En
         return commands
             .spawn_scene(bsn! {
                 DatasetListContent
-                text_dim(content, size::SMALL)
+                @text_dim(content, size::SMALL)
                 Node { margin: { UiRect::new(Val::Px(space::CONTROL_INSET), Val::Px(space::CONTROL_INSET), Val::Px(gap), Val::Px(space::STACKED)) } }
             })
             .id();
@@ -802,9 +800,9 @@ fn heading(commands: &mut Commands, content: &str, first: bool, big: bool) -> En
                 padding: { UiRect::top(Val::Px(if first { 0.0 } else { 10.0 })) },
                 border: { UiRect::top(Val::Px(rule)) },
             }
-            ThemeBorderColor({ tokens::GROUP_BODY_BORDER })
+            ThemeBorderColor({ tokens::GROUP_BORDER })
             Children [
-                text(content, size::DOCK_TITLE)
+                @text(content, size::DOCK_TITLE)
             ]
         })
         .id()
@@ -844,32 +842,27 @@ fn item(
     let item = commands
         .spawn_scene(bsn! {
             @FeathersMenuItem {
-                @caption: { bsn_list![(
-                    Node {
-                        flex_direction: { FlexDirection::Column },
-                        min_width: { Val::Px(0.0) },
-                        overflow: { Overflow::clip() },
-                    }
-                    template_value(pickable)
-                    Children [
-                        (
-                            text(name, size::BODY)
-                            ThemeTextColor({ name_color })
-                            TextLayout { linebreak: { LineBreak::NoWrap } }
-                            template_value(pickable)
-                        ),
-                        (
-                            text_dim(note, size::SMALL)
-                            ThemeTextColor({ note_color })
-                            TextLayout { linebreak: { LineBreak::NoWrap } }
-                            template_value(pickable)
-                        ),
-                    ]
-                )] }
+                @caption: { bsn_list! {Node {
+    flex_direction: { FlexDirection::Column },
+    min_width: { Val::Px(0.0) },
+    overflow: { Overflow::clip() },
+}
+pickable
+Children [
+    @text(name, size::BODY)
+    ThemeTextColor({ name_color })
+    TextLayout { linebreak: { LineBreak::NoWrap } }
+    pickable
+    --
+    @text_dim(note, size::SMALL)
+    ThemeTextColor({ note_color })
+    TextLayout { linebreak: { LineBreak::NoWrap } }
+    pickable
+]} }
             }
             DatasetListContent
-            template_value(choice)
-            template_value(pickable)
+            choice
+            pickable
             // Two lines rather than the one a Feathers item is sized for.
             Node {
                 height: { Val::Auto },
