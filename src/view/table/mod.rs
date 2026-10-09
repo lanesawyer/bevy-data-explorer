@@ -50,8 +50,9 @@ use crate::source::table::{
 use crate::source::{ShowsSource, grouped};
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, Menu, MenuButton, ScrollBoth, button_icon, hold_drag_cursor, icon_text,
-    patch_node, set_display, set_text, size, text, text_dim, truncate_to_width, width_of,
+    BlocksFrameInput, Icon, ScrollBoth, button_icon, close_menu_holding, hold_drag_cursor,
+    icon_text, patch_node, set_display, set_text, size, text, text_dim, truncate_to_width,
+    width_of,
 };
 
 use super::chrome::{BUTTON_PX, CHROME_GAP};
@@ -456,28 +457,23 @@ pub fn read_selected_records(
 ///
 /// A table is not layered over anything and nothing is layered over it: it
 /// shares no coordinates with an image, so stacking one on the other would
-/// put two unrelated things in one cell. The `...` button that opens the menu
-/// offering layers goes, and the menu is shut if it was open when the frame
-/// turned into a table. The popup itself is left to the menu, which shows it
-/// whenever it is open.
+/// put two unrelated things in one cell. The `...` menu offering layers goes,
+/// shut first if it was open when the frame turned into a table.
 pub fn hide_layer_menus(
+    mut commands: Commands,
     panels: Query<&ShowsSource>,
     tables: Query<(), Or<(With<SourceTable>, With<SourceLineage>)>>,
-    buttons: Query<(Entity, &MenuButton)>,
-    mut menus: Query<(&super::overlay::SourceMenu, &mut Menu)>,
+    menus: Query<(Entity, &super::overlay::SourceMenu, &ChildOf, &Visibility)>,
     mut nodes: Query<&mut Node>,
 ) {
-    for (button, opens) in &buttons {
-        let Ok((menu, mut state)) = menus.get_mut(opens.menu) else {
-            continue;
-        };
+    for (popup, menu, root, visibility) in &menus {
         let showing_rows = panels
             .get(menu.panel())
             .is_ok_and(|shows| tables.contains(shows.0));
-        if showing_rows && state.open {
-            state.open = false;
+        if showing_rows && *visibility == Visibility::Visible {
+            close_menu_holding(&mut commands, popup);
         }
-        set_display(&mut nodes, button, !showing_rows);
+        set_display(&mut nodes, root.parent(), !showing_rows);
     }
 }
 

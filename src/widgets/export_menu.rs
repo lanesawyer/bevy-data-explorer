@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy_feathers::controls::FeathersButton;
 
 use super::space;
-use super::{BlocksFrameInput, Icon, Menu, button_text, size, spawn_icon_menu, text, text_dim};
+use super::{BlocksFrameInput, Icon, button_text, size, spawn_icon_menu, text, text_dim};
 use crate::app::export::Format;
 
 /// What [`spawn_export_menu`] built.
@@ -25,7 +25,7 @@ pub fn spawn_export_menu(
     title: &str,
     description: &str,
 ) -> ExportMenu {
-    let (_, menu) = spawn_icon_menu(commands, header, Icon::Download);
+    let menu = spawn_icon_menu(commands, header, Icon::Download).popup;
     let mut format_button = |format: Format| {
         let entity = commands
             .spawn_scene(bsn! {
@@ -65,14 +65,5 @@ pub fn spawn_export_menu(
         menu,
         description,
         formats,
-    }
-}
-
-/// Close whatever menu holds `button`, once it has done what it offered.
-pub fn close_menu_holding(button: Entity, parents: &Query<&ChildOf>, menus: &mut Query<&mut Menu>) {
-    for ancestor in parents.iter_ancestors(button) {
-        if let Ok(mut menu) = menus.get_mut(ancestor) {
-            menu.open = false;
-        }
     }
 }

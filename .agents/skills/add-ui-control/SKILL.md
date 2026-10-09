@@ -37,7 +37,9 @@ gets a file of its own there, re-exported from `widgets/mod.rs`.
 - **A button that opens a menu** is `spawn_menu` (the ellipsis) or
   `spawn_icon_menu` (any other icon, always followed by a chevron). The
   ellipsis already says "menu"; any other icon reads as acting when pressed,
-  so the chevron is what warns it opens something instead. Never put a
+  so the chevron is what warns it opens something instead. Both are Feathers'
+  menu, so the popup places itself and closes on Escape or a click outside;
+  a button inside that has done its job calls `close_menu_holding`. Never put a
   `MenuButton` on a plain `spawn_header_button`, and never add a chevron to a
   button that acts directly. A control that changes behavior by case — the
   palette toggles on a flat property and picks a level on a tree — takes the

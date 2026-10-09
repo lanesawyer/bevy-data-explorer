@@ -21,8 +21,8 @@ use crate::source::stack::{SliceStack, SourceAxes};
 use crate::source::{DataSource, ShowsSource, SourceUrl};
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, Menu, button_text, set_display, set_text, size, spawn_icon_menu, text,
-    text_dim,
+    BlocksFrameInput, Icon, IconMenu, button_text, close_menu_holding, set_display, set_text, size,
+    spawn_icon_menu, text, text_dim,
 };
 
 use super::link::Linked;
@@ -70,7 +70,8 @@ pub struct Arranging {
 #[derive(Component, Clone)]
 pub struct PanelPlaneMenu {
     panel: Entity,
-    button: Entity,
+    /// What holds the button and its popup, hidden together.
+    root: Entity,
 }
 
 /// The way back to the dataset's own plane, offered only once another has
@@ -133,12 +134,12 @@ impl Default for PlaneChoice {
 /// Add a frame's plane menu to its header.
 pub(super) fn spawn_plane_menu(commands: &mut Commands, header: Entity, panel: Entity) {
     // Hidden and shown by `sync_plane_menus`, which patches the display on
-    // the button's own node rather than replacing it: a new `Node` would
-    // drop the size Feathers gives a tool button.
-    let (button, menu) = spawn_icon_menu(commands, header, Icon::Axis3d);
-    commands
-        .entity(menu)
-        .insert(PanelPlaneMenu { panel, button });
+    // the menu's own node rather than replacing it: a new `Node` would drop
+    // the size Feathers gives it.
+    let IconMenu {
+        root, popup: menu, ..
+    } = spawn_icon_menu(commands, header, Icon::Axis3d);
+    commands.entity(menu).insert(PanelPlaneMenu { panel, root });
     let choice = |plane: Option<&'static str>, label: &'static str| {
         bsn! {
             @FeathersButton {
@@ -245,7 +246,7 @@ pub fn sync_plane_menus(
         let shown = frames
             .get(menu.panel)
             .is_ok_and(|shows| stacks.contains(shows.0));
-        set_display(&mut nodes, menu.button, shown);
+        set_display(&mut nodes, menu.root, shown);
     }
     for (entity, back) in &backs {
         let chosen = frames
@@ -263,17 +264,13 @@ pub fn on_plane_chosen(
     choices: Query<&PlaneChoice>,
     frames: Query<&ShowsSource>,
     urls: Query<&SourceUrl>,
-    mut menus: Query<(&PanelPlaneMenu, &mut Menu)>,
+    mut commands: Commands,
     mut requests: MessageWriter<DatasetRequest>,
 ) {
     let Ok(choice) = choices.get(activate.entity) else {
         return;
     };
-    for (menu, mut open) in &mut menus {
-        if menu.panel == choice.panel {
-            open.open = false;
-        }
-    }
+    close_menu_holding(&mut commands, activate.entity);
     let Some(url) = frames
         .get(choice.panel)
         .ok()
@@ -309,18 +306,13 @@ pub fn on_all_views(
     buttons: Query<&AllViews>,
     frames: Query<&ShowsSource>,
     sources: Query<(&SourceUrl, &DataSource, Option<&SourceAxes>)>,
-    mut menus: Query<(&PanelPlaneMenu, &mut Menu)>,
     mut awaiting: MessageWriter<AwaitDataset>,
     mut panels: MessageWriter<PanelRequest>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
         return;
     };
-    for (menu, mut open) in &mut menus {
-        if menu.panel == button.panel {
-            open.open = false;
-        }
-    }
+    close_menu_holding(&mut commands, activate.entity);
     let Some((source, (url, data, axes))) = frames
         .get(button.panel)
         .ok()

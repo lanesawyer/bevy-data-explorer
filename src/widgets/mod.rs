@@ -34,13 +34,13 @@ pub use dock::{
     AddDock, Dock, DockEdge, DockWidth, HANDLE_PX, ResetDockSizes, dock_band, dock_handle,
     hold_drag_cursor, place_right_dock,
 };
-pub use export_menu::{close_menu_holding, spawn_export_menu};
+pub use export_menu::spawn_export_menu;
 pub use field_well::field_well;
 pub use frame_input::BlocksFrameInput;
 pub use icons::{Icon, button_icon, icon_text};
 pub use lightbox::Enlargeable;
 pub use link::link_button;
-pub use menu::{MENU_WIDTH, Menu, MenuButton, spawn_icon_menu, spawn_menu};
+pub use menu::{IconMenu, MENU_WIDTH, close_menu_holding, spawn_icon_menu, spawn_menu};
 pub use modal::{AddModal, Modal, ModalScreen, set_modal_open, spawn_modal};
 pub use notice::{Notice, Tone, notice};
 pub use patch::{display, patch_node, set_display, set_text};
@@ -68,7 +68,6 @@ impl Plugin for WidgetsPlugin {
             // Feathers' slider reports a value change but leaves writing it
             // back to the app; this observer is what closes that loop.
             .add_observer(bevy_ui_widgets::slider_self_update)
-            .add_observer(menu::on_menu_button)
             .add_observer(accordion::toggle_accordions)
             .add_observer(link::on_link_pressed)
             .add_observer(lightbox::enlarge)
@@ -87,9 +86,6 @@ impl Plugin for WidgetsPlugin {
                 (
                     accordion::update_accordions,
                     accordion::truncate_accordion_titles,
-                    menu::dismiss_menus,
-                    menu::release_focus_from_closed_menus,
-                    menu::position_menus,
                     scrollbar::show_scrollbars,
                     search::sync_search_hints,
                     skeleton::pulse_skeletons,

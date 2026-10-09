@@ -23,10 +23,10 @@ use crate::app::theme::Palette;
 use crate::source::compact_count;
 use crate::source::properties::{CellProperties, Tree};
 use crate::view::SelectedSource;
-use crate::widgets::Menu;
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, button_icon, button_text, display, patch_node, set_text,
+    BlocksFrameInput, Icon, button_icon, button_text, close_menu_holding, display, patch_node,
+    set_text,
 };
 
 /// Indent per level of the tree.
@@ -444,7 +444,7 @@ pub fn on_node_toggled(
 pub fn on_color_level(
     activate: On<Activate>,
     buttons: Query<&ColorLevelButton>,
-    mut menus: Query<&mut Menu>,
+    mut commands: Commands,
     selected: SelectedSource,
     mut sources: Query<&mut CellProperties>,
 ) {
@@ -452,9 +452,7 @@ pub fn on_color_level(
         return;
     };
     // A choice made is the menu done with.
-    for mut menu in &mut menus {
-        menu.open = false;
-    }
+    close_menu_holding(&mut commands, activate.entity);
     let Some(mut properties) = selected.get_mut(&mut sources) else {
         return;
     };

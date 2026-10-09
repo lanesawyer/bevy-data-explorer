@@ -288,9 +288,9 @@ has a body to finish the box.
 
 The app starts maximized, since several frames beside a sidebar need the room.
 
-Each accordion can carry a menu button on the right that opens a popup. A menu
-is capped at the bottom of the window and scrolls once its contents no longer
-fit. Frames are opened, cloned and closed by `PanelRequest`, whichever button
+Each accordion can carry a menu button on the right that opens a popup. Every
+menu is Feathers' own, which places it under its button, or above when there
+is no room below, and scrolls once its contents no longer fit. Frames are opened, cloned and closed by `PanelRequest`, whichever button
 asks — the sidebar's New frame, a frame's own corner buttons, its browser — so
 the rules about what may be opened or closed live in one place and the routes
 cannot drift apart.
@@ -319,10 +319,10 @@ a time, in the order they were asked for.
 A text field takes the keyboard while it has focus, so the frame shortcuts —
 `r`, the digits, the arrows — stand down for as long as something is being
 typed into. That is settled once a frame, before anything reads a key, because
-the shortcuts are spread across the grid and two format plugins. Dismissing the
-menu hands the keyboard back, since a closed menu is only hidden and a field
-inside one would otherwise go on swallowing keystrokes with nothing on screen
-to show where they were going.
+the shortcuts are spread across the grid and two format plugins. A menu closes
+when the keyboard leaves it, and closing one hands the keyboard back to its
+button, so a field inside a closed menu never goes on swallowing keystrokes
+with nothing on screen to show where they were going.
 
 An inspector docks on the right, opened from a frame's info button and closed
 from its own. It follows the selection rather than pinning itself to the frame

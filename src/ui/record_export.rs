@@ -18,7 +18,7 @@ use crate::source::table::{
 };
 use crate::ui::inspector::RecordPart;
 use crate::view::SelectedSource;
-use crate::widgets::{Menu, close_menu_holding, spawn_export_menu};
+use crate::widgets::{close_menu_holding, spawn_export_menu};
 
 /// A button exporting `part` of the selected frame's picked record.
 #[derive(Component)]
@@ -118,14 +118,13 @@ fn on_export_record(
         Option<&RelatedRecords>,
         Option<(&RecordTrail, &FollowedRecord)>,
     )>,
-    parents: Query<&ChildOf>,
-    mut menus: Query<&mut Menu>,
+    mut commands: Commands,
     mut exports: ResMut<Exports>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
         return;
     };
-    close_menu_holding(activate.entity, &parents, &mut menus);
+    close_menu_holding(&mut commands, activate.entity);
     let Some((source, SelectedRecord(Some(record)), files, related, followed)) =
         selected.get(&sources)
     else {

@@ -18,7 +18,7 @@ use crate::bookmark::store::file_stem;
 use crate::source::DataSource;
 use crate::source::properties::{CellProperties, ColorOverrides, PropertyKind, PropertyValue};
 use crate::view::SelectedSource;
-use crate::widgets::{Menu, close_menu_holding, spawn_export_menu};
+use crate::widgets::{close_menu_holding, spawn_export_menu};
 
 /// A button exporting the selected source's colors.
 #[derive(Component, Clone, Default)]
@@ -135,14 +135,13 @@ fn on_export_colors(
     buttons: Query<&ExportColors>,
     selected: SelectedSource,
     sources: Query<(&DataSource, &CellProperties, &ColorOverrides)>,
-    parents: Query<&ChildOf>,
-    mut menus: Query<&mut Menu>,
+    mut commands: Commands,
     mut exports: ResMut<Exports>,
 ) {
     let Ok(button) = buttons.get(activate.entity) else {
         return;
     };
-    close_menu_holding(activate.entity, &parents, &mut menus);
+    close_menu_holding(&mut commands, activate.entity);
     let Some((source, properties, overrides)) = selected.get(&sources) else {
         return;
     };

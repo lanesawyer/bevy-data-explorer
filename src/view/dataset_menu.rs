@@ -6,12 +6,11 @@
 //! frame's `...` menu it draws what is chosen over the frame. One picker in
 //! every place, so the lists cannot drift apart.
 //!
-//! The frame's dropdown is built on Feathers' own menu rather than on
-//! [`crate::widgets::spawn_menu`], for what that brings: arrow keys between
-//! items, Escape, and dismissal when focus leaves the popup. That last one is
-//! also what makes a search field work there — the popup stays open while its
-//! field holds the keyboard, and opening it puts the keyboard there, so typing
-//! filters straight away.
+//! The frame's dropdown is Feathers' menu, as every menu is, with what that
+//! brings: arrow keys between items, Escape, and dismissal when focus leaves
+//! the popup. That last one is also what makes a search field work there —
+//! the popup stays open while its field holds the keyboard, and opening it
+//! puts the keyboard there, so typing filters straight away.
 //!
 //! It is Feathers' lazy menu: the popup is spawned as it opens and despawned
 //! as it closes. A closed one used to be kept, hidden, with its whole list —
