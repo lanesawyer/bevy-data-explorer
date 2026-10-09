@@ -832,19 +832,19 @@ impl Plugin for OverlayPlugin {
             .add_observer(on_source_chosen)
             .add_observer(super::dataset_menu::on_search_key)
             .add_observer(super::dataset_menu::on_filter_chip)
-            .add_observer(super::dataset_menu::on_source_chip)
+            .add_observer(super::dataset_menu::on_source_choice)
             .add_observer(super::dataset_menu::on_browse_item)
+            .add_observer(super::dataset_menu::fill_dataset_popup)
             .add_systems(Update, sync_hud.in_set(Stage::FrameChrome))
             .add_systems(
                 Update,
                 (
                     position_hud,
                     rebuild_source_menus,
-                    super::dataset_menu::clear_closed_searches,
                     super::dataset_menu::search_catalogs,
                     super::dataset_menu::rebuild_dataset_lists,
                     super::dataset_menu::sync_filter_chips,
-                    super::dataset_menu::sync_source_chips,
+                    super::dataset_menu::sync_source_select,
                 )
                     .chain()
                     .in_set(Stage::Chrome),

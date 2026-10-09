@@ -13,6 +13,12 @@
 //! field holds the keyboard, and opening it puts the keyboard there, so typing
 //! filters straight away.
 //!
+//! It is Feathers' lazy menu: the popup is spawned as it opens and despawned
+//! as it closes. A closed one used to be kept, hidden, with its whole list —
+//! every catalog's entries, once per frame — rebuilt each time a catalog
+//! landed or a source opened, for a list nobody was looking at. Spawned
+//! afresh, it also opens with its search empty.
+//!
 //! Beyond what is open, it offers every entry of every [`crate::catalog`], one
 //! section each — some read over HTTP, and growing as they land — which is why
 //! it searches and scrolls rather than assuming it fits.
@@ -34,15 +40,19 @@ use bevy::input_focus::{FocusCause, FocusedInput, InputFocus};
 use bevy::prelude::*;
 use bevy::text::EditableText;
 use bevy::ui::InteractionDisabled;
+use std::sync::Arc;
+
+use bevy::ui::Selected;
 use bevy_feathers::controls::{
-    ButtonVariant, FeathersButton, FeathersMenu, FeathersMenuButton, FeathersMenuItem,
-    FeathersMenuPopup,
+    ButtonVariant, FeathersButton, FeathersLazyMenu, FeathersListRow, FeathersMenuButton,
+    FeathersMenuItem, FeathersMenuPopup, FeathersSelect,
 };
+use bevy_feathers::display::caption;
 use bevy_feathers::display::label_dim;
 use bevy_feathers::rounded_corners::RoundedCorners;
 use bevy_feathers::theme::{ThemeBorderColor, ThemeTextColor};
 use bevy_feathers::tokens;
-use bevy_ui_widgets::{Activate, MenuAction, MenuEvent, ScrollArea};
+use bevy_ui_widgets::{Activate, MenuAction, MenuEvent, ScrollArea, SetSelected, ValueChange};
 
 use super::grid::MAX_LAYERS;
 use super::layers::{stacked_sources, unit_mismatch};
@@ -130,16 +140,30 @@ impl Default for FilterChip {
 #[derive(Component, Clone, Default, PartialEq)]
 pub struct PickerSource(pub Option<String>);
 
-/// A button keeping a picker to one source, or opening it to all.
+/// The dropdown keeping a picker to one source, or opening it to all.
 #[derive(Component, Clone)]
-pub struct SourceChip {
+pub struct SourceSelect {
+    picker: Entity,
+}
+
+impl Default for SourceSelect {
+    fn default() -> Self {
+        SourceSelect {
+            picker: Entity::PLACEHOLDER,
+        }
+    }
+}
+
+/// One row of a [`SourceSelect`]: a source, or all of them.
+#[derive(Component, Clone)]
+pub struct SourceOption {
     picker: Entity,
     only: Option<String>,
 }
 
-impl Default for SourceChip {
+impl Default for SourceOption {
     fn default() -> Self {
-        SourceChip {
+        SourceOption {
             picker: Entity::PLACEHOLDER,
             only: None,
         }
@@ -171,12 +195,38 @@ const LIST_MAX_PX: f32 = 360.0;
 /// item's own.
 const ITEM_TEXT_PX: f32 = MENU_WIDTH - 2.0 * 6.0 - 2.0 * 8.0;
 
+/// The popup of a frame's dataset dropdown, filled by [`fill_dataset_popup`]
+/// as Feathers spawns it.
+#[derive(Component, Clone)]
+pub struct DatasetPopup {
+    panel: Entity,
+}
+
+impl Default for DatasetPopup {
+    fn default() -> Self {
+        DatasetPopup {
+            panel: Entity::PLACEHOLDER,
+        }
+    }
+}
+
 /// Build a frame's title as the button of its dataset dropdown, returning the
 /// menu to place in the header.
 pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
+    let popup: Arc<dyn Fn() -> Box<dyn Scene> + Sync + Send> = Arc::new(move || {
+        Box::new(bsn! {
+            @FeathersMenuPopup
+            BlocksFrameInput
+            DatasetPopup { panel: { panel } }
+            Node {
+                width: { Val::Px(MENU_WIDTH) },
+                padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
+            }
+        })
+    });
     let menu = commands
         .spawn_scene(bsn! {
-            @FeathersMenu
+            @FeathersLazyMenu { popup }
             Node {
                 flex_shrink: { 1.0_f32 },
                 min_width: { Val::Px(0.0) },
@@ -186,27 +236,33 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
 
     let button = commands
         .spawn_scene(bsn! {
-                    @FeathersMenuButton {
-                        @caption: { bsn_list! {@button_text("")
-        PanelTitle
-        TextFont { font_size: { FontSize::Px(size::FRAME_TITLE) } }
-        Node { margin: { UiRect::right(Val::Px(space::ICON_LABEL)) } }} }
-                    }
-                    BlocksFrameInput
-                })
-        .id();
-
-    let popup = commands
-        .spawn_scene(bsn! {
-            @FeathersMenuPopup
-            BlocksFrameInput
-            Node {
-                width: { Val::Px(MENU_WIDTH) },
-                padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
+            @FeathersMenuButton {
+                @caption: { bsn_list! {
+                    @button_text("")
+                    PanelTitle
+                    TextFont { font_size: { FontSize::Px(size::FRAME_TITLE) } }
+                    Node { margin: { UiRect::right(Val::Px(space::ICON_LABEL)) } }
+                } }
             }
+            BlocksFrameInput
         })
         .id();
+    commands.entity(menu).add_child(button);
+    menu
+}
 
+/// Fill a dropdown's popup as it opens.
+///
+/// Feathers spawns the popup from a scene, and the picker is built with
+/// commands, so it goes in here rather than in the scene.
+pub fn fill_dataset_popup(
+    add: On<Add<DatasetPopup>>,
+    popups: Query<&DatasetPopup>,
+    mut commands: Commands,
+) {
+    let Ok(&DatasetPopup { panel }) = popups.get(add.entity) else {
+        return;
+    };
     // Ahead of the picker, which is short, for when a longer look is wanted.
     let browse = commands
         .spawn_scene(bsn! {
@@ -216,12 +272,8 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
             BrowseItem { panel: { panel } }
         })
         .id();
-    let picker = spawn_dataset_picker(commands, PickerTarget::Frame(panel));
-    commands.entity(popup).add_children(&[browse, picker]);
-    // The popup has to be the menu's own child: that is where Feathers looks
-    // for it on open, and what it is positioned against.
-    commands.entity(menu).add_children(&[button, popup]);
-    menu
+    let picker = spawn_dataset_picker(&mut commands, PickerTarget::Frame(panel));
+    commands.entity(add.entity).add_children(&[browse, picker]);
 }
 
 /// A search field over a list of datasets, returning the column holding both.
@@ -288,7 +340,7 @@ fn spawn_picker(
     commands.entity(well).add_child(search.entry);
     if let Some(catalogs) = browser {
         let chips = spawn_filter_chips(commands, picker);
-        let sources = spawn_source_chips(commands, catalogs, picker);
+        let sources = spawn_source_select(commands, catalogs, picker);
         commands.entity(well).add_children(&[chips, sources]);
         // The list takes whatever height the frame has, and scrolls within it.
         commands.entity(picker).insert(Node {
@@ -320,21 +372,38 @@ fn spawn_filter_chips(commands: &mut Commands, picker: Entity) -> Entity {
     spawn_chip_row(commands, options, |only| FilterChip { picker, only })
 }
 
-/// One button per source a picker can be kept to, and one for all of them.
+/// A dropdown of the sources a picker can be kept to, and all of them.
 ///
-/// Every source is given a button, turned on or not, and those turned off in
-/// settings are hidden by [`sync_source_chips`], so switching one back on
+/// A dropdown rather than a row of buttons like the categories': there is one
+/// per catalog, their names are long, and the row ran out of room at five.
+/// Every source is given a row, turned on or not, and those turned off in
+/// settings are hidden by [`sync_source_select`], so switching one back on
 /// needs no rebuild.
-fn spawn_source_chips(commands: &mut Commands, catalogs: &Catalogs, picker: Entity) -> Entity {
-    let options: Vec<(Option<String>, String)> = std::iter::once((None, "All sources".to_string()))
+fn spawn_source_select(commands: &mut Commands, catalogs: &Catalogs, picker: Entity) -> Entity {
+    let rows: Vec<Box<dyn SceneList>> = std::iter::once((None, "All sources".to_string()))
         .chain(
             catalogs
                 .sources()
                 .into_iter()
                 .map(|(key, name)| (Some(key.to_string()), name.to_string())),
         )
+        .map(|(only, label)| -> Box<dyn SceneList> {
+            let all = only.is_none();
+            let row = SourceOption { picker, only };
+            if all {
+                bsn! { @FeathersListRow Selected ~{row} Children [ @caption(label) ] }.into()
+            } else {
+                bsn! { @FeathersListRow ~{row} Children [ @caption(label) ] }.into()
+            }
+        })
         .collect();
-    spawn_chip_row(commands, options, |only| SourceChip { picker, only })
+    commands
+        .spawn_scene(bsn! {
+            @FeathersSelect { @options: { Box::new(rows) as Box<dyn SceneList> } }
+            SourceSelect { picker: { picker } }
+            Node { width: { Val::Percent(100.0) } }
+        })
+        .id()
 }
 
 /// Buttons joined into one control as the theme buttons in settings are,
@@ -411,27 +480,33 @@ pub fn sync_filter_chips(
     }
 }
 
-/// Keep a picker to the source its button names.
-pub fn on_source_chip(
-    activate: On<Activate>,
-    chips: Query<&SourceChip>,
+/// Keep a picker to the source chosen from its dropdown.
+pub fn on_source_choice(
+    change: On<ValueChange<Entity>>,
+    selects: Query<(), With<SourceSelect>>,
+    options: Query<&SourceOption>,
     mut sources: Query<&mut PickerSource>,
 ) {
-    let Ok(chip) = chips.get(activate.entity) else {
+    if !selects.contains(change.source) {
+        return;
+    }
+    let Ok(option) = options.get(change.value) else {
         return;
     };
-    if let Ok(mut source) = sources.get_mut(chip.picker) {
-        source.set_if_neq(PickerSource(chip.only.clone()));
+    if let Ok(mut source) = sources.get_mut(option.picker) {
+        source.set_if_neq(PickerSource(option.only.clone()));
     }
 }
 
-/// Mark the button of the source each picker is kept to, and hide those of
-/// sources turned off in settings. A picker kept to one turned off is opened
-/// to all again rather than left listing nothing.
-pub fn sync_source_chips(
+/// Hide the rows of sources turned off in settings, and keep each dropdown
+/// showing the source its picker is kept to. A picker kept to one turned off
+/// is opened to all again rather than left listing nothing.
+pub fn sync_source_select(
+    mut commands: Commands,
     catalogs: Res<Catalogs>,
     mut sources: Query<&mut PickerSource>,
-    mut chips: Query<(&SourceChip, &mut ButtonVariant, &mut Node)>,
+    selects: Query<(Entity, &SourceSelect)>,
+    mut options: Query<(Entity, &SourceOption, Has<Selected>, &mut Node)>,
 ) {
     for mut source in &mut sources {
         if source
@@ -442,16 +517,22 @@ pub fn sync_source_chips(
             source.0 = None;
         }
     }
-    for (chip, mut variant, node) in &mut chips {
+    for (row, option, selected, node) in &mut options {
         let chosen = sources
-            .get(chip.picker)
-            .is_ok_and(|source| source.0 == chip.only);
-        variant.set_if_neq(if chosen {
-            ButtonVariant::Primary
-        } else {
-            ButtonVariant::Normal
-        });
-        let display = if chip
+            .get(option.picker)
+            .is_ok_and(|source| source.0 == option.only);
+        if chosen
+            && !selected
+            && let Some((select, _)) = selects
+                .iter()
+                .find(|(_, select)| select.picker == option.picker)
+        {
+            commands.trigger(SetSelected {
+                entity: select,
+                row,
+            });
+        }
+        let display = if option
             .only
             .as_deref()
             .is_none_or(|key| catalogs.source_on(key))
@@ -905,29 +986,6 @@ pub fn search_catalogs(
         .ok()
         .and_then(|source| source.0.as_deref());
     catalogs.want(&text.value().to_string(), only, from, time.elapsed_secs());
-}
-
-/// Start each frame's dropdown afresh: once closed, whatever was typed into it is
-/// cleared, so the next time it opens it lists everything.
-pub fn clear_closed_searches(
-    popups: Query<(Entity, &Visibility), (With<FeathersMenuPopup>, Changed<Visibility>)>,
-    parents: Query<&ChildOf>,
-    mut fields: Query<(Entity, &mut EditableText), With<DatasetSearch>>,
-) {
-    for (popup, visibility) in &popups {
-        if *visibility != Visibility::Hidden {
-            continue;
-        }
-        for (field, mut text) in &mut fields {
-            if !text.value().to_string().is_empty()
-                && parents
-                    .iter_ancestors(field)
-                    .any(|ancestor| ancestor == popup)
-            {
-                text.clear();
-            }
-        }
-    }
 }
 
 /// The keys the search field answers for the menu around it.
