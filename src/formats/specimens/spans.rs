@@ -180,10 +180,7 @@ pub(super) fn buckets_of(cumulative: &[u32]) -> Vec<u32> {
 /// of waiting for histograms nobody looked at.
 pub(super) fn serve_spans(mut sources: Query<(&mut SpecimenPages, &mut TableFilters)>) {
     for (mut pages, mut filters) in &mut sources {
-        if let Some((_, _, fetch)) = pages.spanning.as_mut()
-            && let Some(answer) = fetch.take()
-        {
-            let (column, asked, _) = pages.spanning.take().expect("just matched");
+        if let Some((column, asked, answer)) = pages.spanning.landed() {
             match answer {
                 Ok(span) => {
                     if let Some(filter) = filters.columns.get_mut(column) {

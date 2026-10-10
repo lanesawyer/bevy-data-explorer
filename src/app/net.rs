@@ -71,6 +71,42 @@ impl<T: Send + 'static> Fetching<T> {
     }
 }
 
+/// A slot a read is held in, perhaps beside what it was asked for.
+///
+/// [`Landed::landed`] takes the answer out once the read has finished and
+/// empties the slot, so the slot frees for the next read in the same breath.
+pub trait Landed {
+    type Answer;
+    fn landed(&mut self) -> Option<Self::Answer>;
+}
+
+impl<T: Send + 'static> Landed for Option<Fetching<T>> {
+    type Answer = T;
+    fn landed(&mut self) -> Option<T> {
+        let answer = self.as_mut()?.take()?;
+        *self = None;
+        Some(answer)
+    }
+}
+
+impl<A, T: Send + 'static> Landed for Option<(A, Fetching<T>)> {
+    type Answer = (A, T);
+    fn landed(&mut self) -> Option<(A, T)> {
+        let answer = self.as_mut()?.1.take()?;
+        let (asked, _) = self.take()?;
+        Some((asked, answer))
+    }
+}
+
+impl<A, B, T: Send + 'static> Landed for Option<(A, B, Fetching<T>)> {
+    type Answer = (A, B, T);
+    fn landed(&mut self) -> Option<(A, B, T)> {
+        let answer = self.as_mut()?.2.take()?;
+        let (first, second, _) = self.take()?;
+        Some((first, second, answer))
+    }
+}
+
 /// Start `work`, and hand back the handle that cancels it.
 pub fn fetching<T: Send + 'static>(work: impl Future<Output = T> + Send + 'static) -> Fetching<T> {
     Fetching {
@@ -198,6 +234,28 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// Poll `slot` until its read lands, as a system would frame by frame.
+    fn wait<L: Landed>(slot: &mut L) -> L::Answer {
+        for _ in 0..1000 {
+            if let Some(answer) = slot.landed() {
+                return answer;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        panic!("the read never landed");
+    }
+
+    #[test]
+    fn a_landed_read_empties_its_slot_and_keeps_what_was_asked() {
+        let mut slot = Some((7, "asked", fetching(async { 42 })));
+        assert_eq!(wait(&mut slot), (7, "asked", 42));
+        assert!(slot.is_none(), "the slot is free for the next read");
+
+        let mut pending: Option<Fetching<()>> = Some(fetching(std::future::pending()));
+        assert!(pending.landed().is_none());
+        assert!(pending.is_some(), "a read still out keeps its slot");
+    }
     use std::time::Duration;
 
     #[test]

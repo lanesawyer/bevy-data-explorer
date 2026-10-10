@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use serde_json::Value;
 
-use crate::app::net::{Fetching, fetching};
+use crate::app::net::{Fetching, Landed as _, fetching};
 use crate::app::schedule::Stage;
 use crate::source::SourceBusy;
 use crate::source::table::{

@@ -17,7 +17,7 @@ use bevy_ui_widgets::{
     Activate, ControlOrientation, SelectedTab, Tab, TabActivation, TabList, ValueChange,
 };
 
-use crate::app::net::{Fetching, fetching};
+use crate::app::net::{Fetching, Landed, fetching};
 use crate::app::prefs::{Preferences, PreferencesFile, RegistryLogin};
 use crate::app::schedule::Stage;
 use crate::app::theme::ThemeMode;
@@ -766,10 +766,9 @@ pub fn on_test_registry(
 
 /// Log what the registry answered, asset by asset, and sum it up on screen.
 pub fn poll_registry_probe(mut probe: ResMut<RegistryProbe>) {
-    let Some(outcome) = probe.task.as_mut().and_then(Fetching::take) else {
+    let Some(outcome) = probe.task.landed() else {
         return;
     };
-    probe.task = None;
     probe.outcome = Some(match outcome {
         Ok(sample) => {
             info!(

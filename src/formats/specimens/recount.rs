@@ -171,10 +171,7 @@ pub(super) fn serve_counts(mut sources: Query<(&mut SpecimenPages, &mut TableFil
         if filters.pending {
             continue;
         }
-        if let Some((_, fetch)) = pages.counting.as_mut()
-            && let Some(answer) = fetch.take()
-        {
-            let (asked, _) = pages.counting.take().expect("just matched");
+        if let Some((asked, answer)) = pages.counting.landed() {
             match answer {
                 Ok(recounted) => take_recount(&mut filters, recounted),
                 // Left as they were, and not asked again until the filters

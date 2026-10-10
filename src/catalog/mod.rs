@@ -54,7 +54,7 @@ use std::sync::Arc;
 use bevy::prelude::*;
 use futures::future::BoxFuture;
 
-use crate::app::net::{Fetching, fetching};
+use crate::app::net::{Fetching, Landed, fetching};
 use crate::app::prefs::Preferences;
 use crate::app::schedule::Stage;
 use crate::source::genes::Gene;
@@ -693,10 +693,9 @@ impl Catalogs {
             let Some(search) = slot.search.as_mut() else {
                 continue;
             };
-            let Some(result) = search.asking.as_mut().and_then(Fetching::take) else {
+            let Some(result) = search.asking.landed() else {
                 continue;
             };
-            search.asking = None;
             match result {
                 Ok(found) => {
                     let asked = search.asked.as_ref().map_or("", |asked| &asked.text);
@@ -824,10 +823,9 @@ impl Catalogs {
                 slot.asking_dashboard = Some(fetching(slot.catalog.dashboard()));
                 self.dashboards_generation += 1;
             }
-            let Some(result) = slot.asking_dashboard.as_mut().and_then(Fetching::take) else {
+            let Some(result) = slot.asking_dashboard.landed() else {
                 continue;
             };
-            slot.asking_dashboard = None;
             *state = match result {
                 Ok(dashboard) => {
                     info!("{}: dashboard counted", slot.name);
@@ -895,10 +893,9 @@ impl Catalogs {
 
     fn take_listings(&mut self) {
         for slot in &mut self.slots {
-            let Some(result) = slot.listing.as_mut().and_then(Fetching::take) else {
+            let Some(result) = slot.listing.landed() else {
                 continue;
             };
-            slot.listing = None;
             match result {
                 Ok(entries) => {
                     info!("{}: {} datasets", slot.name, entries.len());

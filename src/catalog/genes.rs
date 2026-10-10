@@ -14,7 +14,7 @@ use bevy::prelude::*;
 
 use super::cells::Described;
 use super::{Catalogs, CellService, Entry};
-use crate::app::net::{Fetching, fetching};
+use crate::app::net::{Fetching, Landed, fetching};
 use crate::source::SourceUrl;
 use crate::source::genes::{Gene, GeneSearch, ReadsGenes, SearchState};
 use crate::source::properties::{CellProperties, CellProperty};
@@ -86,10 +86,9 @@ pub fn search(mut sources: Query<(&GeneService, &mut GeneSearch, &mut GeneReads)
             }
         }
 
-        let Some(result) = reads.searching.as_mut().and_then(Fetching::take) else {
+        let Some(result) = reads.searching.landed() else {
             continue;
         };
-        reads.searching = None;
         match result {
             Ok(found) => {
                 search.results = found;

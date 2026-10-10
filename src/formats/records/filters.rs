@@ -15,10 +15,7 @@ pub(super) fn serve_values(
     mut sources: Query<(&mut RecordPages, &mut TableFilters, &TableSearch)>,
 ) {
     for (mut pages, mut filters, search) in &mut sources {
-        if let Some((_, _, fetch)) = pages.reading.as_mut()
-            && let Some(answer) = fetch.take()
-        {
-            let (paths, asked, _) = pages.reading.take().expect("just matched");
+        if let Some((paths, asked, answer)) = pages.reading.landed() {
             match answer {
                 Ok(answers) => {
                     for (path, counts) in answers {

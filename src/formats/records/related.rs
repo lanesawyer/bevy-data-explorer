@@ -52,10 +52,9 @@ pub(super) fn serve_related(
             });
             pages.picked = wanted;
         }
-        let Some(answer) = pages.linking.as_mut().and_then(Fetching::take) else {
+        let Some(answer) = pages.linking.landed() else {
             continue;
         };
-        pages.linking = None;
         let Some((kind, id)) = pages.picked.clone() else {
             continue;
         };

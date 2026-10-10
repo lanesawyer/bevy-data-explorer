@@ -131,11 +131,7 @@ pub(super) fn serve_pages(
         let wanted_values = filters.map(TableFilters::chosen).unwrap_or_default();
         let wanted_sort = sort.map(|sort| sort.0.clone()).unwrap_or_default();
         let wanted_search = search.and_then(TableSearch::wanted).map(str::to_string);
-        if let Some((page, fetch)) = pages.fetching.as_mut()
-            && let Some(answer) = fetch.take()
-        {
-            let page = *page;
-            pages.fetching = None;
+        if let Some((page, answer)) = pages.fetching.landed() {
             match answer {
                 Ok(data) => {
                     // A narrowed table is a different table: however many rows

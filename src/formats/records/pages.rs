@@ -21,11 +21,7 @@ pub(super) fn serve_pages(
     for (mut pages, mut paging, mut rows, mut busy, filters, search, sort) in &mut sources {
         let wanted_values = asked_of(filters, search);
         let wanted_sort = sort.0.clone();
-        if let Some((page, fetch)) = pages.fetching.as_mut()
-            && let Some(answer) = fetch.take()
-        {
-            let page = *page;
-            pages.fetching = None;
+        if let Some((page, answer)) = pages.fetching.landed() {
             match answer {
                 Ok(landed) => {
                     // A narrowed table is a different table: however many

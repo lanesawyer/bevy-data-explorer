@@ -31,7 +31,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::app::graphql::{self, Response};
-use crate::app::net::{Fetching, fetching};
+use crate::app::net::{Fetching, Landed, fetching};
 use crate::app::schedule::Stage;
 use crate::source::properties::NumericRange;
 use crate::source::table::{

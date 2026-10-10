@@ -108,10 +108,7 @@ pub(super) fn offer_filters(
 /// while a read is out waits for the next.
 pub(super) fn serve_values(mut sources: Query<(&mut SpecimenPages, &mut TableFilters)>) {
     for (mut pages, mut filters) in &mut sources {
-        if let Some((_, _, fetch)) = pages.reading.as_mut()
-            && let Some(answer) = fetch.take()
-        {
-            let (ids, asked, _) = pages.reading.take().expect("just matched");
+        if let Some((ids, asked, answer)) = pages.reading.landed() {
             match answer {
                 Ok(answers) => {
                     for (id, answer) in ids.iter().zip(answers) {

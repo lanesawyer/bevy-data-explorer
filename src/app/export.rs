@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
-use crate::app::net::{Fetching, fetching};
+use crate::app::net::{Fetching, Landed, fetching};
 use crate::app::schedule::Stage;
 
 /// Rows to write, under column names that become the CSV header and the JSON
@@ -144,10 +144,9 @@ impl Exports {
 
 /// Say where an export went, or why it did not.
 fn poll_exports(mut exports: ResMut<Exports>) {
-    let Some(outcome) = exports.task.as_mut().and_then(Fetching::take) else {
+    let Some(outcome) = exports.task.landed() else {
         return;
     };
-    exports.task = None;
     match outcome {
         Ok(Some(path)) => info!("exported to {}", path.display()),
         Ok(None) => {}

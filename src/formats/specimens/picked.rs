@@ -137,10 +137,9 @@ pub(super) fn serve_picked(
             picked.of = wanted;
         }
 
-        let Some(answer) = picked.fetching.as_mut().and_then(Fetching::take) else {
+        let Some(answer) = picked.fetching.landed() else {
             continue;
         };
-        picked.fetching = None;
         match answer {
             Ok(answer) => {
                 images.0 = if answer.pictures.is_empty() {

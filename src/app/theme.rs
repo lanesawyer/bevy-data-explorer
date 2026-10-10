@@ -20,7 +20,7 @@ use bevy::prelude::*;
 use bevy::window::{WindowTheme, WindowThemeChanged};
 use bevy_feathers::theme::{SemanticToken, ThemeProps, ThemeToken, UiTheme};
 
-use crate::app::net::{Fetching, fetching};
+use crate::app::net::{Fetching, Landed, fetching};
 use crate::app::prefs::{Preferences, ThemeChoice};
 use crate::app::schedule::Stage;
 
@@ -438,19 +438,13 @@ fn follow_accent(
 fn take_accent(mut accent: ResMut<Accent>) {
     // Polled without marking it changed, so the theme is rebuilt only when
     // an answer lands.
-    let Some(answer) = accent
-        .bypass_change_detection()
-        .asking
-        .as_mut()
-        .and_then(Fetching::take)
-    else {
+    let Some(answer) = accent.bypass_change_detection().asking.landed() else {
         return;
     };
     match answer {
         Some(color) => info!("wearing the desktop's accent, {:?}", color.to_srgba()),
         None => info!("the desktop has no accent to wear"),
     }
-    accent.asking = None;
     accent.color = answer;
 }
 

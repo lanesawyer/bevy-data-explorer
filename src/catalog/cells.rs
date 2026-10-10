@@ -20,7 +20,7 @@ use bevy::prelude::*;
 use super::{
     Catalogs, CellCounts, CellRecord, CellService, Entry, RegionFocus, RegionSummary, SummaryState,
 };
-use crate::app::net::{Fetching, fetching};
+use crate::app::net::{Fetching, Landed, fetching};
 use crate::source::SourceUrl;
 use crate::source::properties::{
     CellColumns, CellProperties, CellProperty, Column, Mixes, OpenProperties, PropertyState,
@@ -226,10 +226,9 @@ pub fn recount(
             }
         }
 
-        let Some(result) = counting.reading.as_mut().and_then(Fetching::take) else {
+        let Some(result) = counting.reading.landed() else {
             continue;
         };
-        counting.reading = None;
         match result {
             Ok(counts) => {
                 debug!(
@@ -357,8 +356,7 @@ pub fn recount_region(
             }
         }
 
-        if let Some(result) = counting.focus_reading.as_mut().and_then(Fetching::take) {
-            counting.focus_reading = None;
+        if let Some(result) = counting.focus_reading.landed() {
             match result {
                 Ok(cells) => {
                     debug!(
@@ -379,10 +377,9 @@ pub fn recount_region(
             }
         }
 
-        let Some(result) = counting.reading.as_mut().and_then(Fetching::take) else {
+        let Some(result) = counting.reading.landed() else {
             continue;
         };
-        counting.reading = None;
         match result {
             Ok(counts) => {
                 debug!(
