@@ -181,6 +181,21 @@ pub struct Panel {
     pub index: usize,
 }
 
+/// UI drawn over one frame: its header, tooltip, crosshair, loading bar and
+/// the like.
+///
+/// Each module spawns its chrome from an `On<Add<Panel>>` observer, and the
+/// relationship despawns it with the frame, so nothing has to look every
+/// frame for frames that gained or lost a piece of it.
+#[derive(Component, Clone, Copy, Debug)]
+#[relationship(relationship_target = FrameChrome)]
+pub struct ChromeOf(pub Entity);
+
+/// What is drawn over a frame. Despawned with it.
+#[derive(Component, Debug, Default)]
+#[relationship_target(relationship = ChromeOf, linked_spawn)]
+pub struct FrameChrome(Vec<Entity>);
+
 /// A frame browsing for what to show, with the browser drawn over it.
 ///
 /// One with no [`ShowsSource`] is an empty frame, closed when the browser is;
@@ -298,10 +313,8 @@ impl Plugin for ViewPlugin {
                 .chain()
                 .in_set(Stage::Frames),
         )
-        .add_systems(
-            Update,
-            (loading::sync_loading_bars, select::sync_region_outlines).in_set(Stage::FrameChrome),
-        )
+        .add_observer(loading::spawn_loading_bar)
+        .add_observer(select::spawn_region_outline)
         .add_systems(
             Update,
             (

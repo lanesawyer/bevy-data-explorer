@@ -57,8 +57,10 @@ pub enum Stage {
     Restore,
     /// Frames are opened, closed and renumbered.
     Frames,
-    /// Chrome that exists per frame is spawned or despawned to match. After
-    /// `Frames` because it is spawned against the frames that now exist.
+    /// Chrome that depends on what a frame shows — a table, a lineage — is
+    /// spawned or despawned to match. After `Frames` because it is spawned
+    /// against the frames that now exist. Chrome every frame has comes with
+    /// the frame instead, from an observer of its `Panel` being added.
     FrameChrome,
     /// Pointer input is routed to a frame, and the cameras take their viewports
     /// from what the docks left over.

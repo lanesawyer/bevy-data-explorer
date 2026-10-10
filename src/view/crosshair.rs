@@ -18,32 +18,16 @@ use crate::source::table::SourceTable;
 use crate::widgets::patch_node;
 
 use super::link::Linked;
-use super::{FrameArea, Panel};
+use super::{ChromeOf, FrameArea, Panel};
 
 /// How thick a line is, in logical pixels.
 const LINE_PX: f32 = 1.0;
 
 /// One line of a frame's crosshair.
-#[derive(Component, Clone)]
+#[derive(Component, Clone, Default)]
 pub struct CrosshairLine {
-    panel: Entity,
     /// Runs across the frame, rather than down it.
     across: bool,
-}
-
-impl Default for CrosshairLine {
-    fn default() -> Self {
-        CrosshairLine {
-            panel: Entity::PLACEHOLDER,
-            across: false,
-        }
-    }
-}
-
-impl CrosshairLine {
-    pub fn panel(&self) -> Entity {
-        self.panel
-    }
 }
 
 /// The color a line running along `axis` is drawn in.
@@ -56,33 +40,21 @@ fn axis_token(axis: char) -> bevy_feathers::theme::ThemeToken {
     }
 }
 
-/// Keep two lines per frame, and drop those whose frame has gone.
-fn sync_crosshairs(
-    mut commands: Commands,
-    panels: Query<Entity, With<Panel>>,
-    lines: Query<(Entity, &CrosshairLine)>,
-) {
-    for (entity, line) in &lines {
-        if panels.get(line.panel).is_err() {
-            commands.entity(entity).despawn();
-        }
-    }
-    for panel in &panels {
-        if lines.iter().any(|(_, line)| line.panel == panel) {
-            continue;
-        }
-        for across in [true, false] {
-            commands.spawn_scene(bsn! {
-                CrosshairLine { panel: { panel }, across: { across } }
-                Node {
-                    position_type: { PositionType::Absolute },
-                    display: { Display::None },
-                }
-                ThemeBackgroundColor({ crate::app::theme::token::OVERLAY_TEXT })
-                // Drawn over the data, never in the way of it.
-                Pickable::IGNORE
-            });
-        }
+/// Give a frame its two lines as it opens.
+fn spawn_crosshairs(add: On<Add<Panel>>, mut commands: Commands) {
+    let panel = add.entity;
+    for across in [true, false] {
+        commands.spawn_scene(bsn! {
+            CrosshairLine { across: { across } }
+            ~{ChromeOf(panel)}
+            Node {
+                position_type: { PositionType::Absolute },
+                display: { Display::None },
+            }
+            ThemeBackgroundColor({ crate::app::theme::token::OVERLAY_TEXT })
+            // Drawn over the data, never in the way of it.
+            Pickable::IGNORE
+        });
     }
 }
 
@@ -99,12 +71,18 @@ fn place_crosshairs(
     frames: Query<(), With<Panel>>,
     axes: Query<&SourceAxes>,
     tables: Query<(), With<SourceTable>>,
-    mut lines: Query<(Entity, &CrosshairLine, &mut Node, &ThemeBackgroundColor)>,
+    mut lines: Query<(
+        Entity,
+        &CrosshairLine,
+        &ChromeOf,
+        &mut Node,
+        &ThemeBackgroundColor,
+    )>,
 ) {
     let count = frames.iter().count();
-    for (entity, line, node, color) in &mut lines {
+    for (entity, line, frame, node, color) in &mut lines {
         let shown = panels
-            .get(line.panel)
+            .get(frame.0)
             .ok()
             .filter(|(_, shows, projection, linked)| {
                 *linked
@@ -146,7 +124,7 @@ pub struct CrosshairPlugin;
 
 impl Plugin for CrosshairPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, sync_crosshairs.in_set(Stage::FrameChrome))
+        app.add_observer(spawn_crosshairs)
             .add_systems(Update, place_crosshairs.in_set(Stage::Chrome));
     }
 }
@@ -154,6 +132,32 @@ impl Plugin for CrosshairPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::view::FrameChrome;
+
+    #[test]
+    fn a_frame_brings_its_crosshair_and_takes_it_away() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            bevy::scene::ScenePlugin,
+        ))
+        .add_observer(spawn_crosshairs);
+        let panel = app.world_mut().spawn(Panel { index: 0 }).id();
+        app.update();
+        let lines = |app: &mut App| {
+            app.world_mut()
+                .query::<&CrosshairLine>()
+                .iter(app.world())
+                .count()
+        };
+        assert_eq!(lines(&mut app), 2);
+        assert_eq!(app.world().get::<FrameChrome>(panel).unwrap().len(), 2);
+
+        app.world_mut().despawn(panel);
+        app.update();
+        assert_eq!(lines(&mut app), 0);
+    }
 
     #[test]
     fn a_crosshair_stays_on_its_frame_when_an_empty_one_opens_beside_it() {
@@ -175,10 +179,8 @@ mod tests {
         let line = app
             .world_mut()
             .spawn((
-                CrosshairLine {
-                    panel: linked,
-                    across: false,
-                },
+                CrosshairLine { across: false },
+                ChromeOf(linked),
                 Node::default(),
                 ThemeBackgroundColor(crate::app::theme::token::OVERLAY_TEXT),
             ))

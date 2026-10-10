@@ -40,10 +40,10 @@ use bevy_feathers::theme::ThemeTextColor;
 
 use crate::app::schedule::Stage;
 use crate::source::{DataSource, ShowsSource};
-use crate::view::Panel;
 use crate::view::chrome::SelectionBorder;
 use crate::view::loading::LoadingBar;
 use crate::view::overlay::{PanelHeader, PanelTooltip};
+use crate::view::{FrameChrome, Panel};
 use crate::widgets::{BlocksFrameInput, Icon, button_icon, patch_node, size};
 
 /// Where pictures are written, relative to where the app was started.
@@ -206,10 +206,18 @@ pub fn drive_capture(
     mut capture: ResMut<FrameCapture>,
     panels: Query<(&Camera, &ShowsSource), With<Panel>>,
     sources: Query<&DataSource>,
-    headers: Query<(Entity, &PanelHeader)>,
-    tooltips: Query<(Entity, &PanelTooltip)>,
-    crosshairs: Query<(Entity, &super::crosshair::CrosshairLine)>,
-    bars: Query<(Entity, &LoadingBar)>,
+    chrome: Query<&FrameChrome>,
+    // The scale bar and the selection's outline stay: they are part of the
+    // figure.
+    hideable: Query<
+        (),
+        Or<(
+            With<PanelHeader>,
+            With<PanelTooltip>,
+            With<super::crosshair::CrosshairLine>,
+            With<LoadingBar>,
+        )>,
+    >,
     outline: Query<Entity, With<SelectionBorder>>,
     hidden: Query<Entity, With<HiddenForCapture>>,
     palette: Res<crate::app::theme::Palette>,
@@ -226,23 +234,8 @@ pub fn drive_capture(
                     .entity(entity)
                     .insert((Visibility::Hidden, HiddenForCapture));
             };
-            for (entity, header) in &headers {
-                if header.panel == panel {
-                    hide(entity);
-                }
-            }
-            for (entity, tooltip) in &tooltips {
-                if tooltip.panel == panel {
-                    hide(entity);
-                }
-            }
-            for (entity, line) in &crosshairs {
-                if line.panel() == panel {
-                    hide(entity);
-                }
-            }
-            for (entity, bar) in &bars {
-                if bar.panel == panel {
+            for entity in chrome.get(panel).into_iter().flat_map(FrameChrome::iter) {
+                if hideable.contains(entity) {
                     hide(entity);
                 }
             }

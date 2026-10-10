@@ -36,8 +36,8 @@ use crate::source::table::SourceTable;
 use crate::source::{DataSource, ShowsSource, SourceStatus};
 use crate::view::layers::stacked_sources;
 use crate::view::{
-    DatasetRequest, DatasetTarget, FrameLayers, LayerOf, Panel, PanelRequest, PendingShow,
-    ShowFailed,
+    ChromeOf, DatasetRequest, DatasetTarget, FrameLayers, LayerOf, Panel, PanelRequest,
+    PendingShow, ShowFailed,
 };
 use crate::widgets::{
     BlocksFrameInput, Icon, button_icon, display, patch_node, set_text, size, spawn_wide_menu,
@@ -47,18 +47,8 @@ use crate::widgets::{
 use super::chrome::CHROME_GAP;
 
 /// A frame's chrome: its row of buttons, and the status under them.
-#[derive(Component, Clone)]
-pub struct PanelHeader {
-    pub panel: Entity,
-}
-
-impl Default for PanelHeader {
-    fn default() -> Self {
-        PanelHeader {
-            panel: Entity::PLACEHOLDER,
-        }
-    }
-}
+#[derive(Component, Clone, Default)]
+pub struct PanelHeader;
 
 /// The translucent panel a frame's status sits on, hidden while there is
 /// nothing to say.
@@ -172,18 +162,8 @@ impl Default for SourceChoice {
 /// Kept away from the header so that reading the tooltip never means reading
 /// over the dataset's name, and one entity rather than a box around a label
 /// because a `Text` is already a node and can carry its own background.
-#[derive(Component, Clone)]
-pub struct PanelTooltip {
-    pub panel: Entity,
-}
-
-impl Default for PanelTooltip {
-    fn default() -> Self {
-        PanelTooltip {
-            panel: Entity::PLACEHOLDER,
-        }
-    }
-}
+#[derive(Component, Clone, Default)]
+pub struct PanelTooltip;
 
 /// A status overlay bound to one panel. Bound by entity rather than by source
 /// so that duplicated panels each get their own and report their own zoom.
@@ -201,42 +181,21 @@ impl Default for PanelText {
     }
 }
 
-/// Keep one overlay per panel, and drop the overlays of panels that have gone
-/// away.
-pub fn sync_hud(
-    mut commands: Commands,
-    panels: Query<Entity, With<Panel>>,
-    headers: Query<(Entity, &PanelHeader)>,
-    tooltips: Query<(Entity, &PanelTooltip)>,
-    catalogs: Res<Catalogs>,
-) {
-    // The box owns the header row and the status, so despawning it takes the
-    // whole overlay with it. The tooltip sits in the opposite corner and is its
-    // own root, so it is cleaned up alongside.
-    for (entity, header) in &headers {
-        if panels.get(header.panel).is_err() {
-            commands.entity(entity).despawn();
-        }
-    }
-    for (entity, tooltip) in &tooltips {
-        if panels.get(tooltip.panel).is_err() {
-            commands.entity(entity).despawn();
-        }
-    }
-
-    for panel in &panels {
-        if headers.iter().any(|(_, header)| header.panel == panel) {
-            continue;
-        }
-        spawn_overlay(&mut commands, &catalogs, panel);
-        spawn_tooltip(&mut commands, panel);
-    }
+/// Give a frame its overlay and tooltip as it opens.
+///
+/// The box owns the header row and the status; the tooltip sits in the
+/// opposite corner and is its own root. Both are the frame's chrome, so both
+/// go with it.
+pub fn spawn_hud(add: On<Add<Panel>>, mut commands: Commands, catalogs: Res<Catalogs>) {
+    spawn_overlay(&mut commands, &catalogs, add.entity);
+    spawn_tooltip(&mut commands, add.entity);
 }
 
 /// Build one frame's tooltip, hidden until its source finds something.
 fn spawn_tooltip(commands: &mut Commands, panel: Entity) {
     commands.spawn_scene(bsn! {
-        PanelTooltip { panel: { panel } }
+        PanelTooltip
+        ~{ChromeOf(panel)}
         Text
         // Rewritten every frame, so it names the font itself rather than
         // coming through `widgets::text`. See that module.
@@ -263,7 +222,8 @@ fn spawn_tooltip(commands: &mut Commands, panel: Entity) {
 fn spawn_overlay(commands: &mut Commands, catalogs: &Catalogs, panel: Entity) {
     let root = commands
         .spawn_scene(bsn! {
-            PanelHeader { panel: { panel } }
+            PanelHeader
+            ~{ChromeOf(panel)}
             // Spans the cell's width, so it must let the pointer through to
             // the frame everywhere but on the buttons it holds.
             Pickable::IGNORE
@@ -378,11 +338,11 @@ fn spawn_overlay(commands: &mut Commands, catalogs: &Catalogs, panel: Entity) {
 pub fn position_hud(
     area: Res<crate::view::FrameArea>,
     panels: Query<&Panel>,
-    mut texts: Query<(&PanelHeader, &mut Node)>,
+    mut texts: Query<(&ChromeOf, &mut Node), With<PanelHeader>>,
 ) {
     let count = panels.iter().count();
-    for (text, node) in &mut texts {
-        let Ok(panel) = panels.get(text.panel) else {
+    for (frame, node) in &mut texts {
+        let Ok(panel) = panels.get(frame.0) else {
             continue;
         };
         let cell = area.cell(count, panel.index);
@@ -403,13 +363,13 @@ pub fn position_tooltips(
     ui_scale: Res<UiScale>,
     area: Res<crate::view::FrameArea>,
     panels: Query<&Panel>,
-    mut tooltips: Query<(&PanelTooltip, &mut Node)>,
+    mut tooltips: Query<(&ChromeOf, &mut Node), With<PanelTooltip>>,
 ) {
     let Ok(window) = windows.single() else { return };
     let window = crate::widgets::ui_size(window, &ui_scale);
     let count = panels.iter().count();
-    for (tooltip, node) in &mut tooltips {
-        let Ok(panel) = panels.get(tooltip.panel) else {
+    for (frame, node) in &mut tooltips {
+        let Ok(panel) = panels.get(frame.0) else {
             continue;
         };
         let cell = area.cell(count, panel.index);
@@ -433,17 +393,17 @@ pub fn update_tooltips(
     panels: Query<(&ShowsSource, Option<&FrameLayers>)>,
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     sources: Query<(&HoverInfo, &HoverProbe)>,
-    mut tooltips: Query<(&PanelTooltip, &mut Text, &mut Node)>,
+    mut tooltips: Query<(&ChromeOf, &mut Text, &mut Node), With<PanelTooltip>>,
 ) {
-    for (tooltip, text, node) in &mut tooltips {
+    for (frame, text, node) in &mut tooltips {
         let found: Vec<String> = panels
-            .get(tooltip.panel)
+            .get(frame.0)
             .map(|(shows, layers)| stacked_sources(shows, layers, &layer_cameras))
             .unwrap_or_default()
             .into_iter()
             .rev()
             .filter_map(|source| sources.get(source).ok())
-            .filter(|(info, probe)| probe.panel == tooltip.panel && !info.is_empty())
+            .filter(|(info, probe)| probe.panel == frame.0 && !info.is_empty())
             .map(|(info, _)| info.lines())
             .collect();
 
@@ -464,7 +424,7 @@ pub fn update_hud(
     tables: Query<(), With<SourceTable>>,
     mut texts: Query<(&mut Text, &PanelText)>,
     titles: Query<(Entity, &ChildOf), With<PanelTitle>>,
-    headers: Query<&PanelHeader>,
+    headers: Query<&ChromeOf, With<PanelHeader>>,
     parents: Query<&ChildOf>,
     mut title_texts: Query<&mut Text, Without<PanelText>>,
 ) {
@@ -506,7 +466,7 @@ pub fn update_hud(
         let Some(panel) = parents
             .iter_ancestors(entity)
             .find_map(|ancestor| headers.get(ancestor).ok())
-            .map(|header| header.panel)
+            .map(|frame| frame.0)
         else {
             continue;
         };
@@ -837,7 +797,7 @@ impl Plugin for OverlayPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(super::dataset_menu::on_search_key)
             .add_observer(super::dataset_menu::fill_dataset_popup)
-            .add_systems(Update, sync_hud.in_set(Stage::FrameChrome))
+            .add_observer(spawn_hud)
             .add_systems(
                 Update,
                 (

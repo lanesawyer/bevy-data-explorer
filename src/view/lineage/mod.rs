@@ -35,7 +35,7 @@ use crate::widgets::{
 
 use super::overlay::PanelHeader;
 use super::table::{TABLE_Z, chrome_depth};
-use super::{DatasetRequest, DatasetTarget, FrameArea, Panel, SelectedPanel};
+use super::{ChromeOf, DatasetRequest, DatasetTarget, FrameArea, Panel, SelectedPanel};
 
 mod layout;
 mod links;
@@ -174,6 +174,7 @@ fn spawn_lineage(commands: &mut Commands, panel: Entity, source: Entity) {
                 centered: false,
                 dragging: false,
             },
+            ChromeOf(panel),
             // It covers the whole cell, so it stops the pointer reaching the
             // frame behind it, as a table does.
             BlocksFrameInput,
@@ -529,7 +530,7 @@ pub fn place_lineages(
     area: Res<FrameArea>,
     panels: Query<&Panel>,
     mut views: Query<(Entity, &mut LineageView)>,
-    headers: Query<(&PanelHeader, &ComputedNode)>,
+    headers: Query<(&ChromeOf, &ComputedNode), With<PanelHeader>>,
     mut nodes: Query<&mut Node>,
     mut transforms: Query<&mut UiTransform>,
 ) {

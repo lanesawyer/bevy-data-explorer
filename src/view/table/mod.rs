@@ -58,7 +58,7 @@ use crate::widgets::{
 use super::chrome::{BUTTON_PX, CHROME_GAP};
 use super::overlay::CHROME_INSET;
 use super::overlay::PanelHeader;
-use super::{FrameArea, Panel, PanelRequest, SelectedPanel};
+use super::{ChromeOf, FrameArea, Panel, PanelRequest, SelectedPanel};
 
 mod copy;
 mod headings;
@@ -332,6 +332,7 @@ fn spawn_table(commands: &mut Commands, panel: Entity, source: Entity, layout: L
                 live: HashMap::new(),
                 picked: None,
             },
+            ChromeOf(panel),
             // It covers the whole cell, so it has to stop the pointer reaching
             // the frame behind it — there is nothing there to pan over.
             BlocksFrameInput,
@@ -382,7 +383,7 @@ pub fn place_tables(
     panels: Query<&Panel>,
     views: Query<(Entity, &TableView)>,
     positions: Query<&ScrollPosition>,
-    headers: Query<(&PanelHeader, &ComputedNode)>,
+    headers: Query<(&ChromeOf, &ComputedNode), With<PanelHeader>>,
     mut nodes: Query<&mut Node>,
 ) {
     let count = panels.iter().count();
@@ -417,10 +418,13 @@ pub fn place_tables(
 ///
 /// Measured rather than assumed, because the header is as tall as the status
 /// it is reporting — two lines for one dataset and three for another.
-pub(super) fn chrome_depth(headers: &Query<(&PanelHeader, &ComputedNode)>, panel: Entity) -> f32 {
+pub(super) fn chrome_depth(
+    headers: &Query<(&ChromeOf, &ComputedNode), With<PanelHeader>>,
+    panel: Entity,
+) -> f32 {
     let header = headers
         .iter()
-        .find(|(header, _)| header.panel == panel)
+        .find(|(frame, _)| frame.0 == panel)
         .map_or(0.0, |(_, computed)| {
             computed.size().y * computed.inverse_scale_factor
         });

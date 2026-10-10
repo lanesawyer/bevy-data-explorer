@@ -18,6 +18,10 @@ when something has already gone wrong.
   `src/ui/` and its own plugin.
 - **A panel hung from a window edge** is a dock (step 5).
 - **Something drawn per frame over the grid** is frame chrome (`src/view/`).
+  Spawn it from an `On<Add<Panel>>` observer carrying `ChromeOf(panel)`: the
+  relationship despawns it with the frame and lists it in the frame's
+  `FrameChrome`, so nothing has to look each frame for frames that gained or
+  lost one. Its placement system reads the frame through `ChromeOf`.
 - **A generic control used by both `view` and `ui`** goes in `src/widgets/`.
   `widgets` must not import `ui`.
 
@@ -171,7 +175,7 @@ against another module's system:
 | spawn or despawn to match what's shown | `ControlsBuild` |
 | position, sync values, show or hide | `ControlsPlace` |
 | write through to the source | `ControlsApply` |
-| per-frame chrome spawned or despawned | `FrameChrome` |
+| per-frame chrome that follows the shown source (a table, a lineage) | `FrameChrome` |
 | per-frame chrome placed | `Chrome` |
 | read-only overlay text or tooltips | `Overlay` |
 

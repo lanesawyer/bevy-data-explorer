@@ -22,7 +22,7 @@ use crate::source::{DataSource, ShowsSource, meters_per};
 use crate::widgets::{patch_node, set_text, size, space};
 
 use super::overlay::CHROME_INSET;
-use super::{FrameArea, Panel};
+use super::{ChromeOf, FrameArea, Panel};
 
 /// The most of a frame's width the bar may take.
 const MAX_FRACTION: f32 = 0.25;
@@ -31,18 +31,8 @@ const MAX_FRACTION: f32 = 0.25;
 const BAR_PX: f32 = 3.0;
 
 /// One frame's scale bar: a label over a bar, on the overlay's backing.
-#[derive(Component, Clone)]
-pub struct ScaleBar {
-    panel: Entity,
-}
-
-impl Default for ScaleBar {
-    fn default() -> Self {
-        ScaleBar {
-            panel: Entity::PLACEHOLDER,
-        }
-    }
-}
+#[derive(Component, Clone, Default)]
+pub struct ScaleBar;
 
 #[derive(Component, Clone, Default)]
 struct ScaleBarLabel;
@@ -78,27 +68,12 @@ fn label(meters: f64) -> String {
     format!("{} {symbol}", value.round())
 }
 
-/// Keep one scale bar per frame, and drop those whose frame has gone.
-fn sync_scale_bars(
-    mut commands: Commands,
-    panels: Query<Entity, With<Panel>>,
-    bars: Query<(Entity, &ScaleBar)>,
-) {
-    for (entity, bar) in &bars {
-        if panels.get(bar.panel).is_err() {
-            commands.entity(entity).despawn();
-        }
-    }
-    for panel in &panels {
-        if !bars.iter().any(|(_, bar)| bar.panel == panel) {
-            spawn_scale_bar(&mut commands, panel);
-        }
-    }
-}
-
-fn spawn_scale_bar(commands: &mut Commands, panel: Entity) {
+/// Give a frame its scale bar as it opens.
+fn spawn_scale_bar(add: On<Add<Panel>>, mut commands: Commands) {
+    let panel = add.entity;
     commands.spawn_scene(bsn! {
-        ScaleBar { panel: { panel } }
+        ScaleBar
+        ~{ChromeOf(panel)}
         Node {
             position_type: { PositionType::Absolute },
             display: { Display::None },
@@ -147,16 +122,16 @@ fn update_scale_bars(
     frames: Query<(), With<Panel>>,
     sources: Query<&DataSource>,
     tables: Query<(), With<SourceTable>>,
-    mut bars: Query<(&ScaleBar, &Children, &mut Node)>,
+    mut bars: Query<(&ChromeOf, &Children, &mut Node), With<ScaleBar>>,
     mut labels: Query<&mut Text, With<ScaleBarLabel>>,
     mut rules: Query<&mut Node, (With<ScaleBarRule>, Without<ScaleBar>)>,
 ) {
     let Ok(window) = windows.single() else { return };
     let window = crate::widgets::ui_size(window, &ui_scale);
     let count = frames.iter().count();
-    for (bar, children, node) in &mut bars {
+    for (frame, children, node) in &mut bars {
         let shown = panels
-            .get(bar.panel)
+            .get(frame.0)
             .ok()
             .filter(|(_, _, _, shows)| !tables.contains(shows.0))
             .and_then(|(panel, camera, projection, shows)| {
@@ -198,7 +173,7 @@ pub struct ScaleBarPlugin;
 
 impl Plugin for ScaleBarPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, sync_scale_bars.in_set(Stage::FrameChrome))
+        app.add_observer(spawn_scale_bar)
             .add_systems(Update, update_scale_bars.in_set(Stage::Overlay));
     }
 }

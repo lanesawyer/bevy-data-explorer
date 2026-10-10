@@ -21,7 +21,9 @@ use bevy_ui_widgets::Activate;
 
 use super::dataset_menu::{PickerTarget, spawn_dataset_browser};
 use super::overlay::PanelHeader;
-use super::{Browsing, FrameArea, MAX_PANELS, Panel, PanelRequest, PendingShow, ShowFailed};
+use super::{
+    Browsing, ChromeOf, FrameArea, MAX_PANELS, Panel, PanelRequest, PendingShow, ShowFailed,
+};
 use crate::app::schedule::Stage;
 use crate::app::theme::token;
 use crate::catalog::Catalogs;
@@ -237,10 +239,10 @@ pub fn place_browse_panes(
 /// Hide the header of a browsing frame, which the browser stands in for.
 pub fn hide_browsing_headers(
     panels: Query<Has<Browsing>, With<Panel>>,
-    mut headers: Query<(&PanelHeader, &mut Node)>,
+    mut headers: Query<(&ChromeOf, &mut Node), With<PanelHeader>>,
 ) {
-    for (header, node) in &mut headers {
-        let browsing = panels.get(header.panel).unwrap_or(false);
+    for (frame, node) in &mut headers {
+        let browsing = panels.get(frame.0).unwrap_or(false);
         let wanted = if browsing {
             Display::None
         } else {

@@ -12,7 +12,7 @@ use crate::app::theme::token;
 use crate::source::{ShowsSource, SourceBusy};
 use crate::view::chrome::SELECTION_PX;
 use crate::view::layers::stacked_sources;
-use crate::view::{FrameArea, FrameLayers, LayerOf, Panel, PendingShow, SelectedPanel};
+use crate::view::{ChromeOf, FrameArea, FrameLayers, LayerOf, Panel, PendingShow, SelectedPanel};
 use crate::widgets::patch_node;
 
 const HEIGHT_PX: f32 = 3.0;
@@ -27,7 +27,6 @@ const LINGER_SECS: f32 = 0.3;
 /// One frame's loading bar.
 #[derive(Component, Clone)]
 pub struct LoadingBar {
-    pub panel: Entity,
     /// Seconds since anything in the frame was last fetching.
     idle_for: f32,
 }
@@ -35,7 +34,6 @@ pub struct LoadingBar {
 impl Default for LoadingBar {
     fn default() -> Self {
         LoadingBar {
-            panel: Entity::PLACEHOLDER,
             // Starts out as long idle, so a frame over a source with nothing
             // to fetch never shows the bar at all.
             idle_for: LINGER_SECS,
@@ -47,41 +45,31 @@ impl Default for LoadingBar {
 #[derive(Component, Clone, Default)]
 pub struct LoadingSweep;
 
-/// Keep one loading bar per frame, and drop those of frames that have gone.
-pub fn sync_loading_bars(
-    mut commands: Commands,
-    panels: Query<Entity, With<Panel>>,
-    bars: Query<(Entity, &LoadingBar)>,
-) {
-    for (entity, bar) in &bars {
-        if panels.get(bar.panel).is_err() {
-            commands.entity(entity).despawn();
-        }
-    }
-    for panel in &panels {
-        if bars.iter().any(|(_, bar)| bar.panel == panel) {
-            continue;
-        }
-        commands.spawn_scene(bsn! {
-                    LoadingBar { panel: { panel } }
-                    Node {
-                        position_type: { PositionType::Absolute },
-                        display: { Display::None },
-                        height: { Val::Px(HEIGHT_PX) },
-                        overflow: { Overflow::clip() },
-                    }
-                    // Decoration along the frame's edge, like the outline under it.
-                    Pickable::IGNORE
-                    Children [LoadingSweep
+/// Give a frame its loading bar as it opens.
+pub fn spawn_loading_bar(add: On<Add<Panel>>, mut commands: Commands) {
+    let panel = add.entity;
+    commands.spawn_scene(bsn! {
+        LoadingBar
+        ~{ChromeOf(panel)}
         Node {
             position_type: { PositionType::Absolute },
-            width: { Val::Percent(SWEEP_PERCENT) },
-            height: { Val::Percent(100.0) },
+            display: { Display::None },
+            height: { Val::Px(HEIGHT_PX) },
+            overflow: { Overflow::clip() },
         }
-        ThemeBackgroundColor({ token::LOADING })
-        Pickable::IGNORE]
-                });
-    }
+        // Decoration along the frame's edge, like the outline under it.
+        Pickable::IGNORE
+        Children [
+            LoadingSweep
+            Node {
+                position_type: { PositionType::Absolute },
+                width: { Val::Percent(SWEEP_PERCENT) },
+                height: { Val::Percent(100.0) },
+            }
+            ThemeBackgroundColor({ token::LOADING })
+            Pickable::IGNORE
+        ]
+    });
 }
 
 /// Show each frame's bar while any source in its stack is fetching, or while
@@ -98,13 +86,13 @@ pub fn update_loading_bars(
     )>,
     layer_cameras: Query<&ShowsSource, With<LayerOf>>,
     busy: Query<&SourceBusy>,
-    mut bars: Query<(&mut LoadingBar, &mut Node)>,
+    mut bars: Query<(&mut LoadingBar, &ChromeOf, &mut Node)>,
     mut sweeps: Query<&mut Node, (With<LoadingSweep>, Without<LoadingBar>)>,
 ) {
     let count = panels.iter().count();
     let mut any_shown = false;
-    for (mut bar, node) in &mut bars {
-        let Ok((panel, shows, layers, pending)) = panels.get(bar.panel) else {
+    for (mut bar, frame, node) in &mut bars {
+        let Ok((panel, shows, layers, pending)) = panels.get(frame.0) else {
             continue;
         };
         // An empty frame has nothing streaming, only what it is waiting on.
@@ -129,7 +117,7 @@ pub fn update_loading_bars(
         // Inside the selection outline where there is one, rather than over
         // it; flush with the edge everywhere else, where an inset would leave
         // a sliver of the frame showing above the bar.
-        let inset = if outlined(count, selected.0 == Some(bar.panel)) {
+        let inset = if outlined(count, selected.0 == Some(frame.0)) {
             SELECTION_PX
         } else {
             0.0

@@ -35,7 +35,7 @@ use crate::source::region::RegionProbe;
 use crate::widgets::{BlocksFrameInput, Icon, button_icon, patch_node, set_display};
 
 use super::grid::{panel_under_cursor, within_frames};
-use super::{FrameArea, Panel};
+use super::{ChromeOf, FrameArea, Panel};
 
 /// Width of the rectangle's outline, in logical pixels.
 const OUTLINE_PX: f32 = 1.0;
@@ -327,49 +327,27 @@ pub fn probe_region(
 }
 
 /// The outline drawn round a frame's selection.
-#[derive(Component, Clone)]
-pub struct RegionOutline {
-    panel: Entity,
-}
+#[derive(Component, Clone, Default)]
+pub struct RegionOutline;
 
-impl Default for RegionOutline {
-    fn default() -> Self {
-        RegionOutline {
-            panel: Entity::PLACEHOLDER,
+/// Give a frame the outline its selection will be drawn with, as it opens.
+pub fn spawn_region_outline(add: On<Add<Panel>>, mut commands: Commands) {
+    let panel = add.entity;
+    commands.spawn_scene(bsn! {
+        RegionOutline
+        ~{ChromeOf(panel)}
+        // Decoration, like the frame's own selection border: a rectangle
+        // that swallowed the pointer would stop the drag still sizing it.
+        Pickable::IGNORE
+        Node {
+            position_type: { PositionType::Absolute },
+            border: { UiRect::all(Val::Px(OUTLINE_PX)) },
+            display: { Display::None },
         }
-    }
-}
-
-/// Keep one outline per frame, and drop those of frames that have gone away.
-pub fn sync_region_outlines(
-    mut commands: Commands,
-    panels: Query<Entity, With<Panel>>,
-    outlines: Query<(Entity, &RegionOutline)>,
-) {
-    for (entity, outline) in &outlines {
-        if panels.get(outline.panel).is_err() {
-            commands.entity(entity).despawn();
-        }
-    }
-    for panel in &panels {
-        if outlines.iter().any(|(_, o)| o.panel == panel) {
-            continue;
-        }
-        commands.spawn_scene(bsn! {
-            RegionOutline { panel: { panel } }
-            // Decoration, like the frame's own selection border: a rectangle
-            // that swallowed the pointer would stop the drag still sizing it.
-            Pickable::IGNORE
-            Node {
-                position_type: { PositionType::Absolute },
-                border: { UiRect::all(Val::Px(OUTLINE_PX)) },
-                display: { Display::None },
-            }
-            GlobalZIndex({ REGION_Z })
-            ThemeBorderColor({ token::SELECTION })
-            ThemeBackgroundColor({ token::OVERLAY_BG })
-        });
-    }
+        GlobalZIndex({ REGION_Z })
+        ThemeBorderColor({ token::SELECTION })
+        ThemeBackgroundColor({ token::OVERLAY_BG })
+    });
 }
 
 /// Put each outline over the rectangle its frame is showing, clipped to that
@@ -382,11 +360,11 @@ pub fn place_region_outlines(
     area: Res<FrameArea>,
     ui_scale: Res<UiScale>,
     panels: Query<(&Panel, &Camera, &GlobalTransform, Option<&FrameRegion>)>,
-    mut outlines: Query<(&RegionOutline, &mut Node)>,
+    mut outlines: Query<(&ChromeOf, &mut Node), With<RegionOutline>>,
 ) {
     let count = panels.iter().count();
-    for (outline, node) in &mut outlines {
-        let Ok((panel, camera, global, region)) = panels.get(outline.panel) else {
+    for (frame, node) in &mut outlines {
+        let Ok((panel, camera, global, region)) = panels.get(frame.0) else {
             continue;
         };
         let Some(region) = region else {
