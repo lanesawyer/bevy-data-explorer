@@ -354,9 +354,7 @@ mod tests {
         world.init_resource::<OverrideCursor>();
         let held = |world: &World| world.resource::<OverrideCursor>().0.clone();
 
-        let handle = world
-            .spawn(HoldsCursor(SystemCursorIcon::ColResize))
-            .id();
+        let handle = world.spawn(HoldsCursor(SystemCursorIcon::ColResize)).id();
         assert_eq!(
             held(&world),
             Some(EntityCursor::System(SystemCursorIcon::ColResize))
@@ -364,7 +362,9 @@ mod tests {
         world.entity_mut(handle).remove::<HoldsCursor>();
         assert_eq!(held(&world), None);
 
-        world.spawn(HoldsCursor(SystemCursorIcon::Grabbing)).despawn();
+        world
+            .spawn(HoldsCursor(SystemCursorIcon::Grabbing))
+            .despawn();
         assert_eq!(held(&world), None, "a control rebuilt mid-drag lets go");
     }
 

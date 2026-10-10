@@ -9,6 +9,10 @@
 //! since Feathers has no container that collapses. Anything drawn on a
 //! section therefore names a Feathers token and not a color, so the light
 //! theme turns it over along with everything else.
+//!
+//! The caret is drawn rather than Feathers' disclosure toggle: that is a
+//! checkbox with a tab stop and a press of its own, and inside the header's
+//! button it would take the presses meant for the section.
 
 use bevy::app::Propagate;
 use bevy::prelude::*;
@@ -53,38 +57,20 @@ pub struct Accordion {
     pub open: bool,
 }
 
-/// The clickable header of an accordion, pointing back at its section.
-#[derive(Component, Clone)]
-pub struct AccordionHeader {
-    pub accordion: Entity,
+/// The entities an accordion keeps in step with whether it is open.
+#[derive(Component)]
+pub(super) struct AccordionPieces {
+    /// The header's container, which also holds any controls added to it.
+    header: Entity,
+    /// The button filling the header that opens and closes the section.
+    toggle: Entity,
+    outline: Entity,
+    body: Entity,
 }
 
-impl Default for AccordionHeader {
-    fn default() -> Self {
-        AccordionHeader {
-            accordion: Entity::PLACEHOLDER,
-        }
-    }
-}
-
-/// The part of an accordion that is hidden when it is closed.
-#[derive(Component, Clone)]
-pub struct AccordionBody {
-    pub accordion: Entity,
-}
-
-impl Default for AccordionBody {
-    fn default() -> Self {
-        AccordionBody {
-            accordion: Entity::PLACEHOLDER,
-        }
-    }
-}
-
-/// The border drawn over a header, rounded to match it as the section opens and
-/// closes.
+/// An accordion's header row, which pads its end once controls are added.
 #[derive(Component, Clone, Default)]
-pub struct AccordionOutline;
+pub(super) struct AccordionHeaderRow;
 
 /// The caret drawn in a header, which turns as the section opens.
 #[derive(Component, Clone, Default)]
@@ -122,48 +108,28 @@ pub fn spawn_accordion(
         })
         .id();
 
-    // The two containers differ only in their tokens, but a scene is a type
-    // rather than a value, so each level spawns its own. What is patched over
-    // them is the same:
-    //
-    // - No border or padding, so the toggle fills the header and its hover
-    //   reaches every edge. `update_accordions` makes room at the end once a
-    //   control is added there. The border is drawn over the toggle instead,
-    //   by an outline spawned after it: a toggle inside a border was placed
-    //   in whole physical pixels while the border was not, and at a
-    //   fractional scale factor the hover stopped a pixel short of it on the
-    //   right and bottom.
-    // - A clip, so a long title cannot push those controls out.
-    let header = match level {
-        SectionLevel::Pane => commands
-            .spawn_scene(bsn! {
-                @pane_header()
-                Node {
-                    width: { Val::Percent(100.0) },
-                    padding: { UiRect::ZERO },
-                    column_gap: { Val::Px(space::CONTROLS) },
-                    border: { UiRect::ZERO },
-                    border_radius: { header_corners(open).to_border_radius(CORNER_PX) },
-                    overflow: { Overflow::clip() },
-                }
-                InheritableFont { font_size: { TITLE_FONT } }
-            })
-            .id(),
-        SectionLevel::Group => commands
-            .spawn_scene(bsn! {
-                @group_header()
-                Node {
-                    width: { Val::Percent(100.0) },
-                    padding: { UiRect::ZERO },
-                    column_gap: { Val::Px(space::CONTROLS) },
-                    border: { UiRect::ZERO },
-                    border_radius: { header_corners(open).to_border_radius(CORNER_PX) },
-                    overflow: { Overflow::clip() },
-                }
-                InheritableFont { font_size: { TITLE_FONT } }
-            })
-            .id(),
-    };
+    // No border or padding, so the toggle fills the header and its hover
+    // reaches every edge. `pad_accordion_headers` makes room at the end once a
+    // control is added there. The border is drawn over the toggle instead, by
+    // an outline spawned after it: a toggle inside a border was placed in
+    // whole physical pixels while the border was not, and at a fractional
+    // scale factor the hover stopped a pixel short of it on the right and
+    // bottom. A clip, so a long title cannot push those controls out.
+    let header = commands
+        .spawn_scene(bsn! {
+            @{header_container(level)}
+            AccordionHeaderRow
+            Node {
+                width: { Val::Percent(100.0) },
+                padding: { UiRect::ZERO },
+                column_gap: { Val::Px(space::CONTROLS) },
+                border: { UiRect::ZERO },
+                border_radius: { header_corners(open).to_border_radius(CORNER_PX) },
+                overflow: { Overflow::clip() },
+            }
+            InheritableFont { font_size: { TITLE_FONT } }
+        })
+        .id();
 
     let toggle = commands
         .spawn_scene(bsn! {
@@ -173,7 +139,11 @@ pub fn spawn_accordion(
                 @variant: { ButtonVariant::Plain }
             }
             BlocksFrameInput
-            AccordionHeader { accordion: { accordion } }
+            on(move |_: On<Activate>, mut accordions: Query<&mut Accordion>| {
+                if let Ok(mut section) = accordions.get_mut(accordion) {
+                    section.open = !section.open;
+                }
+            })
             Node {
                 flex_grow: { 1.0_f32 },
                 // A long property name must not push the header's buttons out
@@ -219,7 +189,6 @@ pub fn spawn_accordion(
     };
     let outline = commands
         .spawn_scene(bsn! {
-            AccordionOutline
             Node {
                 position_type: { PositionType::Absolute },
                 left: { Val::Px(0.0) },
@@ -235,29 +204,22 @@ pub fn spawn_accordion(
         .id();
     commands.entity(header).add_children(&[toggle, outline]);
 
-    let body = match level {
-        SectionLevel::Pane => {
-            commands.spawn_scene(bsn! {
-                @pane_body()
-                @{body_patch(accordion, open)}
-                // Feathers' pane body has no border of its own, which left an
-                // open pane's box without sides or a bottom under its header.
-                ThemeBorderColor({ tokens::PANE_HEADER_BORDER })
-                // The surface the controls inside are drawn against, so
-                // Feathers can lift them off it; its own subpane says the
-                // same of its body.
-                Propagate::<ThemeContext>(ThemeContext(SurfaceLevel::Higher))
-            })
-        }
-        SectionLevel::Group => commands.spawn_scene(bsn! {
-            @group_body()
-            @{body_patch(accordion, open)}
-            Propagate::<ThemeContext>(ThemeContext(SurfaceLevel::Highest))
-        }),
-    }
-    .id();
+    let body = commands
+        .spawn_scene(bsn! {
+            @{body_container(level)}
+            @{body_patch(open)}
+        })
+        .id();
 
-    commands.entity(accordion).add_children(&[header, body]);
+    commands
+        .entity(accordion)
+        .add_children(&[header, body])
+        .insert(AccordionPieces {
+            header,
+            toggle,
+            outline,
+            body,
+        });
     AccordionParts {
         section: accordion,
         body,
@@ -310,11 +272,10 @@ pub fn truncate_accordion_titles(
 
 /// What every accordion body patches over its container, whichever it is: the
 /// indent the sidebar's contents are read against, and the state to start in.
-fn body_patch(accordion: Entity, open: bool) -> impl Scene {
+fn body_patch(open: bool) -> impl Scene {
     bsn! {
-        AccordionBody { accordion: { accordion } }
         Node {
-            // Set here rather than left for `update_accordions` to correct:
+            // Set here rather than left for `sync_accordions` to correct:
             // that runs a frame later, and a section spawned closed would
             // draw its contents once before being hidden.
             display: { display(open) },
@@ -328,6 +289,35 @@ fn body_patch(accordion: Entity, open: bool) -> impl Scene {
                 Val::Px(space::CONTROL_INSET),
             ) },
         }
+    }
+}
+
+/// The Feathers container a header is drawn as at `level`.
+///
+/// The two differ only in their tokens, but each is a scene type of its own,
+/// so the choice is boxed for the one spawn that patches over either.
+fn header_container(level: SectionLevel) -> Box<dyn Scene> {
+    match level {
+        SectionLevel::Pane => Box::new(bsn! { @pane_header() }),
+        SectionLevel::Group => Box::new(bsn! { @group_header() }),
+    }
+}
+
+/// The Feathers container a body is drawn as at `level`, and the surface the
+/// controls inside it are drawn against, so Feathers can lift them off it.
+fn body_container(level: SectionLevel) -> Box<dyn Scene> {
+    match level {
+        SectionLevel::Pane => Box::new(bsn! {
+            @pane_body()
+            // Feathers' pane body has no border of its own, which left an
+            // open pane's box without sides or a bottom under its header.
+            ThemeBorderColor({ tokens::PANE_HEADER_BORDER })
+            Propagate::<ThemeContext>(ThemeContext(SurfaceLevel::Higher))
+        }),
+        SectionLevel::Group => Box::new(bsn! {
+            @group_body()
+            Propagate::<ThemeContext>(ThemeContext(SurfaceLevel::Highest))
+        }),
     }
 }
 
@@ -360,73 +350,47 @@ fn caret(open: bool) -> Icon {
     }
 }
 
-/// Toggle a section when its header is clicked.
-pub fn toggle_accordions(
-    activate: On<Activate>,
-    headers: Query<&AccordionHeader>,
-    mut accordions: Query<&mut Accordion>,
-) {
-    let Ok(header) = headers.get(activate.entity) else {
-        return;
-    };
-    if let Ok(mut accordion) = accordions.get_mut(header.accordion) {
-        accordion.open = !accordion.open;
-    }
-}
-
-/// Show or hide bodies, round the headers, and turn the carets, to match each
-/// section's state.
-pub fn update_accordions(
-    accordions: Query<&Accordion>,
-    mut bodies: Query<(&AccordionBody, &mut Node)>,
-    headers: Query<(Entity, &AccordionHeader, &ChildOf, &Children)>,
-    siblings: Query<&Children, Without<AccordionHeader>>,
-    outlines: Query<(), With<AccordionOutline>>,
-    mut containers: Query<&mut Node, Without<AccordionBody>>,
-    carets: Query<Entity, With<AccordionCaret>>,
+/// Show or hide a section's body, round its header, and turn its caret, as
+/// it opens or closes.
+pub(super) fn sync_accordions(
+    accordions: Query<(&Accordion, &AccordionPieces), Changed<Accordion>>,
+    children: Query<&Children>,
+    carets: Query<(), With<AccordionCaret>>,
+    mut nodes: Query<&mut Node>,
     mut texts: Query<&mut Text>,
 ) {
-    for (body, node) in &mut bodies {
-        let open = accordions.get(body.accordion).is_ok_and(|a| a.open);
-        let wanted = display(open);
-        patch_node(node, |node| node.display = wanted);
-    }
-
-    for (toggle, header, parent, children) in &headers {
-        let open = accordions.get(header.accordion).is_ok_and(|a| a.open);
+    for (accordion, pieces) in &accordions {
+        let open = accordion.open;
+        if let Ok(node) = nodes.get_mut(pieces.body) {
+            patch_node(node, |node| node.display = display(open));
+        }
         // The container, the toggle filling it and the outline over both all
         // round the same corners; a closed section has no body under it to
         // finish the box.
         let corners = header_corners(open).to_border_radius(CORNER_PX);
-        let beside = siblings.get(parent.parent()).ok();
-        let outline = beside.and_then(|c| c.iter().find(|e| outlines.contains(*e)));
-        for entity in [Some(parent.parent()), Some(toggle), outline]
-            .into_iter()
-            .flatten()
-        {
-            if let Ok(mut node) = containers.get_mut(entity)
-                && node.border_radius != corners
+        for entity in [pieces.header, pieces.toggle, pieces.outline] {
+            if let Ok(node) = nodes.get_mut(entity) {
+                patch_node(node, |node| node.border_radius = corners);
+            }
+        }
+        for child in children.get(pieces.toggle).into_iter().flatten() {
+            if carets.contains(*child)
+                && let Ok(text) = texts.get_mut(*child)
             {
-                node.border_radius = corners;
+                set_text(text, caret(open).glyph());
             }
         }
+    }
+}
+
+/// Make room at the end of a header once a control is added beside its title.
+pub(super) fn pad_accordion_headers(
+    mut headers: Query<(&mut Node, &Children), (With<AccordionHeaderRow>, Changed<Children>)>,
+) {
+    for (node, children) in &mut headers {
         // Everything in the header but the toggle and its outline is a control.
-        let controls = beside.map_or(0, |c| c.len().saturating_sub(2));
-        if let Ok(mut node) = containers.get_mut(parent.parent()) {
-            let wanted = header_padding(controls);
-            if node.padding != wanted {
-                node.padding = wanted;
-            }
-        }
-        for child in children.iter() {
-            if carets.get(child).is_err() {
-                continue;
-            }
-            if let Ok(text) = texts.get_mut(child) {
-                let wanted = caret(open).glyph();
-                set_text(text, wanted);
-            }
-        }
+        let wanted = header_padding(children.len().saturating_sub(2));
+        patch_node(node, |node| node.padding = wanted);
     }
 }
 

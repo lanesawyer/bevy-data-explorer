@@ -87,7 +87,6 @@ impl Plugin for WidgetsPlugin {
             // Feathers' slider reports a value change but leaves writing it
             // back to the app; this observer is what closes that loop.
             .add_observer(bevy_ui_widgets::slider_self_update)
-            .add_observer(accordion::toggle_accordions)
             .add_observer(dock::start_dock_drag)
             .add_observer(dock::end_dock_drag)
             .add_plugins(modal::ModalPlugin)
@@ -104,7 +103,8 @@ impl Plugin for WidgetsPlugin {
             .add_systems(
                 Update,
                 (
-                    accordion::update_accordions,
+                    accordion::sync_accordions,
+                    accordion::pad_accordion_headers,
                     accordion::truncate_accordion_titles,
                     scrollbar::show_scrollbars,
                     search::sync_search_hints,
