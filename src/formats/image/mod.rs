@@ -333,7 +333,7 @@ pub fn collect_tile_tasks(
                 // It did no work, and forgetting it lets it be requested again
                 // if the view comes back.
                 TileOutcome::Canceled => {
-                    streamer.tiles.forget(key);
+                    streamer.tiles.gave_up();
                     continue;
                 }
                 TileOutcome::Ready(pixels) => {

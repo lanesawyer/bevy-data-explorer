@@ -15,6 +15,7 @@ use std::hash::Hash;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 
+use super::reads::Reads;
 use crate::app::net::Fetching;
 use crate::source::ShowsSource;
 
@@ -163,8 +164,7 @@ fn request_order<K: Copy>(visible: &[K], prefetch: &[K], resolved: impl Fn(&K) -
     wanted
 }
 
-pub enum SlotState<O, M> {
-    Loading(Fetching<O>),
+pub enum SlotState<M> {
     Ready {
         entity: Entity,
         /// Texture footprint, used to keep the cache inside its budget.
@@ -178,8 +178,8 @@ pub enum SlotState<O, M> {
     Failed,
 }
 
-struct Slot<O, M> {
-    state: SlotState<O, M>,
+struct Slot<M> {
+    state: SlotState<M>,
     /// Frame on which this tile was last part of the wanted set. Drives
     /// eviction order.
     last_wanted: u64,
@@ -191,7 +191,9 @@ struct Slot<O, M> {
 /// `O` is what a read produces and `M` what a resident tile keeps beside its
 /// entity.
 pub struct TileCache<K, O, M = ()> {
-    slots: HashMap<K, Slot<O, M>>,
+    /// Tiles that have landed, as whatever they came to.
+    slots: HashMap<K, Slot<M>>,
+    reads: Reads<K, O>,
     /// Tiles to request, in order: visible ones, then prefetch once idle.
     wanted: Vec<K>,
     /// Tiles worth keeping resident whether or not they are being requested:
@@ -199,13 +201,9 @@ pub struct TileCache<K, O, M = ()> {
     retained: HashSet<K>,
     /// Frame counter driving least-recently-wanted eviction.
     frame: u64,
-    in_flight: usize,
     /// Texture memory currently held by resident tiles.
     resident_bytes: usize,
     pub budget_bytes: usize,
-    /// Reads given up on because the view moved off them, for the status line:
-    /// it is the number that says whether panning is costing anything.
-    canceled: usize,
     /// Tiles of what was shown before, kept on screen until what replaced it
     /// covers the frames, so paging never flashes the frame empty.
     retired: Vec<Entity>,
@@ -218,13 +216,12 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
     pub fn new(budget_bytes: usize) -> Self {
         TileCache {
             slots: HashMap::new(),
+            reads: Reads::new(MAX_IN_FLIGHT),
             wanted: Vec::new(),
             retained: HashSet::new(),
             frame: 0,
-            in_flight: 0,
             resident_bytes: 0,
             budget_bytes,
-            canceled: 0,
             retired: Vec::new(),
             covered: true,
         }
@@ -249,11 +246,7 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
                 slot.last_wanted = self.frame;
             }
         }
-        let resolved = |key: &K| {
-            self.slots
-                .get(key)
-                .is_some_and(|slot| !matches!(slot.state, SlotState::Loading(_)))
-        };
+        let resolved = |key: &K| self.slots.contains_key(key);
         self.covered = visible.order.iter().all(resolved);
         let ahead: &[K] = if may_read_ahead { &prefetch.order } else { &[] };
         self.wanted = request_order(&visible.order, ahead, resolved);
@@ -267,43 +260,19 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
 
     /// Start a read for each wanted tile not held yet, in order, until
     /// [`MAX_IN_FLIGHT`] are under way.
-    pub fn start(&mut self, mut read: impl FnMut(K) -> Fetching<O>) {
-        for index in 0..self.wanted.len() {
-            if self.in_flight >= MAX_IN_FLIGHT {
-                break;
-            }
-            let key = self.wanted[index];
-            if self.slots.contains_key(&key) {
-                continue;
-            }
-            self.slots.insert(
-                key,
-                Slot {
-                    state: SlotState::Loading(read(key)),
-                    last_wanted: self.frame,
-                },
-            );
-            self.in_flight += 1;
-        }
+    pub fn start(&mut self, read: impl FnMut(K) -> Fetching<O>) {
+        self.reads
+            .start(&self.wanted, |key| self.slots.contains_key(key), read);
     }
 
-    /// Take every read that has finished. Each must be handed back to
-    /// [`Self::settle`] or [`Self::forget`].
+    /// Take every read that has finished, for [`Self::settle`]. One that is
+    /// not settled is asked for again if the view still wants it.
     pub fn finished(&mut self) -> Vec<(K, O)> {
-        let mut finished = Vec::new();
-        for (key, slot) in &mut self.slots {
-            if let SlotState::Loading(task) = &mut slot.state
-                && let Some(outcome) = task.take()
-            {
-                finished.push((*key, outcome));
-            }
-        }
-        self.in_flight = self.in_flight.saturating_sub(finished.len());
-        finished
+        self.reads.finished()
     }
 
     /// Record what a finished read came to.
-    pub fn settle(&mut self, key: K, state: SlotState<O, M>) {
+    pub fn settle(&mut self, key: K, state: SlotState<M>) {
         if let SlotState::Ready { bytes, .. } = state {
             self.resident_bytes += bytes;
         }
@@ -316,11 +285,11 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
         );
     }
 
-    /// Drop a read that gave up before doing any work, so the tile can be
-    /// asked for again if the view comes back.
-    pub fn forget(&mut self, key: K) {
-        self.slots.remove(&key);
-        self.canceled += 1;
+    /// Count a finished read as canceled: it gave up before doing any work,
+    /// and is left unsettled so the tile is asked for again if the view comes
+    /// back.
+    pub fn gave_up(&mut self) {
+        self.reads.gave_up();
     }
 
     /// Abandon reads the view has moved off, and keep resident tiles inside the
@@ -339,17 +308,9 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
         }
         let wanted: HashSet<K> = self.wanted.iter().copied().collect();
 
-        // Dropping a slot aborts its read, which for an image tile is
-        // megabytes of chunk fetched and decoded for a view nobody is looking
-        // at any more.
-        let mut canceled = 0usize;
-        self.slots.retain(|key, slot| {
-            let abandon = matches!(slot.state, SlotState::Loading(_)) && !wanted.contains(key);
-            canceled += usize::from(abandon);
-            !abandon
-        });
-        self.in_flight = self.in_flight.saturating_sub(canceled);
-        self.canceled += canceled;
+        // Dropping a read aborts it, which for an image tile is megabytes of
+        // chunk fetched and decoded for a view nobody is looking at any more.
+        self.reads.abandon(&wanted);
 
         // Nothing wanted means the view has left the image. Its reads are
         // abandoned above, but what is already drawn is kept: panning back
@@ -386,7 +347,7 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
         if empty > MAX_EMPTY_SLOTS {
             let cutoff = self.frame.saturating_sub(EMPTY_SLOT_FRAMES);
             self.slots.retain(|key, slot| {
-                matches!(slot.state, SlotState::Ready { .. } | SlotState::Loading(_))
+                matches!(slot.state, SlotState::Ready { .. })
                     || self.retained.contains(key)
                     || slot.last_wanted > cutoff
             });
@@ -405,7 +366,7 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
         let retiring: Vec<Entity> = self.ready().map(|(_, entity, _)| entity).collect();
         self.retired.extend(&retiring);
         self.slots.clear();
-        self.in_flight = 0;
+        self.reads.clear();
         self.resident_bytes = 0;
         self.covered = false;
         retiring
@@ -478,10 +439,10 @@ impl<K: Copy + Eq + Hash, O: Send + 'static, M> TileCache<K, O, M> {
             self.loaded(),
             self.resident_bytes / (1024 * 1024),
             self.budget_bytes / (1024 * 1024),
-            self.in_flight,
+            self.reads.in_flight(),
         );
-        if self.canceled > 0 {
-            line.push_str(&format!(", {} canceled", self.canceled));
+        if self.reads.canceled() > 0 {
+            line.push_str(&format!(", {} canceled", self.reads.canceled()));
         }
         let failed = self.failed();
         if failed > 0 {

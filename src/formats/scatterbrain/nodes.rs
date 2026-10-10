@@ -13,6 +13,7 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 
 use crate::app::net::Fetching;
+use crate::formats::reads::Reads;
 use crate::render::points::{MutedPoints, PointMaterial, build_point_mesh};
 use crate::source::properties::{CellSelection, MISSING, Shade};
 
@@ -256,7 +257,6 @@ pub async fn load_node(
 const MAX_IN_FLIGHT: usize = 12;
 
 enum Slot {
-    Loading(Fetching<NodeOutcome>),
     Ready {
         entity: Entity,
         points: usize,
@@ -274,17 +274,14 @@ enum Slot {
 /// Keyed however the format names a node: an index into the one slide, or a
 /// slide and an index into it.
 pub struct NodeCache<K> {
+    /// Nodes that have landed, as whatever they came to.
     slots: HashMap<K, Slot>,
+    reads: Reads<K, NodeOutcome>,
     wanted: Vec<K>,
     /// Nodes of the selection being replaced, kept on screen until the new one
     /// is built. Empty except while a swap is pending, and keyed so that a
     /// layout change moves them like any other node.
     retiring: Vec<(K, Entity)>,
-    in_flight: usize,
-    /// Reads given up on because the view moved off them, counted for the
-    /// status line: it is the number that says whether panning is costing
-    /// anything.
-    canceled: usize,
     resident_points: usize,
     pub budget: usize,
 }
@@ -293,10 +290,9 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
     pub fn new(budget: usize) -> Self {
         NodeCache {
             slots: HashMap::new(),
+            reads: Reads::new(MAX_IN_FLIGHT),
             wanted: Vec::new(),
             retiring: Vec::new(),
-            in_flight: 0,
-            canceled: 0,
             resident_points: 0,
             budget,
         }
@@ -314,28 +310,11 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
     /// the reads are asynchronous: a pan across a cloud used to pay for every
     /// node it crossed, because a blocking read could only be declined before
     /// it started. It also frees a place in the queue for a node that is wanted.
-    pub fn start(&mut self, mut read: impl FnMut(K) -> Fetching<NodeOutcome>) {
-        let keep: HashSet<K> = self.wanted.iter().copied().collect();
-        let mut canceled = 0usize;
-        self.slots.retain(|key, slot| {
-            let abandon = matches!(slot, Slot::Loading(_)) && !keep.contains(key);
-            canceled += usize::from(abandon);
-            !abandon
-        });
-        self.in_flight = self.in_flight.saturating_sub(canceled);
-        self.canceled += canceled;
-
-        for index in 0..self.wanted.len() {
-            if self.in_flight >= MAX_IN_FLIGHT {
-                break;
-            }
-            let key = self.wanted[index];
-            if self.slots.contains_key(&key) {
-                continue;
-            }
-            self.slots.insert(key, Slot::Loading(read(key)));
-            self.in_flight += 1;
-        }
+    pub fn start(&mut self, read: impl FnMut(K) -> Fetching<NodeOutcome>) {
+        self.reads
+            .abandon(&self.wanted.iter().copied().collect::<HashSet<K>>());
+        self.reads
+            .start(&self.wanted, |key| self.slots.contains_key(key), read);
     }
 
     /// Build what finished reads delivered, colored as `selection` says,
@@ -346,17 +325,8 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
         selection: &CellSelection,
         mut spawn: impl FnMut(K, NodeMeshes) -> Entity,
     ) -> Vec<(K, String)> {
-        let mut finished = Vec::new();
-        for (key, slot) in &mut self.slots {
-            if let Slot::Loading(task) = slot
-                && let Some(outcome) = task.take()
-            {
-                finished.push((*key, outcome));
-            }
-        }
-        self.in_flight = self.in_flight.saturating_sub(finished.len());
-
-        finished
+        self.reads
+            .finished()
             .into_iter()
             .filter_map(|(key, outcome)| self.land(key, outcome, selection, &mut spawn))
             .collect()
@@ -472,7 +442,7 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
             }
         }
         self.slots.clear();
-        self.in_flight = 0;
+        self.reads.clear();
         self.resident_points = 0;
     }
 
@@ -487,7 +457,7 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
     /// arrive, and waiting on it would hold the previous selection on screen
     /// for good.
     pub fn generation_ready(&self) -> bool {
-        self.in_flight == 0
+        self.reads.in_flight() == 0
             && self.wanted.iter().all(|key| {
                 matches!(
                     self.slots.get(key),
@@ -527,7 +497,7 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
     }
 
     pub fn busy(&self) -> bool {
-        self.in_flight > 0
+        self.reads.in_flight() > 0
     }
 
     fn loaded(&self) -> usize {
@@ -539,8 +509,8 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
 
     /// The cache's lines of a source's status.
     pub fn status(&self) -> String {
-        let canceled = if self.canceled > 0 {
-            format!(", {} canceled", self.canceled)
+        let canceled = if self.reads.canceled() > 0 {
+            format!(", {} canceled", self.reads.canceled())
         } else {
             String::new()
         };
@@ -548,7 +518,7 @@ impl<K: Copy + Eq + Hash> NodeCache<K> {
             "{} nodes loaded, {} loading{canceled}\n\
              {} / {} points resident ({} MB)",
             self.loaded(),
-            self.in_flight,
+            self.reads.in_flight(),
             self.resident_points,
             self.budget,
             crate::render::points::budget_megabytes(self.resident_points),
@@ -628,8 +598,9 @@ mod tests {
 
     #[test]
     fn a_node_still_loading_holds_the_swap() {
-        let mut cache = staged(&[0, 1], 2);
-        cache.in_flight = 1;
+        let mut cache = staged(&[0, 1], 1);
+        cache.start(|_| crate::app::net::fetching(std::future::pending()));
+        assert!(cache.busy());
         assert!(!cache.generation_ready());
     }
 

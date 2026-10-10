@@ -13,6 +13,7 @@ pub mod image;
 pub mod neuroglancer;
 pub mod parquet;
 pub mod pointcloud;
+pub mod reads;
 pub mod records;
 pub mod scatterbrain;
 pub mod slices;
