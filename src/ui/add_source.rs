@@ -221,9 +221,6 @@ pub fn sync_custom_status(
     load: Res<CustomLoad>,
     mut notices: Query<&mut Notice, With<CustomStatus>>,
 ) {
-    if !load.is_changed() {
-        return;
-    }
     let wanted = load.status.notice();
     for mut shown in &mut notices {
         shown.set_if_neq(wanted.clone());
@@ -245,7 +242,7 @@ impl Plugin for AddSourcePlugin {
                 (
                     answer_dataset_requests,
                     poll_custom_load,
-                    sync_custom_status,
+                    sync_custom_status.run_if(resource_changed::<CustomLoad>),
                 )
                     .chain()
                     .in_set(Stage::ControlsApply),

@@ -689,9 +689,6 @@ pub fn sync_status(
     notice: Res<BookmarkNotice>,
     mut notices: Query<&mut Notice, With<BookmarkStatus>>,
 ) {
-    if !notice.is_changed() {
-        return;
-    }
     let wanted = match &*notice {
         BookmarkNotice::Idle => Notice::default(),
         BookmarkNotice::Working(message) => Notice::new(Tone::Info, message.clone()),
@@ -714,7 +711,11 @@ impl Plugin for BookmarksPlugin {
             .add_systems(Update, rebuild_list.in_set(Stage::ControlsBuild))
             .add_systems(
                 Update,
-                (start_renaming, sync_status).in_set(Stage::ControlsPlace),
+                (
+                    start_renaming,
+                    sync_status.run_if(resource_changed::<BookmarkNotice>),
+                )
+                    .in_set(Stage::ControlsPlace),
             );
     }
 }

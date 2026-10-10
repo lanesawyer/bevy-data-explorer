@@ -65,9 +65,6 @@ pub(super) fn repaint_sliders(
         With<FeathersSlider>,
     >,
 ) {
-    if !theme.is_changed() {
-        return;
-    }
     for (disabled, pressed, hovered, mut gradient) in &mut sliders {
         let (bar, track) = if disabled {
             (tokens::SLIDER_BAR_DISABLED, tokens::SLIDER_BG_DISABLED)

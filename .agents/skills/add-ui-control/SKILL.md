@@ -123,7 +123,9 @@ gets a file of its own there, re-exported from `widgets/mod.rs`.
   opened, a property added). Anything respawned flashes, and loses typed text
   and scroll position. Decide with `widgets::needs_rebuild`, which notes what
   a container was built from as a `BuiltFrom` on the container itself, not in
-  a `Local`. Take the one container a system fills as a `Single`.
+  a `Local`. Take the one container a system fills as a `Single`. A system
+  with nothing to do unless one resource changed says so where it is
+  registered, `.run_if(resource_changed::<T>)`, rather than returning early.
 
 If the control changes what's on screen and should survive a bookmark, it
 also needs `add-bookmark-setting`.

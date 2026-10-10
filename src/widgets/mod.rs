@@ -109,7 +109,8 @@ impl Plugin for WidgetsPlugin {
                     scrollbar::show_scrollbars,
                     search::sync_search_hints,
                     skeleton::pulse_skeletons,
-                    slider::repaint_sliders,
+                    slider::repaint_sliders
+                        .run_if(resource_changed::<bevy_feathers::theme::UiTheme>),
                     notice::sync_notices,
                 )
                     .chain()

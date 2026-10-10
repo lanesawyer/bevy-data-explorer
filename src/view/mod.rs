@@ -334,7 +334,7 @@ impl Plugin for ViewPlugin {
                 // layer never lags a frame behind what it is drawn over.
                 layers::sync_layers,
                 clear_when_empty,
-                follow_theme,
+                follow_theme.run_if(resource_changed::<crate::app::theme::Palette>),
             )
                 .chain()
                 .in_set(Stage::Viewports),

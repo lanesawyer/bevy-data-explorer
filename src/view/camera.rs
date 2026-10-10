@@ -147,9 +147,6 @@ pub fn clear_when_empty(
 /// Only cell 0 clears, and which cell that is can change, so this writes every
 /// camera's color rather than tracking the one that happens to hold the job.
 pub fn follow_theme(palette: Res<Palette>, mut panels: Query<(&Panel, &mut Camera)>) {
-    if !palette.is_changed() {
-        return;
-    }
     for (panel, mut camera) in &mut panels {
         camera.clear_color = clear_color_for(panel.index, palette.frame_bg);
     }

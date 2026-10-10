@@ -471,9 +471,6 @@ fn follow_window_theme(
 
 /// Remember a theme picked by hand, and forget it once handed back.
 fn remember_theme(mode: Res<ThemeMode>, mut prefs: ResMut<Preferences>) {
-    if !mode.is_changed() {
-        return;
-    }
     let choice = mode.chosen.then_some(if mode.is_dark() {
         ThemeChoice::Dark
     } else {
@@ -530,7 +527,7 @@ impl Plugin for ThemePlugin {
                     follow_accent,
                     take_accent,
                     apply_theme,
-                    remember_theme,
+                    remember_theme.run_if(resource_changed::<ThemeMode>),
                 )
                     .chain()
                     .in_set(Stage::ControlsApply),
