@@ -171,6 +171,11 @@ pub struct SidebarVersion;
 #[derive(Component, Clone, Default)]
 pub struct SidebarContent;
 
+/// The band at the foot, holding what acts on the app rather than on the
+/// selected frame. A plugin adds its control as a row of its own.
+#[derive(Component, Clone, Default)]
+pub struct SidebarFooter;
+
 /// Where a section sits in the sidebar, ascending.
 ///
 /// Sections are spawned by whichever plugin owns them, so without this their
@@ -311,6 +316,7 @@ fn spawn_sidebar(mut commands: Commands) {
                 // stays on the bottom edge whether the sections are showing or
                 // the dock is collapsed to its ribbon. One control per row,
                 // because the ribbon is too narrow to hold two side by side.
+                SidebarFooter
                 Node {
                     width: { Val::Percent(100.0) },
                     flex_direction: { FlexDirection::Column },

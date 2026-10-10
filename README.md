@@ -540,8 +540,8 @@ cell is given.
 
 ## Bookmarks
 
-The **Bookmarks** section of the sidebar saves what is on screen to come back
-to, or to send to someone. A bookmark holds every frame in grid order: the
+**Bookmarks**, at the foot of the sidebar beside Settings and Help, saves
+what is on screen to come back to, or to send to someone. A bookmark holds every frame in grid order: the
 dataset it shows, its view (or its 3D orbit), and the layers over it at their
 opacities. For each dataset it also holds the slice showing, whether sections
 are in a grid, opacity, point size, each channel's visibility and gain, what

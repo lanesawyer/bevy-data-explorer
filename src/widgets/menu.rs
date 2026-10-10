@@ -74,6 +74,21 @@ pub fn spawn_icon_menu(commands: &mut Commands, parent: Entity, icon: Icon) -> I
     }
 }
 
+/// A menu behind a `FeathersMenuToolButton` the caller built, for a button
+/// that says more than an icon. Left for the caller to place.
+pub fn menu_behind(commands: &mut Commands, button: Entity) -> IconMenu {
+    let popup = spawn_popup(commands);
+    let root = commands
+        .spawn_scene(bsn! { @FeathersMenu })
+        .add_children(&[button, popup])
+        .id();
+    IconMenu {
+        root,
+        button,
+        popup,
+    }
+}
+
 /// The menu that holds `button` and `popup`, which `Popover` places the popup
 /// against.
 fn spawn_root(commands: &mut Commands, parent: Entity, button: Entity, popup: Entity) -> Entity {

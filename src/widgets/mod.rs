@@ -40,7 +40,9 @@ pub use frame_input::BlocksFrameInput;
 pub use icons::{Icon, button_icon, icon_text};
 pub use lightbox::Enlargeable;
 pub use link::link_button;
-pub use menu::{IconMenu, MENU_WIDTH, close_menu_holding, spawn_icon_menu, spawn_menu};
+pub use menu::{
+    IconMenu, MENU_WIDTH, close_menu_holding, menu_behind, spawn_icon_menu, spawn_menu,
+};
 pub use modal::{AddModal, Modal, ModalParts, close_modal, spawn_modal};
 pub use notice::{Notice, Tone, notice};
 pub use patch::{display, patch_node, set_display, set_text};

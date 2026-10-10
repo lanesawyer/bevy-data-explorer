@@ -148,8 +148,8 @@ const SECTION_ORDER: u32 = 25;
 commands.entity(accordion.section).insert(SectionOrder(SECTION_ORDER));
 ```
 
-The current order is view configuration 10, layers 15, cell properties 20 and
-bookmarks 30. Pick a gap and say in the doc comment why it goes there.
+The current order is view configuration 10, layers 15, cell properties 20,
+color overrides and table filters 22, and genes 25. Pick a gap and say in the doc comment why it goes there.
 
 **A dock** implements `widgets::Dock` (a `Resource` and `Component` with a
 `Handle` marker, an `EDGE`, and `drag_to`), places `dock_handle(EDGE)` along

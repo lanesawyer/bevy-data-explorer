@@ -1,5 +1,8 @@
-//! The bookmarks section of the sidebar: saving what is on screen, the list of
-//! what has been saved, and handing a bookmark to someone else.
+//! Bookmarks, in a popover from the sidebar's footer: saving what is on
+//! screen, the list of what has been saved, and handing a bookmark to someone
+//! else. In the footer rather than among the sections because it acts on every
+//! frame at once, and in a popover rather than a modal because what it saves
+//! and restores is the grid it would otherwise cover.
 //!
 //! A bookmark leaves as a file, through the export dialog, or as one line of
 //! text on the clipboard, and comes back in either way. What comes in is added
@@ -14,8 +17,8 @@ use bevy::input_focus::{FocusedInput, InputFocus};
 use bevy::prelude::*;
 use bevy::text::{EditableText, TextEdit};
 use bevy_feathers::controls::{
-    ButtonVariant, FeathersButton, FeathersTextInput, FeathersTextInputContainer,
-    FeathersToolButton,
+    ButtonVariant, FeathersButton, FeathersMenuToolButton, FeathersTextInput,
+    FeathersTextInputContainer, FeathersToolButton,
 };
 use bevy_ui_widgets::Activate;
 
@@ -24,17 +27,18 @@ use crate::bookmark::codec::{from_text, to_line};
 use crate::bookmark::store::{FileDialog, SavedBookmarks};
 use crate::bookmark::{BookmarkNotice, local_addresses, open_shared, restore, save_current};
 use crate::source::{DataSource, ShowsSource};
-use crate::ui::sidebar::{SectionOrder, SidebarContent};
+use crate::ui::sidebar::{SidebarFooter, SidebarLabel};
 use crate::view::Panel;
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, caption, field_well, size,
-    spawn_accordion, text, text_dim,
+    BlocksFrameInput, Icon, button_icon, button_text, caption, close_menu_holding, field_well,
+    menu_behind, size, text, text_dim,
 };
 use crate::widgets::{Notice, Tone, notice};
 
-/// After the sections that act on a frame: this acts on all of them.
-const SECTION_ORDER: u32 = 30;
+/// The popup everything here is built into.
+#[derive(Component, Clone, Default)]
+pub struct BookmarksPopup;
 
 /// The field a new bookmark's name is typed into.
 #[derive(Component, Clone, Default)]
@@ -90,16 +94,40 @@ pub struct BookmarkListContent;
 #[derive(Component, Clone, Default)]
 pub struct BookmarkStatus;
 
-pub fn spawn_bookmarks_section(
-    mut commands: Commands,
-    content: Query<Entity, With<SidebarContent>>,
-) {
-    let Ok(parent) = content.single() else { return };
-    let accordion = spawn_accordion(&mut commands, "Bookmarks", true, SectionLevel::Pane);
-    commands
-        .entity(accordion.section)
-        .insert(SectionOrder(SECTION_ORDER));
-    commands.entity(parent).add_child(accordion.section);
+pub fn spawn_bookmarks_menu(mut commands: Commands, footer: Query<Entity, With<SidebarFooter>>) {
+    let Ok(footer) = footer.single() else { return };
+    // The chevron hides with the label, since the ribbon is too narrow for it
+    // beside the icon.
+    let button = commands
+        .spawn_scene(bsn! {
+            @FeathersMenuToolButton {
+                @caption: { bsn_list! {
+                    @button_icon(Icon::Bookmark)
+                    --
+                    @button_text("Bookmarks") SidebarLabel
+                    --
+                    @button_icon(Icon::ChevronDown) SidebarLabel
+                } },
+                @arrow: false,
+            }
+            Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+            BlocksFrameInput
+        })
+        .id();
+    let menu = menu_behind(&mut commands, button);
+    commands.entity(menu.popup).insert(BookmarksPopup);
+    let line = commands
+        .spawn_scene(bsn! {
+            Node {
+                width: { Val::Percent(100.0) },
+                align_items: { AlignItems::Center },
+            }
+        })
+        .add_child(menu.root)
+        .id();
+    // First in the footer: it is used more often than Settings or Help.
+    commands.entity(footer).insert_children(0, &[line]);
+    let popup = menu.popup;
 
     let field = commands
         .spawn_scene(bsn! {
@@ -177,7 +205,7 @@ pub fn spawn_bookmarks_section(
         .id();
 
     commands
-        .entity(accordion.body)
+        .entity(popup)
         .add_children(&[well, share_row, status, list]);
 }
 
@@ -232,18 +260,32 @@ fn command_button(
 }
 
 /// Rebuild the lists whenever what is saved changes.
+///
+/// A row pressed or renamed in has the keyboard, and the popup closes the
+/// moment the keyboard is nowhere inside it, so the keyboard goes to the popup
+/// itself before the row goes.
 pub fn rebuild_list(
     mut commands: Commands,
     saved: Res<SavedBookmarks>,
     renaming: Res<Renaming>,
     lists: Query<Entity, With<BookmarkList>>,
     existing: Query<Entity, With<BookmarkListContent>>,
+    popups: Query<Entity, With<BookmarksPopup>>,
+    parents: Query<&ChildOf>,
+    mut focus: ResMut<InputFocus>,
     mut built: Local<bool>,
 ) {
     if lists.is_empty() || (*built && !saved.is_changed() && !renaming.is_changed()) {
         return;
     }
     *built = true;
+    if let (Some(focused), Ok(popup)) = (focus.get(), popups.single())
+        && std::iter::once(focused)
+            .chain(parents.iter_ancestors(focused))
+            .any(|entity| existing.contains(entity))
+    {
+        focus.set(popup, bevy::input_focus::FocusCause::Navigated);
+    }
     for entity in &existing {
         commands.entity(entity).despawn();
     }
@@ -398,10 +440,8 @@ fn finish_renaming(
     saved: &mut SavedBookmarks,
     renaming: &mut Renaming,
     notice: &mut BookmarkNotice,
-    focus: &mut InputFocus,
 ) {
     renaming.0 = None;
-    focus.clear();
     let Some((input, text)) = field else { return };
     let name = text.value().to_string().trim().to_string();
     if name.is_empty() || name == input.name {
@@ -427,7 +467,6 @@ pub fn on_rename_key(
     mut saved: ResMut<SavedBookmarks>,
     mut renaming: ResMut<Renaming>,
     mut notice: ResMut<BookmarkNotice>,
-    mut focus: ResMut<InputFocus>,
 ) {
     let Ok(field) = fields.get(key.focused_entity) else {
         return;
@@ -438,17 +477,11 @@ pub fn on_rename_key(
     match key.input.key_code {
         KeyCode::Enter | KeyCode::NumpadEnter => {
             key.propagate(false);
-            finish_renaming(
-                Some(field),
-                &mut saved,
-                &mut renaming,
-                &mut notice,
-                &mut focus,
-            );
+            finish_renaming(Some(field), &mut saved, &mut renaming, &mut notice);
         }
         KeyCode::Escape => {
             key.propagate(false);
-            finish_renaming(None, &mut saved, &mut renaming, &mut notice, &mut focus);
+            finish_renaming(None, &mut saved, &mut renaming, &mut notice);
         }
         _ => {}
     }
@@ -578,7 +611,6 @@ pub fn on_bookmark_button(
     fields: Query<(&BookmarkRenameInput, &EditableText)>,
     mut saved: ResMut<SavedBookmarks>,
     mut renaming: ResMut<Renaming>,
-    mut focus: ResMut<InputFocus>,
     mut clipboard: ResMut<Clipboard>,
     mut dialog: ResMut<FileDialog>,
     mut notice: ResMut<BookmarkNotice>,
@@ -589,11 +621,11 @@ pub fn on_bookmark_button(
     match button.action {
         BookmarkAction::ConfirmRename => {
             let field = fields.iter().find(|(input, _)| input.path == button.path);
-            finish_renaming(field, &mut saved, &mut renaming, &mut notice, &mut focus);
+            finish_renaming(field, &mut saved, &mut renaming, &mut notice);
             return;
         }
         BookmarkAction::CancelRename => {
-            finish_renaming(None, &mut saved, &mut renaming, &mut notice, &mut focus);
+            finish_renaming(None, &mut saved, &mut renaming, &mut notice);
             return;
         }
         _ => {}
@@ -608,7 +640,10 @@ pub fn on_bookmark_button(
     };
     let bookmark = entry.bookmark;
     match button.action {
-        BookmarkAction::Open => restore(&mut commands, bookmark),
+        BookmarkAction::Open => {
+            close_menu_holding(&mut commands, activate.entity);
+            restore(&mut commands, bookmark);
+        }
         BookmarkAction::Rename => renaming.0 = Some(entry.path),
         BookmarkAction::ConfirmRename | BookmarkAction::CancelRename => {}
         BookmarkAction::CopyLine => match clipboard.set_text(to_line(&bookmark)) {
@@ -673,7 +708,7 @@ impl Plugin for BookmarksPlugin {
             .add_observer(on_name_submitted)
             .add_observer(on_bookmark_button)
             .add_observer(on_rename_key)
-            .add_systems(Startup, spawn_bookmarks_section.in_set(Boot::DockContent))
+            .add_systems(Startup, spawn_bookmarks_menu.in_set(Boot::DockContent))
             .add_systems(Update, rebuild_list.in_set(Stage::ControlsBuild))
             .add_systems(
                 Update,

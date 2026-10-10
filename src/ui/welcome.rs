@@ -7,7 +7,8 @@
 //! ([`crate::ui::dashboards`]), an example of each kind of dataset it reads,
 //! and who made it.
 //!
-//! The saved bookmarks are not here: the sidebar lists them, and starts open.
+//! The saved bookmarks are not here: the Bookmarks button at the foot of the
+//! sidebar lists them.
 //!
 //! It is UI rather than frame chrome, but it is placed against
 //! [`FrameArea`] like the chrome is, so the docks take their space off it

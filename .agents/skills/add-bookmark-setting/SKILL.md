@@ -114,6 +114,6 @@ Then check that an old bookmark without the field still reads.
 
 Use the `verify` skill, then do it by hand once: change the setting, save a
 bookmark, change it back, restore, and check that it returns. Do the same
-through a shared line (copy, then paste into the bookmarks section). That
+through a shared line (copy, then paste from the Bookmarks popover). That
 path goes through `codec.rs` and catches a field that serializes but doesn't
 round-trip.

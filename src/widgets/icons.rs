@@ -22,6 +22,7 @@ const SIZE: f32 = 15.0;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Icon {
     Axis3d,
+    Bookmark,
     BookmarkPlus,
     BoxSelect,
     Bug,
@@ -66,8 +67,9 @@ pub enum Icon {
 
 impl Icon {
     #[cfg(test)]
-    const ALL: [Icon; 41] = [
+    const ALL: [Icon; 42] = [
         Icon::Axis3d,
+        Icon::Bookmark,
         Icon::BookmarkPlus,
         Icon::BoxSelect,
         Icon::Bug,
@@ -115,6 +117,7 @@ impl Icon {
     pub fn glyph(self) -> &'static str {
         match self {
             Icon::Axis3d => "\u{e2fe}",
+            Icon::Bookmark => "\u{e060}",
             Icon::BookmarkPlus => "\u{e23d}",
             Icon::BoxSelect => "\u{e1cb}",
             Icon::Bug => "\u{e20c}",
