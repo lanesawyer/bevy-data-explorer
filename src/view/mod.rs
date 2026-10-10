@@ -165,13 +165,12 @@ impl FrameArea {
 
 /// Reset the grid to the whole window before anything reserves part of it.
 pub fn reset_frame_area(
-    windows: Query<&Window>,
+    window: Single<&Window>,
     ui_scale: Res<UiScale>,
     mut area: ResMut<FrameArea>,
 ) {
-    let Ok(window) = windows.single() else { return };
     area.origin = Vec2::ZERO;
-    area.size = crate::widgets::ui_size(window, &ui_scale);
+    area.size = crate::widgets::ui_size(*window, &ui_scale);
 }
 
 /// Marks a panel camera and records its cell in the grid.

@@ -120,7 +120,9 @@ gets a file of its own there, re-exported from `widgets/mod.rs`.
 - **Don't respawn on value changes.** Build once and write values onto the
   existing entities. Rebuild only when the *structure* changes (a frame
   opened, a property added). Anything respawned flashes, and loses typed text
-  and scroll position.
+  and scroll position. Decide with `widgets::needs_rebuild`, which notes what
+  a container was built from as a `BuiltFrom` on the container itself, not in
+  a `Local`. Take the one container a system fills as a `Single`.
 
 If the control changes what's on screen and should survive a bookmark, it
 also needs `add-bookmark-setting`.

@@ -42,13 +42,12 @@ pub(super) fn spawn_ui_camera(mut commands: Commands) {
 
 /// Keep each panel's viewport, and the rules between them, matched to the grid.
 pub fn update_viewports(
-    windows: Query<&Window>,
+    window: Single<&Window>,
     ui_scale: Res<UiScale>,
     area: Res<FrameArea>,
     mut panels: Query<(&Panel, &mut Camera)>,
     mut dividers: Query<(&PanelDivider, &mut Node)>,
 ) {
-    let Ok(window) = windows.single() else { return };
     if window.physical_size().x == 0 || window.physical_size().y == 0 {
         return;
     }

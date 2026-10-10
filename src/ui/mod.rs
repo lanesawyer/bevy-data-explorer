@@ -71,12 +71,11 @@ impl Plugin for UiPlugin {
 /// Take a dock's share of the window off the frame grid, on its own edge.
 pub fn reserve_space<D: Dock>(
     dock: Res<D>,
-    windows: Query<&Window>,
+    window: Single<&Window>,
     ui_scale: Res<UiScale>,
     mut area: ResMut<FrameArea>,
 ) {
-    let Ok(window) = windows.single() else { return };
-    let taken = dock.taken(crate::widgets::ui_size(window, &ui_scale));
+    let taken = dock.taken(crate::widgets::ui_size(*window, &ui_scale));
     match D::EDGE {
         DockEdge::Left => area.reserve_left(taken),
         DockEdge::Right => area.reserve_right(taken),

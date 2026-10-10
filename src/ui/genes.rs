@@ -26,8 +26,9 @@ use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
-    Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, field_well, patch_node, set_text,
-    size, spawn_accordion, spawn_header_button, spawn_search_field, text_dim,
+    Accordion, BlocksFrameInput, BuiltFrom, Icon, SectionLevel, button_text, field_well,
+    needs_rebuild, patch_node, set_text, size, spawn_accordion, spawn_header_button,
+    spawn_search_field, text_dim,
 };
 
 /// Under the cell properties, whose numeric controls these are, and above the
@@ -70,15 +71,13 @@ pub struct GeneSection {
     pub id: String,
 }
 
-pub fn spawn_gene_panel(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
-    let Ok(parent) = content.single() else { return };
-
+pub fn spawn_gene_panel(mut commands: Commands, parent: Single<Entity, With<SidebarContent>>) {
     let accordion = spawn_accordion(&mut commands, "Genes", true, SectionLevel::Pane);
     commands.entity(accordion.section).insert((
         SectionOrder(SECTION_ORDER),
         SectionFor(|source| source.contains::<GeneSearch>()),
     ));
-    commands.entity(parent).add_child(accordion.section);
+    commands.entity(*parent).add_child(accordion.section);
 
     let search = spawn_search_field(&mut commands, "Search genes, such as Gad1");
     commands.entity(search.field).insert(GeneQueryInput);
@@ -205,10 +204,9 @@ pub fn rebuild_gene_results(
     mut commands: Commands,
     selected: SelectedSource,
     sources: Query<&GeneSearch>,
-    list: Query<Entity, With<GeneResults>>,
-    mut shown: Local<Option<(Entity, Vec<String>)>>,
+    list: Single<Entity, With<GeneResults>>,
+    built: Query<&BuiltFrom<Option<(Entity, Vec<String>)>>>,
 ) {
-    let Ok(list) = list.single() else { return };
     let found = selected
         .entity()
         .and_then(|source| sources.get(source).ok().map(|found| (source, found)));
@@ -218,11 +216,10 @@ pub fn rebuild_gene_results(
             search.results.iter().map(|gene| gene.id.clone()).collect(),
         )
     });
-    if *shown == fingerprint {
+    if !needs_rebuild(&mut commands, &built, *list, fingerprint) {
         return;
     }
-    *shown = fingerprint;
-    commands.entity(list).despawn_children();
+    commands.entity(*list).despawn_children();
 
     let Some((_, search)) = found else {
         return;
@@ -245,7 +242,7 @@ pub fn rebuild_gene_results(
                 .id()
         })
         .collect();
-    commands.entity(list).add_children(&buttons);
+    commands.entity(*list).add_children(&buttons);
 }
 
 /// Build a sub-section for each gene added, rebuilt only when which genes
@@ -256,12 +253,11 @@ pub fn rebuild_gene_list(
     palette: Res<Palette>,
     selected: SelectedSource,
     sources: Query<(&CellProperties, Option<&ColorScale>), With<GeneSearch>>,
-    list: Query<Entity, With<GeneList>>,
+    list: Single<Entity, With<GeneList>>,
     sections: Query<(&GeneSection, &Accordion)>,
     mut open: Local<HashMap<String, bool>>,
-    mut shown: Local<Option<(Entity, Vec<String>)>>,
+    built: Query<&BuiltFrom<Option<(Entity, Vec<String>)>>>,
 ) {
-    let Ok(list) = list.single() else { return };
     for (section, accordion) in &sections {
         open.insert(section.id.clone(), accordion.open);
     }
@@ -278,11 +274,10 @@ pub fn rebuild_gene_list(
                 .collect(),
         )
     });
-    if *shown == fingerprint {
+    if !needs_rebuild(&mut commands, &built, *list, fingerprint) {
         return;
     }
-    *shown = fingerprint;
-    commands.entity(list).despawn_children();
+    commands.entity(*list).despawn_children();
 
     let Some((_, (properties, scale))) = found else {
         return;
@@ -328,7 +323,7 @@ pub fn rebuild_gene_list(
         }
         sections.push(sub.section);
     }
-    commands.entity(list).add_children(&sections);
+    commands.entity(*list).add_children(&sections);
 }
 
 /// Say how the selected source's gene search is going.

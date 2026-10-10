@@ -351,7 +351,7 @@ pub fn panel_controls(
         &ViewLimits,
         Option<&mut super::Orbit>,
     )>,
-    windows: Query<&Window>,
+    window: Single<&Window>,
     ui_scale: Res<UiScale>,
     area: Res<FrameArea>,
     buttons: Res<ButtonInput<MouseButton>>,
@@ -364,7 +364,6 @@ pub fn panel_controls(
     selecting: Query<(), With<super::SelectMode>>,
     mut drag: Local<Option<Drag>>,
 ) {
-    let Ok(window) = windows.single() else { return };
     // The right button drags too: it is how a 3D frame is slid about without
     // a middle button, which a trackpad does not have.
     const DRAGGING: [MouseButton; 3] = [MouseButton::Left, MouseButton::Middle, MouseButton::Right];

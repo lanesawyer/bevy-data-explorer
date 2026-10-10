@@ -79,9 +79,7 @@ fn applies(source: EntityRef) -> bool {
     !source.contains::<SourceTable>()
 }
 
-pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
-    let Ok(parent) = content.single() else { return };
-
+pub fn spawn_view_config(mut commands: Commands, parent: Single<Entity, With<SidebarContent>>) {
     let accordion = spawn_accordion(
         &mut commands,
         "View configuration",
@@ -91,7 +89,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
     commands
         .entity(accordion.section)
         .insert((SectionOrder(SECTION_ORDER), SectionFor(applies)));
-    commands.entity(parent).add_child(accordion.section);
+    commands.entity(*parent).add_child(accordion.section);
     let body = accordion.body;
 
     let name = commands

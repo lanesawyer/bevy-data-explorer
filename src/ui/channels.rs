@@ -22,8 +22,8 @@ use crate::ui::color_overrides::{PickChannelColor, color_square, on_square_picke
 use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, SectionLevel, button_text, patch_node, spawn_accordion,
-    spawn_header_button, spawn_slider,
+    BlocksFrameInput, BuiltFrom, Icon, SectionLevel, button_text, needs_rebuild, patch_node,
+    spawn_accordion, spawn_header_button, spawn_slider,
 };
 
 /// Brightness runs 0..400 on the slider, so its readout is a percentage.
@@ -87,7 +87,7 @@ pub fn rebuild_channel_rows(
     sources: Query<&mut SourceChannels>,
     mut sections: Query<&mut Node, With<ChannelSection>>,
     rows: Query<(Entity, Option<&Children>), With<ChannelRows>>,
-    mut built: Local<Option<(Entity, Vec<String>)>>,
+    built: Query<&BuiltFrom<Option<(Entity, Vec<String>)>>>,
 ) {
     let current = selected
         .entity()
@@ -112,14 +112,12 @@ pub fn rebuild_channel_rows(
                 .collect::<Vec<_>>(),
         )
     });
-    if *built == fingerprint {
-        return;
-    }
-    *built = fingerprint;
-
     let Ok((container, children)) = rows.single() else {
         return;
     };
+    if !needs_rebuild(&mut commands, &built, container, fingerprint) {
+        return;
+    }
     for child in children.into_iter().flatten() {
         commands.entity(*child).despawn();
     }

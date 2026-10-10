@@ -415,7 +415,7 @@ pub fn toggle_sidebar(_: On<Activate>, mut sidebar: ResMut<Sidebar>) {
 /// Match the sidebar's chrome to its current width and state.
 pub fn update_sidebar(
     sidebar: Res<Sidebar>,
-    windows: Query<&Window>,
+    window: Single<&Window>,
     ui_scale: Res<UiScale>,
     mut roots: Query<&mut Node, (With<SidebarRoot>, Without<SidebarHandle>)>,
     mut handles: Query<&mut Node, (With<SidebarHandle>, Without<SidebarRoot>)>,
@@ -442,8 +442,7 @@ pub fn update_sidebar(
     toggles: Query<&Children, With<SidebarToggle>>,
     mut texts: Query<&mut Text, Without<SidebarLabel>>,
 ) {
-    let Ok(window) = windows.single() else { return };
-    let width = sidebar.current_width(crate::widgets::ui_size(window, &ui_scale).x);
+    let width = sidebar.current_width(crate::widgets::ui_size(*window, &ui_scale).x);
     for node in &mut roots {
         patch_node(node, |node| node.width = Val::Px(width));
     }

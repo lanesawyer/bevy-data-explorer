@@ -55,9 +55,9 @@ use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
-    Accordion, BlocksFrameInput, Icon, SectionLevel, button_icon, button_text, patch_node,
-    set_text, size, spawn_accordion, spawn_header_button, spawn_icon_menu, spawn_menu,
-    spawn_skeleton, text_dim,
+    Accordion, BlocksFrameInput, BuiltFrom, Icon, SectionLevel, button_icon, button_text,
+    needs_rebuild, patch_node, set_text, size, spawn_accordion, spawn_header_button,
+    spawn_icon_menu, spawn_menu, spawn_skeleton, text_dim,
 };
 
 /// The section's own menu, for controls that act on all of its properties.
@@ -168,15 +168,13 @@ const SKELETON_ROW_PX: f32 = 26.0;
 /// stands in for, so the section does not jump when its histogram lands.
 const RANGE_SKELETON_PX: f32 = 72.0;
 
-pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
-    let Ok(parent) = content.single() else { return };
-
+pub fn spawn_cell_panel(mut commands: Commands, parent: Single<Entity, With<SidebarContent>>) {
     let accordion = spawn_accordion(&mut commands, "Cell properties", true, SectionLevel::Pane);
     commands.entity(accordion.section).insert((
         SectionOrder(SECTION_ORDER),
         SectionFor(|source| source.contains::<CellProperties>()),
     ));
-    commands.entity(parent).add_child(accordion.section);
+    commands.entity(*parent).add_child(accordion.section);
     commands.entity(accordion.body).insert(CellPanelBody);
 
     // Added before the menu so it sits to its left, and hides itself when
@@ -206,19 +204,17 @@ pub fn rebuild_cell_panel(
         Has<CellColumns>,
         Has<Described>,
     )>,
-    body: Query<Entity, With<CellPanelBody>>,
+    body: Single<Entity, With<CellPanelBody>>,
     existing: Query<Entity, With<CellPanelContent>>,
     open: Res<OpenSections>,
-    mut shown: Local<Option<(Entity, Vec<String>, Provenance, PropertyState, bool)>>,
+    built: Query<&BuiltFrom<Option<(Entity, Vec<String>, Provenance, PropertyState, bool)>>>,
 ) {
-    let Ok(body) = body.single() else { return };
-
     let source = selected
         .entity()
         .and_then(|source| sources.get(source).ok().map(|found| (source, found)));
 
     let Some((entity, (_, properties, has_columns, described))) = source else {
-        *shown = None;
+        needs_rebuild(&mut commands, &built, *body, None);
         return;
     };
 
@@ -247,10 +243,9 @@ pub fn rebuild_cell_panel(
         properties.state.clone(),
         loading,
     );
-    if shown.as_ref() == Some(&fingerprint) {
+    if !needs_rebuild(&mut commands, &built, *body, Some(fingerprint)) {
         return;
     }
-    *shown = Some(fingerprint);
 
     for entity in &existing {
         commands.entity(entity).despawn();
@@ -258,13 +253,13 @@ pub fn rebuild_cell_panel(
 
     if let PropertyState::Failed(error) = &properties.state {
         let failed = spawn_failed(&mut commands, error);
-        commands.entity(body).add_child(failed);
+        commands.entity(*body).add_child(failed);
         return;
     }
     if loading {
         let skeleton = spawn_skeleton(&mut commands, SKELETON_ROWS, SKELETON_ROW_PX);
         commands.entity(skeleton).insert(CellPanelContent);
-        commands.entity(body).add_child(skeleton);
+        commands.entity(*body).add_child(skeleton);
         return;
     }
     if properties.cell_properties().next().is_none() {
@@ -274,7 +269,7 @@ pub fn rebuild_cell_panel(
                 @text_dim("No properties for this dataset.", size::SMALL)
             })
             .id();
-        commands.entity(body).add_child(message);
+        commands.entity(*body).add_child(message);
         return;
     }
 
@@ -351,7 +346,7 @@ pub fn rebuild_cell_panel(
         commands.entity(sub.body).add_children(&rows);
         sections.push(sub.section);
     }
-    commands.entity(body).add_children(&sections);
+    commands.entity(*body).add_children(&sections);
 }
 
 /// One value's row: the color its points are drawn in, which picks another

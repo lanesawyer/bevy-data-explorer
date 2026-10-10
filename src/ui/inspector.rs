@@ -44,9 +44,9 @@ use crate::ui::record_export::{RecordExportMenu, spawn_record_export_menu};
 use crate::view::{DatasetRequest, DatasetTarget, PanelRequest, SelectedSource};
 use crate::widgets::space;
 use crate::widgets::{
-    Accordion, AddDock, BlocksFrameInput, Dock, DockEdge, DockWidth, Enlargeable, Icon,
-    SectionLevel, button_icon, button_text, dock_handle, place_right_dock, scroll_list,
-    set_display, set_text, size, spawn_accordion, text, text_dim,
+    Accordion, AddDock, BlocksFrameInput, BuiltFrom, Dock, DockEdge, DockWidth, Enlargeable, Icon,
+    SectionLevel, button_icon, button_text, dock_handle, needs_rebuild, place_right_dock,
+    scroll_list, set_display, set_text, size, spawn_accordion, text, text_dim,
 };
 
 const WIDTH_PX: f32 = 300.0;
@@ -250,7 +250,7 @@ pub fn close_inspector(_: On<Activate>, mut inspector: ResMut<Inspector>) {
 /// Match the inspector's chrome to its width, and fill it from the selection.
 pub fn update_inspector(
     inspector: Res<Inspector>,
-    windows: Query<&Window>,
+    window: Single<&Window>,
     ui_scale: Res<UiScale>,
     selected: SelectedSource,
     sources: Query<(&DataSource, &SourceStatus)>,
@@ -260,8 +260,7 @@ pub fn update_inspector(
     mut texts: Query<&mut Text>,
     bodies: Query<Entity, With<InspectorBody>>,
 ) {
-    let Ok(window) = windows.single() else { return };
-    let window = crate::widgets::ui_size(window, &ui_scale);
+    let window = crate::widgets::ui_size(*window, &ui_scale);
     let width = inspector.current_width(window.x);
     place_right_dock(&mut roots, &mut handles, inspector.open, width, window.x);
     if !inspector.open {
@@ -301,7 +300,7 @@ pub fn rebuild_record(
     mut lists: Query<(Entity, &mut Node), With<InspectorRecord>>,
     sections: Query<(&Accordion, &RecordSection)>,
     export_menus: Query<Entity, With<RecordExportMenu>>,
-    mut shown: Local<Option<(Record, Vec<TrailStep>)>>,
+    built: Query<&BuiltFrom<Option<(Record, Vec<TrailStep>)>>>,
 ) {
     let Ok((list, mut node)) = lists.single_mut() else {
         return;
@@ -315,10 +314,9 @@ pub fn rebuild_record(
         .map(|trail| trail.0.clone())
         .unwrap_or_default();
     let now = record.map(|record| (record.clone(), trail.clone()));
-    if now == *shown {
+    if !needs_rebuild(&mut commands, &built, list, now) {
         return;
     }
-    *shown = now;
     // A section closed on one row stays closed on the next.
     let open = |part: RecordPart| {
         sections

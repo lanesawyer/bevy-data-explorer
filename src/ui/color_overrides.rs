@@ -44,7 +44,8 @@ use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, SectionLevel, button_icon, size, spawn_accordion, spawn_header_button,
+    BlocksFrameInput, BuiltFrom, Icon, SectionLevel, button_icon, needs_rebuild, size,
+    spawn_accordion, spawn_header_button,
 };
 
 /// Just below the cell properties, whose colors these are.
@@ -203,9 +204,7 @@ fn describe(properties: &CellProperties, column: &str, code: u16) -> String {
     }
 }
 
-fn spawn_color_overrides(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
-    let Ok(parent) = content.single() else { return };
-
+fn spawn_color_overrides(mut commands: Commands, parent: Single<Entity, With<SidebarContent>>) {
     let accordion = spawn_accordion(&mut commands, "Color overrides", true, SectionLevel::Pane);
     commands.entity(accordion.section).insert((
         SectionOrder(SECTION_ORDER),
@@ -215,7 +214,7 @@ fn spawn_color_overrides(mut commands: Commands, content: Query<Entity, With<Sid
                 .is_some_and(|overrides| !overrides.is_empty())
         }),
     ));
-    commands.entity(parent).add_child(accordion.section);
+    commands.entity(*parent).add_child(accordion.section);
     commands.entity(accordion.body).insert(OverridesBody);
     spawn_color_export_menu(&mut commands, accordion.header, true);
     let reset = spawn_header_button(&mut commands, accordion.header, Icon::RotateCcw);
@@ -275,16 +274,15 @@ fn rebuild_override_list(
     mut commands: Commands,
     selected: SelectedSource,
     sources: Query<(&CellProperties, &ColorOverrides)>,
-    body: Query<Entity, With<OverridesBody>>,
+    body: Single<Entity, With<OverridesBody>>,
     existing: Query<Entity, With<OverrideRow>>,
-    mut shown: Local<Option<(Entity, Vec<(String, u16)>, Provenance)>>,
+    built: Query<&BuiltFrom<Option<(Entity, Vec<(String, u16)>, Provenance)>>>,
 ) {
-    let Ok(body) = body.single() else { return };
     let Some((source, (properties, overrides))) = selected
         .entity()
         .and_then(|source| sources.get(source).ok().map(|found| (source, found)))
     else {
-        *shown = None;
+        needs_rebuild(&mut commands, &built, *body, None);
         return;
     };
     // The labels are read from the properties, which a service can replace
@@ -297,10 +295,9 @@ fn rebuild_override_list(
             .collect(),
         properties.provenance.clone(),
     );
-    if shown.as_ref() == Some(&fingerprint) {
+    if !needs_rebuild(&mut commands, &built, *body, Some(fingerprint)) {
         return;
     }
-    *shown = Some(fingerprint);
 
     for row in &existing {
         commands.entity(row).despawn();
@@ -340,7 +337,7 @@ fn rebuild_override_list(
                 .id()
         })
         .collect();
-    commands.entity(body).add_children(&rows);
+    commands.entity(*body).add_children(&rows);
 }
 
 /// Show every square in the color what it stands for is drawn in.

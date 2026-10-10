@@ -40,9 +40,9 @@ use crate::ui::table_search::spawn_search_row;
 use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
-    Accordion, BlocksFrameInput, Icon, SectionLevel, button_text, matches_search, patch_node,
-    set_text, size, spawn_accordion, spawn_header_button, spawn_menu, spawn_skeleton, text,
-    text_dim,
+    Accordion, BlocksFrameInput, BuiltFrom, Icon, SectionLevel, button_text, matches_search,
+    needs_rebuild, patch_node, set_text, size, spawn_accordion, spawn_header_button, spawn_menu,
+    spawn_skeleton, text, text_dim,
 };
 
 /// Under the cell properties, which is where the same act on a point cloud
@@ -148,15 +148,13 @@ pub struct ColumnBody {
     shows: Option<ColumnShows>,
 }
 
-pub fn spawn_filter_section(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
-    let Ok(parent) = content.single() else { return };
-
+pub fn spawn_filter_section(mut commands: Commands, parent: Single<Entity, With<SidebarContent>>) {
     let accordion = spawn_accordion(&mut commands, "Table filters", true, SectionLevel::Pane);
     commands.entity(accordion.section).insert((
         SectionOrder(SECTION_ORDER),
         SectionFor(|source| source.contains::<SourceTable>()),
     ));
-    commands.entity(parent).add_child(accordion.section);
+    commands.entity(*parent).add_child(accordion.section);
     commands.entity(accordion.body).insert(FilterBody);
     let partitions = spawn_partition_row(&mut commands);
     let search = spawn_search_row(&mut commands);
@@ -186,11 +184,10 @@ pub fn rebuild_filters(
     mut commands: Commands,
     selection: SelectedSource,
     tables: Query<Option<&TableFilters>, With<SourceTable>>,
-    body: Query<Entity, With<FilterBody>>,
+    body: Single<Entity, With<FilterBody>>,
     existing: Query<Entity, With<FilterContent>>,
-    mut built: Local<Option<(Entity, Option<(usize, bool)>)>>,
+    built: Query<&BuiltFrom<Option<(Entity, Option<(usize, bool)>)>>>,
 ) {
-    let Ok(body) = body.single() else { return };
     let source = selection.entity().filter(|source| tables.contains(*source));
     let filters = source.and_then(|source| tables.get(source).ok().flatten());
 
@@ -200,10 +197,9 @@ pub fn rebuild_filters(
             filters.map(|filters| (filters.columns.len(), filters.pending)),
         )
     });
-    if *built == fingerprint {
+    if !needs_rebuild(&mut commands, &built, *body, fingerprint) {
         return;
     }
-    *built = fingerprint;
 
     for entity in &existing {
         commands.entity(entity).despawn();
@@ -217,14 +213,14 @@ pub fn rebuild_filters(
             .spawn_scene(text_dim("Nothing to filter by.", size::SMALL))
             .insert(FilterContent)
             .id();
-        commands.entity(body).add_child(note);
+        commands.entity(*body).add_child(note);
         return;
     };
 
     if table.pending {
         let skeleton = spawn_skeleton(&mut commands, SKELETON_ROWS, SKELETON_ROW_PX);
         commands.entity(skeleton).insert(FilterContent);
-        commands.entity(body).add_child(skeleton);
+        commands.entity(*body).add_child(skeleton);
         return;
     }
 
@@ -262,7 +258,7 @@ pub fn rebuild_filters(
         commands.entity(section.body).add_child(body);
         rows.push(section.section);
     }
-    commands.entity(body).add_children(&rows);
+    commands.entity(*body).add_children(&rows);
 }
 
 /// Fill the menu with one checkbox per column of the selected table.
@@ -274,11 +270,10 @@ pub fn rebuild_column_menu(
     mut commands: Commands,
     selection: SelectedSource,
     tables: Query<(&SourceTable, Option<&HiddenColumns>)>,
-    menus: Query<Entity, With<ColumnMenu>>,
+    menu: Single<Entity, With<ColumnMenu>>,
     existing: Query<Entity, With<ColumnMenuContent>>,
-    mut built: Local<Option<(Entity, Vec<String>)>>,
+    built: Query<&BuiltFrom<Option<(Entity, Vec<String>)>>>,
 ) {
-    let Ok(menu) = menus.single() else { return };
     let table = selection
         .entity()
         .and_then(|source| tables.get(source).ok().map(|table| (source, table)));
@@ -291,10 +286,9 @@ pub fn rebuild_column_menu(
                 .collect(),
         )
     });
-    if *built == fingerprint {
+    if !needs_rebuild(&mut commands, &built, *menu, fingerprint) {
         return;
     }
-    *built = fingerprint;
 
     for entity in &existing {
         commands.entity(entity).despawn();
@@ -330,7 +324,7 @@ pub fn rebuild_column_menu(
         }
         entries.push(row);
     }
-    commands.entity(menu).add_children(&entries);
+    commands.entity(*menu).add_children(&entries);
 }
 
 /// Draw or hide the column whose box was ticked.

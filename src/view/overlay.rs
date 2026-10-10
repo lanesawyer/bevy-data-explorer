@@ -359,14 +359,13 @@ pub fn position_hud(
 /// Anchored from the bottom so it grows upward as a source reports more, rather
 /// than sliding off the frame.
 pub fn position_tooltips(
-    windows: Query<&Window>,
+    window: Single<&Window>,
     ui_scale: Res<UiScale>,
     area: Res<crate::view::FrameArea>,
     panels: Query<&Panel>,
     mut tooltips: Query<(&ChromeOf, &mut Node), With<PanelTooltip>>,
 ) {
-    let Ok(window) = windows.single() else { return };
-    let window = crate::widgets::ui_size(window, &ui_scale);
+    let window = crate::widgets::ui_size(*window, &ui_scale);
     let count = panels.iter().count();
     for (frame, node) in &mut tooltips {
         let Ok(panel) = panels.get(frame.0) else {

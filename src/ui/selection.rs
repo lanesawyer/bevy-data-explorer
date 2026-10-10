@@ -351,7 +351,7 @@ pub fn close_selection(_: On<Activate>, mut dock: ResMut<SelectionDock>) {
 pub fn update_selection_dock(
     mut dock: ResMut<SelectionDock>,
     inspector: Res<Inspector>,
-    windows: Query<&Window>,
+    window: Single<&Window>,
     ui_scale: Res<UiScale>,
     selected: Res<SelectedPanel>,
     panels: Query<(&ShowsSource, Has<SelectMode>, Has<FrameRegion>)>,
@@ -360,8 +360,7 @@ pub fn update_selection_dock(
     mut handles: Query<&mut Node, (With<SelectionHandle>, Without<SelectionRoot>)>,
     mut status: Query<&mut Text, With<SelectionStatus>>,
 ) {
-    let Ok(window) = windows.single() else { return };
-    let window = crate::widgets::ui_size(window, &ui_scale);
+    let window = crate::widgets::ui_size(*window, &ui_scale);
     let width = dock.current_width(window.x);
     let outboard = inspector.current_width(window.x);
     // Assigned only when it moves: taking the dock mutably every frame would

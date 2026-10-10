@@ -94,8 +94,7 @@ pub struct BookmarkListContent;
 #[derive(Component, Clone, Default)]
 pub struct BookmarkStatus;
 
-pub fn spawn_bookmarks_menu(mut commands: Commands, footer: Query<Entity, With<SidebarFooter>>) {
-    let Ok(footer) = footer.single() else { return };
+pub fn spawn_bookmarks_menu(mut commands: Commands, footer: Single<Entity, With<SidebarFooter>>) {
     // The chevron hides with the label, since the ribbon is too narrow for it
     // beside the icon.
     let button = commands
@@ -126,7 +125,7 @@ pub fn spawn_bookmarks_menu(mut commands: Commands, footer: Query<Entity, With<S
         .add_child(menu.root)
         .id();
     // First in the footer: it is used more often than Settings or Help.
-    commands.entity(footer).insert_children(0, &[line]);
+    commands.entity(*footer).insert_children(0, &[line]);
     let popup = menu.popup;
 
     let field = commands

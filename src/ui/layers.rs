@@ -25,8 +25,8 @@ use crate::view::layers::{stacked_sources, unit_mismatch};
 use crate::view::{FrameLayers, LayerOf, LayerOpacity, Panel, PanelRequest, SelectedPanel};
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, SectionLevel, button_icon, caption, size, spawn_accordion,
-    spawn_slider, text,
+    BlocksFrameInput, BuiltFrom, Icon, SectionLevel, button_icon, caption, needs_rebuild, size,
+    spawn_accordion, spawn_slider, text,
 };
 
 /// Straight after View configuration, which acts on the bottom of the same
@@ -83,14 +83,13 @@ pub struct LayerOpacitySlider {
     pub layer: Entity,
 }
 
-pub fn spawn_layers_section(mut commands: Commands, content: Query<Entity, With<SidebarContent>>) {
-    let Ok(parent) = content.single() else { return };
+pub fn spawn_layers_section(mut commands: Commands, parent: Single<Entity, With<SidebarContent>>) {
     let accordion = spawn_accordion(&mut commands, "Layers", true, SectionLevel::Pane);
     commands
         .entity(accordion.section)
         .insert((SectionOrder(SECTION_ORDER), SectionFor(applies)));
     commands.entity(accordion.body).insert(LayersBody);
-    commands.entity(parent).add_child(accordion.section);
+    commands.entity(*parent).add_child(accordion.section);
 }
 
 /// Rebuild the rows when the selection, its stack, or the sources on offer
@@ -107,12 +106,10 @@ pub fn rebuild_layers(
     sources: Query<(Entity, &DataSource)>,
     load: Res<CustomLoad>,
     catalogs: Res<Catalogs>,
-    body: Query<Entity, With<LayersBody>>,
+    body: Single<Entity, With<LayersBody>>,
     existing: Query<Entity, With<LayersContent>>,
-    mut shown: Local<Option<(Option<Entity>, Vec<Entity>, Vec<Entity>, usize, bool)>>,
+    built: Query<&BuiltFrom<(Option<Entity>, Vec<Entity>, Vec<Entity>, usize, bool)>>,
 ) {
-    let Ok(body) = body.single() else { return };
-
     let frame = selected
         .0
         .and_then(|panel| panels.get(panel).ok().map(|found| (panel, found)));
@@ -134,10 +131,9 @@ pub fn rebuild_layers(
         sources.iter().count(),
         frame.is_some_and(|(panel, _)| load.is_layering_onto(panel)),
     );
-    if shown.as_ref() == Some(&fingerprint) {
+    if !needs_rebuild(&mut commands, &built, *body, fingerprint) {
         return;
     }
-    *shown = Some(fingerprint);
 
     for entity in &existing {
         commands.entity(entity).despawn();
@@ -148,7 +144,7 @@ pub fn rebuild_layers(
 
     let Some((panel, _)) = frame else {
         rows.push(content_caption(&mut commands, "no frame selected"));
-        commands.entity(body).add_children(&rows);
+        commands.entity(*body).add_children(&rows);
         return;
     };
     let Some(base) = stack.first().and_then(|base| lookup(*base)) else {
@@ -210,7 +206,7 @@ pub fn rebuild_layers(
     commands.entity(picker).insert(LayersContent);
     rows.push(picker);
 
-    commands.entity(body).add_children(&rows);
+    commands.entity(*body).add_children(&rows);
 }
 
 fn content_caption(commands: &mut Commands, content: &str) -> Entity {

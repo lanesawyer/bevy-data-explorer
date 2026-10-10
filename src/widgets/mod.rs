@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 
 mod accordion;
+mod built;
 mod button_text;
 mod caption;
 mod dock;
@@ -28,6 +29,7 @@ mod text;
 mod truncate;
 
 pub use accordion::{Accordion, SectionLevel, spawn_accordion, spawn_header_button};
+pub use built::{BuiltFrom, needs_rebuild};
 pub use button_text::button_text;
 pub use caption::caption;
 pub use dock::{

@@ -101,11 +101,10 @@ pub fn fill_lightbox(
 /// Size the picture to the room the window leaves it. The dialog is as wide
 /// as what it holds, so it follows.
 pub fn fit_lightbox(
-    windows: Query<&Window>,
+    window: Single<&Window>,
     mut pictures: Query<(&ImageNode, &mut Node), With<LightboxImage>>,
     images: Res<Assets<Image>>,
 ) {
-    let Ok(window) = windows.single() else { return };
     for (image, mut node) in &mut pictures {
         let Some(size) = images.get(&image.image).map(Image::size_f32) else {
             continue;

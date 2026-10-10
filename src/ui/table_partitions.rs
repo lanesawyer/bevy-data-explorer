@@ -22,7 +22,10 @@ use crate::app::schedule::Stage;
 use crate::source::grouped;
 use crate::source::table::{TablePartition, TablePartitions};
 use crate::view::SelectedSource;
-use crate::widgets::{BlocksFrameInput, button_text, display, patch_node, size, space, text_dim};
+use crate::widgets::{
+    BlocksFrameInput, BuiltFrom, button_text, display, needs_rebuild, patch_node, size, space,
+    text_dim,
+};
 
 /// The row the choice is built into: the first thing in the filters' body,
 /// spawned with it, and hidden unless there is a choice to make.
@@ -62,7 +65,7 @@ fn rebuild_partitions(
     tables: Query<&TablePartitions>,
     mut rows: Query<(Entity, &mut Node), With<PartitionRow>>,
     existing: Query<Entity, With<PartitionContent>>,
-    mut built: Local<Option<(Entity, Vec<TablePartition>)>>,
+    built: Query<&BuiltFrom<Option<(Entity, Vec<TablePartition>)>>>,
 ) {
     let Ok((row, node)) = rows.single_mut() else {
         return;
@@ -71,10 +74,9 @@ fn rebuild_partitions(
         .entity()
         .and_then(|source| Some((source, tables.get(source).ok()?)));
     let fingerprint = partitions.map(|(source, it)| (source, it.partitions.clone()));
-    if *built == fingerprint {
+    if !needs_rebuild(&mut commands, &built, row, fingerprint) {
         return;
     }
-    *built = fingerprint;
 
     for entity in &existing {
         commands.entity(entity).despawn();

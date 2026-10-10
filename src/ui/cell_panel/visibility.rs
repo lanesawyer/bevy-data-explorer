@@ -22,7 +22,9 @@ use crate::source::properties::CellProperties;
 use crate::ui::cell_panel::{CellPanelMenu, PropertySection};
 use crate::view::SelectedSource;
 use crate::widgets::space;
-use crate::widgets::{BlocksFrameInput, button_text, display, patch_node, size, text};
+use crate::widgets::{
+    BlocksFrameInput, BuiltFrom, button_text, display, needs_rebuild, patch_node, size, text,
+};
 
 /// A checkbox in the menu, listing or hiding one property.
 #[derive(Component, Clone, Default)]
@@ -43,19 +45,16 @@ pub fn rebuild_visibility_menu(
     mut commands: Commands,
     selected: SelectedSource,
     sources: Query<&CellProperties>,
-    menus: Query<Entity, With<CellPanelMenu>>,
+    menu: Single<Entity, With<CellPanelMenu>>,
     existing: Query<Entity, With<MenuContent>>,
-    mut shown: Local<Option<(Entity, Vec<String>)>>,
+    built: Query<&BuiltFrom<Option<(Entity, Vec<String>)>>>,
 ) {
-    let Ok(menu) = menus.single() else { return };
-
     let source = selected
         .entity()
         .and_then(|source| sources.get(source).ok().map(|found| (source, found)));
 
     let Some((entity, properties)) = source else {
-        if shown.is_some() {
-            *shown = None;
+        if needs_rebuild(&mut commands, &built, *menu, None) {
             for entity in &existing {
                 commands.entity(entity).despawn();
             }
@@ -70,10 +69,9 @@ pub fn rebuild_visibility_menu(
             .map(|(_, property)| property.id.clone())
             .collect(),
     );
-    if shown.as_ref() == Some(&fingerprint) {
+    if !needs_rebuild(&mut commands, &built, *menu, Some(fingerprint)) {
         return;
     }
-    *shown = Some(fingerprint);
 
     for entity in &existing {
         commands.entity(entity).despawn();
@@ -98,7 +96,7 @@ pub fn rebuild_visibility_menu(
         }
         rows.push(row);
     }
-    commands.entity(menu).add_children(&rows);
+    commands.entity(*menu).add_children(&rows);
 }
 
 fn heading(commands: &mut Commands) -> Entity {

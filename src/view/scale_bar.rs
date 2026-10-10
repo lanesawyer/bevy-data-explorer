@@ -112,7 +112,7 @@ fn spawn_scale_bar(add: On<Add<Panel>>, mut commands: Commands) {
 /// Size, label and place each bar for its frame's current zoom, or hide it
 /// where there is no length to show.
 fn update_scale_bars(
-    windows: Query<&Window>,
+    window: Single<&Window>,
     ui_scale: Res<UiScale>,
     area: Res<FrameArea>,
     panels: Query<(&Panel, &Camera, &Projection, &ShowsSource)>,
@@ -126,8 +126,7 @@ fn update_scale_bars(
     mut labels: Query<&mut Text, With<ScaleBarLabel>>,
     mut rules: Query<&mut Node, (With<ScaleBarRule>, Without<ScaleBar>)>,
 ) {
-    let Ok(window) = windows.single() else { return };
-    let window = crate::widgets::ui_size(window, &ui_scale);
+    let window = crate::widgets::ui_size(*window, &ui_scale);
     let count = frames.iter().count();
     for (frame, children, node) in &mut bars {
         let shown = panels

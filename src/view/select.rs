@@ -196,7 +196,7 @@ pub fn on_select_toggled(
 /// selection mode, so one drag is never both a selection and a pan.
 pub fn drag_region(
     mut commands: Commands,
-    windows: Query<&Window>,
+    window: Single<&Window>,
     ui_scale: Res<UiScale>,
     area: Res<FrameArea>,
     buttons: Res<ButtonInput<MouseButton>>,
@@ -208,7 +208,6 @@ pub fn drag_region(
     mut regions: Query<&mut FrameRegion>,
     mut drag: Local<RegionDrag>,
 ) {
-    let Ok(window) = windows.single() else { return };
     let Some(cursor) = window.cursor_position() else {
         return;
     };
