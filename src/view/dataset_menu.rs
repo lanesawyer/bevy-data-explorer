@@ -25,10 +25,12 @@
 //! Choosing an item raises a [`SourceChoice`], which lands in
 //! [`super::overlay::on_source_chosen`] wherever the picker is.
 //!
-//! An empty frame holds a larger picker, [`spawn_dataset_browser`], with
-//! buttons narrowing it to one [`Category`], and another row keeping it to
-//! one source. That is the frame's own narrowing, not settings' switch: the
-//! other sources are only left out of this list and are not searched for it.
+//! Every picker has buttons narrowing it to one [`Category`], and another row
+//! keeping it to one source. That is the picker's own narrowing, not
+//! settings' switch: the other sources are only left out of this list and are
+//! not searched for it. An empty frame and a frame's dropdown hold one that
+//! fills them, [`spawn_dataset_browser`]; the Layers section and a frame's
+//! `...` menu one whose list holds to a height, [`spawn_dataset_picker`].
 //! Whatever is typed that looks like
 //! an address is offered as one to read, ahead of any match, so the search is
 //! also where a URL is pasted.
@@ -194,6 +196,14 @@ const LIST_MAX_PX: f32 = 360.0;
 /// item's own.
 const ITEM_TEXT_PX: f32 = MENU_WIDTH - 2.0 * 6.0 - 2.0 * 8.0;
 
+/// Width of a menu holding a picker, a frame's dropdown or its `...` menu:
+/// room for the category buttons on one row, which a menu's width is not.
+pub const PICKER_MENU_PX: f32 = 480.0;
+
+/// The tallest the dropdown grows, as a share of the window, before its list
+/// scrolls.
+const DROPDOWN_MAX_HEIGHT_VH: f32 = 70.0;
+
 /// The popup of a frame's dataset dropdown, filled by [`fill_dataset_popup`]
 /// as Feathers spawns it.
 #[derive(Component, Clone)]
@@ -218,7 +228,8 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
             BlocksFrameInput
             DatasetPopup { panel: { panel } }
             Node {
-                width: { Val::Px(MENU_WIDTH) },
+                width: { Val::Px(PICKER_MENU_PX) },
+                max_height: { Val::Vh(DROPDOWN_MAX_HEIGHT_VH) },
                 padding: { UiRect::all(Val::Px(space::PANEL_INSET)) },
             }
         })
@@ -254,15 +265,20 @@ pub fn spawn_dataset_menu(commands: &mut Commands, panel: Entity) -> Entity {
 ///
 /// Feathers spawns the popup from a scene, and the picker is built with
 /// commands, so it goes in here rather than in the scene.
+///
+/// It holds the browser an empty frame shows, categories and sources
+/// included, so replacing what a frame shows and filling an empty one are the
+/// same choice.
 pub fn fill_dataset_popup(
     add: On<Add<DatasetPopup>>,
     popups: Query<&DatasetPopup>,
+    catalogs: Res<Catalogs>,
     mut commands: Commands,
 ) {
     let Ok(&DatasetPopup { panel }) = popups.get(add.entity) else {
         return;
     };
-    // Ahead of the picker, which is short, for when a longer look is wanted.
+    // Ahead of the picker, for when a longer look than the popup is wanted.
     let browse = commands
         .spawn_scene(bsn! {
             @FeathersMenuItem {
@@ -271,35 +287,41 @@ pub fn fill_dataset_popup(
             BrowseItem { panel: { panel } }
         })
         .id();
-    let picker = spawn_dataset_picker(&mut commands, PickerTarget::Frame(panel));
+    let (picker, _) = spawn_dataset_browser(&mut commands, &catalogs, PickerTarget::Frame(panel));
     commands.entity(add.entity).add_children(&[browse, picker]);
 }
 
-/// A search field over a list of datasets, returning the column holding both.
-pub fn spawn_dataset_picker(commands: &mut Commands, target: PickerTarget) -> Entity {
-    let (picker, _) = spawn_picker(commands, target, None);
+/// The picker with its list held to a height, for where it sits among other
+/// things that scroll: the Layers section and a frame's `...` menu.
+pub fn spawn_dataset_picker(
+    commands: &mut Commands,
+    catalogs: &Catalogs,
+    target: PickerTarget,
+) -> Entity {
+    let (picker, _) = spawn_picker(commands, catalogs, target, false);
     picker
 }
 
-/// A picker that fills whatever holds it, with buttons narrowing it by
-/// category: what an empty frame shows. Returns the column and its search
-/// field, which is given the keyboard as the frame opens.
+/// The picker filling whatever holds it, its list scrolling within: what an
+/// empty frame shows, and a frame's dropdown. Returns the column and its
+/// search field, which is given the keyboard as the frame opens.
 pub fn spawn_dataset_browser(
     commands: &mut Commands,
     catalogs: &Catalogs,
     target: PickerTarget,
 ) -> (Entity, Entity) {
-    spawn_picker(commands, target, Some(catalogs))
+    spawn_picker(commands, catalogs, target, true)
 }
 
-/// `browser` is the catalogs whose sources a browser offers to keep to;
-/// nothing for a dropdown's picker, which has no room for its buttons.
+/// Every picker is the same search, categories and sources, so choosing a
+/// dataset reads alike wherever it is done; `fill` is only whether the list
+/// takes the height it is given or holds to its own.
 fn spawn_picker(
     commands: &mut Commands,
+    catalogs: &Catalogs,
     target: PickerTarget,
-    browser: Option<&Catalogs>,
+    fill: bool,
 ) -> (Entity, Entity) {
-    let fill = browser.is_some();
     let picker = commands
         .spawn_scene(bsn! {
             PickerFilter
@@ -312,12 +334,7 @@ fn spawn_picker(
         })
         .id();
 
-    let hint = if fill {
-        "Search datasets, or paste a URL"
-    } else {
-        "Search datasets"
-    };
-    let search = spawn_search_field(commands, hint);
+    let search = spawn_search_field(commands, "Search datasets, or paste a URL");
     commands
         .entity(search.field)
         .insert(DatasetSearch { picker });
@@ -336,11 +353,12 @@ fn spawn_picker(
 
     // The field would not show against the menu on its own.
     let well = commands.spawn_scene(field_well()).id();
-    commands.entity(well).add_child(search.entry);
-    if let Some(catalogs) = browser {
-        let chips = spawn_filter_chips(commands, picker);
-        let sources = spawn_source_select(commands, catalogs, picker);
-        commands.entity(well).add_children(&[chips, sources]);
+    let chips = spawn_filter_chips(commands, picker, target);
+    let sources = spawn_source_select(commands, catalogs, picker);
+    commands
+        .entity(well)
+        .add_children(&[search.entry, chips, sources]);
+    if fill {
         // The list takes whatever height the frame has, and scrolls within it.
         commands.entity(picker).insert(Node {
             flex_direction: FlexDirection::Column,
@@ -363,10 +381,18 @@ fn spawn_picker(
 }
 
 /// One button per category and one for all of them, joined into one control
-/// as the theme buttons in settings are.
-fn spawn_filter_chips(commands: &mut Commands, picker: Entity) -> Entity {
+/// as the theme buttons in settings are. A picker adding a layer has no
+/// button for tables, which draw nothing to lay over a frame and so are never
+/// in its list.
+fn spawn_filter_chips(commands: &mut Commands, picker: Entity, target: PickerTarget) -> Entity {
+    let layering = matches!(target, PickerTarget::Layer(_));
     let options: Vec<(Option<Category>, &'static str)> = std::iter::once((None, "All"))
-        .chain(Category::ALL.map(|category| (Some(category), category.plural())))
+        .chain(
+            Category::ALL
+                .into_iter()
+                .filter(|category| !(layering && *category == Category::Table))
+                .map(|category| (Some(category), category.plural())),
+        )
         .collect();
     spawn_chip_row(commands, options, |only| FilterChip { picker, only })
 }
@@ -414,9 +440,13 @@ fn spawn_chip_row<T, C: Component>(
 ) -> Entity {
     let row = commands
         .spawn_scene(bsn! {
+            // Wraps rather than overflowing where it is narrow, as a
+            // sidebar dragged in is.
             Node {
                 width: { Val::Percent(100.0) },
+                flex_wrap: { FlexWrap::Wrap },
                 column_gap: { Val::Px(space::SEAM) },
+                row_gap: { Val::Px(space::SEAM) },
             }
         })
         .id();

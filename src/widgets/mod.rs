@@ -42,6 +42,7 @@ pub use lightbox::Enlargeable;
 pub use link::link_button;
 pub use menu::{
     IconMenu, MENU_WIDTH, close_menu_holding, menu_behind, spawn_icon_menu, spawn_menu,
+    spawn_wide_menu,
 };
 pub use modal::{AddModal, Modal, ModalParts, close_modal, spawn_modal};
 pub use notice::{Notice, Tone, notice};

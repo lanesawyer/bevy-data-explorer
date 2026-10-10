@@ -14,6 +14,7 @@ use bevy_feathers::controls::FeathersToolButton;
 use bevy_ui_widgets::{Activate, SliderValue};
 
 use crate::app::schedule::{Boot, Stage};
+use crate::catalog::Catalogs;
 use crate::source::table::SourceTable;
 use crate::source::{DataSource, ShowsSource};
 use crate::ui::add_source::CustomLoad;
@@ -105,6 +106,7 @@ pub fn rebuild_layers(
     opacities: Query<(&ShowsSource, &LayerOpacity), With<LayerOf>>,
     sources: Query<(Entity, &DataSource)>,
     load: Res<CustomLoad>,
+    catalogs: Res<Catalogs>,
     body: Query<Entity, With<LayersBody>>,
     existing: Query<Entity, With<LayersContent>>,
     mut shown: Local<Option<(Option<Entity>, Vec<Entity>, Vec<Entity>, usize, bool)>>,
@@ -204,7 +206,7 @@ pub fn rebuild_layers(
             "This frame holds all it can.",
         ));
     }
-    let picker = spawn_dataset_picker(&mut commands, PickerTarget::Layer(panel));
+    let picker = spawn_dataset_picker(&mut commands, &catalogs, PickerTarget::Layer(panel));
     commands.entity(picker).insert(LayersContent);
     rows.push(picker);
 

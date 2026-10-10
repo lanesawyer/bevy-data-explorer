@@ -40,8 +40,8 @@ use crate::view::{
     ShowFailed,
 };
 use crate::widgets::{
-    BlocksFrameInput, Icon, button_icon, display, patch_node, set_text, size, spawn_menu, text,
-    text_dim,
+    BlocksFrameInput, Icon, button_icon, display, patch_node, set_text, size, spawn_wide_menu,
+    text, text_dim,
 };
 
 use super::chrome::CHROME_GAP;
@@ -208,6 +208,7 @@ pub fn sync_hud(
     panels: Query<Entity, With<Panel>>,
     headers: Query<(Entity, &PanelHeader)>,
     tooltips: Query<(Entity, &PanelTooltip)>,
+    catalogs: Res<Catalogs>,
 ) {
     // The box owns the header row and the status, so despawning it takes the
     // whole overlay with it. The tooltip sits in the opposite corner and is its
@@ -227,7 +228,7 @@ pub fn sync_hud(
         if headers.iter().any(|(_, header)| header.panel == panel) {
             continue;
         }
-        spawn_overlay(&mut commands, panel);
+        spawn_overlay(&mut commands, &catalogs, panel);
         spawn_tooltip(&mut commands, panel);
     }
 }
@@ -259,7 +260,7 @@ fn spawn_tooltip(commands: &mut Commands, panel: Entity) {
 }
 
 /// Build one frame's overlay: a row of buttons over the status it reports.
-fn spawn_overlay(commands: &mut Commands, panel: Entity) {
+fn spawn_overlay(commands: &mut Commands, catalogs: &Catalogs, panel: Entity) {
     let root = commands
         .spawn_scene(bsn! {
             PanelHeader { panel: { panel } }
@@ -309,11 +310,13 @@ fn spawn_overlay(commands: &mut Commands, panel: Entity) {
     super::select::spawn_select_button(commands, header, panel);
     super::link::spawn_link_button(commands, header, panel);
     super::plane::spawn_plane_menu(commands, header, panel);
-    let menu = spawn_menu(commands, header);
+    // As wide as the frame's dropdown, since it holds the same picker.
+    let menu = spawn_wide_menu(commands, header, super::dataset_menu::PICKER_MENU_PX);
     // Built once, under the rows `rebuild_source_menus` puts above it, so
     // whatever is typed into its search survives the stack changing.
     let picker = super::dataset_menu::spawn_dataset_picker(
         commands,
+        catalogs,
         super::dataset_menu::PickerTarget::Layer(panel),
     );
     commands

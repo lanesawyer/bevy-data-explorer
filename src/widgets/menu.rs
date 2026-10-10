@@ -37,7 +37,13 @@ const MENU_MAX_HEIGHT_VH: f32 = 70.0;
 /// Add a `...` menu button under `parent`, returning the popup for the caller
 /// to fill.
 pub fn spawn_menu(commands: &mut Commands, parent: Entity) -> Entity {
-    let popup = spawn_popup(commands);
+    spawn_wide_menu(commands, parent, MENU_WIDTH)
+}
+
+/// [`spawn_menu`] with a popup `width` wide, for one holding more than a
+/// menu's width does.
+pub fn spawn_wide_menu(commands: &mut Commands, parent: Entity, width: f32) -> Entity {
+    let popup = spawn_popup(commands, width);
     let button = commands
         .spawn_scene(bsn! {
             @FeathersMenuToolButton {
@@ -57,7 +63,7 @@ pub fn spawn_menu(commands: &mut Commands, parent: Entity) -> Entity {
 /// that acts when pressed, so the chevron is what warns that this one opens
 /// something instead — and it is not optional, so no menu goes without it.
 pub fn spawn_icon_menu(commands: &mut Commands, parent: Entity, icon: Icon) -> IconMenu {
-    let popup = spawn_popup(commands);
+    let popup = spawn_popup(commands, MENU_WIDTH);
     let button = commands
         .spawn_scene(bsn! {
             @FeathersMenuToolButton {
@@ -77,7 +83,7 @@ pub fn spawn_icon_menu(commands: &mut Commands, parent: Entity, icon: Icon) -> I
 /// A menu behind a `FeathersMenuToolButton` the caller built, for a button
 /// that says more than an icon. Left for the caller to place.
 pub fn menu_behind(commands: &mut Commands, button: Entity) -> IconMenu {
-    let popup = spawn_popup(commands);
+    let popup = spawn_popup(commands, MENU_WIDTH);
     let root = commands
         .spawn_scene(bsn! { @FeathersMenu })
         .add_children(&[button, popup])
@@ -101,14 +107,14 @@ fn spawn_root(commands: &mut Commands, parent: Entity, button: Entity, popup: En
 }
 
 /// A closed popup, for the caller to fill.
-fn spawn_popup(commands: &mut Commands) -> Entity {
+fn spawn_popup(commands: &mut Commands, width: f32) -> Entity {
     commands
         .spawn_scene(bsn! {
             @FeathersMenuPopup
             // A menu long enough to run off the screen scrolls instead.
             ScrollArea
             Node {
-                width: { Val::Px(MENU_WIDTH) },
+                width: { Val::Px(width) },
                 max_height: { Val::Vh(MENU_MAX_HEIGHT_VH) },
                 flex_direction: { FlexDirection::Column },
                 row_gap: { Val::Px(space::ROWS) },
