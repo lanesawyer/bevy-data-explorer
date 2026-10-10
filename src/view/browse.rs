@@ -53,17 +53,12 @@ pub fn new_frame_button(label: &'static str, variant: ButtonVariant) -> impl Sce
         }
         BlocksFrameInput
         NewFrameButton
+        on(on_new_frame)
     }
 }
 
-pub fn on_new_frame(
-    activate: On<Activate>,
-    buttons: Query<(), With<NewFrameButton>>,
-    mut requests: MessageWriter<PanelRequest>,
-) {
-    if buttons.contains(activate.entity) {
-        requests.write(PanelRequest::Browse(None));
-    }
+pub fn on_new_frame(_: On<Activate>, mut requests: MessageWriter<PanelRequest>) {
+    requests.write(PanelRequest::Browse(None));
 }
 
 /// Hold the new frame buttons while the grid has no room for another.
@@ -197,6 +192,7 @@ fn spawn_pane(commands: &mut Commands, catalogs: &Catalogs, panel: Entity) -> En
                     @caption: { bsn_list! {@button_icon(Icon::X)} }
                 }
                 BrowseClose { panel: { panel } }
+                on(on_browse_close)
             ]
         })
         .id();
@@ -332,19 +328,17 @@ pub struct BrowsePlugin;
 
 impl Plugin for BrowsePlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_browse_close)
-            .add_observer(on_new_frame)
-            .add_systems(
-                Update,
-                (
-                    sync_browse_panes,
-                    place_browse_panes,
-                    hide_browsing_headers,
-                    sync_browse_text,
-                    sync_new_frame_buttons,
-                )
-                    .chain()
-                    .in_set(Stage::Chrome),
-            );
+        app.add_systems(
+            Update,
+            (
+                sync_browse_panes,
+                place_browse_panes,
+                hide_browsing_headers,
+                sync_browse_text,
+                sync_new_frame_buttons,
+            )
+                .chain()
+                .in_set(Stage::Chrome),
+        );
     }
 }

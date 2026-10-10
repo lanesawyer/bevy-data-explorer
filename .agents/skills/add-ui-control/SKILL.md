@@ -80,9 +80,13 @@ gets a file of its own there, re-exported from `widgets/mod.rs`.
 
 - **Feathers and `bevy_ui_widgets` controls trigger events.** `Interaction`
   is deprecated and they carry none. Use an observer:
-  `On<Activate>` for buttons, `On<ValueChange<bool>>` for checkboxes. Put a
-  marker component on the control, and have the observer check it with a
-  query and return early otherwise. Sliders here are read the other way: a
+  `On<Activate>` for buttons, `On<ValueChange<bool>>` for checkboxes. Attach
+  it to the control: `on(handler)` in the control's `bsn!`, `.observe(handler)`
+  on an entity already spawned, or `bevy::ui_widgets::observe(handler)` in a
+  bundle handed to a builder. It then runs only for that control, so it needs
+  no marker to check. A marker stays only where it carries data the handler
+  reads (`activate.entity`) or a sync system queries. `app.add_observer` is for
+  behavior every instance of a widget shares, such as a modal's toggle. Sliders here are read the other way: a
   `ControlsPlace` system compares the slider's `SliderValue` with the
   source's component and writes whichever changed.
 - **Tabs made of Feathers buttons** (`TabList` with `Tab` on each button, as

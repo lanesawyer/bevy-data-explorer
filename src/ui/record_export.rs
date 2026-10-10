@@ -56,7 +56,8 @@ pub fn spawn_record_export_menu(commands: &mut Commands, header: Entity, part: R
     for (format, button) in menu.formats {
         commands
             .entity(button)
-            .insert(ExportRecord { part, format });
+            .insert(ExportRecord { part, format })
+            .observe(on_export_record);
     }
 }
 
@@ -177,14 +178,6 @@ fn on_export_record(
         },
         button.format,
     );
-}
-
-pub struct RecordExportPlugin;
-
-impl Plugin for RecordExportPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_observer(on_export_record);
-    }
 }
 
 #[cfg(test)]

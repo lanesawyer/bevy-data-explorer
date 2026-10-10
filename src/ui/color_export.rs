@@ -44,10 +44,13 @@ pub fn spawn_color_export_menu(commands: &mut Commands, header: Entity, override
     };
     let menu = spawn_export_menu(commands, header, title, description);
     for (format, button) in menu.formats {
-        commands.entity(button).insert(ExportColors {
-            overrides_only,
-            format,
-        });
+        commands
+            .entity(button)
+            .insert(ExportColors {
+                overrides_only,
+                format,
+            })
+            .observe(on_export_colors);
     }
 }
 
@@ -163,14 +166,6 @@ fn on_export_colors(
         },
         button.format,
     );
-}
-
-pub struct ColorExportPlugin;
-
-impl Plugin for ColorExportPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_observer(on_export_colors);
-    }
 }
 
 #[cfg(test)]

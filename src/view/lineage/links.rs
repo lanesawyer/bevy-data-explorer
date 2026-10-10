@@ -194,8 +194,7 @@ mod tests {
                 size: Vec2::new(1000.0, 500.0),
             })
             .init_resource::<SelectedPanel>()
-            .init_resource::<HoveredRecord>()
-            .add_observer(on_open_stored);
+            .init_resource::<HoveredRecord>();
         let world = app.world_mut();
         let graph = world.spawn_empty().id();
         let store = world
@@ -280,7 +279,10 @@ mod tests {
         let mut scene = scene();
         let world = scene.app.world_mut();
         world.resource_mut::<SelectedPanel>().0 = Some(scene.lineage);
-        let open = world.spawn(OpenStored { url: STORE.into() }).id();
+        let open = world
+            .spawn(OpenStored { url: STORE.into() })
+            .observe(on_open_stored)
+            .id();
         world.trigger(Activate { entity: open });
         world.flush();
         assert_eq!(world.resource::<SelectedPanel>().0, Some(scene.image));
@@ -291,6 +293,7 @@ mod tests {
             .spawn(OpenStored {
                 url: "s3://bucket/new.zarr/".into(),
             })
+            .observe(on_open_stored)
             .id();
         world.trigger(Activate { entity: fresh });
         world.flush();

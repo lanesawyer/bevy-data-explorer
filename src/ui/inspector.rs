@@ -122,9 +122,6 @@ pub struct InspectorTitle;
 #[derive(Component, Clone, Default)]
 pub struct InspectorBody;
 
-#[derive(Component, Clone, Default)]
-pub struct InspectorClose;
-
 /// The list the picked record's fields are built into.
 #[derive(Component, Clone, Default)]
 pub struct InspectorRecord;
@@ -205,8 +202,8 @@ fn spawn_inspector(mut commands: Commands) {
                 @FeathersToolButton {
                     @caption: { bsn_list! {@button_icon(Icon::X)} }
                 }
-                InspectorClose
                 BlocksFrameInput
+                on(close_inspector)
             ]
             --
             InspectorBody
@@ -246,14 +243,8 @@ pub fn open_on_request(
     }
 }
 
-pub fn close_inspector(
-    activate: On<Activate>,
-    buttons: Query<(), With<InspectorClose>>,
-    mut inspector: ResMut<Inspector>,
-) {
-    if buttons.get(activate.entity).is_ok() {
-        inspector.open = false;
-    }
+pub fn close_inspector(_: On<Activate>, mut inspector: ResMut<Inspector>) {
+    inspector.open = false;
 }
 
 /// Match the inspector's chrome to its width, and fill it from the selection.
@@ -413,6 +404,7 @@ fn spawn_trail(commands: &mut Commands, row: String, trail: &[TrailStep]) -> Ent
                     }
                     BlocksFrameInput
                     TrailCrumb({ kept })
+                    on(on_trail_crumb)
                 })
                 .id()
         };
@@ -460,6 +452,7 @@ pub fn fill_record_lineage(
             Node { column_gap: { Val::Px(space::ICON_LABEL) } }
             BlocksFrameInput
             OpenFieldDataset { url: { url } }
+            on(on_open_field_dataset)
         })
         .id();
     commands.entity(slot).add_child(button);
@@ -630,6 +623,7 @@ pub fn fill_record_related(
                         }
                         BlocksFrameInput
                         FollowRecord { link: { link }, name: { name } }
+                        on(on_follow_record)
                     })
                     .id();
                 commands.entity(field).add_child(follow);
@@ -757,6 +751,7 @@ fn spawn_field(commands: &mut Commands, name: &str, value: &str) -> Entity {
                     Node { flex_shrink: { 0.0_f32 } }
                     BlocksFrameInput
                     CopyField { value: { value } }
+                    on(on_copy_field)
                 ]
             })
             .id()
@@ -798,6 +793,7 @@ fn spawn_field(commands: &mut Commands, name: &str, value: &str) -> Entity {
                 }
                 BlocksFrameInput
                 OpenFieldDataset { url: { url.clone() } }
+                on(on_open_field_dataset)
             })
             .id();
         commands.entity(field).add_child(button);
@@ -888,11 +884,6 @@ pub struct InspectorPlugin;
 impl Plugin for InspectorPlugin {
     fn build(&self, app: &mut App) {
         app.add_dock::<Inspector>()
-            .add_observer(close_inspector)
-            .add_observer(on_open_field_dataset)
-            .add_observer(on_copy_field)
-            .add_observer(on_follow_record)
-            .add_observer(on_trail_crumb)
             .add_systems(Update, open_on_request.in_set(Stage::DockInput))
             .add_systems(
                 Update,

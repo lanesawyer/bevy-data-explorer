@@ -135,6 +135,7 @@ pub(super) fn spawn_capture_button(commands: &mut Commands, header: Entity, pane
             }
             BlocksFrameInput
             PanelCaptureButton { panel: { panel } }
+            on(on_capture_pressed)
         })
         .id();
     commands.entity(header).add_child(button);
@@ -466,7 +467,6 @@ pub struct CapturePlugin;
 impl Plugin for CapturePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FrameCapture>()
-            .add_observer(on_capture_pressed)
             // With the chrome, which is what it hides and restores, and before
             // the overlay reads what happened.
             .add_systems(

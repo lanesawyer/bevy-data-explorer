@@ -122,10 +122,6 @@ pub struct LogPanelBody;
 #[derive(Component, Clone, Default)]
 pub struct LogText;
 
-/// Opens and closes the panel.
-#[derive(Component, Clone, Default)]
-pub struct LogPanelToggle;
-
 /// The top edge, dragged to resize.
 #[derive(Component, Clone, Default)]
 pub struct LogPanelHandle;
@@ -171,12 +167,13 @@ pub fn spawn_log_panel(mut commands: Commands) {
                 }
                 BlocksFrameInput
                 CopyLogButton
+                on(on_copy_pressed)
                 --
                 @FeathersToolButton {
                     @caption: { bsn_list! {@button_icon(Icon::X)} }
                 }
                 BlocksFrameInput
-                LogPanelToggle
+                on(on_log_panel_toggled)
             ]
         })
         .id();
@@ -235,26 +232,12 @@ pub fn log_panel_shortcut(
 }
 
 /// Open and close it from a button.
-pub fn on_log_panel_toggled(
-    activate: On<Activate>,
-    buttons: Query<(), With<LogPanelToggle>>,
-    mut panel: ResMut<LogPanel>,
-) {
-    if buttons.get(activate.entity).is_ok() {
-        panel.open = !panel.open;
-    }
+pub fn on_log_panel_toggled(_: On<Activate>, mut panel: ResMut<LogPanel>) {
+    panel.open = !panel.open;
 }
 
 /// Put the log on the clipboard.
-pub fn on_copy_pressed(
-    activate: On<Activate>,
-    buttons: Query<(), With<CopyLogButton>>,
-    tail: Res<LogTail>,
-    mut clipboard: ResMut<Clipboard>,
-) {
-    if buttons.get(activate.entity).is_err() {
-        return;
-    }
+pub fn on_copy_pressed(_: On<Activate>, tail: Res<LogTail>, mut clipboard: ResMut<Clipboard>) {
     // Logged rather than shown: what went wrong with copying the log is itself
     // a log line, and the panel is open to read it.
     match clipboard.set_text(tail.report()) {
@@ -352,8 +335,6 @@ pub struct LogPanelPlugin;
 impl Plugin for LogPanelPlugin {
     fn build(&self, app: &mut App) {
         app.add_dock::<LogPanel>()
-            .add_observer(on_log_panel_toggled)
-            .add_observer(on_copy_pressed)
             // With the docks: it reads the keyboard before anything measures
             // against the space it takes, and gives that space back the frame
             // it closes.

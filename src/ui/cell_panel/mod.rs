@@ -84,10 +84,6 @@ pub struct ClearPropertyButton {
     pub property: usize,
 }
 
-/// The button that asks a failed service again.
-#[derive(Component, Clone, Default)]
-pub struct RetryButton;
-
 /// The button that drops every filter, on the section's own header.
 #[derive(Component, Clone, Default)]
 pub struct ClearAllButton;
@@ -186,7 +182,10 @@ pub fn spawn_cell_panel(mut commands: Commands, content: Query<Entity, With<Side
     // Added before the menu so it sits to its left, and hides itself when
     // there is nothing to clear.
     let clear = spawn_header_button(&mut commands, accordion.header, Icon::FilterX);
-    commands.entity(clear).insert(ClearAllButton);
+    commands
+        .entity(clear)
+        .insert(ClearAllButton)
+        .observe(on_clear_all);
     spawn_color_export_menu(&mut commands, accordion.header, false);
 
     let menu = spawn_menu(&mut commands, accordion.header);
@@ -307,7 +306,8 @@ pub fn rebuild_cell_panel(
         let clear = spawn_header_button(&mut commands, sub.header, Icon::FilterX);
         commands
             .entity(clear)
-            .insert(ClearPropertyButton { property: index });
+            .insert(ClearPropertyButton { property: index })
+            .observe(on_clear_property);
 
         // A tree colors by one of its levels, so its button opens a menu of
         // them.
@@ -320,7 +320,8 @@ pub fn rebuild_cell_panel(
         };
         commands
             .entity(button)
-            .insert(ColorByButton { property: index });
+            .insert(ColorByButton { property: index })
+            .observe(on_color_by);
         if coloring {
             commands.entity(button).insert(ButtonVariant::Primary);
         }
@@ -721,7 +722,7 @@ fn spawn_failed(commands: &mut Commands, error: &str) -> Entity {
                 }
                 Node { column_gap: { Val::Px(space::ICON_LABEL) } }
                 BlocksFrameInput
-                RetryButton
+                on(on_retry)
             ]
         })
         .id()
@@ -729,15 +730,11 @@ fn spawn_failed(commands: &mut Commands, error: &str) -> Entity {
 
 /// Ask the selected source's service about its cells again.
 pub fn on_retry(
-    activate: On<Activate>,
-    buttons: Query<&RetryButton>,
+    _: On<Activate>,
     mut commands: Commands,
     selected: SelectedSource,
     mut sources: Query<&mut CellProperties>,
 ) {
-    if buttons.get(activate.entity).is_err() {
-        return;
-    }
     let Some((source, mut properties)) = selected
         .entity()
         .and_then(|source| sources.get_mut(source).ok().map(|found| (source, found)))
@@ -750,14 +747,10 @@ pub fn on_retry(
 
 /// Drop every filter on the selected source.
 pub fn on_clear_all(
-    activate: On<Activate>,
-    buttons: Query<&ClearAllButton>,
+    _: On<Activate>,
     selected: SelectedSource,
     mut sources: Query<&mut CellProperties>,
 ) {
-    if buttons.get(activate.entity).is_err() {
-        return;
-    }
     let Some(mut properties) = selected.get_mut(&mut sources) else {
         return;
     };
@@ -967,16 +960,6 @@ impl Plugin for CellPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<OpenSections>()
             .init_resource::<tree::OpenBranches>()
-            .add_observer(on_color_by)
-            .add_observer(tree::on_toggle)
-            .add_observer(tree::on_node_toggled)
-            .add_observer(tree::on_color_level)
-            .add_observer(on_value_toggled)
-            .add_observer(on_clear_property)
-            .add_observer(on_clear_all)
-            .add_observer(on_retry)
-            .add_observer(visibility::on_show_toggled)
-            .add_observer(range::on_range_input)
             .add_systems(
                 Update,
                 (record_open_sections, range::drag_range_handles)

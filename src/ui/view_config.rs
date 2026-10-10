@@ -159,10 +159,11 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
             }
             BlocksFrameInput
             SliceStep({ delta })
+            on(on_slice_step)
         }
     };
     let back = commands.spawn_scene(step(-1, Icon::ChevronLeft)).id();
-    let on = commands.spawn_scene(step(1, Icon::ChevronRight)).id();
+    let forward = commands.spawn_scene(step(1, Icon::ChevronRight)).id();
     let slice_row = commands
         .spawn_scene(bsn! {
             SliceRow
@@ -175,7 +176,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
         .id();
     commands
         .entity(slice_row)
-        .add_children(&[back, slice_slider, on]);
+        .add_children(&[back, slice_slider, forward]);
     // Beside the paging it undoes: a step from the grid shows one slice, and
     // this is the way back.
     let grid_box = commands
@@ -185,6 +186,7 @@ pub fn spawn_view_config(mut commands: Commands, content: Query<Entity, With<Sid
             }
             BlocksFrameInput
             SliceGridBox
+            on(on_slice_grid_toggled)
         })
         .id();
 
@@ -244,13 +246,9 @@ pub fn sync_slice_grid(
 /// Write a tick of the grid box through to the selected source.
 pub fn on_slice_grid_toggled(
     change: On<ValueChange<bool>>,
-    boxes: Query<(), With<SliceGridBox>>,
     selected: SelectedSource,
     mut grids: Query<&mut SliceGrid>,
 ) {
-    if !boxes.contains(change.source) {
-        return;
-    }
     if let Some(mut grid) = selected.get_mut(&mut grids) {
         grid.set_if_neq(SliceGrid(change.value));
     }
@@ -390,20 +388,18 @@ pub struct ViewConfigPlugin;
 
 impl Plugin for ViewConfigPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_slice_grid_toggled)
-            .add_observer(on_slice_step)
-            .add_systems(
-                Update,
-                (
-                    sync_opacity_slider,
-                    sync_point_size,
-                    sync_slice_slider,
-                    sync_slice_grid,
-                )
-                    .chain()
-                    .in_set(Stage::ControlsPlace),
+        app.add_systems(
+            Update,
+            (
+                sync_opacity_slider,
+                sync_point_size,
+                sync_slice_slider,
+                sync_slice_grid,
             )
-            .add_systems(Startup, spawn_view_config.in_set(Boot::DockContent));
+                .chain()
+                .in_set(Stage::ControlsPlace),
+        )
+        .add_systems(Startup, spawn_view_config.in_set(Boot::DockContent));
     }
 }
 

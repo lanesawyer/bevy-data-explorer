@@ -381,6 +381,7 @@ BackgroundColor({ bar_color(range, bucket, ramp, palette) })]
             BlocksFrameInput
             Node { flex_grow: { 1.0_f32 }, flex_basis: { Val::ZERO }, min_width: { Val::ZERO } }
             on(filter_range_input)
+            on(on_range_input)
         }
     };
     let count = count_text(range);

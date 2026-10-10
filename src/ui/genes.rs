@@ -21,7 +21,7 @@ use crate::app::theme::Palette;
 use crate::source::genes::{GeneSearch, SearchState};
 use crate::source::properties::{CellProperties, ColorScale};
 use crate::ui::cell_panel::range::{RangeOwner, spawn_range_control};
-use crate::ui::cell_panel::{ClearPropertyButton, ColorByButton};
+use crate::ui::cell_panel::{ClearPropertyButton, ColorByButton, on_clear_property, on_color_by};
 use crate::ui::sidebar::{SectionFor, SectionOrder, SidebarContent};
 use crate::view::SelectedSource;
 use crate::widgets::space;
@@ -240,6 +240,7 @@ pub fn rebuild_gene_results(
                     }
                     BlocksFrameInput
                     GeneResultButton { result: { result } }
+                    on(on_gene_picked)
                 })
                 .id()
         })
@@ -298,15 +299,18 @@ pub fn rebuild_gene_list(
         let clear = spawn_header_button(&mut commands, sub.header, Icon::FilterX);
         commands
             .entity(clear)
-            .insert(ClearPropertyButton { property: index });
+            .insert(ClearPropertyButton { property: index })
+            .observe(on_clear_property);
         let color = spawn_header_button(&mut commands, sub.header, Icon::Palette);
         commands
             .entity(color)
-            .insert(ColorByButton { property: index });
+            .insert(ColorByButton { property: index })
+            .observe(on_color_by);
         let remove = spawn_header_button(&mut commands, sub.header, Icon::X);
         commands
             .entity(remove)
-            .insert(RemoveGeneButton { property: index });
+            .insert(RemoveGeneButton { property: index })
+            .observe(on_remove_gene);
 
         if let Some(range) = gene.range() {
             let ramp = properties
@@ -367,9 +371,7 @@ pub struct GenePanelPlugin;
 
 impl Plugin for GenePanelPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_gene_picked)
-            .add_observer(on_remove_gene)
-            .add_systems(Update, read_gene_query.in_set(Stage::ControlsRead))
+        app.add_systems(Update, read_gene_query.in_set(Stage::ControlsRead))
             .add_systems(
                 Update,
                 (rebuild_gene_results, rebuild_gene_list)

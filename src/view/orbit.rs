@@ -198,6 +198,7 @@ pub(super) fn spawn_view_button(commands: &mut Commands, header: Entity, panel: 
             BlocksFrameInput
             Node { display: { Display::None } }
             PanelViewButton { panel: { panel } }
+            on(on_view_toggled)
         })
         .id();
     commands.entity(header).add_child(button);

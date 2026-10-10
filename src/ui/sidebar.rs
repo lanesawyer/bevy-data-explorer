@@ -308,6 +308,7 @@ fn spawn_sidebar(mut commands: Commands) {
                     }
                     Node { column_gap: { Val::Px(space::ICON_LABEL) }, flex_shrink: { 0.0_f32 } }
                     crate::view::browse::NewFrameButton
+                    on(crate::view::browse::on_new_frame)
                     SidebarNewFrame
                     BlocksFrameInput
                 ]
@@ -390,6 +391,7 @@ fn spawn_sidebar(mut commands: Commands) {
                 Node { column_gap: { Val::Px(space::ICON_LABEL) } }
                 SidebarToggle
                 BlocksFrameInput
+                on(toggle_sidebar)
                 --
                 SidebarVersion
                 Text({ VERSION.to_string() })
@@ -406,14 +408,8 @@ fn spawn_sidebar(mut commands: Commands) {
     });
 }
 
-pub fn toggle_sidebar(
-    activate: On<Activate>,
-    toggles: Query<(), With<SidebarToggle>>,
-    mut sidebar: ResMut<Sidebar>,
-) {
-    if toggles.get(activate.entity).is_ok() {
-        sidebar.collapsed = !sidebar.collapsed;
-    }
+pub fn toggle_sidebar(_: On<Activate>, mut sidebar: ResMut<Sidebar>) {
+    sidebar.collapsed = !sidebar.collapsed;
 }
 
 /// Match the sidebar's chrome to its current width and state.
@@ -544,7 +540,6 @@ pub struct SidebarPlugin;
 impl Plugin for SidebarPlugin {
     fn build(&self, app: &mut App) {
         app.add_dock::<Sidebar>()
-            .add_observer(toggle_sidebar)
             .add_systems(
                 Update,
                 (measure_screen, super::reserve_space::<Sidebar>)

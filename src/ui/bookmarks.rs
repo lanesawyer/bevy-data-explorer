@@ -255,6 +255,7 @@ fn command_button(
             Node { column_gap: { Val::Px(space::ICON_LABEL) }, flex_shrink: { 0.0_f32 } }
             BlocksFrameInput
             command
+            on(on_command)
         })
         .id()
 }
@@ -345,10 +346,13 @@ fn fill_list(commands: &mut Commands, list: Entity, saved: &SavedBookmarks, rena
                 ]
             })
             .id();
-        commands.entity(open).insert(BookmarkButton {
-            path: entry.path.clone(),
-            action: BookmarkAction::Open,
-        });
+        commands
+            .entity(open)
+            .insert(BookmarkButton {
+                path: entry.path.clone(),
+                action: BookmarkAction::Open,
+            })
+            .observe(on_bookmark_button);
         let buttons: Vec<Entity> = [
             (Icon::Pencil, BookmarkAction::Rename),
             (Icon::Copy, BookmarkAction::CopyLine),
@@ -382,7 +386,8 @@ fn row_button(
         .id();
     commands
         .entity(button)
-        .insert(BookmarkButton { path, action });
+        .insert(BookmarkButton { path, action })
+        .observe(on_bookmark_button);
     button
 }
 
@@ -704,9 +709,7 @@ pub struct BookmarksPlugin;
 impl Plugin for BookmarksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Renaming>()
-            .add_observer(on_command)
             .add_observer(on_name_submitted)
-            .add_observer(on_bookmark_button)
             .add_observer(on_rename_key)
             .add_systems(Startup, spawn_bookmarks_menu.in_set(Boot::DockContent))
             .add_systems(Update, rebuild_list.in_set(Stage::ControlsBuild))

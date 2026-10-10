@@ -74,6 +74,7 @@ pub(super) fn spawn_link_button(commands: &mut Commands, header: Entity, panel: 
             BlocksFrameInput
             Node { display: { Display::None } }
             PanelLinkButton { panel: { panel } }
+            on(on_link_toggled)
         })
         .id();
     commands.entity(header).add_child(button);

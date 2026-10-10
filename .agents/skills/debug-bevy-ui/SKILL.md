@@ -13,8 +13,9 @@ and most of them build cleanly and fail silently.
 Which button is it?
 
 - `bevy_ui_widgets` and **all Feathers controls** trigger an `Activate` entity
-  event. Use `app.add_observer(...)` on `On<Activate>` and read
-  `activate.entity`.
+  event. Attach the observer to the button itself — `on(handler)` in its
+  `bsn!`, or `.observe(handler)` on a spawned entity — not `app.add_observer`.
+  A button whose scene lost its `on(...)` line does nothing and says nothing.
 - `bevy_ui::Button` and `Interaction` are deprecated in 0.20 and nothing here
   uses them. Polling `Changed<Interaction>` on a Feathers control never fires.
 

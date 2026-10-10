@@ -86,7 +86,6 @@ impl Plugin for WidgetsPlugin {
             // back to the app; this observer is what closes that loop.
             .add_observer(bevy_ui_widgets::slider_self_update)
             .add_observer(accordion::toggle_accordions)
-            .add_observer(link::on_link_pressed)
             .add_plugins(modal::ModalPlugin)
             .add_observer(lightbox::enlarge)
             .add_observer(lightbox::fill_lightbox)
@@ -94,7 +93,6 @@ impl Plugin for WidgetsPlugin {
             .add_systems(Update, lightbox::fit_lightbox.in_set(Stage::ControlsPlace))
             .add_observer(scroll::on_list_scroll)
             .add_observer(scroll::on_both_scroll)
-            .add_observer(search::on_clear_search)
             .add_systems(
                 Update,
                 scrollbar::add_scrollbars.in_set(Stage::ControlsBuild),

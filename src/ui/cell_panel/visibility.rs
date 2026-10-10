@@ -90,6 +90,7 @@ pub fn rebuild_visibility_menu(
                 }
                 BlocksFrameInput
                 ShowPropertyCheckbox { property: { index } }
+                on(on_show_toggled)
             })
             .id();
         if property.shown {

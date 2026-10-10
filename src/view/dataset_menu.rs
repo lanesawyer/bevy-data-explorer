@@ -285,6 +285,7 @@ pub fn fill_dataset_popup(
                 @caption: { bsn_list! {@button_text("Browse all datasets\u{2026}")} }
             }
             BrowseItem { panel: { panel } }
+            on(on_browse_item)
         })
         .id();
     let (picker, _) = spawn_dataset_browser(&mut commands, &catalogs, PickerTarget::Frame(panel));
@@ -394,7 +395,12 @@ fn spawn_filter_chips(commands: &mut Commands, picker: Entity, target: PickerTar
                 .map(|category| (Some(category), category.plural())),
         )
         .collect();
-    spawn_chip_row(commands, options, |only| FilterChip { picker, only })
+    spawn_chip_row(commands, options, |only| {
+        (
+            FilterChip { picker, only },
+            bevy::ui_widgets::observe(on_filter_chip),
+        )
+    })
 }
 
 /// A dropdown of the sources a picker can be kept to, and all of them.
@@ -426,6 +432,7 @@ fn spawn_source_select(commands: &mut Commands, catalogs: &Catalogs, picker: Ent
         .spawn_scene(bsn! {
             @FeathersSelect { @options: { Box::new(rows) as Box<dyn SceneList> } }
             SourceSelect { picker: { picker } }
+            on(on_source_choice)
             Node { width: { Val::Percent(100.0) } }
         })
         .id()
@@ -433,7 +440,7 @@ fn spawn_source_select(commands: &mut Commands, catalogs: &Catalogs, picker: Ent
 
 /// Buttons joined into one control as the theme buttons in settings are,
 /// each carrying the chip `chip` makes of its option.
-fn spawn_chip_row<T, C: Component>(
+fn spawn_chip_row<T, C: Bundle>(
     commands: &mut Commands,
     options: Vec<(T, impl Into<String>)>,
     chip: impl Fn(T) -> C,
@@ -512,13 +519,9 @@ pub fn sync_filter_chips(
 /// Keep a picker to the source chosen from its dropdown.
 pub fn on_source_choice(
     change: On<ValueChange<Entity>>,
-    selects: Query<(), With<SourceSelect>>,
     options: Query<&SourceOption>,
     mut sources: Query<&mut PickerSource>,
 ) {
-    if !selects.contains(change.source) {
-        return;
-    }
     let Ok(option) = options.get(change.value) else {
         return;
     };
@@ -973,6 +976,7 @@ Children [
             DatasetListContent
             choice
             pickable
+            on(super::overlay::on_source_chosen)
             // Two lines rather than the one a Feathers item is sized for.
             Node {
                 height: { Val::Auto },

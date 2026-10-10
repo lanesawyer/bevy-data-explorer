@@ -49,7 +49,6 @@ impl Plugin for UiPlugin {
             bookmarks::BookmarksPlugin,
             cell_panel::CellPanelPlugin,
             color_overrides::ColorOverridesPlugin,
-            color_export::ColorExportPlugin,
             selection::SelectionPanelPlugin,
             genes::GenePanelPlugin,
         ))
@@ -65,7 +64,6 @@ impl Plugin for UiPlugin {
             log_panel::LogPanelPlugin,
             help::HelpPlugin,
             settings::SettingsPlugin,
-            record_export::RecordExportPlugin,
         ));
     }
 }

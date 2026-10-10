@@ -274,6 +274,7 @@ fn button(commands: &mut Commands, icon: Icon, action: LayerButton) -> Entity {
             BlocksFrameInput
             action
             Node { flex_shrink: { 0.0_f32 } }
+            on(on_layer_button)
         })
         .id()
 }
@@ -372,8 +373,7 @@ pub struct LayersPlugin;
 
 impl Plugin for LayersPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_layer_button)
-            .add_systems(Update, rebuild_layers.in_set(Stage::ControlsBuild))
+        app.add_systems(Update, rebuild_layers.in_set(Stage::ControlsBuild))
             .add_systems(Update, apply_layer_opacity.in_set(Stage::ControlsApply))
             .add_systems(Startup, spawn_layers_section.in_set(Boot::DockContent));
     }

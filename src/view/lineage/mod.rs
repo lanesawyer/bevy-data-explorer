@@ -356,6 +356,7 @@ fn spawn_card(
                     Node { column_gap: { Val::Px(space::ICON_LABEL) } }
                     BlocksFrameInput
                     ToggleLinks { source: { Some(source) }, id: { id } }
+                    on(on_toggle_links)
                 })
                 .id(),
         );
@@ -373,6 +374,7 @@ fn spawn_card(
                     }
                     BlocksFrameInput
                     OpenStored { url: { url } }
+                    on(on_open_stored)
                 })
                 .id(),
         );
@@ -432,6 +434,7 @@ fn spawn_fold(
                 Node { column_gap: { Val::Px(space::ICON_LABEL) } }
                 BlocksFrameInput
                 Unfold { source: { Some(source) }, id: { id } }
+                on(on_unfold)
             })
             .id()
     };
@@ -597,10 +600,7 @@ pub struct LineagePlugin;
 
 impl Plugin for LineagePlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_toggle_links)
-            .add_observer(on_unfold)
-            .add_observer(on_open_stored)
-            .add_systems(Update, select_pressed_lineages.in_set(Stage::ControlsRead))
+        app.add_systems(Update, select_pressed_lineages.in_set(Stage::ControlsRead))
             .add_systems(Update, sync_lineages.in_set(Stage::FrameChrome))
             .init_resource::<HoveredRecord>()
             .add_systems(

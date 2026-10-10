@@ -147,6 +147,7 @@ pub(super) fn spawn_plane_menu(commands: &mut Commands, header: Entity, panel: E
             }
             BlocksFrameInput
             PlaneChoice { panel: { panel }, plane: { plane } }
+            on(on_plane_chosen)
         }
     };
     let content = commands
@@ -161,6 +162,7 @@ pub(super) fn spawn_plane_menu(commands: &mut Commands, header: Entity, panel: E
                 }
                 BlocksFrameInput
                 AllViews { panel: { panel } }
+                on(on_all_views)
                 --
                 @text_dim(
                     "The stack cut three ways and in 3D, a frame each, linked on one point. \
@@ -189,6 +191,7 @@ pub(super) fn spawn_plane_menu(commands: &mut Commands, header: Entity, panel: E
                     }
                     BlocksFrameInput
                     PlaneChoice { panel: { panel }, plane: { None } }
+                    on(on_plane_chosen)
                     --
                     @text_dim(
                         "Undo the plane chosen, and cut the stack the way it opens on its own.",

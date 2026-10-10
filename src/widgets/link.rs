@@ -27,6 +27,7 @@ pub fn link_button(
         Node { column_gap: { Val::Px(space::ICON_LABEL) } }
         BlocksFrameInput
         ExternalLink { url: { url } }
+        on(on_link_pressed)
     }
 }
 

@@ -47,8 +47,7 @@ use crate::source::{DataSource, ShowsSource, SourceExtent, ViewLimits};
 
 use camera::{clear_when_empty, follow_theme, normalize_panels, spawn_ui_camera, update_viewports};
 use chrome::{
-    panel_buttons, spawn_dividers, spawn_selection_border, sync_duplicate_buttons,
-    update_selection_border,
+    spawn_dividers, spawn_selection_border, sync_duplicate_buttons, update_selection_border,
 };
 use grid::clear_color_for;
 pub use input::PageSlices;
@@ -291,12 +290,6 @@ impl Plugin for ViewPlugin {
         .init_resource::<SelectedPanel>()
         .init_resource::<plane::DefaultPlanes>()
         .init_resource::<TextEntryFocused>()
-        .add_observer(panel_buttons)
-        .add_observer(orbit::on_view_toggled)
-        .add_observer(select::on_select_toggled)
-        .add_observer(link::on_link_toggled)
-        .add_observer(plane::on_plane_chosen)
-        .add_observer(plane::on_all_views)
         .add_systems(Update, track_text_focus.in_set(Stage::Focus))
         .add_systems(Update, reset_frame_area.in_set(Stage::FrameArea))
         .add_systems(

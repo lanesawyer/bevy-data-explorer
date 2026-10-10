@@ -299,6 +299,7 @@ fn spawn_overlay(commands: &mut Commands, catalogs: &Catalogs, panel: Entity) {
             }
             BlocksFrameInput
             PanelInfoButton { panel: { panel } }
+            on(on_info_pressed)
         })
         .id();
 
@@ -818,6 +819,7 @@ fn menu_row(
                 BlocksFrameInput
                 choice
                 Node { flex_shrink: { 0.0_f32 } }
+                on(on_source_chosen)
             })
             .id();
         if !enabled {
@@ -833,12 +835,7 @@ pub struct OverlayPlugin;
 
 impl Plugin for OverlayPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_info_pressed)
-            .add_observer(on_source_chosen)
-            .add_observer(super::dataset_menu::on_search_key)
-            .add_observer(super::dataset_menu::on_filter_chip)
-            .add_observer(super::dataset_menu::on_source_choice)
-            .add_observer(super::dataset_menu::on_browse_item)
+        app.add_observer(super::dataset_menu::on_search_key)
             .add_observer(super::dataset_menu::fill_dataset_popup)
             .add_systems(Update, sync_hud.in_set(Stage::FrameChrome))
             .add_systems(

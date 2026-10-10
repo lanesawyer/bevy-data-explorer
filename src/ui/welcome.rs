@@ -244,6 +244,7 @@ fn example_cells(commands: &mut Commands, example: &Example) -> [Entity; 2] {
                     }
                     BlocksFrameInput
                     ExampleButton { url: { url } }
+                    on(on_example_pressed)
                     Node {
                         min_width: { Val::Px(0.0) },
                         overflow: { Overflow::clip() },
@@ -303,7 +304,7 @@ pub struct WelcomePlugin;
 
 impl Plugin for WelcomePlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_example_pressed)
+        app
             // Placed with the rest of the chrome that measures against the
             // frame area, once the docks have taken their share of it.
             .add_systems(Update, place_welcome.in_set(Stage::Chrome))

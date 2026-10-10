@@ -135,9 +135,6 @@ pub struct SelectionRoot;
 pub struct SelectionHandle;
 
 #[derive(Component, Clone, Default)]
-pub struct SelectionClose;
-
-#[derive(Component, Clone, Default)]
 pub struct SelectionTitle;
 
 /// The list the categories are built into, which scrolls on its own so they
@@ -274,8 +271,8 @@ fn spawn_selection_dock(mut commands: Commands) {
                 @caption: { bsn_list! {@button_icon(Icon::X)} }
             }
             Node { flex_shrink: { 0.0_f32 } }
-            SelectionClose
             BlocksFrameInput
+            on(close_selection)
         ]
         --
         SelectionStatus
@@ -341,14 +338,8 @@ pub fn open_on_selection(
     *had = now;
 }
 
-pub fn close_selection(
-    activate: On<Activate>,
-    buttons: Query<(), With<SelectionClose>>,
-    mut dock: ResMut<SelectionDock>,
-) {
-    if buttons.get(activate.entity).is_ok() {
-        dock.open = false;
-    }
+pub fn close_selection(_: On<Activate>, mut dock: ResMut<SelectionDock>) {
+    dock.open = false;
 }
 
 /// Match the dock's chrome to its width, and keep its status line honest.
@@ -752,6 +743,7 @@ fn spawn_category_row(
                 flex_shrink: { 0.0_f32 },
             }
             CategoryRow { column: { column.to_string() }, label: { label.to_string() } }
+            on(on_category_picked)
         })
         .id();
     let text = commands
@@ -795,8 +787,6 @@ pub struct SelectionPanelPlugin;
 impl Plugin for SelectionPanelPlugin {
     fn build(&self, app: &mut App) {
         app.add_dock::<SelectionDock>()
-            .add_observer(on_category_picked)
-            .add_observer(close_selection)
             .add_systems(Update, open_on_selection.in_set(Stage::DockInput))
             .add_systems(
                 Update,

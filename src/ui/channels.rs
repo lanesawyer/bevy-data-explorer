@@ -18,7 +18,7 @@ use bevy_ui_widgets::{Activate, SliderValue, ValueChange};
 
 use crate::app::schedule::Stage;
 use crate::source::channels::{MAX_GAIN, SourceChannels};
-use crate::ui::color_overrides::{PickChannelColor, color_square};
+use crate::ui::color_overrides::{PickChannelColor, color_square, on_square_picked};
 use crate::view::SelectedSource;
 use crate::widgets::space;
 use crate::widgets::{
@@ -65,7 +65,8 @@ pub fn spawn_channel_section(commands: &mut Commands) -> Entity {
     let reset = spawn_header_button(commands, accordion.header, Icon::RotateCcw);
     commands
         .entity(reset)
-        .insert((ChannelReset, InteractionDisabled));
+        .insert((ChannelReset, InteractionDisabled))
+        .observe(on_channel_reset);
     commands.entity(accordion.body).insert(ChannelRows);
     commands
         .entity(accordion.section)
@@ -135,6 +136,7 @@ pub fn rebuild_channel_rows(
         let swatch = commands
             .spawn_scene(color_square())
             .insert(PickChannelColor { channel: index })
+            .observe(on_square_picked)
             .id();
         let checkbox = commands
             .spawn_scene(bsn! {
@@ -143,6 +145,7 @@ pub fn rebuild_channel_rows(
                 }
                 BlocksFrameInput
                 ChannelCheckbox { channel: { index } }
+                on(on_channel_toggled)
             })
             .id();
         if channel.shown {
@@ -196,14 +199,10 @@ pub fn on_channel_toggled(
 
 /// Put the selected source's channels back as the dataset published them.
 pub fn on_channel_reset(
-    activate: On<Activate>,
-    buttons: Query<(), With<ChannelReset>>,
+    _: On<Activate>,
     selected: SelectedSource,
     mut sources: Query<&mut SourceChannels>,
 ) {
-    if !buttons.contains(activate.entity) {
-        return;
-    }
     if let Some(mut channels) = selected.get_mut(&mut sources) {
         channels.reset();
         info!("channels reset to how the dataset publishes them");
@@ -285,9 +284,7 @@ pub struct ChannelControlsPlugin;
 
 impl Plugin for ChannelControlsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_channel_toggled)
-            .add_observer(on_channel_reset)
-            .add_systems(Update, rebuild_channel_rows.in_set(Stage::ControlsBuild))
+        app.add_systems(Update, rebuild_channel_rows.in_set(Stage::ControlsBuild))
             .add_systems(Update, sync_channel_controls.in_set(Stage::ControlsPlace));
     }
 }

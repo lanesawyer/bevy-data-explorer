@@ -258,7 +258,9 @@ re-measuring will regress something:
   change near the pointer at a size other than 100%.
 - **Presses arrive as events, not `Interaction`.** `bevy_ui_widgets` and
   Feathers controls trigger an `Activate` event; `Interaction` and
-  `bevy_ui::Button` are deprecated in 0.20 and nothing here uses them. A drag
+  `bevy_ui::Button` are deprecated in 0.20 and nothing here uses them. Its
+  handler is attached to the control with `on(handler)` in the scene, not
+  registered app-wide and filtered by a marker. A drag
   target that is not a button, such as a dock's handle, starts its drag from
   an `On<PointerPress>` observer and follows the held mouse button.
 - **Only cell 0 clears the window.** The rest draw over it deliberately. Any

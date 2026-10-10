@@ -126,6 +126,7 @@ pub(super) fn spawn_select_button(commands: &mut Commands, header: Entity, panel
             BlocksFrameInput
             Node { display: { Display::None } }
             PanelSelectButton { panel: { panel } }
+            on(on_select_toggled)
         })
         .id();
     commands.entity(header).add_child(button);

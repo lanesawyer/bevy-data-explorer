@@ -86,6 +86,7 @@ pub fn spawn_search_field(commands: &mut Commands, hint: impl Into<String>) -> S
             }
             BlocksFrameInput
             ClearSearch { field: { field } }
+            on(on_clear_search)
             Node {
                 display: { Display::None },
                 flex_shrink: { 0.0_f32 },

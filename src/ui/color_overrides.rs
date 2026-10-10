@@ -91,7 +91,7 @@ enum Target {
 /// Everything a color can be picked for, read and written the same way
 /// whichever it is.
 #[derive(SystemParam)]
-struct Colors<'w, 's> {
+pub(crate) struct Colors<'w, 's> {
     values: Query<'w, 's, (&'static CellProperties, &'static mut ColorOverrides)>,
     channels: Query<'w, 's, &'static mut SourceChannels>,
 }
@@ -181,10 +181,6 @@ pub struct ResetOverride {
     code: u16,
 }
 
-/// Drops every override on the selected source.
-#[derive(Component, Clone, Default)]
-pub struct ResetAllOverrides;
-
 /// The color a value is drawn in: what was picked for it, or else its own.
 fn current(
     properties: &CellProperties,
@@ -223,7 +219,7 @@ fn spawn_color_overrides(mut commands: Commands, content: Query<Entity, With<Sid
     commands.entity(accordion.body).insert(OverridesBody);
     spawn_color_export_menu(&mut commands, accordion.header, true);
     let reset = spawn_header_button(&mut commands, accordion.header, Icon::RotateCcw);
-    commands.entity(reset).insert(ResetAllOverrides);
+    commands.entity(reset).observe(on_reset_all);
 }
 
 /// Write what a square's picker chose onto what the square stands for.
@@ -231,7 +227,7 @@ fn spawn_color_overrides(mut commands: Commands, content: Query<Entity, With<Sid
 /// The input is told its own value back at once, as Feathers' own
 /// `color_input_self_update` would, so a drag is drawn where it is rather
 /// than a frame behind.
-fn on_square_picked(
+pub(crate) fn on_square_picked(
     change: On<ValueChange<Color>>,
     values: Query<&PickColor>,
     channels: Query<&PickChannelColor>,
@@ -265,14 +261,10 @@ fn on_reset_override(
 }
 
 fn on_reset_all(
-    activate: On<Activate>,
-    buttons: Query<(), With<ResetAllOverrides>>,
+    _: On<Activate>,
     selected: SelectedSource,
     mut sources: Query<&mut ColorOverrides>,
 ) {
-    if buttons.get(activate.entity).is_err() {
-        return;
-    }
     if let Some(mut overrides) = selected.get_mut(&mut sources) {
         overrides.clear();
     }
@@ -329,6 +321,7 @@ fn rebuild_override_list(
                     Children [
                         @color_square()
                         PickColor { column: { column.clone() }, code: { code } }
+                        on(on_square_picked)
                         --
                         Text({ label })
                         TextFont { font_size: { FontSize::Px(size::SMALL) } }
@@ -341,6 +334,7 @@ fn rebuild_override_list(
                         Node { flex_shrink: { 0.0_f32 } }
                         BlocksFrameInput
                         ResetOverride { column: { column }, code: { code } }
+                        on(on_reset_override)
                     ]
                 })
                 .id()
@@ -397,10 +391,7 @@ pub struct ColorOverridesPlugin;
 
 impl Plugin for ColorOverridesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_square_picked)
-            .add_observer(on_reset_override)
-            .add_observer(on_reset_all)
-            .add_systems(Update, rebuild_override_list.in_set(Stage::ControlsBuild))
+        app.add_systems(Update, rebuild_override_list.in_set(Stage::ControlsBuild))
             .add_systems(Update, paint_squares.in_set(Stage::ControlsPlace))
             .add_systems(Update, share_recent_colors.in_set(Stage::ControlsApply))
             .add_systems(Startup, spawn_color_overrides.in_set(Boot::DockContent));

@@ -32,7 +32,10 @@ pub fn spawn_table_export_menu(commands: &mut Commands, header: Entity) {
     let menu = spawn_export_menu(commands, header, "Export this page", "");
     commands.entity(menu.description).insert(TableExportAbout);
     for (format, button) in menu.formats {
-        commands.entity(button).insert(ExportTable { format });
+        commands
+            .entity(button)
+            .insert(ExportTable { format })
+            .observe(on_export_table);
     }
 }
 
@@ -149,8 +152,7 @@ pub struct TableExportPlugin;
 
 impl Plugin for TableExportPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_export_table)
-            .add_systems(Update, update_table_export_menu.in_set(Stage::Chrome));
+        app.add_systems(Update, update_table_export_menu.in_set(Stage::Chrome));
     }
 }
 

@@ -267,10 +267,13 @@ pub fn sync_value_lists(
                     commands,
                     &values[index],
                     values[index].selected,
-                    ValueCheckbox {
-                        property: property_index,
-                        value: index,
-                    },
+                    (
+                        ValueCheckbox {
+                            property: property_index,
+                            value: index,
+                        },
+                        bevy::ui_widgets::observe(super::on_value_toggled),
+                    ),
                     ValueCount {
                         property: property_index,
                         value: index,
@@ -284,10 +287,13 @@ pub fn sync_value_lists(
                     commands,
                     &tree.nodes[index].value,
                     tree.checked(index),
-                    TreeCheckbox {
-                        property: property_index,
-                        node: index,
-                    },
+                    (
+                        TreeCheckbox {
+                            property: property_index,
+                            node: index,
+                        },
+                        bevy::ui_widgets::observe(super::tree::on_node_toggled),
+                    ),
                     TreeCount {
                         property: property_index,
                         node: index,

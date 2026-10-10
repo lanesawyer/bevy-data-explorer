@@ -123,6 +123,7 @@ pub fn fill_color_menu(
                 }
                 BlocksFrameInput
                 ColorLevelButton { property: { property }, level: { level } }
+                on(on_color_level)
             })
             .id();
         if coloring && tree.color_level == level {
@@ -167,6 +168,7 @@ fn spawn_branch(
                 BlocksFrameInput
                 Node { flex_shrink: { 0.0_f32 }, width: { Val::Px(TOGGLE_PX) } }
                 TreeToggle { property: { property }, node: { node } }
+                on(on_toggle)
             })
             .id()
     } else {
@@ -182,7 +184,10 @@ fn spawn_branch(
         commands,
         &tree.nodes[node].value,
         tree.checked(node),
-        TreeCheckbox { property, node },
+        (
+            TreeCheckbox { property, node },
+            bevy::ui_widgets::observe(on_node_toggled),
+        ),
         TreeCount { property, node },
         ValueColumn {
             column: tree.column_of(node).unwrap_or_default().to_string(),

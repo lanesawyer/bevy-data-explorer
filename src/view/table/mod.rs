@@ -482,8 +482,7 @@ pub struct TablePlugin;
 
 impl Plugin for TablePlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_page_pressed)
-            .add_observer(on_heading_pressed)
+        app.add_observer(on_heading_pressed)
             .add_observer(on_grip_drag_start)
             .add_observer(on_grip_drag)
             .add_observer(on_grip_drag_end)

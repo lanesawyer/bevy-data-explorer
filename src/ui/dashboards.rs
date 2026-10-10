@@ -89,6 +89,7 @@ pub fn spawn_dashboards(commands: &mut Commands, catalogs: &Catalogs) -> Entity 
                                     BlocksFrameInput
                                 })
                 .insert(DashboardTab(view.id))
+                .observe(on_tab_pressed)
                 .id()
         })
         .collect();
@@ -484,6 +485,7 @@ fn spawn_datasets(
                             }
                         })
             .insert(DashboardDataset(entry.url.clone()))
+            .observe(on_dataset_pressed)
             .id();
         let kind = commands.spawn_scene(text_dim(kind, size::SECONDARY)).id();
         cells.extend([button, kind]);
@@ -529,8 +531,6 @@ pub struct DashboardsPlugin;
 impl Plugin for DashboardsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ShownDashboard>()
-            .add_observer(on_dataset_pressed)
-            .add_observer(on_tab_pressed)
             .add_systems(Update, fill_dashboards.in_set(Stage::ControlsBuild))
             .add_systems(Update, show_dashboard.in_set(Stage::ControlsPlace));
     }

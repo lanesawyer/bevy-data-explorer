@@ -53,6 +53,7 @@ pub fn filtered_controls(target: FilteredTarget) -> impl Scene {
             }
             BlocksFrameInput
             FilteredBox({ target })
+            on(on_box_toggled)
             --
             FilteredPicker({ target })
             Node {
@@ -64,6 +65,7 @@ pub fn filtered_controls(target: FilteredTarget) -> impl Scene {
                 ColorInputValue({ FILTERED_GRAY })
                 BlocksFrameInput
                 FilteredColor({ target })
+                on(on_color_picked)
                 --
                 @text("Drawn in", size::BODY)
             ]
@@ -224,9 +226,7 @@ pub struct FilteredControlsPlugin;
 
 impl Plugin for FilteredControlsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_box_toggled)
-            .add_observer(on_color_picked)
-            .add_systems(Update, sync_filtered_controls.in_set(Stage::ControlsPlace))
+        app.add_systems(Update, sync_filtered_controls.in_set(Stage::ControlsPlace))
             .add_systems(Update, start_from_preference.in_set(Stage::ControlsApply));
     }
 }

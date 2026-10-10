@@ -165,7 +165,10 @@ pub fn spawn_filter_section(mut commands: Commands, content: Query<Entity, With<
         .add_children(&[partitions, search]);
 
     let clear = spawn_header_button(&mut commands, accordion.header, Icon::FilterX);
-    commands.entity(clear).insert(ClearFiltersButton);
+    commands
+        .entity(clear)
+        .insert(ClearFiltersButton)
+        .observe(on_clear_pressed);
 
     spawn_table_export_menu(&mut commands, accordion.header);
 
@@ -237,7 +240,8 @@ pub fn rebuild_filters(
         let clear = spawn_header_button(&mut commands, section.header, Icon::FilterX);
         commands
             .entity(clear)
-            .insert(ClearColumnButton { column: index });
+            .insert(ClearColumnButton { column: index })
+            .observe(on_clear_column);
 
         // Filled by `sync_column_bodies` as the column is opened and what it
         // holds comes back.
@@ -318,6 +322,7 @@ pub fn rebuild_column_menu(
                 }
                 BlocksFrameInput
                 ShowColumnCheckbox { column: { name } }
+                on(on_show_column_toggled)
             })
             .id();
         if hidden.is_none_or(|hidden| !hidden.0.contains(&column.name)) {
@@ -458,10 +463,13 @@ pub fn sync_value_lists(
                     commands,
                     &shown,
                     value.chosen,
-                    FilterValueBox {
-                        column,
-                        value: index,
-                    },
+                    (
+                        FilterValueBox {
+                            column,
+                            value: index,
+                        },
+                        bevy::ui_widgets::observe(on_value_toggled),
+                    ),
                     FilterValueCount {
                         column,
                         value: index,
@@ -670,15 +678,11 @@ pub fn sync_filter_controls(
 
 /// Put every column of the selected frame's table back.
 pub fn on_clear_pressed(
-    activate: On<Activate>,
-    buttons: Query<&ClearFiltersButton>,
+    _: On<Activate>,
     selection: SelectedSource,
     mut filters: Query<&mut TableFilters>,
     mut pagings: Query<&mut TablePaging>,
 ) {
-    if buttons.get(activate.entity).is_err() {
-        return;
-    }
     let Some(source) = selection.entity() else {
         return;
     };
@@ -722,11 +726,7 @@ pub struct TableFilterPlugin;
 
 impl Plugin for TableFilterPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_value_toggled)
-            .add_observer(on_show_column_toggled)
-            .add_observer(on_clear_pressed)
-            .add_observer(on_clear_column)
-            .add_systems(Startup, spawn_filter_section.in_set(Boot::DockContent))
+        app.add_systems(Startup, spawn_filter_section.in_set(Boot::DockContent))
             .add_systems(Update, note_open_columns.in_set(Stage::ControlsRead))
             .add_systems(
                 Update,

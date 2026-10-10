@@ -51,10 +51,6 @@ impl Modal for SettingsScreen {
     const WIDTH: Val = Val::Px(620.0);
 }
 
-/// Opens the log panel, closing this screen so the log can be seen.
-#[derive(Component, Clone, Default)]
-pub struct ShowLogsButton;
-
 #[derive(Component, Clone, Default)]
 pub struct RememberLayoutBox;
 
@@ -120,6 +116,7 @@ fn gradient_option(gradient: Gradient) -> impl Scene {
             justify_content: { JustifyContent::Start },
         }
         GradientOption(gradient)
+        on(on_gradient_option)
     }
 }
 
@@ -157,6 +154,7 @@ fn theme_option(
         }
         Node { column_gap: { Val::Px(space::ICON_LABEL) }, flex_grow: { 1.0_f32 } }
         option
+        on(on_theme_option)
     }
 }
 
@@ -180,6 +178,7 @@ fn ui_scale_option(scale: f32, corners: RoundedCorners) -> impl Scene {
         }
         Node { flex_grow: { 1.0_f32 } }
         UiScaleOption({ scale })
+        on(on_ui_scale_option)
     }
 }
 
@@ -219,6 +218,7 @@ fn page_button(page: SettingsPage) -> impl Scene {
         Node { justify_content: { JustifyContent::Start } }
         Tab
         page
+        on(on_page_picked)
     }
 }
 
@@ -235,9 +235,6 @@ pub struct WhileSourceOn {
     pub key: &'static str,
     pub shown: Display,
 }
-
-#[derive(Component, Clone, Default)]
-pub struct ResetLayoutButton;
 
 #[derive(Component, Clone, Default)]
 pub struct ResetPointCloudButton;
@@ -285,6 +282,7 @@ pub fn fill_settings(
                             activation: { TabActivation::Automatic },
                         }
                         PageTabs
+                        on(on_page_arrowed)
                         Children [
                             @page_button(SettingsPage::General)
                             --
@@ -301,7 +299,7 @@ pub fn fill_settings(
             } }
         }
         Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-        ShowLogsButton]
+        on(on_show_logs)]
                     ]
                 })
         .id();
@@ -324,6 +322,7 @@ pub fn fill_settings(
                     @caption: { bsn_list! {@button_text("Remember panel sizes")} }
                 }
                 RememberLayoutBox
+                on(on_remember_layout)
                 --
                 @label_dim(
                     "The sidebar, inspector and log open at the size you last \
@@ -339,7 +338,7 @@ pub fn fill_settings(
     } }
 }
 Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-ResetLayoutButton]
+on(on_reset_layout)]
                 --
                 @text("Appearance", size::DOCK_TITLE)
                 Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
@@ -359,6 +358,7 @@ ResetLayoutButton]
                     @caption: { bsn_list! {@button_text("Use the system accent color")} }
                 }
                 SystemAccentBox
+                on(on_system_accent)
                 --
                 @label_dim(
                     "Buttons, switches and the selection take your operating system's \
@@ -405,19 +405,22 @@ ResetLayoutButton]
     } }
 }
 Node { column_gap: { Val::Px(space::ICON_LABEL) } }
-ResetPointCloudButton]
+ResetPointCloudButton
+on(on_reset_point_cloud)]
                 --
                 @FeathersCheckbox {
                     @caption: { bsn_list! {@button_text("Highlight the hovered cell's type")} }
                 }
                 Node { margin: { UiRect::top(Val::Px(space::ROWS)) } }
                 HighlightCellTypesBox
+                on(on_highlight_cell_types)
                 --
                 @FeathersCheckbox {
                     @caption: { bsn_list! {@button_text("In other datasets too")} }
                 }
                 Node { margin: { UiRect::left(Val::Px(space::INDENT)) } }
                 LinkCellTypesBox
+                on(on_link_cell_types)
                 --
                 @label_dim(
                     "Pointing at a cell draws the cells of its type larger in every \
@@ -518,11 +521,13 @@ fn spawn_gradient_section(commands: &mut Commands) -> Entity {
                     @caption: { bsn_list! {@button_text("Reverse the gradient")} }
                 }
                 ReverseGradientBox
+                on(on_reverse_gradient)
                 --
                 @FeathersCheckbox {
                     @caption: { bsn_list! {@button_text("Span the whole range, ignoring filters")} }
                 }
                 WholeExtentBox
+                on(on_whole_extent)
                 --
                 @label_dim(
                     "Narrowing a range then leaves every point the color it was, \
@@ -573,6 +578,7 @@ fn spawn_source_switch(
                 @FeathersToggleSwitch
                 Node { flex_shrink: { 0.0_f32 } }
                 SourceSwitch(key)
+                on(on_source_switch)
             ]
         })
         .id()
@@ -593,7 +599,7 @@ fn spawn_registry_section(commands: &mut Commands) -> Entity {
                         @caption: { bsn_list! {@button_text("Sign in with browser")} }
                     }
                     Node { align_self: { AlignSelf::Start } }
-                    SignInButton
+                    on(on_sign_in)
                     --
                     @notice()
                     RegistryStatus
@@ -605,20 +611,18 @@ fn spawn_registry_section(commands: &mut Commands) -> Entity {
                         @caption: { bsn_list! {@button_text("Test request")} }
                     }
                     TestRegistryButton
+                    on(on_test_registry)
                     --
                     @FeathersButton {
                         @caption: { bsn_list! {@button_text("Sign out")} }
                     }
                     ForgetTokenButton
+                    on(on_forget_token)
                 ]
             ]
         })
         .id()
 }
-
-/// Opens the login page, or opens it again while a sign-in is waiting.
-#[derive(Component, Clone, Default)]
-pub struct SignInButton;
 
 #[derive(Component, Clone, Default)]
 pub struct ForgetTokenButton;
@@ -669,14 +673,7 @@ impl RegistryProbe {
 
 /// Open the login page, starting a sign-in unless one is already waiting,
 /// in which case its page is opened again in case its tab was lost.
-pub fn on_sign_in(
-    activate: On<Activate>,
-    buttons: Query<(), With<SignInButton>>,
-    mut probe: ResMut<RegistryProbe>,
-) {
-    if !buttons.contains(activate.entity) {
-        return;
-    }
+pub fn on_sign_in(_: On<Activate>, mut probe: ResMut<RegistryProbe>) {
     if probe.signing_in.is_none() {
         match login::sign_in() {
             Ok(sign_in) => probe.signing_in = Some(sign_in),
@@ -732,14 +729,10 @@ pub fn poll_sign_in(mut probe: ResMut<RegistryProbe>, mut prefs: ResMut<Preferen
 }
 
 pub fn on_forget_token(
-    activate: On<Activate>,
-    buttons: Query<(), With<ForgetTokenButton>>,
+    _: On<Activate>,
     mut prefs: ResMut<Preferences>,
     mut probe: ResMut<RegistryProbe>,
 ) {
-    if !buttons.contains(activate.entity) {
-        return;
-    }
     probe.signing_in = None;
     probe.outcome = None;
     if prefs.registry_token.is_some() || prefs.registry_login.is_some() {
@@ -750,12 +743,11 @@ pub fn on_forget_token(
 }
 
 pub fn on_test_registry(
-    activate: On<Activate>,
-    buttons: Query<(), With<TestRegistryButton>>,
+    _: On<Activate>,
     prefs: Res<Preferences>,
     mut probe: ResMut<RegistryProbe>,
 ) {
-    if !buttons.contains(activate.entity) || probe.task.is_some() {
+    if probe.task.is_some() {
         return;
     }
     let Some(token) = prefs.registry_token.clone() else {
@@ -853,37 +845,24 @@ pub fn sync_registry(
 }
 
 pub fn on_show_logs(
-    activate: On<Activate>,
-    buttons: Query<(), With<ShowLogsButton>>,
+    _: On<Activate>,
     open: Query<Entity, With<SettingsScreen>>,
     mut commands: Commands,
     mut logs: ResMut<LogPanel>,
 ) {
-    if buttons.contains(activate.entity) {
-        close_modal(&mut commands, &open);
-        logs.open = true;
-    }
+    close_modal(&mut commands, &open);
+    logs.open = true;
 }
 
-pub fn on_reset_layout(
-    activate: On<Activate>,
-    buttons: Query<(), With<ResetLayoutButton>>,
-    mut commands: Commands,
-) {
-    if buttons.contains(activate.entity) {
-        commands.trigger(ResetDockSizes);
-        info!("reset the panels to their default sizes");
-    }
+pub fn on_reset_layout(_: On<Activate>, mut commands: Commands) {
+    commands.trigger(ResetDockSizes);
+    info!("reset the panels to their default sizes");
 }
 
 /// Back to following the built-in default. Point clouds already open keep
 /// what they have, as they do for any change here.
-pub fn on_reset_point_cloud(
-    activate: On<Activate>,
-    buttons: Query<(), With<ResetPointCloudButton>>,
-    mut prefs: ResMut<Preferences>,
-) {
-    if buttons.contains(activate.entity) && prefs.filtered_points.is_some() {
+pub fn on_reset_point_cloud(_: On<Activate>, mut prefs: ResMut<Preferences>) {
+    if prefs.filtered_points.is_some() {
         prefs.filtered_points = None;
     }
 }
@@ -906,13 +885,9 @@ pub fn on_page_picked(
 /// Turn to the page an arrow key moved to.
 pub fn on_page_arrowed(
     change: On<ValueChange<Option<Entity>>>,
-    strips: Query<(), With<PageTabs>>,
     buttons: Query<&SettingsPage, With<FeathersButton>>,
     mut shown: ResMut<ShownPage>,
 ) {
-    if !strips.contains(change.source) {
-        return;
-    }
     if let Some(&page) = change.value.and_then(|tab| buttons.get(tab).ok()) {
         show_page(&mut shown, page);
     }
@@ -1010,12 +985,8 @@ pub fn sync_sources(
 
 /// Forgetting the sizes as well as no longer noting them, so turning this off
 /// is enough for the next launch to open at the defaults.
-pub fn on_remember_layout(
-    change: On<ValueChange<bool>>,
-    boxes: Query<(), With<RememberLayoutBox>>,
-    mut prefs: ResMut<Preferences>,
-) {
-    if !boxes.contains(change.source) || prefs.remember_layout == change.value {
+pub fn on_remember_layout(change: On<ValueChange<bool>>, mut prefs: ResMut<Preferences>) {
+    if prefs.remember_layout == change.value {
         return;
     }
     prefs.remember_layout = change.value;
@@ -1024,32 +995,20 @@ pub fn on_remember_layout(
     }
 }
 
-pub fn on_highlight_cell_types(
-    change: On<ValueChange<bool>>,
-    boxes: Query<(), With<HighlightCellTypesBox>>,
-    mut prefs: ResMut<Preferences>,
-) {
-    if boxes.contains(change.source) && prefs.highlight_cell_types != change.value {
+pub fn on_highlight_cell_types(change: On<ValueChange<bool>>, mut prefs: ResMut<Preferences>) {
+    if prefs.highlight_cell_types != change.value {
         prefs.highlight_cell_types = change.value;
     }
 }
 
-pub fn on_link_cell_types(
-    change: On<ValueChange<bool>>,
-    boxes: Query<(), With<LinkCellTypesBox>>,
-    mut prefs: ResMut<Preferences>,
-) {
-    if boxes.contains(change.source) && prefs.link_cell_types != change.value {
+pub fn on_link_cell_types(change: On<ValueChange<bool>>, mut prefs: ResMut<Preferences>) {
+    if prefs.link_cell_types != change.value {
         prefs.link_cell_types = change.value;
     }
 }
 
-pub fn on_system_accent(
-    change: On<ValueChange<bool>>,
-    boxes: Query<(), With<SystemAccentBox>>,
-    mut prefs: ResMut<Preferences>,
-) {
-    if boxes.contains(change.source) && prefs.system_accent != change.value {
+pub fn on_system_accent(change: On<ValueChange<bool>>, mut prefs: ResMut<Preferences>) {
+    if prefs.system_accent != change.value {
         prefs.system_accent = change.value;
     }
 }
@@ -1193,22 +1152,14 @@ pub fn on_gradient_option(
     }
 }
 
-pub fn on_reverse_gradient(
-    change: On<ValueChange<bool>>,
-    boxes: Query<(), With<ReverseGradientBox>>,
-    mut prefs: ResMut<Preferences>,
-) {
-    if boxes.contains(change.source) && prefs.color_scale.reversed != change.value {
+pub fn on_reverse_gradient(change: On<ValueChange<bool>>, mut prefs: ResMut<Preferences>) {
+    if prefs.color_scale.reversed != change.value {
         prefs.color_scale.reversed = change.value;
     }
 }
 
-pub fn on_whole_extent(
-    change: On<ValueChange<bool>>,
-    boxes: Query<(), With<WholeExtentBox>>,
-    mut prefs: ResMut<Preferences>,
-) {
-    if boxes.contains(change.source) && prefs.color_scale.whole_extent != change.value {
+pub fn on_whole_extent(change: On<ValueChange<bool>>, mut prefs: ResMut<Preferences>) {
+    if prefs.color_scale.whole_extent != change.value {
         prefs.color_scale.whole_extent = change.value;
     }
 }
@@ -1295,25 +1246,7 @@ impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
         app.add_modal::<SettingsScreen>()
             .init_resource::<ShownPage>()
-            .add_observer(on_page_picked)
-            .add_observer(on_page_arrowed)
-            .add_observer(on_source_switch)
-            .add_observer(on_show_logs)
-            .add_observer(on_reset_layout)
-            .add_observer(on_reset_point_cloud)
-            .add_observer(on_remember_layout)
-            .add_observer(on_theme_option)
-            .add_observer(on_ui_scale_option)
-            .add_observer(on_system_accent)
-            .add_observer(on_highlight_cell_types)
-            .add_observer(on_link_cell_types)
-            .add_observer(on_gradient_option)
-            .add_observer(on_reverse_gradient)
-            .add_observer(on_whole_extent)
             .init_resource::<RegistryProbe>()
-            .add_observer(on_forget_token)
-            .add_observer(on_test_registry)
-            .add_observer(on_sign_in)
             .add_systems(
                 Update,
                 (

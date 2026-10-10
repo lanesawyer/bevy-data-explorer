@@ -105,6 +105,7 @@ fn rebuild_partitions(
                     Tab
                 })
                 .insert(PartitionButton(partition.id.clone()))
+                .observe(on_partition_pressed)
                 .id()
         })
         .collect();
@@ -186,8 +187,7 @@ pub struct TablePartitionPlugin;
 
 impl Plugin for TablePartitionPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_partition_pressed)
-            .add_systems(Update, rebuild_partitions.in_set(Stage::ControlsBuild))
+        app.add_systems(Update, rebuild_partitions.in_set(Stage::ControlsBuild))
             .add_systems(Update, sync_partitions.in_set(Stage::ControlsPlace));
     }
 }

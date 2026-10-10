@@ -196,6 +196,7 @@ pub(super) fn spawn_corner_buttons(commands: &mut Commands, panel: Entity) -> Ve
                     BlocksFrameInput
                     Node { flex_shrink: { 0.0_f32 } }
                     PanelButton { panel: { panel }, action: { action } }
+                    on(panel_buttons)
                 })
                 .id()
         })

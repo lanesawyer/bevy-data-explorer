@@ -70,6 +70,7 @@ pub(super) fn page_button(commands: &mut Commands, panel: Entity, step: PageStep
             }
             BlocksFrameInput
             TablePageButton { panel: { panel }, step: { step } }
+            on(on_page_pressed)
         })
         .id()
 }
