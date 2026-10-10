@@ -33,8 +33,8 @@ pub use built::{BuiltFrom, needs_rebuild};
 pub use button_text::button_text;
 pub use caption::caption;
 pub use dock::{
-    AddDock, Dock, DockEdge, DockWidth, HANDLE_PX, ResetDockSizes, dock_band, dock_handle,
-    hold_drag_cursor, place_right_dock,
+    AddDock, Dock, DockEdge, DockWidth, HANDLE_PX, HoldsCursor, ResetDockSizes, dock_band,
+    dock_handle, place_right_dock,
 };
 pub use export_menu::spawn_export_menu;
 pub use field_well::field_well;
@@ -88,6 +88,8 @@ impl Plugin for WidgetsPlugin {
             // back to the app; this observer is what closes that loop.
             .add_observer(bevy_ui_widgets::slider_self_update)
             .add_observer(accordion::toggle_accordions)
+            .add_observer(dock::start_dock_drag)
+            .add_observer(dock::end_dock_drag)
             .add_plugins(modal::ModalPlugin)
             .add_observer(lightbox::enlarge)
             .add_observer(lightbox::fill_lightbox)

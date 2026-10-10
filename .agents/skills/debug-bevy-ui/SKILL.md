@@ -19,9 +19,10 @@ Which button is it?
 - `bevy_ui::Button` and `Interaction` are deprecated in 0.20 and nothing here
   uses them. Polling `Changed<Interaction>` on a Feathers control never fires.
 
-Drag targets that are not buttons — a dock's resize handle — start from an
-`On<PointerPress>` observer that checks the entity and sets a `dragging` flag,
-then follow the held mouse button until it is released (`widgets/dock.rs`).
+Drag targets that are not buttons — a dock's resize handle — follow
+picking's `PointerDragStart`, `PointerDrag` and `PointerDragEnd`, which keep
+coming to what was pressed after the pointer leaves it (`widgets/dock.rs`). A
+cursor that stays stuck after a drag is a `HoldsCursor` nobody removed.
 
 ## A popup closes as soon as it is clicked
 

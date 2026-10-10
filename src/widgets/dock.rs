@@ -10,6 +10,8 @@
 
 use bevy::app::Propagate;
 use bevy::ecs::component::Mutable;
+use bevy::ecs::lifecycle::HookContext;
+use bevy::ecs::world::DeferredWorld;
 use bevy::picking::cursor::{EntityCursor, OverrideCursor};
 use bevy::prelude::*;
 use bevy::window::SystemCursorIcon;
@@ -163,16 +165,13 @@ pub fn place_right_dock<'a>(
 
 /// The strip along a dock's inner edge that resizes it.
 #[derive(Component, Clone, Default)]
-pub struct DockHandle {
-    dragging: bool,
-}
+pub struct DockHandle;
 
 /// A dock's drag handle, to be placed along its inner edge by the dock.
 ///
-/// Not a button: a drag target wants the press without the chrome, so a press
-/// on it starts the drag ([`press_dock_handle`]) and the held mouse button
-/// carries it on. It names its own cursor for hovering; see
-/// [`hold_drag_cursor`] for the drag itself.
+/// Not a button: a drag target wants the press without the chrome, so it
+/// follows picking's drag events ([`drag_dock`]). It names its own cursor for
+/// hovering; see [`HoldsCursor`] for the drag itself.
 pub fn dock_handle(edge: DockEdge) -> impl Scene {
     let (width, height) = match edge {
         DockEdge::Left | DockEdge::Right => (Val::Px(HANDLE_PX), Val::Percent(100.0)),
@@ -207,77 +206,80 @@ pub fn dock_band() -> impl Scene {
     }
 }
 
-/// Start dragging a handle pressed with the primary button.
-fn press_dock_handle(mut press: On<PointerPress>, mut handles: Query<&mut DockHandle>) {
-    if press.button != PointerButton::Primary {
+/// Hold the window's cursor as this for as long as it is on an entity: put on
+/// whatever is being dragged as the drag starts, and taken off as it ends.
+///
+/// Hovering a drag target is its own `EntityCursor`, which Feathers applies.
+/// Feathers also sets the window's cursor every frame from whatever is
+/// hovered, so a system writing the cursor directly is either overwritten or,
+/// once it writes a default back, overwrites every other control's. A drag
+/// outlives the hover — an edge moves out from under the pointer as soon as
+/// it starts — so for its length the cursor is held through Feathers' own
+/// override, written only as the drag starts and ends. Despawning what was
+/// dragged lets go of it too, so a control rebuilt mid-drag cannot leave the
+/// cursor stuck.
+#[derive(Component, Clone, Copy)]
+#[component(on_insert = hold_cursor, on_remove = release_cursor)]
+pub struct HoldsCursor(pub SystemCursorIcon);
+
+fn hold_cursor(mut world: DeferredWorld, context: HookContext) {
+    let Some(&HoldsCursor(icon)) = world.get::<HoldsCursor>(context.entity) else {
         return;
-    }
-    if let Ok(mut handle) = handles.get_mut(press.entity) {
-        handle.dragging = true;
-        press.propagate(false);
+    };
+    if let Some(mut cursor) = world.get_resource_mut::<OverrideCursor>() {
+        cursor.0 = Some(EntityCursor::System(icon));
     }
 }
 
-/// Follow a drag of the dock's handle, for as long as the button is held.
-fn drag_dock<D: Dock>(
-    mut dock: ResMut<D>,
-    windows: Query<&Window>,
-    ui_scale: Res<UiScale>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    mut handles: Query<&mut DockHandle, With<D::Handle>>,
+fn release_cursor(mut world: DeferredWorld, _: HookContext) {
+    if let Some(mut cursor) = world.get_resource_mut::<OverrideCursor>() {
+        cursor.0 = None;
+    }
+}
+
+/// Hold the resize cursor while a handle is dragged with the primary button.
+pub(super) fn start_dock_drag(
+    mut start: On<PointerDragStart>,
+    handles: Query<&EntityCursor, With<DockHandle>>,
+    mut commands: Commands,
 ) {
-    let held = mouse.pressed(MouseButton::Left);
-    let mut dragging = false;
-    for mut handle in &mut handles {
-        let now = held && handle.dragging;
-        if handle.dragging != now {
-            handle.dragging = now;
-        }
-        dragging |= now;
-    }
-    if !dragging {
+    if start.button != PointerButton::Primary {
         return;
     }
-    let Ok(window) = windows.single() else { return };
-    let Some(cursor) = super::ui_cursor(window, &ui_scale) else {
+    if let Ok(EntityCursor::System(icon)) = handles.get(start.entity) {
+        commands.entity(start.entity).insert(HoldsCursor(*icon));
+        start.propagate(false);
+    }
+}
+
+/// Size the dock to wherever its handle has been dragged.
+///
+/// Drag events keep coming to the handle after the pointer has left it, which
+/// it does as soon as the edge lags a fast drag.
+fn drag_dock<D: Dock>(
+    mut drag: On<PointerDrag>,
+    handles: Query<(), (With<DockHandle>, With<D::Handle>)>,
+    window: Single<&Window>,
+    ui_scale: Res<UiScale>,
+    mut dock: ResMut<D>,
+) {
+    if drag.button != PointerButton::Primary || !handles.contains(drag.entity) {
         return;
-    };
-    let (reach, span) = D::EDGE.reach(cursor, super::ui_size(window, &ui_scale));
+    }
+    drag.propagate(false);
+    // The pointer is in logical pixels; a dock is sized in UI units.
+    let cursor = drag.pointer.position / ui_scale.0;
+    let (reach, span) = D::EDGE.reach(cursor, super::ui_size(*window, &ui_scale));
     dock.drag_to(reach, span);
 }
 
-/// Hold the resize cursor for as long as the dock is being dragged.
-fn hold_dock_cursor<D: Dock>(
-    handles: Query<&DockHandle, With<D::Handle>>,
-    mut held: Local<bool>,
-    cursor: Option<ResMut<OverrideCursor>>,
+pub(super) fn end_dock_drag(
+    end: On<PointerDragEnd>,
+    handles: Query<(), With<DockHandle>>,
+    mut commands: Commands,
 ) {
-    let dragging = handles.iter().any(|handle| handle.dragging);
-    hold_drag_cursor(dragging, &mut held, cursor, D::EDGE.cursor());
-}
-
-/// Hold `icon` as the window's cursor for as long as `dragging` is set.
-///
-/// Hovering a drag handle is the handle's own `EntityCursor`, which Feathers
-/// applies. Feathers also sets the window's cursor every frame from whatever is
-/// hovered, so a system writing the cursor directly is either overwritten or,
-/// once it writes a default back, overwrites every other control's. A drag
-/// outlives the hover — the edge moves out from under the pointer as soon as
-/// it starts — so for its length the cursor is held through Feathers' own
-/// override. Written only as a drag starts and ends, so docks do not clear
-/// each other's.
-pub fn hold_drag_cursor(
-    dragging: bool,
-    held: &mut bool,
-    cursor: Option<ResMut<OverrideCursor>>,
-    icon: SystemCursorIcon,
-) {
-    if dragging == *held {
-        return;
-    }
-    *held = dragging;
-    if let Some(mut cursor) = cursor {
-        cursor.0 = dragging.then_some(EntityCursor::System(icon));
+    if handles.contains(end.entity) {
+        commands.entity(end.entity).remove::<HoldsCursor>();
     }
 }
 
@@ -336,24 +338,35 @@ impl AddDock for App {
     fn add_dock<D: Dock>(&mut self) -> &mut Self {
         self.init_resource::<D>()
             .add_observer(reset_dock_size::<D>)
-            .add_observer(press_dock_handle)
+            .add_observer(drag_dock::<D>)
             .add_systems(Startup, restore_dock_size::<D>.in_set(Boot::Window))
-            .add_systems(
-                Update,
-                (
-                    drag_dock::<D>,
-                    hold_dock_cursor::<D>,
-                    remember_dock_size::<D>,
-                )
-                    .chain()
-                    .in_set(Stage::DockInput),
-            )
+            .add_systems(Update, remember_dock_size::<D>.in_set(Stage::DockInput))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_drag_holds_the_cursor_until_it_ends_or_what_it_dragged_goes() {
+        let mut world = World::new();
+        world.init_resource::<OverrideCursor>();
+        let held = |world: &World| world.resource::<OverrideCursor>().0.clone();
+
+        let handle = world
+            .spawn(HoldsCursor(SystemCursorIcon::ColResize))
+            .id();
+        assert_eq!(
+            held(&world),
+            Some(EntityCursor::System(SystemCursorIcon::ColResize))
+        );
+        world.entity_mut(handle).remove::<HoldsCursor>();
+        assert_eq!(held(&world), None);
+
+        world.spawn(HoldsCursor(SystemCursorIcon::Grabbing)).despawn();
+        assert_eq!(held(&world), None, "a control rebuilt mid-drag lets go");
+    }
 
     fn dragged(reach: f32, window: f32) -> f32 {
         let mut width = DockWidth::new(300.0, 200.0);

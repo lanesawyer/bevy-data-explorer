@@ -15,7 +15,7 @@
 //! it wants into [`LineageAsked`].
 
 use bevy::input::mouse::{MouseScrollPixelsPerLine, MouseScrollUnit};
-use bevy::picking::cursor::{EntityCursor, OverrideCursor};
+use bevy::picking::cursor::EntityCursor;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::window::SystemCursorIcon;
@@ -29,8 +29,8 @@ use crate::formats::discover::datasets_in;
 use crate::source::lineage::{LineageAsked, Links, SourceLineage};
 use crate::source::{ShowsSource, SourceUrl, compact_count};
 use crate::widgets::{
-    BlocksFrameInput, Icon, button_icon, button_text, hold_drag_cursor, patch_node, size, space,
-    text, text_dim, truncate_to_width,
+    BlocksFrameInput, HoldsCursor, Icon, button_icon, button_text, patch_node, size, space, text,
+    text_dim, truncate_to_width,
 };
 
 use super::overlay::PanelHeader;
@@ -193,11 +193,18 @@ fn spawn_lineage(commands: &mut Commands, panel: Entity, source: Entity) {
         .observe(on_wheel);
 }
 
-fn on_drag_start(start: On<PointerDragStart>, mut views: Query<&mut LineageView>) {
+fn on_drag_start(
+    start: On<PointerDragStart>,
+    mut views: Query<&mut LineageView>,
+    mut commands: Commands,
+) {
     if start.button == PointerButton::Primary
         && let Ok(mut view) = views.get_mut(start.entity)
     {
         view.dragging = true;
+        commands
+            .entity(start.entity)
+            .insert(HoldsCursor(SystemCursorIcon::Grabbing));
     }
 }
 
@@ -211,9 +218,14 @@ fn on_drag(drag: On<PointerDrag>, ui_scale: Res<UiScale>, mut views: Query<&mut 
     }
 }
 
-fn on_drag_end(end: On<PointerDragEnd>, mut views: Query<&mut LineageView>) {
+fn on_drag_end(
+    end: On<PointerDragEnd>,
+    mut views: Query<&mut LineageView>,
+    mut commands: Commands,
+) {
     if let Ok(mut view) = views.get_mut(end.entity) {
         view.dragging = false;
+        commands.entity(end.entity).remove::<HoldsCursor>();
     }
 }
 
@@ -233,16 +245,6 @@ fn on_wheel(
     let at = wheel.pointer.position - view.origin;
     view.zoom(1.1f32.powf(lines), at);
     wheel.propagate(false);
-}
-
-/// Hold the grabbing hand for as long as a graph is dragged.
-pub fn hold_pan_cursor(
-    views: Query<&LineageView>,
-    mut held: Local<bool>,
-    cursor: Option<ResMut<OverrideCursor>>,
-) {
-    let dragging = views.iter().any(|view| view.dragging);
-    hold_drag_cursor(dragging, &mut held, cursor, SystemCursorIcon::Grabbing);
 }
 
 /// Lay each lineage out again whenever it grows or something is asked of
@@ -609,7 +611,6 @@ impl Plugin for LineagePlugin {
                 (
                     fill_lineages,
                     place_lineages,
-                    hold_pan_cursor,
                     hover_records,
                     outline_hovered_frames,
                     mark_shown_cards,

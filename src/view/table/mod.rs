@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use bevy::clipboard::Clipboard;
-use bevy::picking::cursor::{EntityCursor, OverrideCursor};
+use bevy::picking::cursor::EntityCursor;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::ui::{InteractionDisabled, ScrollPosition};
@@ -50,9 +50,8 @@ use crate::source::table::{
 use crate::source::{ShowsSource, grouped};
 use crate::widgets::space;
 use crate::widgets::{
-    BlocksFrameInput, Icon, ScrollBoth, button_icon, close_menu_holding, hold_drag_cursor,
-    icon_text, patch_node, set_display, set_text, size, text, text_dim, truncate_to_width,
-    width_of,
+    BlocksFrameInput, HoldsCursor, Icon, ScrollBoth, button_icon, close_menu_holding, icon_text,
+    patch_node, set_display, set_text, size, text, text_dim, truncate_to_width, width_of,
 };
 
 use super::chrome::{BUTTON_PX, CHROME_GAP};
@@ -503,7 +502,6 @@ impl Plugin for TablePlugin {
                     place_tables,
                     fill_tables,
                     place_copy_buttons,
-                    hold_grip_cursor,
                     update_footers,
                     update_sort_marks,
                     hide_layer_menus,

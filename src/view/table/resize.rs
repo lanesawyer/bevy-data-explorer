@@ -64,6 +64,7 @@ pub fn on_grip_drag_start(
     start: On<PointerDragStart>,
     mut grips: Query<&mut ColumnGrip>,
     views: Query<&TableView>,
+    mut commands: Commands,
 ) {
     if start.button != PointerButton::Primary {
         return;
@@ -75,6 +76,10 @@ pub fn on_grip_drag_start(
         return;
     };
     grip.from = Some(column_span(&view.edges, grip.drawn).1);
+    // The grip is left behind as soon as the drag starts.
+    commands
+        .entity(start.entity)
+        .insert(HoldsCursor(SystemCursorIcon::ColResize));
 }
 
 /// Resize a column to follow its grip.
@@ -104,21 +109,15 @@ pub fn on_grip_drag(
     }
 }
 
-pub fn on_grip_drag_end(end: On<PointerDragEnd>, mut grips: Query<&mut ColumnGrip>) {
+pub fn on_grip_drag_end(
+    end: On<PointerDragEnd>,
+    mut grips: Query<&mut ColumnGrip>,
+    mut commands: Commands,
+) {
     if let Ok(mut grip) = grips.get_mut(end.entity) {
         grip.from = None;
+        commands.entity(end.entity).remove::<HoldsCursor>();
     }
-}
-
-/// Hold the resize cursor for as long as a column is being dragged, which
-/// leaves its grip behind as soon as it starts.
-pub fn hold_grip_cursor(
-    grips: Query<&ColumnGrip>,
-    mut held: Local<bool>,
-    cursor: Option<ResMut<OverrideCursor>>,
-) {
-    let dragging = grips.iter().any(|grip| grip.from.is_some());
-    hold_drag_cursor(dragging, &mut held, cursor, SystemCursorIcon::ColResize);
 }
 
 #[cfg(test)]

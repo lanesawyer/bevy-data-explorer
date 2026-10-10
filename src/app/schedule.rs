@@ -40,7 +40,8 @@ pub enum Stage {
     /// builds a list from them, so a dropdown open when one lands fills in the
     /// same frame.
     Catalogs,
-    /// Docks read the pointer: dragging an edge, opening, collapsing. Their new
+    /// Docks open, collapse and note their size. An edge being dragged has
+    /// already moved, in picking's drag observers before `Update`. Their new
     /// sizes are settled before anything measures against them.
     DockInput,
     /// The area available to frames is reset to the whole window.

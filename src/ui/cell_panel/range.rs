@@ -15,7 +15,7 @@
 //! end is also a number field, typed into or scrubbed sideways, for a bound
 //! too exact to drag to.
 
-use bevy::picking::cursor::{EntityCursor, OverrideCursor};
+use bevy::picking::cursor::EntityCursor;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::scene::Ready;
@@ -35,7 +35,7 @@ use crate::source::properties::{CellProperties, ColorScale, NumericRange, Ramp, 
 use crate::source::table::{TableFilters, TablePaging, to_first_page};
 use crate::view::SelectedSource;
 use crate::widgets::space;
-use crate::widgets::{BlocksFrameInput, hold_drag_cursor, patch_node, set_text, size};
+use crate::widgets::{BlocksFrameInput, HoldsCursor, patch_node, set_text, size};
 
 /// Height of the histogram drawn above a numeric range.
 const HISTOGRAM_PX: f32 = 44.0;
@@ -465,12 +465,14 @@ pub fn drag_range_handles(
     mut sources: Query<&mut CellProperties>,
     mut tables: Query<(&mut TableFilters, Option<&mut TablePaging>)>,
     mut dragging: Local<Option<RangeDrag>>,
-    mut held: Local<bool>,
-    cursor: Option<ResMut<OverrideCursor>>,
+    mut grabbed: Local<Option<Entity>>,
+    mut commands: Commands,
 ) {
     if !mouse.pressed(MouseButton::Left) {
         *dragging = None;
-        hold_drag_cursor(false, &mut held, cursor, SystemCursorIcon::Default);
+        if let Some(entity) = grabbed.take() {
+            commands.entity(entity).try_remove::<HoldsCursor>();
+        }
         return;
     }
 
@@ -506,12 +508,19 @@ pub fn drag_range_handles(
             .values()
             .flat_map(|hits| hits.keys().copied())
             .collect();
-        if let Some(handle) = hovered.iter().find_map(|entity| handles.get(*entity).ok()) {
+        if let Some((entity, handle)) = hovered
+            .iter()
+            .find_map(|entity| handles.get(*entity).ok().map(|handle| (*entity, handle)))
+        {
             *dragging = Some(RangeDrag::End {
                 owner: handle.owner,
                 property: handle.property,
                 end: handle.end,
             });
+            commands
+                .entity(entity)
+                .insert(HoldsCursor(SystemCursorIcon::EwResize));
+            *grabbed = Some(entity);
         } else if let Some(bucket) = hovered.iter().find_map(|entity| buckets.get(*entity).ok()) {
             if let Some(range) = range_mut(
                 bucket.owner,
@@ -525,9 +534,10 @@ pub fn drag_range_handles(
                 to_first_page(paging);
             }
             return;
-        } else if let Some((track, _, _)) =
-            hovered.iter().find_map(|entity| tracks.get(*entity).ok())
-            && let Some(grabbed) = along(track.owner, track.property)
+        } else if let Some((entity, (track, _, _))) = hovered
+            .iter()
+            .find_map(|entity| tracks.get(*entity).ok().map(|found| (*entity, found)))
+            && let Some(at) = along(track.owner, track.property)
             && let Some(range) = range_mut(
                 track.owner,
                 track.property,
@@ -539,18 +549,17 @@ pub fn drag_range_handles(
                 owner: track.owner,
                 property: track.property,
                 from: range.from,
-                grabbed,
+                grabbed: at,
             });
+            commands
+                .entity(entity)
+                .insert(HoldsCursor(SystemCursorIcon::Grabbing));
+            *grabbed = Some(entity);
         }
     }
     let Some(drag) = *dragging else {
         return;
     };
-    let icon = match drag {
-        RangeDrag::End { .. } => SystemCursorIcon::EwResize,
-        RangeDrag::Span { .. } => SystemCursorIcon::Grabbing,
-    };
-    hold_drag_cursor(true, &mut held, cursor, icon);
 
     match drag {
         RangeDrag::End {

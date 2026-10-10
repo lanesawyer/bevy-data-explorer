@@ -100,9 +100,10 @@ gets a file of its own there, re-exported from `widgets/mod.rs`.
   `TabActivation::Automatic`. Handle `Activate`, and `ValueChange` too if
   arrows should select; write `SelectedTab` from your own state so the
   roving focus lands on the chosen tab.
-- **Drag targets** that are not buttons (resize handles) start from an
-  `On<PointerPress>` observer and follow the held mouse button, as
-  `widgets/dock.rs` does.
+- **Drag targets** that are not buttons (resize handles) follow picking's
+  `PointerDragStart`, `PointerDrag` and `PointerDragEnd`, which keep coming
+  to what was pressed after the pointer has left it, as `widgets/dock.rs`
+  does.
 - **Acting on the selected frame**: take a `SelectedSource` parameter and
   ask it for the source (`.entity()`) or the source's item in a query
   (`.get(&query)`, `.get_mut(&mut query)`), as `view_config.rs` does. When the
@@ -135,8 +136,9 @@ also needs `add-bookmark-setting`.
   highlights, scrims) needs `Pickable::IGNORE`, or it blocks picking and the
   control underneath looks dead, including its hover.
 - **Never write the window's `CursorIcon`.** Put an `EntityCursor` on the
-  hovered entity. To hold a cursor through a drag, use `hold_drag_cursor` in
-  `widgets/dock.rs`.
+  hovered entity. To hold a cursor through a drag, insert
+  `widgets::HoldsCursor` on what is dragged as the drag starts and remove it
+  as it ends.
 - **Positions**: `ComputedNode::size` and `UiGlobalTransform` are *physical*
   pixels, while `Val::Px`, `Node.left` and `Window::cursor_position` are
   *logical*. Convert with `ComputedNode::inverse_scale_factor`. On a display

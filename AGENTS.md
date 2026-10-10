@@ -261,8 +261,8 @@ re-measuring will regress something:
   `bevy_ui::Button` are deprecated in 0.20 and nothing here uses them. Its
   handler is attached to the control with `on(handler)` in the scene, not
   registered app-wide and filtered by a marker. A drag
-  target that is not a button, such as a dock's handle, starts its drag from
-  an `On<PointerPress>` observer and follows the held mouse button.
+  target that is not a button, such as a dock's handle, follows picking's
+  `PointerDragStart`, `PointerDrag` and `PointerDragEnd`.
 - **Only cell 0 clears the window.** The rest draw over it deliberately. Any
   code that reorders or removes frames must keep exactly one clearing camera,
   or renders accumulate. Layer cameras (`view/layers.rs`) render into images of
@@ -282,8 +282,9 @@ re-measuring will regress something:
   frame from what is hovered, so a direct write is either overwritten or, if
   it writes a default back, silently breaks every other control's cursor — the
   sidebar's did, and the log panel's resize cursor never showed. Put an
-  `EntityCursor` on the hovered entity, and hold a cursor through a drag with
-  `hold_drag_cursor` in `widgets/dock.rs`. A new dock gets both, and its
+  `EntityCursor` on the hovered entity, and hold a cursor through a drag by
+  putting `widgets::HoldsCursor` on what is dragged, whose hooks write
+  Feathers' `OverrideCursor` as it comes and goes. A new dock gets both, and its
   drag, by implementing `widgets::Dock` and registering with `add_dock`.
 - **Chrome that overlaps the grid needs `BlocksFrameInput`** — otherwise the
   pointer falls through to the frame behind. It is found through picking's
