@@ -201,11 +201,12 @@ fn on_drag_start(start: On<PointerDragStart>, mut views: Query<&mut LineageView>
 }
 
 /// Move the graph with the pointer, wherever on it the drag began.
-fn on_drag(drag: On<PointerDrag>, mut views: Query<&mut LineageView>) {
+fn on_drag(drag: On<PointerDrag>, ui_scale: Res<UiScale>, mut views: Query<&mut LineageView>) {
     if let Ok(mut view) = views.get_mut(drag.entity)
         && view.dragging
     {
-        view.offset += drag.delta;
+        // The pointer moves in logical pixels, the graph in UI units.
+        view.offset += drag.delta / ui_scale.0;
     }
 }
 

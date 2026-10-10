@@ -60,6 +60,9 @@ pub fn saved_address(url: &str) -> String {
 /// looking at would be fetched again on restore for nobody.
 pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
     let area = *world.resource::<FrameArea>();
+    // The grid is in UI units; a view is saved against its camera's own
+    // size, in logical pixels.
+    let ui_scale = world.resource::<UiScale>().0;
     let selected = world.resource::<SelectedPanel>().0;
     // One bucket across the sidebar, so every saved rectangle names the same
     // one; whichever is restored last is the one its section will show.
@@ -146,7 +149,7 @@ pub fn capture(world: &mut World, name: String) -> Result<Bookmark, String> {
             warn!("a frame's dataset has no address, so the bookmark leaves it out");
             continue;
         };
-        let cell = area.cell(count, position).size();
+        let cell = area.cell(count, position).size() * ui_scale;
         let layers = layers
             .unwrap_or_default()
             .into_iter()

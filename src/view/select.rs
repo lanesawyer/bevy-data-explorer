@@ -196,6 +196,7 @@ pub fn on_select_toggled(
 pub fn drag_region(
     mut commands: Commands,
     windows: Query<&Window>,
+    ui_scale: Res<UiScale>,
     area: Res<FrameArea>,
     buttons: Res<ButtonInput<MouseButton>>,
     hover: Res<bevy::picking::hover::HoverMap>,
@@ -210,6 +211,8 @@ pub fn drag_region(
     let Some(cursor) = window.cursor_position() else {
         return;
     };
+    // Measured against the grid in UI units; the camera takes `cursor`.
+    let in_grid = cursor / ui_scale.0;
 
     if !buttons.pressed(MouseButton::Left) {
         // A drag that never went anywhere was a click, and a click clears the
@@ -236,7 +239,7 @@ pub fn drag_region(
         if super::input::pointer_over_chrome(&hover, &chrome, &parents) {
             return;
         }
-        let local = cursor - area.origin;
+        let local = in_grid - area.origin;
         if !within_frames(local, area.size) {
             return;
         }
@@ -376,6 +379,7 @@ pub fn sync_region_outlines(
 /// frame beside it.
 pub fn place_region_outlines(
     area: Res<FrameArea>,
+    ui_scale: Res<UiScale>,
     panels: Query<(&Panel, &Camera, &GlobalTransform, Option<&FrameRegion>)>,
     mut outlines: Query<(&RegionOutline, &mut Node)>,
 ) {
@@ -396,6 +400,8 @@ pub fn place_region_outlines(
             continue;
         };
         // World y runs the other way from screen y, so the corners cross over.
+        // The camera answers in logical pixels; the grid is in UI units.
+        let (min, max) = (min / ui_scale.0, max / ui_scale.0);
         let cell = area.cell(count, panel.index);
         let left = min.x.min(max.x).max(cell.min.x);
         let right = min.x.max(max.x).min(cell.max.x);

@@ -105,6 +105,12 @@ knowing about: a button keeps its pale label, because the button under it keeps
 its dark background, while a menu item's and a text field's turn over with
 theirs. Getting that wrong writes white on white.
 
+Settings also offers an interface size, from 90% to 150%, which sets Bevy's
+`UiScale`: text, controls, docks and the gaps between them grow together,
+Feathers' included, since they are all sized in pixels a scale multiplies. The
+datasets in the frames are drawn as before. Anything that measures the pointer
+against the layout converts it to the same units first.
+
 Everything the app paints follows it, frames included: what a frame clears to,
 the translucent panel its header sits on, the rules between cells, the outline
 round the selected one, the range controls and the status lines. The colors

@@ -53,6 +53,20 @@ pub use spacing::space;
 pub use text::{size, text, text_dim, title};
 pub use truncate::{truncate_to_width, width_of};
 
+/// The window measured in UI units, which `Val::Px` and `FrameArea` are in.
+/// `UiScale` makes a UI unit larger than a logical pixel, so a scaled-up
+/// interface finds the window that much smaller.
+pub fn ui_size(window: &Window, scale: &UiScale) -> Vec2 {
+    window.size() / scale.0
+}
+
+/// The pointer in UI units, for measuring against layout or `FrameArea`. A
+/// camera takes the window's own `cursor_position`, which is in logical
+/// pixels whatever the interface's scale.
+pub fn ui_cursor(window: &Window, scale: &UiScale) -> Option<Vec2> {
+    window.cursor_position().map(|cursor| cursor / scale.0)
+}
+
 use crate::app::schedule::Stage;
 
 /// Radius the Feathers containers round their outer corners to.

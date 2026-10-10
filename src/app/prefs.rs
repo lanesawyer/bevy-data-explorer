@@ -91,6 +91,9 @@ pub struct Preferences {
     /// Whether that reaches the other datasets that share its taxonomy, as
     /// well as its own. Nothing without `highlight_cell_types`.
     pub link_cell_types: bool,
+    /// How much larger than built the whole interface is drawn: text,
+    /// controls and docks together. The datasets in the frames are not.
+    pub ui_scale: f32,
 }
 
 /// A sign-in to the BKP Registry: what renews its token, and whose it is.
@@ -116,6 +119,7 @@ impl Default for Preferences {
             color_scale: ColorScale::default(),
             highlight_cell_types: true,
             link_cell_types: true,
+            ui_scale: 1.0,
         }
     }
 }

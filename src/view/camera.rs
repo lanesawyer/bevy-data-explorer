@@ -43,6 +43,7 @@ pub(super) fn spawn_ui_camera(mut commands: Commands) {
 /// Keep each panel's viewport, and the rules between them, matched to the grid.
 pub fn update_viewports(
     windows: Query<&Window>,
+    ui_scale: Res<UiScale>,
     area: Res<FrameArea>,
     mut panels: Query<(&Panel, &mut Camera)>,
     mut dividers: Query<(&PanelDivider, &mut Node)>,
@@ -55,11 +56,11 @@ pub fn update_viewports(
     let count = panels.iter().count();
     let (columns, rows) = grid_for(count);
 
-    // Viewports are physical; the area is tracked in logical pixels. Each edge
+    // Viewports are physical; the area is tracked in UI units. Each edge
     // is rounded the way UI layout rounds a node's, so the viewport covers
     // exactly the pixels the selection outline and the chrome are drawn over,
     // and neighbors share their edge without a gap.
-    let scale = window.scale_factor();
+    let scale = window.scale_factor() * ui_scale.0;
     let limit = window.physical_size();
     for (panel, mut camera) in &mut panels {
         let (min, max) = physical_cell(area.cell(count, panel.index), scale, limit);

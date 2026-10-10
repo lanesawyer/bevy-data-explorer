@@ -151,6 +151,7 @@ pub fn drive_restore(
     sources: Query<(&DataSource, &SourceExtent, Option<&SourceVolume>)>,
     homes: Query<&crate::source::HomeView>,
     area: Res<FrameArea>,
+    ui_scale: Res<UiScale>,
     palette: Res<Palette>,
     mut selected: ResMut<SelectedPanel>,
     mut notice: ResMut<BookmarkNotice>,
@@ -288,7 +289,8 @@ pub fn drive_restore(
         let Some(position) = cells.next() else {
             break;
         };
-        let cell = area.cell(count, position).size();
+        // In the camera's logical pixels, as the view was saved against.
+        let cell = area.cell(count, position).size() * ui_scale.0;
         let limits = extent.limits_from(homes.get(base).ok(), cell);
         // A frame saved with no view, as one opened from another viewer's
         // state is, is fitted to its data as a frame opened by hand is.
@@ -721,6 +723,7 @@ mod tests {
         .add_message::<crate::view::AwaitDataset>()
         .add_message::<crate::view::DatasetRequest>()
         .init_resource::<FrameArea>()
+        .init_resource::<UiScale>()
         .init_resource::<SelectedPanel>()
         .init_resource::<BookmarkNotice>()
         .insert_resource(LoadSettings::default())

@@ -260,6 +260,7 @@ pub fn close_inspector(
 pub fn update_inspector(
     inspector: Res<Inspector>,
     windows: Query<&Window>,
+    ui_scale: Res<UiScale>,
     selected: SelectedSource,
     sources: Query<(&DataSource, &SourceStatus)>,
     mut roots: Query<&mut Node, (With<InspectorRoot>, Without<InspectorHandle>)>,
@@ -269,14 +270,9 @@ pub fn update_inspector(
     bodies: Query<Entity, With<InspectorBody>>,
 ) {
     let Ok(window) = windows.single() else { return };
-    let width = inspector.current_width(window.width());
-    place_right_dock(
-        &mut roots,
-        &mut handles,
-        inspector.open,
-        width,
-        window.width(),
-    );
+    let window = crate::widgets::ui_size(window, &ui_scale);
+    let width = inspector.current_width(window.x);
+    place_right_dock(&mut roots, &mut handles, inspector.open, width, window.x);
     if !inspector.open {
         return;
     }

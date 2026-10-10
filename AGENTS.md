@@ -249,6 +249,13 @@ re-measuring will regress something:
   `Window::cursor_position` are logical. Scale by
   `ComputedNode::inverse_scale_factor`. This caused both a misaligned slider
   thumb and a menu that dismissed itself.
+- **UI units versus logical pixels.** The interface size preference sets
+  `UiScale`, so `Val::Px`, `FrameArea` and layout read through
+  `inverse_scale_factor` are in UI units, larger than a logical pixel. The
+  window, the pointer, pointer drag deltas and cameras stay logical. Measure
+  the pointer against layout with `widgets::ui_cursor`, the window with
+  `widgets::ui_size`, and hand a camera a cell's size times the scale. Test a
+  change near the pointer at a size other than 100%.
 - **Presses arrive as events, not `Interaction`.** `bevy_ui_widgets` and
   Feathers controls trigger an `Activate` event; `Interaction` and
   `bevy_ui::Button` are deprecated in 0.20 and nothing here uses them. A drag

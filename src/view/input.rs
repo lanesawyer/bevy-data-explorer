@@ -247,6 +247,7 @@ pub(super) fn pointer_over_chrome(
 pub fn probe_hover(
     mut commands: Commands,
     windows: Query<&Window>,
+    ui_scale: Res<UiScale>,
     area: Res<FrameArea>,
     panels: Query<(&Camera, &GlobalTransform, &Projection, &Panel, &ShowsSource)>,
     panel_entities: Query<(Entity, &Panel)>,
@@ -259,6 +260,7 @@ pub fn probe_hover(
 ) {
     let target = probe_target(
         &windows,
+        &ui_scale,
         &area,
         &panels,
         &panel_entities,
@@ -288,6 +290,7 @@ pub fn probe_hover(
 
 fn probe_target(
     windows: &Query<&Window>,
+    ui_scale: &UiScale,
     area: &FrameArea,
     panels: &Query<(&Camera, &GlobalTransform, &Projection, &Panel, &ShowsSource)>,
     panel_entities: &Query<(Entity, &Panel)>,
@@ -303,8 +306,8 @@ fn probe_target(
 
     // Measured inside the grid, as the pan and zoom controls are, so chrome
     // docked beside it neither reports a hover nor shifts which frame the
-    // pointer is over.
-    let local = cursor - area.origin;
+    // pointer is over. The grid is in UI units; the camera takes `cursor`.
+    let local = cursor / ui_scale.0 - area.origin;
     if !within_frames(local, area.size) {
         return None;
     }
@@ -349,6 +352,7 @@ pub fn panel_controls(
         Option<&mut super::Orbit>,
     )>,
     windows: Query<&Window>,
+    ui_scale: Res<UiScale>,
     area: Res<FrameArea>,
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -385,8 +389,9 @@ pub fn panel_controls(
 
     let count = panels.iter().count();
     // Measured inside the grid, so chrome docked beside it neither receives
-    // frame input nor shifts which frame the pointer is over.
-    let local = cursor - area.origin;
+    // frame input nor shifts which frame the pointer is over. The grid is in
+    // UI units; the cameras take `cursor`.
+    let local = cursor / ui_scale.0 - area.origin;
     if drag.is_none() && !within_frames(local, area.size) {
         wheel.clear();
         return;

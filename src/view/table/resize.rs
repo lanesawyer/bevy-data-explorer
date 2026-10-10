@@ -82,6 +82,7 @@ pub fn on_grip_drag(
     drag: On<PointerDrag>,
     grips: Query<&ColumnGrip>,
     panels: Query<&ShowsSource>,
+    ui_scale: Res<UiScale>,
     mut widths: Query<&mut ColumnWidths>,
 ) {
     let Ok(grip) = grips.get(drag.entity) else {
@@ -96,7 +97,8 @@ pub fn on_grip_drag(
     else {
         return;
     };
-    let width = dragged_width(from, drag.distance.x);
+    // The pointer moves in logical pixels, a column is sized in UI units.
+    let width = dragged_width(from, drag.distance.x / ui_scale.0);
     if widths.0.get(&grip.column) != Some(&width) {
         widths.0.insert(grip.column.clone(), width);
     }

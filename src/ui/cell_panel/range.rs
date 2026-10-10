@@ -455,6 +455,7 @@ fn range_of<'a>(
 pub fn drag_range_handles(
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
+    ui_scale: Res<UiScale>,
     hover: Res<HoverMap>,
     handles: Query<&RangeHandle>,
     buckets: Query<&RangeBucket>,
@@ -473,7 +474,7 @@ pub fn drag_range_handles(
     }
 
     let Ok(window) = windows.single() else { return };
-    let Some(pointer) = window.cursor_position() else {
+    let Some(pointer) = crate::widgets::ui_cursor(window, &ui_scale) else {
         return;
     };
     // How far along a control's track the pointer is, as a fraction.

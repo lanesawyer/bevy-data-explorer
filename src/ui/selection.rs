@@ -361,6 +361,7 @@ pub fn update_selection_dock(
     mut dock: ResMut<SelectionDock>,
     inspector: Res<Inspector>,
     windows: Query<&Window>,
+    ui_scale: Res<UiScale>,
     selected: Res<SelectedPanel>,
     panels: Query<(&ShowsSource, Has<SelectMode>, Has<FrameRegion>)>,
     sources: Query<(&CellProperties, &RegionSummary, Option<&SelectedRegion>)>,
@@ -369,8 +370,9 @@ pub fn update_selection_dock(
     mut status: Query<&mut Text, With<SelectionStatus>>,
 ) {
     let Ok(window) = windows.single() else { return };
-    let width = dock.current_width(window.width());
-    let outboard = inspector.current_width(window.width());
+    let window = crate::widgets::ui_size(window, &ui_scale);
+    let width = dock.current_width(window.x);
+    let outboard = inspector.current_width(window.x);
     // Assigned only when it moves: taking the dock mutably every frame would
     // mark it changed, and a changed dock is one the preferences re-examine.
     if dock.outboard != outboard {
@@ -381,7 +383,7 @@ pub fn update_selection_dock(
         &mut handles,
         dock.open,
         width,
-        window.width() - outboard,
+        window.x - outboard,
     );
     if !dock.open {
         return;

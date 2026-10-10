@@ -126,6 +126,7 @@ pub fn apply_panel_requests(
     mut datasets: MessageWriter<DatasetRequest>,
     mut selected: ResMut<SelectedPanel>,
     area: Res<FrameArea>,
+    ui_scale: Res<UiScale>,
     panels: Query<(
         Entity,
         &Panel,
@@ -157,7 +158,8 @@ pub fn apply_panel_requests(
     let mut next = frames.iter().count();
 
     let (columns, rows) = grid_for(next.max(1));
-    let viewport = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32);
+    // In the camera's logical pixels, which a view is fitted to.
+    let viewport = Vec2::new(area.size.x / columns as f32, area.size.y / rows as f32) * ui_scale.0;
 
     let mut closing: Vec<Entity> = Vec::new();
     let lookup = |entity: Entity| sources.get(entity).ok().map(|(data, ..)| data);
@@ -461,6 +463,7 @@ mod tests {
         .add_message::<AwaitDataset>()
         .add_message::<DatasetRequest>()
         .init_resource::<FrameArea>()
+        .init_resource::<UiScale>()
         .init_resource::<SelectedPanel>()
         .insert_resource(crate::app::theme::Palette::dark())
         .add_systems(Update, apply_panel_requests);

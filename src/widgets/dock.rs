@@ -222,6 +222,7 @@ fn press_dock_handle(mut press: On<PointerPress>, mut handles: Query<&mut DockHa
 fn drag_dock<D: Dock>(
     mut dock: ResMut<D>,
     windows: Query<&Window>,
+    ui_scale: Res<UiScale>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut handles: Query<&mut DockHandle, With<D::Handle>>,
 ) {
@@ -238,10 +239,10 @@ fn drag_dock<D: Dock>(
         return;
     }
     let Ok(window) = windows.single() else { return };
-    let Some(cursor) = window.cursor_position() else {
+    let Some(cursor) = super::ui_cursor(window, &ui_scale) else {
         return;
     };
-    let (reach, span) = D::EDGE.reach(cursor, window.size());
+    let (reach, span) = D::EDGE.reach(cursor, super::ui_size(window, &ui_scale));
     dock.drag_to(reach, span);
 }
 

@@ -396,11 +396,13 @@ pub fn position_hud(
 /// than sliding off the frame.
 pub fn position_tooltips(
     windows: Query<&Window>,
+    ui_scale: Res<UiScale>,
     area: Res<crate::view::FrameArea>,
     panels: Query<&Panel>,
     mut tooltips: Query<(&PanelTooltip, &mut Node)>,
 ) {
     let Ok(window) = windows.single() else { return };
+    let window = crate::widgets::ui_size(window, &ui_scale);
     let count = panels.iter().count();
     for (tooltip, node) in &mut tooltips {
         let Ok(panel) = panels.get(tooltip.panel) else {
@@ -411,7 +413,7 @@ pub fn position_tooltips(
             node.left = Val::Px(cell.min.x + 10.0);
             // `bottom` is measured from the bottom of the window, not of the
             // cell.
-            node.bottom = Val::Px(window.height() - cell.max.y + 10.0);
+            node.bottom = Val::Px(window.y - cell.max.y + 10.0);
             node.max_width = Val::Px((cell.width() - 20.0).max(120.0));
         });
     }

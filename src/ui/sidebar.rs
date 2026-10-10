@@ -397,6 +397,7 @@ pub fn toggle_sidebar(
 pub fn update_sidebar(
     sidebar: Res<Sidebar>,
     windows: Query<&Window>,
+    ui_scale: Res<UiScale>,
     mut roots: Query<&mut Node, (With<SidebarRoot>, Without<SidebarHandle>)>,
     mut handles: Query<&mut Node, (With<SidebarHandle>, Without<SidebarRoot>)>,
     mut content: Query<
@@ -422,7 +423,7 @@ pub fn update_sidebar(
     mut texts: Query<&mut Text, Without<SidebarLabel>>,
 ) {
     let Ok(window) = windows.single() else { return };
-    let width = sidebar.current_width(window.width());
+    let width = sidebar.current_width(crate::widgets::ui_size(window, &ui_scale).x);
     for node in &mut roots {
         patch_node(node, |node| node.width = Val::Px(width));
     }

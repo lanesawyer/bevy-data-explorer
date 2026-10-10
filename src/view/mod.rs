@@ -113,7 +113,8 @@ impl SelectedSource<'_, '_> {
     }
 }
 
-/// The region of the window the frame grid occupies, in logical pixels.
+/// The region of the window the frame grid occupies, in UI units: what
+/// `Val::Px` measures, which `UiScale` makes larger than a logical pixel.
 ///
 /// Everything that places a frame or its chrome measures from here rather than
 /// from the window, so surrounding UI can take space off the grid without any
@@ -164,10 +165,14 @@ impl FrameArea {
 }
 
 /// Reset the grid to the whole window before anything reserves part of it.
-pub fn reset_frame_area(windows: Query<&Window>, mut area: ResMut<FrameArea>) {
+pub fn reset_frame_area(
+    windows: Query<&Window>,
+    ui_scale: Res<UiScale>,
+    mut area: ResMut<FrameArea>,
+) {
     let Ok(window) = windows.single() else { return };
     area.origin = Vec2::ZERO;
-    area.size = Vec2::new(window.width(), window.height());
+    area.size = crate::widgets::ui_size(window, &ui_scale);
 }
 
 /// Marks a panel camera and records its cell in the grid.

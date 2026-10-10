@@ -160,6 +160,29 @@ fn theme_option(
     }
 }
 
+/// The interface sizes offered, as a multiple of the size it was built at.
+const UI_SCALES: [f32; 5] = [0.9, 1.0, 1.15, 1.3, 1.5];
+
+/// The smallest and largest interface a hand-edited preferences file gets.
+const UI_SCALE_LIMITS: (f32, f32) = (0.5, 3.0);
+
+/// One button of the interface size group.
+#[derive(Component, Clone, Copy, PartialEq, Default, Debug)]
+pub struct UiScaleOption(pub f32);
+
+/// A button of the interface size group, named for its size as a percentage.
+fn ui_scale_option(scale: f32, corners: RoundedCorners) -> impl Scene {
+    let text = format!("{:.0}%", scale * 100.0);
+    bsn! {
+        @FeathersButton {
+            @caption: { bsn_list! {@button_text(text)} },
+            @corners: { corners }
+        }
+        Node { flex_grow: { 1.0_f32 } }
+        UiScaleOption({ scale })
+    }
+}
+
 /// One page of the screen: the row that picks it, and the column it shows.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum SettingsPage {
@@ -340,6 +363,27 @@ ResetLayoutButton]
                 @label_dim(
                     "Buttons, switches and the selection take your operating system's \
                      accent, where it has one."
+                )
+                --
+                @text("Interface size", size::BODY)
+                Node { margin: { UiRect::top(Val::Px(space::HEADING)) } }
+                --
+                Node { width: { Val::Percent(100.0) }, column_gap: { Val::Px(space::SEAM) } }
+                Children [
+                    @ui_scale_option(UI_SCALES[0], RoundedCorners::Left)
+                    --
+                    @ui_scale_option(UI_SCALES[1], RoundedCorners::None)
+                    --
+                    @ui_scale_option(UI_SCALES[2], RoundedCorners::None)
+                    --
+                    @ui_scale_option(UI_SCALES[3], RoundedCorners::None)
+                    --
+                    @ui_scale_option(UI_SCALES[4], RoundedCorners::Right)
+                ]
+                --
+                @label_dim(
+                    "Text, controls and panels grow together. The datasets in the frames \
+                     are drawn as before."
                 )
                 --
                 @text("Point clouds", size::DOCK_TITLE)
@@ -1042,7 +1086,8 @@ pub fn sync_settings(
     accent: Query<(Entity, Has<Checked>), With<SystemAccentBox>>,
     highlighting: Query<(Entity, Has<Checked>), With<HighlightCellTypesBox>>,
     linking: Query<(Entity, Has<Checked>, Has<InteractionDisabled>), With<LinkCellTypesBox>>,
-    mut options: Query<(&ThemeOption, &mut ButtonVariant)>,
+    mut options: Query<(&ThemeOption, &mut ButtonVariant), Without<UiScaleOption>>,
+    mut scales: Query<(&UiScaleOption, &mut ButtonVariant), Without<ThemeOption>>,
     resets: Query<(Entity, Has<InteractionDisabled>), With<ResetPointCloudButton>>,
 ) {
     // Nothing to reset while the default is already followed.
@@ -1089,6 +1134,13 @@ pub fn sync_settings(
             commands.entity(entity).insert(InteractionDisabled);
         }
     }
+    for (UiScaleOption(scale), mut variant) in &mut scales {
+        variant.set_if_neq(if (prefs.ui_scale - scale).abs() < 0.001 {
+            ButtonVariant::Primary
+        } else {
+            ButtonVariant::Normal
+        });
+    }
     let current = ThemeOption::of(&mode);
     for (option, mut variant) in &mut options {
         variant.set_if_neq(if *option == current {
@@ -1096,6 +1148,36 @@ pub fn sync_settings(
         } else {
             ButtonVariant::Normal
         });
+    }
+}
+
+pub fn on_ui_scale_option(
+    activate: On<Activate>,
+    options: Query<&UiScaleOption>,
+    mut prefs: ResMut<Preferences>,
+) {
+    if let Ok(&UiScaleOption(scale)) = options.get(activate.entity)
+        && prefs.ui_scale != scale
+    {
+        prefs.ui_scale = scale;
+    }
+}
+
+/// The interface size a preference asks for, held to what can be drawn: a
+/// hand-edited file may say anything.
+fn ui_scale_of(preferred: f32) -> f32 {
+    if preferred.is_finite() {
+        preferred.clamp(UI_SCALE_LIMITS.0, UI_SCALE_LIMITS.1)
+    } else {
+        1.0
+    }
+}
+
+/// Draw the interface at the size the preferences ask for.
+fn follow_ui_scale(prefs: Res<Preferences>, mut ui_scale: ResMut<UiScale>) {
+    let wanted = ui_scale_of(prefs.ui_scale);
+    if ui_scale.0 != wanted {
+        ui_scale.0 = wanted;
     }
 }
 
@@ -1221,6 +1303,7 @@ impl Plugin for SettingsPlugin {
             .add_observer(on_reset_point_cloud)
             .add_observer(on_remember_layout)
             .add_observer(on_theme_option)
+            .add_observer(on_ui_scale_option)
             .add_observer(on_system_accent)
             .add_observer(on_highlight_cell_types)
             .add_observer(on_link_cell_types)
@@ -1238,6 +1321,7 @@ impl Plugin for SettingsPlugin {
                     poll_sign_in,
                     start_scale_from_preference,
                     follow_scale_preference,
+                    follow_ui_scale,
                 )
                     .in_set(Stage::ControlsApply),
             )
@@ -1259,6 +1343,19 @@ impl Plugin for SettingsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_interface_size_is_held_to_what_can_be_drawn() {
+        assert_eq!(ui_scale_of(1.15), 1.15);
+        assert_eq!(ui_scale_of(10.0), UI_SCALE_LIMITS.1);
+        assert_eq!(ui_scale_of(0.0), UI_SCALE_LIMITS.0);
+        assert_eq!(ui_scale_of(f32::NAN), 1.0);
+    }
+
+    #[test]
+    fn the_built_size_is_one_of_the_sizes_offered() {
+        assert!(UI_SCALES.contains(&Preferences::default().ui_scale));
+    }
 
     fn login(email: Option<&str>) -> RegistryLogin {
         RegistryLogin {

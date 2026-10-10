@@ -138,6 +138,7 @@ fn spawn_scale_bar(commands: &mut Commands, panel: Entity) {
 /// where there is no length to show.
 fn update_scale_bars(
     windows: Query<&Window>,
+    ui_scale: Res<UiScale>,
     area: Res<FrameArea>,
     panels: Query<(&Panel, &Camera, &Projection, &ShowsSource)>,
     // Every frame, an empty one included: `panels` sees only those showing a
@@ -151,6 +152,7 @@ fn update_scale_bars(
     mut rules: Query<&mut Node, (With<ScaleBarRule>, Without<ScaleBar>)>,
 ) {
     let Ok(window) = windows.single() else { return };
+    let window = crate::widgets::ui_size(window, &ui_scale);
     let count = frames.iter().count();
     for (bar, children, node) in &mut bars {
         let shown = panels
@@ -163,7 +165,8 @@ fn update_scale_bars(
                 };
                 let source = sources.get(shows.0).ok()?;
                 let viewport = camera.logical_viewport_size()?;
-                let units_per_px = ortho.area.width() / viewport.x.max(1.0);
+                // Per UI unit, which is what the bar is drawn in.
+                let units_per_px = ortho.area.width() / viewport.x.max(1.0) * ui_scale.0;
                 let cell = area.cell(count, panel.index);
                 scale_bar(units_per_px, &source.unit, cell.width() * MAX_FRACTION)
                     .map(|found| (cell, found))
@@ -176,8 +179,8 @@ fn update_scale_bars(
         patch_node(node, |node| {
             node.display = Display::Flex;
             // Both measured from the window's far edges, not the cell's.
-            node.right = Val::Px(window.width() - cell.max.x + CHROME_INSET);
-            node.bottom = Val::Px(window.height() - cell.max.y + CHROME_INSET);
+            node.right = Val::Px(window.x - cell.max.x + CHROME_INSET);
+            node.bottom = Val::Px(window.y - cell.max.y + CHROME_INSET);
         });
         for child in children {
             if let Ok(label) = labels.get_mut(*child) {

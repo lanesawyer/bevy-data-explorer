@@ -268,10 +268,12 @@ pub fn place_log_panel(
     panel: Res<LogPanel>,
     area: Res<FrameArea>,
     windows: Query<&Window>,
+    ui_scale: Res<UiScale>,
     mut roots: Query<&mut Node, (With<LogPanelRoot>, Without<LogPanelHandle>)>,
     mut handles: Query<&mut Node, (With<LogPanelHandle>, Without<LogPanelRoot>)>,
 ) {
     let Ok(window) = windows.single() else { return };
+    let window = crate::widgets::ui_size(window, &ui_scale);
     // The panel runs from where the grid stops to the bottom of the window,
     // which is exactly the height it reserved.
     let top = area.origin.y + area.size.y;
@@ -294,7 +296,7 @@ pub fn place_log_panel(
                 node.left = Val::Px(area.origin.x);
                 node.top = Val::Px(top);
                 node.width = Val::Px(area.size.x);
-                node.height = Val::Px((window.height() - top).max(0.0));
+                node.height = Val::Px((window.y - top).max(0.0));
             }
         });
     }
