@@ -22,7 +22,7 @@ use crate::view::{Browsing, Panel, SelectedPanel};
 use crate::widgets::space;
 use crate::widgets::{
     AddDock, BlocksFrameInput, Dock, DockEdge, HANDLE_PX, Icon, button_icon, button_text, display,
-    dock_band, dock_handle, patch_node, set_text, size,
+    dock_band, dock_handle, patch_node, set_text, size, width_of,
 };
 
 /// Width when collapsed. Enough for the short title and the toggle beneath it.
@@ -76,8 +76,11 @@ impl Sidebar {
             .map_or(WIDTH_PX, |screen| (screen * SCREEN_FRACTION).max(WIDTH_PX))
     }
 
-    pub fn title(&self) -> &'static str {
-        if self.collapsed {
+    /// The full title, `full_width` wide, where it fits in `room` beside the
+    /// New frame button, and the short one otherwise, rather than wrapping
+    /// onto two lines.
+    pub fn title(&self, room: f32, full_width: f32) -> &'static str {
+        if self.collapsed || full_width > room {
             SHORT_TITLE
         } else {
             FULL_TITLE
@@ -152,6 +155,14 @@ pub struct SidebarToggle;
 /// A button's words beside its icon, hidden when the dock is a ribbon.
 #[derive(Component, Clone, Default)]
 pub struct SidebarLabel;
+
+/// The sidebar's New frame button, told apart from the welcome screen's.
+#[derive(Component, Clone, Default)]
+pub struct SidebarNewFrame;
+
+/// The band holding the title and the New frame button.
+#[derive(Component, Clone, Default)]
+pub struct SidebarHeader;
 
 /// The draggable edge.
 #[derive(Component, Clone, Default)]
@@ -268,6 +279,7 @@ fn spawn_sidebar(mut commands: Commands) {
             Children [
                 // The title, and beside it the way to open a dataset: into a
                 // new frame, whose browser finds it.
+                SidebarHeader
                 Node {
                     width: { Val::Percent(100.0) },
                     align_items: { AlignItems::Center },
@@ -280,6 +292,10 @@ fn spawn_sidebar(mut commands: Commands) {
                 Children [
                     SidebarTitle
                     Text({ FULL_TITLE.to_string() })
+                    TextLayout { linebreak: { LineBreak::NoWrap } }
+                    // Never pushes the button out of the dock, in the frame
+                    // before the short title replaces it.
+                    Node { min_width: { Val::ZERO } }
                     TextFont { font_size: { FontSize::Px(size::DOCK_TITLE) } }
                     ThemeTextColor({ tokens::TEXT_MAIN })
                     --
@@ -290,8 +306,9 @@ fn spawn_sidebar(mut commands: Commands) {
                             @button_text("New frame") SidebarLabel
                         } }
                     }
-                    Node { column_gap: { Val::Px(space::ICON_LABEL) } }
+                    Node { column_gap: { Val::Px(space::ICON_LABEL) }, flex_shrink: { 0.0_f32 } }
                     crate::view::browse::NewFrameButton
+                    SidebarNewFrame
                     BlocksFrameInput
                 ]
                 --
@@ -425,6 +442,7 @@ pub fn update_sidebar(
         ),
     >,
     titles: Query<Entity, With<SidebarTitle>>,
+    new_frame: Query<&ComputedNode, With<SidebarNewFrame>>,
     toggles: Query<&Children, With<SidebarToggle>>,
     mut texts: Query<&mut Text, Without<SidebarLabel>>,
 ) {
@@ -442,9 +460,16 @@ pub fn update_sidebar(
         // Straddles the edge so it can be grabbed from either side.
         patch_node(node, |node| node.left = Val::Px(width - HANDLE_PX * 0.5));
     }
+    let button = new_frame
+        .single()
+        .map_or(0.0, |node| node.size.x * node.inverse_scale_factor);
+    let room = width - space::PANEL_INSET * 2.0 - HANDLE_PX * 0.5 - space::CONTROLS - button;
+    // A character over, since the estimate runs a little short of the
+    // title's monospaced font.
+    let needed = width_of(FULL_TITLE.chars().count() + 1, size::DOCK_TITLE);
     for entity in &titles {
         if let Ok(text) = texts.get_mut(entity) {
-            set_text(text, sidebar.title());
+            set_text(text, sidebar.title(room, needed));
         }
     }
     let glyph = if sidebar.collapsed {
@@ -459,6 +484,22 @@ pub fn update_sidebar(
                 set_text(text, glyph);
             }
         }
+    }
+}
+
+/// Put the New frame button under the title in the ribbon, which is too narrow
+/// to hold the two side by side.
+pub fn stack_header(sidebar: Res<Sidebar>, mut headers: Query<&mut Node, With<SidebarHeader>>) {
+    let direction = if sidebar.collapsed {
+        FlexDirection::Column
+    } else {
+        FlexDirection::Row
+    };
+    for node in &mut headers {
+        patch_node(node, |node| {
+            node.flex_direction = direction;
+            node.row_gap = Val::Px(space::ROWS);
+        });
     }
 }
 
@@ -512,7 +553,7 @@ impl Plugin for SidebarPlugin {
             )
             .add_systems(
                 Update,
-                (update_sidebar, show_labels, show_sections)
+                (update_sidebar, show_labels, stack_header, show_sections)
                     .chain()
                     .in_set(Stage::Chrome),
             )
@@ -587,9 +628,15 @@ mod tests {
     #[test]
     fn the_title_shortens_when_collapsed() {
         let mut sidebar = Sidebar::default();
-        assert_eq!(sidebar.title(), "Bevy Data Explorer");
+        assert_eq!(sidebar.title(WIDTH_PX, 200.0), "Bevy Data Explorer");
         sidebar.collapsed = true;
-        assert_eq!(sidebar.title(), "BDE");
+        assert_eq!(sidebar.title(WIDTH_PX, 200.0), "BDE");
+    }
+
+    #[test]
+    fn the_title_shortens_rather_than_wrapping_when_narrow() {
+        let sidebar = Sidebar::default();
+        assert_eq!(sidebar.title(199.0, 200.0), "BDE");
     }
 
     #[test]
