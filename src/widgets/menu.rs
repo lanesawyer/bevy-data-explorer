@@ -1,7 +1,9 @@
 //! Popups anchored under the button that opens them.
 //!
 //! Every one is Feathers' menu: the button toggles the popup, `Popover` puts
-//! it under the button — or above it when there is no room below — and
+//! it under the button — or above it when there is no room below, and
+//! leftward from the button's right edge when there is no room to the right —
+//! and
 //! `OverrideClip` lets it overhang the sidebar or frame header that would
 //! otherwise clip it. It closes on Escape, and when the keyboard leaves it,
 //! which a click anywhere outside it does.
@@ -16,6 +18,7 @@ use bevy::input_focus::tab_navigation::TabIndex;
 use bevy::prelude::*;
 use bevy_feathers::controls::{FeathersMenu, FeathersMenuPopup, FeathersMenuToolButton};
 use bevy_feathers::font_styles::InheritableFont;
+use bevy_ui_widgets::popover::{Popover, PopoverAlign, PopoverPlacement, PopoverSide};
 use bevy_ui_widgets::{MenuAction, MenuEvent, ScrollArea};
 
 use super::space;
@@ -106,11 +109,32 @@ fn spawn_root(commands: &mut Commands, parent: Entity, button: Entity, popup: En
     root
 }
 
+/// Where a popup may open, best first. `Popover` takes the first that fits in
+/// the window.
+///
+/// Feathers offers only the two that start at the button's left edge, so a
+/// menu behind a button near the window's right — the inspector's export, a
+/// frame's header at the edge of the grid — ran off the screen. Ending at the
+/// button's right edge keeps it in.
+fn placements() -> Vec<PopoverPlacement> {
+    [PopoverSide::Bottom, PopoverSide::Top]
+        .into_iter()
+        .flat_map(|side| {
+            [PopoverAlign::Start, PopoverAlign::End].map(|align| PopoverPlacement {
+                side,
+                align,
+                gap: 2.0,
+            })
+        })
+        .collect()
+}
+
 /// A closed popup, for the caller to fill.
 fn spawn_popup(commands: &mut Commands, width: f32) -> Entity {
     commands
         .spawn_scene(bsn! {
             @FeathersMenuPopup
+            Popover { positions: { placements() } }
             // A menu long enough to run off the screen scrolls instead.
             ScrollArea
             Node {
@@ -136,5 +160,27 @@ pub fn close_menu_holding(commands: &mut Commands, inside: Entity) {
             source: inside,
             action,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_popup_tries_ending_at_its_button_before_flipping_above_it() {
+        let order: Vec<_> = placements()
+            .into_iter()
+            .map(|placement| (placement.side, placement.align))
+            .collect();
+        assert_eq!(
+            order,
+            [
+                (PopoverSide::Bottom, PopoverAlign::Start),
+                (PopoverSide::Bottom, PopoverAlign::End),
+                (PopoverSide::Top, PopoverAlign::Start),
+                (PopoverSide::Top, PopoverAlign::End),
+            ]
+        );
     }
 }
